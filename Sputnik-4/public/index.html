@@ -102,12 +102,12 @@
   <div class="navtabs">
     <div class="nt dash" data-v="dash" onclick="switchView('dash')">📊 Дашборд</div>
     <div class="nt on" data-v="map" onclick="switchView('map')">🗺 Карта</div>
-    <div class="nt pgk" data-v="pgk" onclick="switchView('pgk')">🏢 ПГК</div>
-    <div class="nt kam" data-v="kam" onclick="switchView('kam')">📋 Камеральные</div>
-    <div class="nt smg" data-v="smg" onclick="switchView('smg')">📅 СМГ</div>
-    <div class="nt gruz" data-v="gruz" onclick="switchView('gruz')">🚛 Груз <span id="gruz-notif-badge" style="display:none;background:#d97706;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="gruz-active-badge" style="display:none;background:#1e40af;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="gruz-my-tasks-badge" style="display:none;background:#ef4444;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle" title="Мои незакрытые задачи"></span></div>
+    <div class="nt" data-v="workers" onclick="switchView('workers')">👷 Сотрудники</div>
+    <div class="nt" data-v="machinery" onclick="switchView('machinery')">🚛 Техника</div>
+    <div class="nt" data-v="equipment" onclick="switchView('equipment')">🔩 Оборудование</div>
+    <div class="nt" data-v="materials" onclick="switchView('materials')">📦 Материалы</div>
+    <div class="nt gruz" data-v="gruz" onclick="switchView('gruz')">🚚 Груз <span id="gruz-notif-badge" style="display:none;background:#d97706;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="gruz-active-badge" style="display:none;background:#1e40af;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="gruz-my-tasks-badge" style="display:none;background:#ef4444;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle" title="Мои незакрытые задачи"></span></div>
     <div class="nt gtasks" data-v="gtasks" onclick="switchView('gtasks')">📋 Задачи <span id="gtasks-open-badge" style="display:none;background:#7c3aed;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="notif-badge" style="display:none;background:#ef4444;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span></div>
-
   </div>
   <div class="tdv"></div>
   <div id="gsearch-wrap">
@@ -282,60 +282,17 @@
   <div class="pbody" id="pbody"></div>
 </div>
 
-<!-- PGK PAGE -->
-<div id="pgk-page">
-  <div class="page-inner">
-    <div class="page-side">
-      <h3>ПурГеоКом</h3>
-      <div class="pnav">
-        <div class="pni on" data-pg="workers" onclick="setPGKTab(this)">👷 Сотрудники</div>
-        <div class="pni" data-pg="machinery" onclick="setPGKTab(this)">🚛 Техника</div>
-        <div class="pni" data-pg="equipment" onclick="setPGKTab(this)">🔩 Оборудование</div>
-        <div class="pni" data-pg="materials" onclick="setPGKTab(this)">📦 Материалы</div>
-      </div>
-    </div>
-    <div class="page-body" id="pgk-body"></div>
-  </div>
-</div>
+<!-- WORKERS PAGE -->
+<div id="workers-page"></div>
 
-<!-- KAM PAGE -->
-<div id="kam-page">
-  <div class="page-inner">
-    <div class="page-side">
-      <h3>Камеральные</h3>
-      <div id="kam-site-list" class="pnav"></div>
-    </div>
-    <div class="page-body" id="kam-body">
-      <div class="empty"><div class="empty-i">📋</div>Выберите объект слева</div>
-    </div>
-  </div>
-</div>
+<!-- MACHINERY PAGE -->
+<div id="machinery-page"></div>
 
-<!-- SMG PAGE -->
-<div id="smg-page">
-  <div class="smg-toolbar">
-    <h3>📅 СМГ</h3>
-    <select class="smg-site-sel" id="smg-site-sel" onchange="smgSelectSite(this.value)">
-      <option value="">— Выберите объект —</option>
-    </select>
-    <div class="smg-month-nav">
-      <button onclick="smgPrevMonth()">◀</button>
-      <div class="smg-month-lbl" id="smg-month-lbl">—</div>
-      <button onclick="smgNextMonth()">▶</button>
-    </div>
-    <button class="btn bs bsm" onclick="smgAddRow()">＋ Строка</button>
-    <button class="btn bs bsm" onclick="smgExportExcel()">📤 Excel</button>
-    <div class="smg-legend">
-      <div class="smg-leg-dot" style="background:#bfdbfe"></div><span>План</span>
-      <div class="smg-leg-dot" style="background:#86efac"></div><span>Факт</span>
-      <div class="smg-leg-dot" style="background:#fca5a5"></div><span>Проблема</span>
-      <div class="smg-leg-dot" style="background:#e5e7eb"></div><span>Нет данных</span>
-    </div>
-  </div>
-  <div class="smg-body" id="smg-body">
-    <div class="empty"><div class="empty-i">📅</div>Выберите объект</div>
-  </div>
-</div>
+<!-- EQUIPMENT PAGE -->
+<div id="equipment-page"></div>
+
+<!-- MATERIALS PAGE -->
+<div id="materials-page"></div>
 
 <!-- GLOBAL TASKS PAGE -->
 <div id="gtasks-page">
@@ -433,7 +390,6 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="js/globals.js"></script>
-<script src="js/kameral.js"></script>
 <script src="js/terrain.js"></script>
 <script src="js/map.js"></script>
 <script src="js/sidebar.js"></script>

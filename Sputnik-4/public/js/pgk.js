@@ -1,3 +1,9 @@
+function _getPGKContainer(){
+  const pageId = pgkTab==='workers'?'workers-page':
+                 pgkTab==='machinery'?'machinery-page':
+                 pgkTab==='equipment'?'equipment-page':'materials-page';
+  return document.getElementById(pageId);
+}
 async function loadPGK(){
   const[wr,mr,er,br]=await Promise.all([
     fetch(`${API}/pgk/workers/summary`),fetch(`${API}/pgk/machinery`),
@@ -7,14 +13,9 @@ async function loadPGK(){
   pgkEquipment=await er.json();bases=await br.json();
   await renderPGK();
 }
-function setPGKTab(el){
-  document.querySelectorAll('.pni').forEach(n=>n.classList.remove('on'));
-  el.classList.add('on');pgkTab=el.dataset.pg;
-  if(pgkTab!=='workers')window._pgkWSearchVal='';
-  renderPGK();
-}
 async function renderPGK(){
-  const pb=document.getElementById('pgk-body');
+  const pb=_getPGKContainer();
+  if(!pb)return;
   if(pgkTab==='workers')pgkPageWorkers(pb);
   else if(pgkTab==='machinery')pgkPageMachinery(pb);
   else if(pgkTab==='equipment')pgkPageEquipment(pb);

@@ -173,21 +173,21 @@ function setMachineryFocus(on){
 function switchView(v){
   document.querySelectorAll('.nt').forEach(t=>t.classList.toggle('on',t.dataset.v===v));
   document.getElementById('dash-page').classList.toggle('show',v==='dash');
-
-  document.getElementById('pgk-page').classList.toggle('show',v==='pgk');
-  document.getElementById('kam-page').classList.toggle('show',v==='kam');
-  document.getElementById('smg-page').classList.toggle('show',v==='smg');
+  document.getElementById('workers-page').classList.toggle('show',v==='workers');
+  document.getElementById('machinery-page').classList.toggle('show',v==='machinery');
+  document.getElementById('equipment-page').classList.toggle('show',v==='equipment');
+  document.getElementById('materials-page').classList.toggle('show',v==='materials');
   document.getElementById('gruz-page').classList.toggle('show',v==='gruz');
   document.getElementById('gtasks-page').classList.toggle('show',v==='gtasks');
-  document.getElementById('dash-page').classList.toggle('show',v==='dash');
 
   document.getElementById('sidebar').style.display='flex';
   document.getElementById('mtb').style.display=v==='map'?'flex':'none';
   if(v!=='map'&&_machFocusActive){setMachineryFocus(false);const btn=document.getElementById('tool-machine');if(btn)btn.classList.remove('on');_machFocusActive=false;}
   if(v==='dash'){closePanel();if(typeof loadDashboard==='function')loadDashboard();}
-  if(v==='pgk'){closePanel();if(typeof loadPGK==='function')loadPGK();}
-  if(v==='kam'){closePanel();if(typeof loadKam==='function')loadKam();}
-  if(v==='smg'){closePanel();if(typeof loadSMG==='function')loadSMG();}
+  if(v==='workers'){closePanel();pgkTab='workers';if(typeof loadPGK==='function')loadPGK();}
+  if(v==='machinery'){closePanel();pgkTab='machinery';if(typeof loadPGK==='function')loadPGK();}
+  if(v==='equipment'){closePanel();pgkTab='equipment';if(typeof loadPGK==='function')loadPGK();}
+  if(v==='materials'){closePanel();pgkTab='materials';if(typeof loadPGK==='function')loadPGK();}
   if(v==='gruz'){closePanel();if(typeof loadGruz==='function')loadGruz();}
   if(v==='gtasks'){closePanel();if(typeof loadGTasks==='function')loadGTasks();}
   if(v==='pers'){closePanel();if(typeof loadPersonnel==='function')loadPersonnel();}

@@ -23,7 +23,6 @@ body{font-size:13px;background:var(--bg);color:var(--tx);overflow:hidden;height:
 .navtabs{display:flex;gap:2px;background:var(--s2);border:1.5px solid var(--bd);border-radius:5px;padding:2px}
 .nt{padding:3px 10px;border-radius:3px;font-size:11px;font-weight:700;cursor:pointer;color:var(--tx3);transition:all .15s;white-space:nowrap}
 .nt:hover{color:var(--tx2);background:var(--s)}.nt.on{background:var(--acc);color:#fff}
-.nt.pgk.on{background:var(--bpc)}.nt.kam.on{background:var(--kam)}
 #unm{background:var(--s2);border:1.5px solid var(--bd);border-radius:var(--rs);color:var(--tx);font-size:11px;padding:4px 7px;width:110px;outline:none}
 #unm:focus{border-color:var(--acc)}
 .tstats{display:flex;gap:2px;margin-left:auto}
@@ -68,12 +67,13 @@ body{font-size:13px;background:var(--bg);color:var(--tx);overflow:hidden;height:
 /* ── Map ── */
 #map{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;z-index:1;transition:right .25s cubic-bezier(.4,0,.2,1)}
 /* Все полноэкранные страницы и карта сжимаются при открытии панели */
-#personnel-page,#pgk-page,#kam-page,#smg-page,#dash-page,#gtasks-page,#gruz-page{transition:right .25s cubic-bezier(.4,0,.2,1)}
+#personnel-page,#workers-page,#machinery-page,#equipment-page,#materials-page,#dash-page,#gtasks-page,#gruz-page{transition:right .25s cubic-bezier(.4,0,.2,1)}
 body.panel-open #map,
 body.panel-open #personnel-page,
-body.panel-open #pgk-page,
-body.panel-open #kam-page,
-body.panel-open #smg-page,
+body.panel-open #workers-page,
+body.panel-open #machinery-page,
+body.panel-open #equipment-page,
+body.panel-open #materials-page,
 body.panel-open #dash-page,
 body.panel-open #gtasks-page,
 body.panel-open #gruz-page{right:var(--pw)}
@@ -434,17 +434,9 @@ body.panel-open #gruz-page{right:var(--pw)}
 .smg-leg-dot{width:14px;height:14px;border-radius:2px;flex-shrink:0}
 .smg-add-row{display:flex;gap:4px;margin-bottom:8px;align-items:center}
 
-/* ── PGK & KAM pages ── */
-#pgk-page,#kam-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column}
-#pgk-page.show,#kam-page.show{display:flex}
-.page-inner{display:flex;flex:1;overflow:hidden}
-.page-side{width:200px;background:var(--s);border-right:1px solid var(--bd);padding:10px 9px;flex-shrink:0;overflow-y:auto}
-.page-side h3{font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--tx3);margin-bottom:7px}
-.pnav{display:flex;flex-direction:column;gap:2px}
-.pni{padding:6px 9px;border-radius:var(--rs);font-size:12px;font-weight:600;cursor:pointer;color:var(--tx2);transition:all .15s}
-.pni:hover{background:var(--s2)}.pni.on{background:var(--bpl);color:var(--bpc)}.pni.onk{background:var(--kaml);color:var(--kam)}
-.page-body{flex:1;overflow-y:auto;padding:14px 16px}
-.page-body::-webkit-scrollbar{width:4px}.page-body::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
+/* ── Section pages (Сотрудники / Техника / Оборудование / Материалы) ── */
+#workers-page,#machinery-page,#equipment-page,#materials-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden}
+#workers-page.show,#machinery-page.show,#equipment-page.show,#materials-page.show{display:flex}
 
 /* ── Cards & lists ── */
 .igrid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:9px}
