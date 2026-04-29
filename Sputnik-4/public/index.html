@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ПурГеоКом</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- SPLASH SCREEN -->
+<div id="splash">
+  <div id="splash-inner">
+    <div id="splash-sat">
+      <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <!-- solar panels left -->
+        <rect x="2" y="30" width="22" height="8" rx="2" fill="#4F81BD" opacity=".9"/>
+        <line x1="6"  y1="30" x2="6"  y2="38" stroke="#B9CCE4" stroke-width=".8"/>
+        <line x1="10" y1="30" x2="10" y2="38" stroke="#B9CCE4" stroke-width=".8"/>
+        <line x1="14" y1="30" x2="14" y2="38" stroke="#B9CCE4" stroke-width=".8"/>
+        <line x1="18" y1="30" x2="18" y2="38" stroke="#B9CCE4" stroke-width=".8"/>
+        <!-- arm left -->
+        <rect x="24" y="33" width="8" height="2" rx="1" fill="#ccc"/>
+        <!-- body -->
+        <rect x="32" y="26" width="16" height="16" rx="3" fill="#e8eef6" stroke="#4F81BD" stroke-width="1.5"/>
+        <circle cx="40" cy="34" r="3" fill="#4F81BD" opacity=".7"/>
+        <!-- arm right -->
+        <rect x="48" y="33" width="8" height="2" rx="1" fill="#ccc"/>
+        <!-- solar panels right -->
+        <rect x="56" y="30" width="22" height="8" rx="2" fill="#4F81BD" opacity=".9"/>
+        <line x1="60" y1="30" x2="60" y2="38" stroke="#B9CCE4" stroke-width=".8"/>
+        <line x1="64" y1="30" x2="64" y2="38" stroke="#B9CCE4" stroke-width=".8"/>
+        <line x1="68" y1="30" x2="68" y2="38" stroke="#B9CCE4" stroke-width=".8"/>
+        <line x1="72" y1="30" x2="72" y2="38" stroke="#B9CCE4" stroke-width=".8"/>
+        <!-- antenna -->
+        <line x1="40" y1="26" x2="40" y2="18" stroke="#aaa" stroke-width="1.2"/>
+        <circle cx="40" cy="17" r="1.5" fill="#9BBB59"/>
+        <!-- signal arcs -->
+        <path d="M44 20 Q50 15 44 10" stroke="#9BBB59" stroke-width="1" fill="none" stroke-linecap="round" opacity=".7"/>
+        <path d="M46 22 Q55 13 46 7"  stroke="#9BBB59" stroke-width="1" fill="none" stroke-linecap="round" opacity=".45"/>
+      </svg>
+    </div>
+    <div id="splash-title">Спутник</div>
+  </div>
+</div>
+
+<style>
+#splash{
+  position:fixed;inset:0;z-index:99999;
+  background:#0f172a;
+  display:flex;align-items:center;justify-content:center;
+  animation:splashFadeOut .5s ease-in 2s forwards;
+}
+#splash-inner{
+  display:flex;flex-direction:column;align-items:center;gap:22px;
+  animation:splashRise .7s cubic-bezier(.22,.68,0,1.2) both;
+}
+#splash-sat{
+  width:120px;height:120px;
+  animation:splashSpin 3s linear infinite, splashFloat 2s ease-in-out infinite;
+}
+#splash-sat svg{width:100%;height:100%;}
+#splash-title{
+  font-family:'Segoe UI',system-ui,sans-serif;
+  font-size:36px;font-weight:700;letter-spacing:6px;
+  color:#e8eef6;text-transform:uppercase;
+  animation:splashGlow 1.5s ease-in-out infinite alternate;
+}
+@keyframes splashRise{
+  from{opacity:0;transform:translateY(24px);}
+  to{opacity:1;transform:translateY(0);}
+}
+@keyframes splashFloat{
+  0%,100%{transform:translateY(0);}
+  50%{transform:translateY(-8px);}
+}
+@keyframes splashSpin{
+  from{transform:rotate(0deg);}
+  to{transform:rotate(360deg);}
+}
+@keyframes splashGlow{
+  from{text-shadow:0 0 8px rgba(79,129,189,.4);}
+  to{text-shadow:0 0 22px rgba(79,129,189,.9),0 0 40px rgba(155,187,89,.4);}
+}
+@keyframes splashFadeOut{
+  from{opacity:1;pointer-events:all;}
+  to{opacity:0;pointer-events:none;}
+}
+</style>
+<script>
+  setTimeout(()=>{
+    const s=document.getElementById('splash');
+    if(s){s.addEventListener('animationend',()=>s.remove(),{once:true});}
+  },2400);
+</script>
+
+<div id="tb">
+  <div class="logo"><div class="logo-i">⛏</div>ПурГеоКом</div>
+  <div class="tdv"></div>
+  <input id="unm" type="text" placeholder="Ваше имя...">
+  <div class="tdv"></div>
+  <div class="navtabs">
+    <div class="nt dash" data-v="dash" onclick="switchView('dash')">📊 Дашборд</div>
+    <div class="nt on" data-v="map" onclick="switchView('map')">🗺 Карта</div>
+    <div class="nt pgk" data-v="pgk" onclick="switchView('pgk')">🏢 ПГК</div>
+    <div class="nt kam" data-v="kam" onclick="switchView('kam')">📋 Камеральные</div>
+    <div class="nt smg" data-v="smg" onclick="switchView('smg')">📅 СМГ</div>
+    <div class="nt gruz" data-v="gruz" onclick="switchView('gruz')">🚛 Груз <span id="gruz-notif-badge" style="display:none;background:#d97706;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="gruz-active-badge" style="display:none;background:#1e40af;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="gruz-my-tasks-badge" style="display:none;background:#ef4444;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle" title="Мои незакрытые задачи"></span></div>
+    <div class="nt gtasks" data-v="gtasks" onclick="switchView('gtasks')">📋 Задачи <span id="gtasks-open-badge" style="display:none;background:#7c3aed;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="notif-badge" style="display:none;background:#ef4444;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span></div>
+
+  </div>
+  <div class="tdv"></div>
+  <div id="gsearch-wrap">
+    <input id="gsearch" type="text" placeholder="🔍 Глобальный поиск..." oninput="gsearchInput(this.value)" onfocus="gsearchInput(this.value)" autocomplete="off">
+    <button id="gsearch-clear" onclick="gsearchClear()">✕</button>
+    <div id="gsearch-drop"></div>
+  </div>
+  <button id="search-btn" class="btn bs bsm" onclick="openGlobalSearch()" title="Поиск (Ctrl+F)">🔍</button>
+  <div class="tdv"></div>
+  <button class="btn bs bsm" onclick="toggleSettingsPanel()" title="Настройки UI" id="settings-btn">⚙</button>
+  <div class="tstats">
+    <div class="tst a"><span class="sv" id="st-s">0</span><span class="sl">Объектов</span></div>
+    <div class="tst b"><span class="sv" id="st-b">0</span><span class="sl">Баз</span></div>
+    <div class="tst"><span class="sv" id="st-w">0</span><span class="sl">Людей</span></div>
+    <div class="tst"><span class="sv" id="st-m">0</span><span class="sl">Техники</span></div>
+  </div>
+  <div class="tdv"></div>
+  <button id="notif-btn" onclick="toggleNotifPanel()" title="Уведомления">
+    🔔<span id="notif-count"></span>
+  </button>
+</div>
+
+<!-- SETTINGS PANEL -->
+<div id="settings-panel">
+  <h4>Настройки интерфейса</h4>
+  <div class="sett-row">
+    <label>Подписи на карте</label>
+    <input type="range" id="mlbl-size-slider" min="9" max="22" value="13" oninput="applyMlblSize(this.value)">
+    <span id="mlbl-size-val">13</span>px
+  </div>
+</div>
+
+<!-- NOTIFICATION PANEL -->
+<div id="notif-panel">
+  <div class="np-head">
+    <span>🔔 Уведомления</span>
+    <div style="display:flex;gap:6px;align-items:center">
+      <button class="btn bs bxs" onclick="markAllNotifRead()">Прочитать все</button>
+      <button style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--tx3);line-height:1" onclick="toggleNotifPanel()">✕</button>
+    </div>
+  </div>
+  <div class="np-list" id="notif-list"><div class="np-empty">Нет уведомлений</div></div>
+  <div class="np-foot">
+    <span id="notif-foot-txt" style="font-size:10px;color:var(--tx3)"></span>
+    <button class="btn bs bxs" onclick="switchView('gtasks');toggleNotifPanel()">Открыть задачи</button>
+  </div>
+</div>
+
+<div id="sidebar">
+  <div class="sbh">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+      <h3 style="margin:0">📍 Объекты</h3>
+      <div style="display:flex;gap:4px">
+        <button class="btn bp bxs" onclick="openAddSiteModal()" title="Добавить объект">＋ Объект</button>
+        <button class="btn bs bxs" onclick="loadAll().then(()=>toast('Обновлено','ok'))" title="Обновить список">🔄</button>
+      </div>
+    </div>
+    <input id="srch" type="text" placeholder="🔍 Поиск..." oninput="renderSidebar()">
+    <div class="fts">
+      <div class="ft on" data-f="all" onclick="setFilt(this)">Все</div>
+      <div class="ft" data-f="active" onclick="setFilt(this)">Активные</div>
+      <div class="ft" data-f="paused" onclick="setFilt(this)">Пауза</div>
+      <div class="ft" data-f="done" onclick="setFilt(this)">Готово</div>
+    </div>
+  </div>
+  <div id="slist"></div>
+  <!-- Список баз -->
+  <div style="padding:6px 9px 4px;border-top:2px solid var(--bd);border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+    <h3 style="margin:0;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--tx3)">🏕 Базы</h3>
+    <button class="btn bb bxs" onclick="setTool('base');toast('Кликните на карте для размещения базы','ok')" title="Добавить базу (клик на карте)">＋</button>
+  </div>
+  <div id="blist" style="overflow-y:auto;max-height:220px;flex-shrink:0"></div>
+  <div class="sbft">
+    <button class="btn bs bsm" style="justify-content:center" onclick="openGLog()">📋 Журнал</button>
+    <button class="btn bs bsm" style="justify-content:center" onclick="openPersonnelReport()">👷 Отчёт персонала</button>
+    <button class="btn bs bsm" style="justify-content:center" onclick="openMachineryReport()">🚛 Отчёт техника</button>
+    <button class="btn bs bsm" style="justify-content:center" onclick="openBackupModal()">💾 Резервные копии</button>
+  </div>
+</div>
+
+<div id="alert-strip">
+  <span style="font-size:12px">⚠️</span>
+  <div id="alert-items" style="display:flex;gap:8px;flex-wrap:wrap;flex:1"></div>
+  <button class="alert-close" onclick="_alertsDismissed=true;document.getElementById('alert-strip').classList.remove('show')">✕</button>
+</div>
+
+<!-- DAILY DIGEST MODAL -->
+<div id="digest-modal">
+  <div id="digest-box">
+    <div class="dg-hd">
+      <span style="font-size:20px">📋</span>
+      <h3>События за сегодня</h3>
+      <span id="digest-date" style="font-size:11px;color:var(--tx3)"></span>
+    </div>
+    <div class="dg-body" id="digest-body">Загрузка...</div>
+    <div class="dg-ft">
+      <button class="btn bp bsm" onclick="closeDailyDigest()">Понятно</button>
+    </div>
+  </div>
+</div>
+
+<!-- PERSONNEL PAGE -->
+<div id="personnel-page">
+  <div class="pr-toolbar">
+    <h3 style="font-size:15px;font-weight:800;color:#7c3aed;margin:0">👷 Отчёт по персоналу</h3>
+    <button class="btn bs bsm" onclick="loadPersonnel()">🔄 Обновить</button>
+    <button class="btn bg bsm" onclick="exportPersonnelExcel()">📤 Excel</button>
+    <div style="flex:1"></div>
+    <input id="pers-search" type="text" placeholder="🔍 Поиск..." style="padding:4px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);color:var(--tx);font-size:11px;outline:none;width:180px" oninput="filterPersonnel(this.value)">
+  </div>
+  <div class="pr-body" id="personnel-body">
+    <div class="empty"><div class="empty-i">👷</div>Загрузка...</div>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<div id="mtb">
+  <button class="mt on" id="tool-view" onclick="setTool('view')">👁 Просмотр</button>
+  <div style="width:1px;height:16px;background:rgba(0,0,0,.12);margin:0 2px;flex-shrink:0"></div>
+  <button class="mt" id="tool-kml" onclick="toggleKmlPanel()" title="Менеджер слоёв KML/GPX">🗂 Слои</button>
+  <div style="width:1px;height:16px;background:rgba(0,0,0,.12);margin:0 2px;flex-shrink:0"></div>
+  <button class="mt" id="tool-dem" onclick="openDEMPanel()" title="Выгрузка рельефа ArcticDEM">🏔 Рельеф</button>
+</div>
+<div id="bnr"><span id="bnr-t">Кликните на карту</span>
+  <button class="btn bsm" style="border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.15);color:#fff" onclick="cancelMode()">✕</button>
+</div>
+
+<div id="ctx"></div>
+<div id="bcard"></div>
+
+<div id="lp">
+  <div class="lph"><span>🗺 Слои</span><button class="ph-x" onclick="toggleLP()">✕</button></div>
+  <div id="lp-list"></div>
+  <div class="lpft">
+    <label class="btn bs bsm" style="width:100%;justify-content:center;cursor:pointer">
+      📂 Импорт KML/GPX
+      <input type="file" accept=".kml,.gpx" style="display:none" onchange="importLayer(event)">
+    </label>
+  </div>
+</div>
+
+<!-- Мини-панель: краткая карточка объекта -->
+<div id="mini-panel">
+  <div class="mph">
+    <div style="min-width:0">
+      <div id="mp-name" style="font-size:13px;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+      <div id="mp-chips" style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px"></div>
+    </div>
+    <button class="ph-x" onclick="closeMiniPanel()" style="flex-shrink:0">✕</button>
+  </div>
+  <div id="mp-stats" style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--tx2)"></div>
+  <div style="display:flex;gap:4px;margin-top:2px">
+    <button class="btn bp bsm" style="flex:1;justify-content:center" onclick="openFullSitePanel()">📂 Карточка</button>
+    <div style="position:relative">
+      <button class="btn bs bsm" id="mp-exp-btn" onclick="toggleMpExport()" title="Экспорт">📤 ▾</button>
+      <div id="mp-exp-drop">
+        <button onclick="exportExcel(activeSiteId);toggleMpExport()">📤 Excel</button>
+        <button onclick="openHtmlExportModal(activeSiteId);toggleMpExport()">📄 HTML</button>
+        <button onclick="exportVolumesDXF(activeSiteId);toggleMpExport()">📐 DXF</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="panel">
+  <div class="ph" id="phdr">
+    <div class="ph-t"><h2 id="ph-title">—</h2><button class="ph-x" onclick="closePanel()">✕</button></div>
+    <div class="ph-m" id="ph-meta"></div>
+  </div>
+  <div class="ptabs" id="ptabs"></div>
+  <div class="pbody" id="pbody"></div>
+</div>
+
+<!-- PGK PAGE -->
+<div id="pgk-page">
+  <div class="page-inner">
+    <div class="page-side">
+      <h3>ПурГеоКом</h3>
+      <div class="pnav">
+        <div class="pni on" data-pg="workers" onclick="setPGKTab(this)">👷 Сотрудники</div>
+        <div class="pni" data-pg="machinery" onclick="setPGKTab(this)">🚛 Техника</div>
+        <div class="pni" data-pg="equipment" onclick="setPGKTab(this)">🔩 Оборудование</div>
+        <div class="pni" data-pg="materials" onclick="setPGKTab(this)">📦 Материалы</div>
+      </div>
+    </div>
+    <div class="page-body" id="pgk-body"></div>
+  </div>
+</div>
+
+<!-- KAM PAGE -->
+<div id="kam-page">
+  <div class="page-inner">
+    <div class="page-side">
+      <h3>Камеральные</h3>
+      <div id="kam-site-list" class="pnav"></div>
+    </div>
+    <div class="page-body" id="kam-body">
+      <div class="empty"><div class="empty-i">📋</div>Выберите объект слева</div>
+    </div>
+  </div>
+</div>
+
+<!-- SMG PAGE -->
+<div id="smg-page">
+  <div class="smg-toolbar">
+    <h3>📅 СМГ</h3>
+    <select class="smg-site-sel" id="smg-site-sel" onchange="smgSelectSite(this.value)">
+      <option value="">— Выберите объект —</option>
+    </select>
+    <div class="smg-month-nav">
+      <button onclick="smgPrevMonth()">◀</button>
+      <div class="smg-month-lbl" id="smg-month-lbl">—</div>
+      <button onclick="smgNextMonth()">▶</button>
+    </div>
+    <button class="btn bs bsm" onclick="smgAddRow()">＋ Строка</button>
+    <button class="btn bs bsm" onclick="smgExportExcel()">📤 Excel</button>
+    <div class="smg-legend">
+      <div class="smg-leg-dot" style="background:#bfdbfe"></div><span>План</span>
+      <div class="smg-leg-dot" style="background:#86efac"></div><span>Факт</span>
+      <div class="smg-leg-dot" style="background:#fca5a5"></div><span>Проблема</span>
+      <div class="smg-leg-dot" style="background:#e5e7eb"></div><span>Нет данных</span>
+    </div>
+  </div>
+  <div class="smg-body" id="smg-body">
+    <div class="empty"><div class="empty-i">📅</div>Выберите объект</div>
+  </div>
+</div>
+
+<!-- GLOBAL TASKS PAGE -->
+<div id="gtasks-page">
+  <div class="gt-toolbar">
+    <h3>📋 Задачи</h3>
+    <div class="gt-filters">
+      <select id="gt-f-status" onchange="renderGTasks()">
+        <option value="">Все статусы</option>
+        <option value="open">Новые</option>
+        <option value="inprog">В работе</option>
+        <option value="done">Выполненные</option>
+      </select>
+      <select id="gt-f-prio" onchange="renderGTasks()">
+        <option value="">Все приоритеты</option>
+        <option value="high">🔴 Высокий</option>
+        <option value="normal">🔵 Обычный</option>
+        <option value="low">⚪ Низкий</option>
+      </select>
+      <select id="gt-f-cat" onchange="renderGTasks()">
+        <option value="">Все категории</option>
+        <option value="general">Общие</option>
+        <option value="field">Полевые</option>
+        <option value="office">Камеральные</option>
+        <option value="logistics">Логистика</option>
+        <option value="safety">Охрана труда</option>
+        <option value="equipment">Оборудование</option>
+      </select>
+      <select id="gt-f-resp" onchange="renderGTasks()">
+        <option value="">Все ответственные</option>
+      </select>
+      <select id="gt-f-site" onchange="renderGTasks()">
+        <option value="">Все объекты</option>
+      </select>
+      <input id="gt-f-search" type="text" placeholder="🔍 Поиск..." oninput="renderGTasks()" style="min-width:140px">
+    </div>
+    <button class="btn bp bsm" onclick="gtAddTask()" style="margin-left:auto">＋ Новая задача</button>
+  </div>
+  <div class="gt-body" id="gt-body">
+    <div class="empty"><div class="empty-i">📋</div>Загрузка...</div>
+  </div>
+</div>
+
+<!-- ГРУЗ PAGE -->
+<div id="gruz-page">
+  <div class="gruz-toolbar">
+    <h3>🚛 Груз</h3>
+    <div class="gruz-filter-bar">
+      <select id="gruz-filter-status" onchange="renderGruz()">
+        <option value="">Все статусы</option>
+        <option value="new">🔵 Новые</option>
+        <option value="transit">🟡 В пути</option>
+        <option value="delivered">✅ Доставлено</option>
+        <option value="cancelled">✕ Отменены</option>
+      </select>
+      <select id="gruz-filter-base" onchange="renderGruz()">
+        <option value="">Все базы</option>
+      </select>
+      <input id="gruz-search" placeholder="🔍 Поиск…" oninput="renderGruz()">
+    </div>
+    <button class="btn bp bsm" onclick="gruzAddOrder()" style="margin-left:auto">＋ Заявка</button>
+  </div>
+  <div class="gruz-body" id="gruz-body">
+    <div class="empty"><div class="empty-i">📦</div>Загрузка…</div>
+  </div>
+</div>
+
+<!-- DASHBOARD PAGE -->
+<div id="dash-page">
+</div>
+
+<!-- GLOBAL SEARCH OVERLAY -->
+<div id="gsearch-overlay" onclick="if(event.target===this)closeGlobalSearch()">
+  <div id="gsearch-box">
+    <input id="gsearch-input" placeholder="🔍  Поиск по всей системе..." oninput="doGlobalSearch(this.value)" autocomplete="off">
+    <div id="gsearch-results"><div style="padding:20px;text-align:center;color:var(--tx3);font-size:12px">Введите минимум 2 символа</div></div>
+  </div>
+</div>
+
+<!-- PHOTO LIGHTBOX -->
+<div id="photo-lightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9500;align-items:center;justify-content:center;flex-direction:column;gap:10px" onclick="closeLightbox()">
+  <img id="lightbox-img" style="max-width:90vw;max-height:85vh;border-radius:8px;object-fit:contain">
+  <div id="lightbox-cap" style="color:#fff;font-size:13px;opacity:.8"></div>
+</div>
+
+<!-- MODAL -->
+<div id="mov" >
+  <div id="modal">
+    <div class="mhd"><h3 id="mtit"></h3><button class="ph-x" onclick="closeModal()">✕</button></div>
+    <div class="mbd" id="mbd"></div>
+    <div class="mft" id="mft"></div>
+  </div>
+</div>
+<div id="toasts"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="js/globals.js"></script>
+<script src="js/kameral.js"></script>
+<script src="js/terrain.js"></script>
+<script src="js/map.js"></script>
+<script src="js/sidebar.js"></script>
+<script src="js/panel.js"></script>
+<script src="js/site_tabs.js"></script>
+<script src="js/base_tabs.js"></script>
+<script src="js/pgk.js"></script>
+<script src="js/smg.js"></script>
+<script src="js/reports.js"></script>
+<script src="js/materials.js"></script>
+<script src="js/volumes.js"></script>
+<script src="js/cargo.js"></script>
+<script src="js/tasks.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/dem.js"></script>
+<script src="js/html-export.js"></script>
+<script src="js/dxf-volumes.js"></script>
+
+<div id="name-gate" style="display:none">
+  <div id="name-gate-box">
+    <div style="font-size:40px;margin-bottom:8px">🏗️</div>
+    <h2>ПурГеоКом</h2>
+    <p>Заполните данные для входа в систему.<br>Вы будете добавлены в список сотрудников.</p>
+    <input id="name-gate-inp" type="text" placeholder="Фамилия Имя *" autocomplete="off" style="margin-bottom:8px"
+      onkeydown="if(event.key==='Enter')document.getElementById('name-gate-role').focus()">
+    <input id="name-gate-role" type="text" placeholder="Должность (геолог, геодезист...)" autocomplete="off" style="width:100%;font-size:14px;padding:8px 12px;border:2px solid var(--bd);border-radius:var(--rs);background:var(--s2);color:var(--tx);outline:none;text-align:center;box-sizing:border-box;margin-bottom:8px"
+      onkeydown="if(event.key==='Enter')document.getElementById('name-gate-phone').focus()">
+    <input id="name-gate-phone" type="tel" placeholder="Телефон (необязательно)" autocomplete="off" style="width:100%;font-size:14px;padding:8px 12px;border:2px solid var(--bd);border-radius:var(--rs);background:var(--s2);color:var(--tx);outline:none;text-align:center;box-sizing:border-box;margin-bottom:0"
+      onkeydown="if(event.key==='Enter')submitNameGate()">
+    <button id="name-gate-btn" onclick="submitNameGate()">Войти →</button>
+  </div>
+</div>
+
+<!-- KML LAYER MANAGER PANEL -->
+<div id="kml-panel">
+  <div class="kml-panel-hd">
+    <div style="display:flex;align-items:center;gap:6px">
+      <span style="font-size:14px">🗂</span>
+      <span style="font-size:12px;font-weight:800">Слои карты</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px">
+      <button class="btn bs bxs" onclick="kmlCreateGroup()" title="Создать группу">📁 Группа</button>
+      <label class="btn bp bxs" style="cursor:pointer" title="Импорт KML/GPX">
+        ＋ Импорт
+        <input type="file" accept=".kml,.gpx" style="display:none" onchange="kmlPanelImport(event)">
+      </label>
+      <button class="ph-x" onclick="toggleKmlPanel()">✕</button>
+    </div>
+  </div>
+  <div id="kml-panel-body" class="kml-panel-body"></div>
+  <div class="kml-panel-ft">
+    <div style="font-size:10px;color:var(--tx3)">ПКМ на слое — меню · 2× клик — переименовать</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+<script src="js/coords.js"></script>
+<script src="js/kml-manager.js"></script>
+
+</body>
+</html>
