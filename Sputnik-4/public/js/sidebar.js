@@ -159,10 +159,8 @@ function renderMachineMarkers(baseList){
       const mk=L.marker([mach.lat,mach.lng],{icon}).addTo(map);
       // Find all workers assigned to this machine
       const driverList=(b.workers||[]).filter(w=>w.machine_id===mach.id);
-      // Find attached drill (drill stores drill_id pointing to transport)
-      const allMachForPopup=[...(b.machinery||[]),...pgkMachinery];
-      const attachedDrillForPopup=TRANSPORT_TYPES.includes(mach.type)?allMachForPopup.find(x=>x.drill_id===mach.id&&DRILL_TYPES.includes(x.type)):null;
-      const hostTransportForPopup=DRILL_TYPES.includes(mach.type)&&mach.drill_id?allMachForPopup.find(x=>x.id===mach.drill_id):null;
+      const attachedDrillForPopup=(pgkMachinery||[]).find(x=>x.drill_id===mach.id);
+      const hostTransportForPopup=mach.drill_id?(pgkMachinery||[]).find(x=>x.id===mach.drill_id):null;
       mk.bindPopup(`<div class="popup">
         <div class="popup-n">${ico} ${esc(mach.name)}</div>
         <div class="popup-s">${esc(mach.type||'')}${mach.plate_number?' · '+mach.plate_number:''}</div>
