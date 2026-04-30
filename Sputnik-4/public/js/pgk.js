@@ -640,7 +640,7 @@ function _mchBuildFuel(){
 }
 function _mchBuildDrivers(){
   const machByDrv={};pgkMachinery.forEach(m=>{if(m.driver_id)machByDrv[m.driver_id]=m;});
-  const workers=pgkWorkers.filter(w=>w.status!=='fired');
+  const workers=pgkWorkers.filter(w=>w.status!=='fired'&&(w.role||'').toLowerCase().includes('водитель'));
   const rows=workers.map(w=>{
     const mach=machByDrv[w.id];const b=bases.find(x=>x.id===w.base_id);
     return `<tr>
@@ -696,20 +696,55 @@ function mchFuelRecord(baseId,fuelType){
   const fuelTypes=['Дизельное топливо','Бензин','Масло моторное','Масло трансмиссионное','Антифриз'];
   const baseOpts=bases.map(b=>`<option value="${b.id}" ${b.id===baseId?'selected':''}>${esc(b.name)}</option>`).join('');
   const typeOpts=fuelTypes.map(t=>`<option value="${t}" ${t===fuelType?'selected':''}>${esc(t)}</option>`).join('');
-  showModal('⛽ Записать топливо',`<div class="fgr">
+  const today=new Date().toISOString().split('T')[0];
+  showModal('⛽ Приход / Расход топлива',`<div class="fgr">
     <div class="fg s2"><label>База</label><select id="f-fb">${baseOpts}</select></div>
     <div class="fg s2"><label>Вид топлива</label><select id="f-ftype">${typeOpts}</select></div>
-    <div class="fg"><label>Изменение, л (+ приход / − расход)</label><input id="f-fdelta" type="number" step="any" placeholder="500 или -200"></div>
-    <div class="fg s2"><label>Примечание</label><input id="f-fnotes" placeholder="Заправка, расход за неделю…"></div>
+    <div class="fg"><label>Тип операции</label>
+      <div style="display:flex;gap:6px;margin-top:4px">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px"><input type="radio" name="f-fop" id="f-fop-in" value="in" checked style="accent-color:var(--grn)"> <span style="color:var(--grn);font-weight:700">▲ Приход</span></label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px"><input type="radio" name="f-fop" id="f-fop-out" value="out" style="accent-color:var(--red)"> <span style="color:var(--red);font-weight:700">▼ Расход</span></label>
+      </div>
+    </div>
+    <div class="fg s2"><label>Дата</label><input id="f-fdate" type="date" value="${today}"></div>
+    <div class="fg"><label>Количество, л</label><input id="f-famt" type="number" step="any" min="0" placeholder="500"></div>
+    <div class="fg s2"><label>Примечание</label><input id="f-fnotes" placeholder="Заправка от поставщика…"></div>
   </div>`,
-  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
-    const delta=parseFloat(v('f-fdelta'));
-    if(isNaN(delta)||delta===0){toast('Введите ненулевое значение','err');return;}
-    await fetch(`${API}/fuel_reserves/transaction`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({base_id:v('f-fb'),fuel_type:v('f-ftype'),delta,notes:v('f-fnotes')})});
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'История',cls:'bs',fn:()=>{closeModal();mchFuelHistory(baseId,fuelType);}},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const amt=parseFloat(v('f-famt'));
+    if(isNaN(amt)||amt<=0){toast('Введите положительное количество','err');return;}
+    const opIn=document.getElementById('f-fop-in')&&document.getElementById('f-fop-in').checked;
+    const delta=opIn?amt:-amt;
+    const op_date=v('f-fdate')||today;
+    await fetch(`${API}/fuel_transactions`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({base_id:v('f-fb'),fuel_type:v('f-ftype'),delta,notes:v('f-fnotes'),op_date})});
     pgkFuelReserves=await fetch(`${API}/fuel_reserves`).then(r=>r.json()).catch(()=>[]);
-    closeModal();_setMchTab('fuel');toast(delta>0?`+${delta} л записано`:`${delta} л записано`,'ok');
+    closeModal();_setMchTab('fuel');toast(delta>0?`+${amt} л — приход записан`:`${amt} л — расход записан`,'ok');
   }}]);
+}
+async function mchFuelHistory(baseId,fuelType){
+  const params=new URLSearchParams();
+  if(baseId)params.set('base_id',baseId);
+  if(fuelType)params.set('fuel_type',fuelType);
+  const txns=await fetch(`${API}/fuel_transactions?${params}`).then(r=>r.json()).catch(()=>[]);
+  const base=bases.find(x=>x.id===baseId);
+  const title=`📋 История — ${base?esc(base.name):'все базы'}${fuelType?' / '+esc(fuelType):''}`;
+  const rows=txns.length?txns.map(t=>{
+    const b=bases.find(x=>x.id===t.base_id);
+    const sign=t.delta>0?'+':'';
+    const clr=t.delta>0?'var(--grn)':'var(--red)';
+    return `<tr>
+      <td style="font-size:10px;color:var(--tx3)">${(t.op_date||t.created_at||'').slice(0,10)}</td>
+      <td>${b?esc(b.name):'—'}</td>
+      <td style="font-size:10px">${esc(t.fuel_type)}</td>
+      <td style="font-weight:700;color:${clr};text-align:right">${sign}${t.delta} л</td>
+      <td style="font-size:10px;color:var(--tx3)">${esc(t.notes||'')}</td>
+    </tr>`;
+  }).join(''):`<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--tx3)">Нет записей</td></tr>`;
+  showModal(title,`<div style="max-height:400px;overflow-y:auto"><table class="wt-tbl" style="min-width:420px">
+    <thead><tr><th>Дата</th><th>База</th><th>Вид</th><th style="text-align:right">Кол-во</th><th>Примечание</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`,[{label:'Закрыть',cls:'bs',fn:closeModal},{label:'+ Запись',cls:'bp',fn:()=>{closeModal();mchFuelRecord(baseId,fuelType);}}]);
 }
 function mchAssignDriver(workerId){
   const w=pgkWorkers.find(x=>x.id===workerId);if(!w)return;
@@ -804,34 +839,73 @@ async function openMachDetail(mid){
   const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
   const statLbl={working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'};
   const st=m.status||'working';
+  const driverOpts=`<option value="">— не назначен —</option>`+
+    pgkWorkers.filter(w=>w.status!=='fired'&&(w.role||'').toLowerCase().includes('водитель'))
+    .map(w=>`<option value="${escAttr(w.id)}" ${m.driver_id===w.id?'selected':''}>${esc(w.name)}</option>`).join('');
+  const baseOpts=`<option value="">— не назначена —</option>`+bases.map(bx=>`<option value="${bx.id}" ${m.base_id===bx.id?'selected':''}>${esc(bx.name)}</option>`).join('');
   const html=`
   <div class="wdc-hd">
     <div class="mdc-ico">${MICONS[m.type]||'🔧'}</div>
     <div class="wdc-info">
       <div class="wdc-name">${esc(m.name)}</div>
       <div class="wdc-role">${esc(m.type||'—')}${m.plate_number?` · <code style="font-size:11px;background:var(--s3);padding:1px 5px;border-radius:3px">${esc(m.plate_number)}</code>`:''}</div>
-      <div class="wdc-chips">
-        <span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span>
-        ${b?`<span class="wdc-chip" style="color:var(--bpc);background:var(--bpl);border-color:var(--bpb)">🏕 ${esc(b.name)}</span>`:''}
-        ${driver?`<span class="wdc-chip" style="color:var(--geo);background:var(--geol);border-color:#7dd3fc">👤 ${esc(driver.name)}</span>`:''}
-      </div>
     </div>
   </div>
-  <div class="wdc-actions">
-    <button class="btn bs wdc-btn" onclick="pgkAssignMachBaseModal('${mid}')">🏕 База</button>
-    ${m.lat&&m.lng?`<button class="btn bg2 wdc-btn" onclick="closeModal();flyToMach('${mid}')">📍 На карте</button>`:''}
+  <div class="mdc-fields">
+    <div class="mdc-row"><span class="mdc-lbl">Гос. номер</span><span class="mdc-val">${m.plate_number?`<code style="background:var(--s3);padding:1px 6px;border-radius:3px;font-size:12px">${esc(m.plate_number)}</code>`:'<span style="color:var(--tx3)">—</span>'}</span></div>
+    <div class="mdc-row"><span class="mdc-lbl">Тип</span><span class="mdc-val">${esc(m.type||'—')}</span></div>
+    <div class="mdc-row"><span class="mdc-lbl">Статус</span><span class="mdc-val">
+      <span class="wt-badge ${statCls[st]||'wbs-idle'}" style="margin-right:6px">${statLbl[st]||st}</span>
+      ${Object.entries(statLbl).filter(([k])=>k!==st).map(([k,lbl])=>`<button class="btn bsm bs" style="font-size:10px;padding:1px 6px" onclick="pgkQuickStatus('${mid}','${k}');openMachDetail('${mid}')">${lbl}</button>`).join('')}
+    </span></div>
+    <div class="mdc-row"><span class="mdc-lbl">Водитель</span><span class="mdc-val">
+      <select id="mdc-drv-${mid}" style="font-size:12px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);max-width:200px" onchange="mchInlineSetDriver('${mid}',this.value)">${driverOpts}</select>
+    </span></div>
+    <div class="mdc-row"><span class="mdc-lbl">База</span><span class="mdc-val">
+      <select id="mdc-base-${mid}" style="font-size:12px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);max-width:200px" onchange="mchInlineSetBase('${mid}',this.value)">${baseOpts}</select>
+    </span></div>
+    ${m.notes?`<div class="mdc-row"><span class="mdc-lbl">Примечание</span><span class="mdc-val" style="color:var(--tx2)">${esc(m.notes)}</span></div>`:''}
+  </div>
+  <div class="wdc-actions" style="margin-top:12px">
+    <button class="btn bs wdc-btn" onclick="mchPlaceOnMap('${mid}')">📍 Расставить на карте</button>
     <button class="btn bs wdc-btn" onclick="closeModal();showMachHistory('${mid}')">🕐 История</button>
-  </div>
-  <div style="font-size:10px;font-weight:700;color:var(--tx3);margin-bottom:6px;letter-spacing:.4px;text-transform:uppercase">Быстрый статус</div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:${m.notes?'10':'0'}px">
-    ${Object.entries(statLbl).map(([k,lbl])=>`<button class="btn bsm ${st===k?'bp':'bs'}" onclick="pgkQuickStatus('${mid}','${k}');openMachDetail('${mid}')">${lbl}</button>`).join('')}
-  </div>
-  ${m.notes?`<div style="font-size:11px;color:var(--tx2);background:var(--s2);border-radius:var(--rs);padding:8px 10px;margin-top:10px">📝 ${esc(m.notes)}</div>`:''}`;
+    <button class="btn bs wdc-btn" style="color:var(--red);margin-left:auto" onclick="closeModal();pgkDelMach('${mid}')">🗑</button>
+  </div>`;
   showModal((MICONS[m.type]||'🔧')+' '+esc(m.name),html,[
     {label:'Закрыть',cls:'bs',fn:closeModal},
     {label:'✏️ Редактировать',cls:'bp',fn:()=>{closeModal();pgkEditMach(mid);}}
   ]);
-
+}
+async function mchInlineSetDriver(mid,driverId){
+  const m=pgkMachinery.find(x=>x.id===mid);if(!m)return;
+  // Unassign old driver's other machine if different
+  if(m.driver_id&&m.driver_id!==driverId){
+    // already handled by backend — just send new value
+  }
+  await fetch(`${API}/pgk/machinery/${mid}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({...m,driver_id:driverId||null,user_name:un()})});
+  await loadPGK();toast('Водитель обновлён','ok');
+  openMachDetail(mid);
+}
+async function mchInlineSetBase(mid,baseId){
+  const m=pgkMachinery.find(x=>x.id===mid);if(!m)return;
+  await fetch(`${API}/pgk/machinery/${mid}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({...m,base_id:baseId||null,user_name:un()})});
+  await loadPGK();await loadAll();toast(baseId?'База назначена':'Снята с базы','ok');
+  openMachDetail(mid);
+}
+function mchPlaceOnMap(mid){
+  const m=pgkMachinery.find(x=>x.id===mid);if(!m)return;
+  if(!m.base_id){
+    toast('⚠️ Сначала назначьте базу для этой техники','warn');return;
+  }
+  closeModal();
+  if(m.lat&&m.lng){flyToMach(mid);}
+  else{
+    const b=bases.find(x=>x.id===m.base_id);
+    toast(`Откройте карту и установите метку для "${m.name}" (база: ${b?b.name:'?'})`,'ok');
+    switchView('map');
+  }
 }
 
 async function pgkAssignMachBaseModal(mid){
@@ -926,10 +1000,10 @@ function pgkPageEquipment(pb){
     const b=bases.find(x=>x.id===e.base_id);
     const st=e.status||'working';
     const _id=escAttr(e.id);
-    return `<tr data-eid="${e.id}" draggable="true"
+    return `<tr data-eid="${e.id}" data-search="${esc((e.name+' '+(e.type||'')+' '+(e.serial_number||'')+' '+(e.responsible||'')+' '+getBase(e)+' '+(e.notes||'')).toLowerCase())}" draggable="true"
       ondragstart="equipDragStart(event,'${_id}')"
       oncontextmenu="event.preventDefault();equipCtxMenu(event,'${_id}')">
-      <td style="text-align:center;width:28px"><input type="checkbox" class="eq-chk" data-id="${e.id}" onclick="equipCheckbox(event,this)" style="cursor:pointer"></td>
+      <td style="text-align:center;width:28px;color:var(--tx3);font-size:10px;font-weight:600" class="eq-rownum">${i+1}</td>
       <td class="td-link" style="font-weight:600" onclick="openEquipDetail('${_id}')">🔩 ${esc(e.name)}</td>
       <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','type')">${esc(e.type||'—')}</td>
       <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','status')"><span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span></td>
@@ -950,7 +1024,7 @@ function pgkPageEquipment(pb){
         <span style="font-size:13px;font-weight:800;flex-shrink:0">🔩 Оборудование</span>
         <input id="pgk-e-search" type="search" placeholder="🔍 Поиск…" value="${esc(_q)}"
           style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:140px;flex:1"
-          oninput="window._pgkESearchVal=this.value;renderPGK()" />
+          oninput="equipSearchFilter(this.value)" />
         <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFStatus=this.value;renderPGK()">${statOpts}</select>
         <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFBase=this.value;renderPGK()">${baseOpts}</select>
         <div style="display:flex;gap:4px;flex-shrink:0">
@@ -964,12 +1038,12 @@ function pgkPageEquipment(pb){
         <span style="color:#a16207">⏸ <b>${byCnt.idle||0}</b></span>
         <span style="color:#b91c1c">🔴 <b>${byCnt.broken||0}</b></span>
         ${filtered.length<pgkEquipment.length?`<span style="color:var(--acc)">Показано: <b>${filtered.length}</b></span>`:''}
-        <span id="eq-sel-info" style="color:var(--acc);display:none">Выбрано: <b id="eq-sel-cnt">0</b> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="equipMoveSelected()">→ В группу</button></span>
+        <span id="eq-sel-info" style="color:var(--acc);display:none">Выбрано: <b id="eq-sel-cnt">0</b> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="equipMoveSelected()">→ В группу</button> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="document.querySelectorAll('#et-tbody tr.lasso-sel').forEach(r=>r.classList.remove('lasso-sel'));_equipUpdateSelInfo()">✕</button></span>
       </div>
       <div class="spare-tbl-wrap">
         <table class="wt-tbl" style="min-width:600px">
           <thead><tr>
-            <th class="no-sort" style="width:28px;text-align:center"><input type="checkbox" id="eq-chk-all" onclick="equipCheckAll(this)" style="cursor:pointer"></th>
+            <th class="no-sort" style="width:28px;text-align:center;color:var(--tx3)">#</th>
             ${thSort('name','Название')}
             ${thSort('type','Тип')}
             ${thSort('status','Статус')}
@@ -983,29 +1057,87 @@ function pgkPageEquipment(pb){
       </div>
     </div>
   </div>`;
+  // Re-apply search filter after render
+  if(_q){setTimeout(()=>equipSearchFilter(_q),0);}
+  // Init lasso selection
+  setTimeout(()=>_initLasso('et-tbody',_equipUpdateSelInfo),0);
 }
 
-function equipCheckbox(ev,cb){
-  ev.stopPropagation();
-  const tr=cb.closest('tr');
-  if(tr)tr.style.background=cb.checked?'var(--accl)':'';
-  _equipUpdateSelInfo();
-}
-function equipCheckAll(allCb){
-  document.querySelectorAll('.eq-chk').forEach(cb=>{
-    cb.checked=allCb.checked;
-    const tr=cb.closest('tr');if(tr)tr.style.background=cb.checked?'var(--accl)':'';
+function equipSearchFilter(val){
+  window._pgkESearchVal=val;
+  const q=val.toLowerCase().trim();
+  let n=0;
+  document.querySelectorAll('#et-tbody tr[data-eid]').forEach(tr=>{
+    const show=!q||tr.dataset.search.includes(q);
+    tr.style.display=show?'':'none';
+    if(show){const c=tr.querySelector('.eq-rownum');if(c)c.textContent=++n;}
   });
-  _equipUpdateSelInfo();
 }
 function _equipUpdateSelInfo(){
-  const sel=document.querySelectorAll('.eq-chk:checked');
+  const sel=document.querySelectorAll('#et-tbody tr.lasso-sel');
   const si=document.getElementById('eq-sel-info');
   const sc=document.getElementById('eq-sel-cnt');
   if(si&&sc){si.style.display=sel.length?'':'none';sc.textContent=sel.length;}
 }
+
+// ── Lasso (rubber-band) row selection ─────────────────────
+function _initLasso(tbodyId, onChangeCallback){
+  const tbody=document.getElementById(tbodyId);
+  if(!tbody)return;
+  const scroller=tbody.closest('.spare-tbl-wrap')||tbody.closest('.wt-scroll');
+  if(!scroller)return;
+  let startX,startY,rect,box,dragging=false,startTarget;
+  const overlay=document.createElement('div');
+  overlay.style.cssText='position:fixed;pointer-events:none;border:1.5px dashed var(--acc);background:rgba(99,102,241,.08);z-index:9999;display:none;border-radius:3px';
+  document.body.appendChild(overlay);
+  function rowsInBox(x1,y1,x2,y2){
+    const left=Math.min(x1,x2),top=Math.min(y1,y2),right=Math.max(x1,x2),bot=Math.max(y1,y2);
+    const rows=[...tbody.querySelectorAll('tr[data-eid],tr[data-matid]')].filter(tr=>tr.style.display!=='none');
+    return rows.filter(tr=>{
+      const r=tr.getBoundingClientRect();
+      return r.bottom>top&&r.top<bot&&r.right>left&&r.left<right;
+    });
+  }
+  scroller.addEventListener('mousedown',e=>{
+    if(e.button!==0)return;
+    const tr=e.target.closest('tr');
+    if(tr&&(tr.dataset.eid||tr.dataset.matid)&&!e.target.closest('button,a,input,select,td.td-editable,td.td-link')){
+      e.preventDefault();
+      dragging=true;startTarget=tr;
+      rect=scroller.getBoundingClientRect();
+      startX=e.clientX;startY=e.clientY;
+      box={x1:startX,y1:startY,x2:startX,y2:startY};
+      overlay.style.display='block';
+      overlay.style.left=startX+'px';overlay.style.top=startY+'px';
+      overlay.style.width='0';overlay.style.height='0';
+    }
+  });
+  window.addEventListener('mousemove',e=>{
+    if(!dragging)return;
+    box.x2=e.clientX;box.y2=e.clientY;
+    overlay.style.left=Math.min(box.x1,box.x2)+'px';
+    overlay.style.top=Math.min(box.y1,box.y2)+'px';
+    overlay.style.width=Math.abs(box.x2-box.x1)+'px';
+    overlay.style.height=Math.abs(box.y2-box.y1)+'px';
+    const hit=new Set(rowsInBox(box.x1,box.y1,box.x2,box.y2));
+    tbody.querySelectorAll('tr.lasso-sel').forEach(r=>{if(!hit.has(r))r.classList.remove('lasso-sel');});
+    hit.forEach(r=>r.classList.add('lasso-sel'));
+    onChangeCallback&&onChangeCallback();
+  });
+  window.addEventListener('mouseup',e=>{
+    if(!dragging)return;
+    dragging=false;
+    overlay.style.display='none';
+    // Single click without drag → toggle row
+    if(Math.abs(box.x2-box.x1)<5&&Math.abs(box.y2-box.y1)<5&&startTarget){
+      startTarget.classList.toggle('lasso-sel');
+    }
+    onChangeCallback&&onChangeCallback();
+  });
+}
+
 function _equipSelectedIds(){
-  return [...document.querySelectorAll('.eq-chk:checked')].map(cb=>cb.dataset.id);
+  return [...document.querySelectorAll('#et-tbody tr.lasso-sel')].map(tr=>tr.dataset.eid);
 }
 function equipDragStart(ev,eid){
   const sel=_equipSelectedIds();
@@ -1216,10 +1348,10 @@ async function pgkPageMaterials(pb){
     const pct=m.min_amount>0?Math.min(100,Math.round(m.amount/m.min_amount*100)):null;
     const low=m.min_amount>0&&m.amount<m.min_amount;
     const _id=escAttr(m.id);
-    return `<tr data-matid="${m.id}" draggable="true"
+    return `<tr data-matid="${m.id}" data-search="${esc((m.name+' '+(m.category||'')+' '+(m.base_name||'')+' '+(m.notes||'')).toLowerCase())}" draggable="true"
       ondragstart="matDragStart(event,'${_id}')"
       oncontextmenu="event.preventDefault();pgkMatCtxMenu(event,'${_id}')">
-      <td style="text-align:center;width:28px"><input type="checkbox" class="mat-chk" data-id="${m.id}" onclick="matCheckbox(event,this)" style="cursor:pointer"></td>
+      <td style="text-align:center;width:28px;color:var(--tx3);font-size:10px;font-weight:600" class="mat-rownum">${i+1}</td>
       <td class="td-link" style="font-weight:600" title="${esc(m.name)}" onclick="pgkMatDetail('${_id}')">📦 ${esc(m.name)}</td>
       <td><span style="background:var(--s3);border:1px solid var(--bd);border-radius:20px;padding:1px 7px;font-size:10px;font-weight:600;color:var(--tx2)">${esc(m.category||'—')}</span></td>
       <td style="color:var(--bpc)">🏕 ${esc(m.base_name||'—')}</td>
@@ -1246,7 +1378,7 @@ async function pgkPageMaterials(pb){
         <span style="font-size:13px;font-weight:800;flex-shrink:0">📦 Материалы</span>
         <input id="pgk-mat-search" type="search" placeholder="🔍 Поиск…" value="${esc(_q)}"
           style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:130px;flex:1"
-          oninput="window._pgkMSearchM=this.value;renderPGK()"/>
+          oninput="matSearchFilter(this.value)"/>
         <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFBaseM=this.value;renderPGK()">${baseOpts}</select>
         <button class="btn bp bsm" onclick="pgkAddMatGlobal()">＋ Добавить</button>
       </div>
@@ -1255,12 +1387,12 @@ async function pgkPageMaterials(pb){
         <span>Баз: <b>${bases.length}</b></span>
         ${lowStock?`<span style="color:var(--red)">⚠️ Ниже мин: <b>${lowStock}</b></span>`:''}
         ${filtered.length<allMats.length?`<span style="color:var(--acc)">Показано: <b>${filtered.length}</b></span>`:''}
-        <span id="mat-sel-info" style="color:var(--acc);display:none">Выбрано: <b id="mat-sel-cnt">0</b> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="matMoveSelected()">→ В группу</button></span>
+        <span id="mat-sel-info" style="color:var(--acc);display:none">Выбрано: <b id="mat-sel-cnt">0</b> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="matMoveSelected()">→ В группу</button> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="document.querySelectorAll('#pgk-mat-tbody tr.lasso-sel').forEach(r=>r.classList.remove('lasso-sel'));_matUpdateSelInfo()">✕</button></span>
       </div>
       <div class="spare-tbl-wrap">
         <table class="wt-tbl" style="min-width:600px">
           <thead><tr>
-            <th class="no-sort" style="width:28px;text-align:center"><input type="checkbox" id="mat-chk-all" onclick="matCheckAll(this)" style="cursor:pointer"></th>
+            <th class="no-sort" style="width:28px;text-align:center;color:var(--tx3)">#</th>
             ${thSort('name','Название')}
             ${thSort('category','Группа')}
             ${thSort('base','База')}
@@ -1273,12 +1405,28 @@ async function pgkPageMaterials(pb){
       </div>
     </div>
   </div>`;
+  // Re-apply search filter after render
+  if(_q){setTimeout(()=>matSearchFilter(_q),0);}
+  // Init lasso selection
+  setTimeout(()=>_initLasso('pgk-mat-tbody',_matUpdateSelInfo),0);
 }
 
-function matCheckbox(ev,cb){ev.stopPropagation();const tr=cb.closest('tr');if(tr)tr.style.background=cb.checked?'var(--accl)':'';_matUpdateSelInfo();}
-function matCheckAll(allCb){document.querySelectorAll('.mat-chk').forEach(cb=>{cb.checked=allCb.checked;const tr=cb.closest('tr');if(tr)tr.style.background=cb.checked?'var(--accl)':'';});_matUpdateSelInfo();}
-function _matUpdateSelInfo(){const sel=document.querySelectorAll('.mat-chk:checked');const si=document.getElementById('mat-sel-info'),sc=document.getElementById('mat-sel-cnt');if(si&&sc){si.style.display=sel.length?'':'none';sc.textContent=sel.length;}}
-function _matSelectedIds(){return[...document.querySelectorAll('.mat-chk:checked')].map(cb=>cb.dataset.id);}
+function matSearchFilter(val){
+  window._pgkMSearchM=val;
+  const q=val.toLowerCase().trim();
+  let n=0;
+  document.querySelectorAll('#pgk-mat-tbody tr[data-matid]').forEach(tr=>{
+    const show=!q||tr.dataset.search.includes(q);
+    tr.style.display=show?'':'none';
+    if(show){const c=tr.querySelector('.mat-rownum');if(c)c.textContent=++n;}
+  });
+}
+function _matUpdateSelInfo(){
+  const sel=document.querySelectorAll('#pgk-mat-tbody tr.lasso-sel');
+  const si=document.getElementById('mat-sel-info'),sc=document.getElementById('mat-sel-cnt');
+  if(si&&sc){si.style.display=sel.length?'':'none';sc.textContent=sel.length;}
+}
+function _matSelectedIds(){return[...document.querySelectorAll('#pgk-mat-tbody tr.lasso-sel')].map(tr=>tr.dataset.matid);}
 function matDragStart(ev,mid){const sel=_matSelectedIds();ev.dataTransfer.setData('text/plain',sel.length?JSON.stringify(sel):JSON.stringify([mid]));ev.dataTransfer.effectAllowed='move';}
 async function matDropToGroup(ev,grpName){
   ev.preventDefault();

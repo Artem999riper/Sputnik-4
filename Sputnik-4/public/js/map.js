@@ -182,6 +182,7 @@ function switchView(v){
 
   document.getElementById('sidebar').style.display='flex';
   document.getElementById('mtb').style.display=v==='map'?'flex':'none';
+  if(typeof updateCoordWidgetVisibility==='function')updateCoordWidgetVisibility();
   if(v!=='map'&&_machFocusActive){setMachineryFocus(false);const btn=document.getElementById('tool-machine');if(btn)btn.classList.remove('on');_machFocusActive=false;}
   if(v==='dash'){closePanel();if(typeof loadDashboard==='function')loadDashboard();}
   if(v==='workers'){closePanel();pgkTab='workers';if(typeof loadPGK==='function')loadPGK();}

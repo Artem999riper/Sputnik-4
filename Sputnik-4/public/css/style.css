@@ -192,6 +192,7 @@ body.panel-open #gruz-page{right:var(--pw)}
 .wt-tbl tbody tr{border-bottom:1px solid var(--bd);cursor:default;transition:background .15s}
 .wt-tbl tbody tr:hover{background:var(--accl)}
 .wt-tbl tbody tr.wt-fired{opacity:.4}
+.wt-tbl tbody tr.lasso-sel{background:rgba(99,102,241,.13)!important;outline:1.5px solid var(--acc);outline-offset:-1px}
 .wt-tbl td{padding:6px 10px;vertical-align:middle}
 .wt-tbl td.td-notes{color:var(--tx3);font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wt-tbl td.td-days{text-align:center;font-weight:700;color:var(--acc)}
@@ -442,7 +443,9 @@ body.panel-open #gruz-page{right:var(--pw)}
 
 /* ── Section pages (Сотрудники / Техника / Оборудование / Материалы) ── */
 #workers-page,#machinery-page,#equipment-page,#materials-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden}
-#workers-page.show,#machinery-page.show,#equipment-page.show,#materials-page.show{display:flex;animation:fadeIn .2s ease both}
+#workers-page.show,#machinery-page.show,#equipment-page.show,#materials-page.show{display:flex}
+/* wt-outer inside fullscreen pages: reset the panel-inner negative margin */
+#workers-page>.wt-outer,#machinery-page>.wt-outer,#equipment-page>.wt-outer,#materials-page>.wt-outer{margin:0}
 
 /* ── Cards & lists ── */
 .igrid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:9px}
@@ -527,6 +530,11 @@ body.panel-open #gruz-page{right:var(--pw)}
 .spare-main-hd{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--bd);flex-shrink:0}
 .spare-tbl-wrap{flex:1;overflow-y:auto;padding:8px 12px}
 .mdc-ico{font-size:40px;width:54px;height:54px;background:var(--s2);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.mdc-fields{border:1px solid var(--bd);border-radius:var(--rs);overflow:hidden;margin:8px 0}
+.mdc-row{display:flex;align-items:center;gap:0;min-height:36px;border-bottom:1px solid var(--bd)}
+.mdc-row:last-child{border-bottom:none}
+.mdc-lbl{width:110px;flex-shrink:0;padding:7px 10px;font-size:11px;font-weight:700;color:var(--tx3);background:var(--s2);text-transform:uppercase;letter-spacing:.3px;border-right:1px solid var(--bd)}
+.mdc-val{flex:1;padding:6px 10px;font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 
 /* ── Worker detail card (modal) ── */
 .wdc-hd{display:flex;align-items:flex-start;gap:14px;padding:4px 0 16px;border-bottom:1px solid var(--bd);margin-bottom:14px}

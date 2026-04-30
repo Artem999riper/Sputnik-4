@@ -282,6 +282,35 @@ module.exports = (app, getDb, L) => {
     run(db(), 'DELETE FROM fuel_reserves WHERE id=?', [req.params.id]);
     res.json({ success: true });
   }));
+  app.get('/api/fuel_transactions', wrap((req, res) => {
+    const { base_id, fuel_type } = req.query;
+    let sql = 'SELECT * FROM fuel_transactions WHERE 1=1';
+    const params = [];
+    if (base_id) { sql += ' AND base_id=?'; params.push(base_id); }
+    if (fuel_type) { sql += ' AND fuel_type=?'; params.push(fuel_type); }
+    sql += ' ORDER BY created_at DESC LIMIT 100';
+    res.json(all(db(), sql, params));
+  }));
+  app.post('/api/fuel_transactions', wrap((req, res) => {
+    const { base_id, fuel_type, delta, notes, op_date } = req.body;
+    if (!base_id || !fuel_type || delta === undefined) return res.status(400).json({ error: 'base_id, fuel_type, delta обязательны' });
+    const d = db();
+    const id = uuid();
+    run(d, 'INSERT INTO fuel_transactions(id,base_id,fuel_type,delta,notes,op_date)VALUES(?,?,?,?,?,?)',
+      [id, base_id, fuel_type, delta, notes || '', op_date || new Date().toISOString().split('T')[0]]);
+    // Update reserve
+    const existing = get(d, 'SELECT * FROM fuel_reserves WHERE base_id=? AND fuel_type=?', [base_id, fuel_type]);
+    if (existing) {
+      const newAmt = Math.max(0, (existing.amount || 0) + delta);
+      run(d, "UPDATE fuel_reserves SET amount=?,updated_at=datetime('now') WHERE id=?", [newAmt, existing.id]);
+      res.json({ id, amount: newAmt });
+    } else {
+      const rid = uuid();
+      const newAmt = Math.max(0, delta);
+      run(d, "INSERT INTO fuel_reserves(id,base_id,fuel_type,amount)VALUES(?,?,?,?)", [rid, base_id, fuel_type, newAmt]);
+      res.json({ id, amount: newAmt });
+    }
+  }));
 
   // ── SPARE PARTS GROUPS ────────────────────────────────────
   app.get('/api/spare_groups', wrap((req, res) =>
