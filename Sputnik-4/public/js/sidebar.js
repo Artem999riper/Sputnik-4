@@ -146,7 +146,8 @@ function renderMachineMarkers(baseList){
   Object.keys(mMarkers).forEach(id=>{try{map.removeLayer(mMarkers[id]);}catch(e){}});
   mMarkers={};
   (baseList||[]).forEach(b=>{
-    (b.machinery||[]).filter(m=>m.lat&&m.lng).forEach(mach=>{
+    // Merge with pgkMachinery to get fresh coordinates stored after last loadAll
+    (b.machinery||[]).map(m=>{const f=(pgkMachinery||[]).find(x=>x.id===m.id);return f?{...m,lat:f.lat,lng:f.lng}:m;}).filter(m=>m.lat&&m.lng).forEach(mach=>{
       const clr=mach.status==='working'?'#0e9f6e':mach.status==='broken'?'#e02424':'#d97706';
       const ico=MICONS[mach.type]||'🔧';
       const icon=L.divIcon({className:'',

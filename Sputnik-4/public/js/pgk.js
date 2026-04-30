@@ -698,9 +698,19 @@ async function mchFuelCard(baseId,fuelType){
 }
 function _mchBuildDrivers(){
   const machByDrv={};pgkMachinery.forEach(m=>{if(m.driver_id)machByDrv[m.driver_id]=m;});
-  const workers=pgkWorkers.filter(w=>w.status!=='fired'&&(w.role||'').toLowerCase().includes('водитель'));
-  const wstCls={'working':'wbs-working','vacation':'wbs-vacation','home':'wbs-home','sick':'wbs-sick'};
-  const wstLbl={'working':'В работе','vacation':'Отпуск','home':'Дома','sick':'Больничный'};
+  let workers=pgkWorkers.filter(w=>w.status!=='fired'&&(w.role||'').toLowerCase().includes('водитель'));
+  const wstCls={'working':'wbs-working','home':'wbs-home'};
+  const wstLbl={'working':'В работе','home':'Дома'};
+  const _ds=window._drvSort||'name';const _da=window._drvAsc!==false;
+  workers=[...workers].sort((a,b)=>{
+    let va,vb;
+    if(_ds==='machine'){va=(machByDrv[a.id]||{}).name||'';vb=(machByDrv[b.id]||{}).name||'';}
+    else if(_ds==='base'){va=(bases.find(x=>x.id===a.base_id)||{}).name||'';vb=(bases.find(x=>x.id===b.base_id)||{}).name||'';}
+    else if(_ds==='status'){va=a.status||'home';vb=b.status||'home';}
+    else{va=a.name||'';vb=b.name||'';}
+    return String(va).localeCompare(String(vb),'ru')*(_da?1:-1);
+  });
+  const th=(col,lbl)=>`<th class="${_ds===col?(_da?'wt-asc':'wt-desc'):''}" onclick="if(window._drvSort==='${col}'){window._drvAsc=!(window._drvAsc!==false);}else{window._drvSort='${col}';window._drvAsc=true;}_setMchTab('drivers')">${lbl}</th>`;
   const rows=workers.map(w=>{
     const mach=machByDrv[w.id];const b=bases.find(x=>x.id===w.base_id);
     const ws=w.status||'home';
@@ -713,7 +723,7 @@ function _mchBuildDrivers(){
     </tr>`;
   }).join('');
   return `<div class="wt-scroll"><table class="wt-tbl" style="min-width:600px">
-    <thead><tr><th>Сотрудник</th><th>Статус</th><th>Машина</th><th>База</th><th class="no-sort">Действия</th></tr></thead>
+    <thead><tr>${th('name','Сотрудник')}${th('status','Статус')}${th('machine','Машина')}${th('base','База')}<th class="no-sort">Действия</th></tr></thead>
     <tbody>${rows||`<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--tx3)">Нет водителей</td></tr>`}</tbody>
   </table></div>`;
 }
@@ -1612,7 +1622,7 @@ function openEditMatModalGlobal(matId){
   const b=bases.find(b=>(b.materials||[]).some(m=>m.id===matId));
   const m=b&&(b.materials||[]).find(m=>m.id===matId);
   if(!m)return;
-  const allGroups=[...new Set(bases.flatMap(b=>(b.materials||[]).map(m=>m.category||'')).filter(Boolean))].sort();
+  const allGroups=pgkMatGroups.map(g=>g.name);
   const groupOpts=`<option value="">— без группы —</option>`+allGroups.map(g=>`<option value="${esc(g)}" ${m.category===g?'selected':''}>${esc(g)}</option>`).join('');
   showModal('✏️ '+esc(m.name),`<div class="fgr">
     <div class="fg s2"><label>Название *</label><input id="f-mn" value="${esc(m.name)}"></div>
@@ -1651,7 +1661,7 @@ async function pgkDelMatGlobal(matId){
 
 // Добавить материал глобально
 function pgkAddMatGlobal(){
-  const allGroups=[...new Set(bases.flatMap(b=>(b.materials||[]).map(m=>m.category||'')).filter(Boolean))].sort();
+  const allGroups=pgkMatGroups.map(g=>g.name);
   const groupOpts=`<option value="">— без группы —</option>`+allGroups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');
   const baseOpts=`<option value="">— выберите базу —</option>`+bases.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
   showModal('＋ Новый материал',`<div class="fgr">
