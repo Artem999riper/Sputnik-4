@@ -1159,30 +1159,23 @@ function equipCtxMenu(ev,eid){
 }
 
 async function pgkPageMaterials(pb){
-  // Загружаем все материалы со всех баз
-  const allMats = bases.flatMap(b=>(b.materials||[]).map(m=>({...m,base_name:b.name})));
+  const allMats=bases.flatMap(b=>(b.materials||[]).map(m=>({...m,base_name:b.name})));
+  const _mfGroup=window._pgkMFGroup||'';
+  const _mfBase=window._pgkMFBaseM||'';
+  const _ms=window._pgkMSortM||'name';
+  const _ma=window._pgkMAscM!==false;
+  const _q=(window._pgkMSearchM||'').toLowerCase().trim();
 
-  // Фильтр + поиск
-  const _mfBase   = window._pgkMFBaseM||'';
-  const _mfGroup  = window._pgkMFGroup||'';
-  const _mfSearch = window._pgkMSearchM||'';
-  const _ms = window._pgkMSortM||'name';
-  const _ma = window._pgkMAscM!==false;
+  const allGroups=[...new Set(allMats.map(m=>m.category||'').filter(Boolean))].sort();
+  const lowStock=allMats.filter(m=>m.min_amount>0&&m.amount<m.min_amount).length;
 
-  // Собираем уникальные группы
-  const allGroups = [...new Set(allMats.map(m=>m.category||'').filter(Boolean))].sort();
-
-  let filtered = allMats.filter(m=>{
-    if(_mfBase && m.base_id!==_mfBase) return false;
-    if(_mfGroup && (m.category||'')!==_mfGroup) return false;
-    if(_mfSearch){
-      const hay=(m.name+' '+(m.category||'')+' '+(m.base_name||'')+' '+(m.notes||'')).toLowerCase();
-      if(!hay.includes(_mfSearch.toLowerCase())) return false;
-    }
+  let filtered=allMats.filter(m=>{
+    if(_mfGroup==='__none'){if(m.category)return false;}
+    else if(_mfGroup&&(m.category||'')!==_mfGroup)return false;
+    if(_mfBase&&m.base_id!==_mfBase)return false;
+    if(_q){const hay=(m.name+' '+(m.category||'')+' '+(m.base_name||'')+' '+(m.notes||'')).toLowerCase();if(!hay.includes(_q))return false;}
     return true;
   });
-
-  // Сортировка
   filtered.sort((a,b)=>{
     let va,vb;
     if(_ms==='amount'){va=+a.amount||0;vb=+b.amount||0;}
@@ -1195,77 +1188,154 @@ async function pgkPageMaterials(pb){
 
   const thSort=(col,lbl)=>`<th class="${_ms===col?(_ma?'wt-asc':'wt-desc'):''}"
     onclick="window._pgkMSortM==='${col}'?(window._pgkMAscM=!(_ma)):(window._pgkMSortM='${col}',window._pgkMAscM=true);renderPGK()">${lbl}</th>`;
-
   const baseOpts=`<option value="">Все базы</option>`+bases.map(b=>`<option value="${b.id}" ${_mfBase===b.id?'selected':''}>${esc(b.name)}</option>`).join('');
-  const groupOpts=`<option value="">Все группы</option>`+allGroups.map(g=>`<option value="${esc(g)}" ${_mfGroup===g?'selected':''}>${esc(g)}</option>`).join('');
 
-  // Итоги
-  const totalPos = allMats.length;
-  const lowStock = allMats.filter(m=>m.min_amount>0&&m.amount<m.min_amount).length;
-  const groups   = [...new Set(allMats.map(m=>m.category||'').filter(Boolean))].length;
+  const grpCounts={};allMats.forEach(m=>{const g=m.category||'__none';grpCounts[g]=(grpCounts[g]||0)+1;});
 
-  const rows = filtered.map((m,i)=>{
-    const pct = m.min_amount>0?Math.min(100,Math.round(m.amount/m.min_amount*100)):null;
-    const low = m.min_amount>0&&m.amount<m.min_amount;
+  const grpSidebar=`
+    <div class="spare-grp-item${!_mfGroup?' on':''}" onclick="window._pgkMFGroup='';renderPGK()">
+      <span class="spare-grp-nm">Все</span>
+      <span style="font-size:10px;color:var(--tx3);margin-left:4px">${allMats.length}</span>
+    </div>
+    <div class="spare-grp-item${_mfGroup==='__none'?' on':''}" onclick="window._pgkMFGroup='__none';renderPGK()">
+      <span class="spare-grp-nm" style="color:var(--tx3)">Без группы</span>
+      <span style="font-size:10px;color:var(--tx3);margin-left:4px">${grpCounts['__none']||0}</span>
+    </div>
+    ${allGroups.map(g=>{
+      const cnt=grpCounts[g]||0;
+      const _g=escAttr(g);
+      return `<div class="spare-grp-item${_mfGroup===g?' on':''}" onclick="window._pgkMFGroup='${_g}';renderPGK()"
+        ondragover="event.preventDefault();this.style.background='var(--accl)'" ondragleave="this.style.background=''" ondrop="matDropToGroup(event,'${_g}');this.style.background=''">
+        <span class="spare-grp-nm">${esc(g)}</span>
+        <span style="font-size:10px;color:var(--tx3);margin-left:4px">${cnt}</span>
+        <span class="spare-grp-acts">
+          <button class="btn bs bsm" style="padding:1px 5px;font-size:10px" onclick="event.stopPropagation();matGrpRename('${_g}')">✏️</button>
+        </span>
+      </div>`;
+    }).join('')}
+    <button class="btn bs bsm" style="width:100%;margin-top:6px;font-size:11px" onclick="matGrpAdd()">＋ Группа</button>`;
+
+  const rows=filtered.map((m,i)=>{
+    const pct=m.min_amount>0?Math.min(100,Math.round(m.amount/m.min_amount*100)):null;
+    const low=m.min_amount>0&&m.amount<m.min_amount;
     const _id=escAttr(m.id);
-    return `<tr data-matid="${m.id}"
-      data-search="${esc((m.name+' '+(m.category||'')+' '+(m.base_name||'')+' '+(m.notes||'')).toLowerCase())}"
+    return `<tr data-matid="${m.id}" draggable="true"
+      ondragstart="matDragStart(event,'${_id}')"
       oncontextmenu="event.preventDefault();pgkMatCtxMenu(event,'${_id}')">
-      <td style="text-align:center;color:var(--tx3);font-size:10px;font-weight:600">${i+1}</td>
-      <td class="td-link" style="font-weight:600;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.name)}" onclick="pgkMatDetail('${_id}')">📦 ${esc(m.name)}</td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'material','${_id}','category')"><span style="background:var(--s3);border:1px solid var(--bd);border-radius:20px;padding:1px 7px;font-size:10px;font-weight:600;color:var(--tx2)">${esc(m.category||'—')}</span></td>
+      <td style="text-align:center;width:28px"><input type="checkbox" class="mat-chk" data-id="${m.id}" onclick="matCheckbox(event,this)" style="cursor:pointer"></td>
+      <td class="td-link" style="font-weight:600" title="${esc(m.name)}" onclick="pgkMatDetail('${_id}')">📦 ${esc(m.name)}</td>
+      <td><span style="background:var(--s3);border:1px solid var(--bd);border-radius:20px;padding:1px 7px;font-size:10px;font-weight:600;color:var(--tx2)">${esc(m.category||'—')}</span></td>
       <td style="color:var(--bpc)">🏕 ${esc(m.base_name||'—')}</td>
-      <td class="td-editable" style="font-weight:700;color:var(--acc);text-align:right" onclick="pgkCellEdit(event,this,'material','${_id}','amount')">${m.amount} <span style="font-weight:400;color:var(--tx3)">${esc(m.unit||'шт')}</span></td>
+      <td style="font-weight:700;color:var(--acc);text-align:right">${m.amount} <span style="font-weight:400;color:var(--tx3)">${esc(m.unit||'шт')}</span></td>
       <td style="text-align:center">
-        ${pct!==null?`<div style="display:flex;align-items:center;gap:4px;min-width:80px">
+        ${pct!==null?`<div style="display:flex;align-items:center;gap:4px;min-width:70px">
           <div style="flex:1;height:4px;background:var(--s3);border-radius:2px">
             <div style="width:${pct}%;height:4px;background:${low?'var(--red)':pct<50?'#f59e0b':'var(--grn)'};border-radius:2px"></div>
           </div>
           <span style="font-size:9px;color:${low?'var(--red)':'var(--tx3)'};min-width:26px">${pct}%</span>
         </div>`:'<span style="color:var(--tx3);font-size:10px">—</span>'}
       </td>
-      <td class="td-notes td-editable" title="${esc(m.notes||'')}" onclick="pgkCellEdit(event,this,'material','${_id}','notes')">${esc(m.notes||'')}</td>
+      <td class="td-notes" title="${esc(m.notes||'')}">${esc(m.notes||'')}</td>
     </tr>`;
   }).join('');
 
-  pb.innerHTML=`<div class="wt-outer">
-    <div class="wt-toolbar">
-      <span style="font-size:13px;font-weight:800;flex-shrink:0">📦 Материалы</span>
-      <input id="pgk-mat-search" type="search" placeholder="🔍 Поиск…"
-        style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:160px;flex-shrink:0"
-        oninput="window._pgkMSearchM=this.value;renderPGK()"/>
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFGroup=this.value;renderPGK()">${groupOpts}</select>
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFBaseM=this.value;renderPGK()">${baseOpts}</select>
-      <div style="margin-left:auto;display:flex;gap:4px;flex-shrink:0">
-        <button class="btn bs bsm" onclick="pgkManageGroups()">🗂 Группы</button>
+  pb.innerHTML=`<div class="spare-layout" style="height:100%">
+    <div class="spare-sidebar">
+      <div class="spare-sidebar-hd">Группы</div>
+      ${grpSidebar}
+    </div>
+    <div class="spare-main">
+      <div class="spare-main-hd">
+        <span style="font-size:13px;font-weight:800;flex-shrink:0">📦 Материалы</span>
+        <input id="pgk-mat-search" type="search" placeholder="🔍 Поиск…" value="${esc(_q)}"
+          style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:130px;flex:1"
+          oninput="window._pgkMSearchM=this.value;renderPGK()"/>
+        <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFBaseM=this.value;renderPGK()">${baseOpts}</select>
         <button class="btn bp bsm" onclick="pgkAddMatGlobal()">＋ Добавить</button>
       </div>
-    </div>
-    <div class="wt-summary">
-      <span>Позиций: <b>${totalPos}</b></span>
-      <span>Групп: <b>${groups}</b></span>
-      <span>Баз: <b>${bases.length}</b></span>
-      ${lowStock?`<span style="color:var(--red)">⚠️ Ниже минимума: <b>${lowStock}</b></span>`:''}
-      <span id="pgk-mat-shown" style="color:var(--acc);display:none">Найдено: <b id="pgk-mat-shown-n">0</b></span>
-    </div>
-    <div class="wt-scroll">
-      <table class="wt-tbl" style="min-width:700px">
-        <thead><tr>
-          <th class="no-sort" style="width:36px;text-align:center;color:var(--tx3)">#</th>
-          ${thSort('name','Название')}
-          ${thSort('category','Группа')}
-          ${thSort('base','База')}
-          ${thSort('amount','Кол-во')}
-          <th class="no-sort" style="min-width:100px">Запас</th>
-          <th class="no-sort" style="min-width:120px">Примечания</th>
-        </tr></thead>
-        <tbody id="pgk-mat-tbody">${rows||`<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--tx3)">Нет материалов</td></tr>`}</tbody>
-      </table>
+      <div class="wt-summary" style="padding:4px 12px">
+        <span>Позиций: <b>${allMats.length}</b></span>
+        <span>Баз: <b>${bases.length}</b></span>
+        ${lowStock?`<span style="color:var(--red)">⚠️ Ниже мин: <b>${lowStock}</b></span>`:''}
+        ${filtered.length<allMats.length?`<span style="color:var(--acc)">Показано: <b>${filtered.length}</b></span>`:''}
+        <span id="mat-sel-info" style="color:var(--acc);display:none">Выбрано: <b id="mat-sel-cnt">0</b> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="matMoveSelected()">→ В группу</button></span>
+      </div>
+      <div class="spare-tbl-wrap">
+        <table class="wt-tbl" style="min-width:600px">
+          <thead><tr>
+            <th class="no-sort" style="width:28px;text-align:center"><input type="checkbox" id="mat-chk-all" onclick="matCheckAll(this)" style="cursor:pointer"></th>
+            ${thSort('name','Название')}
+            ${thSort('category','Группа')}
+            ${thSort('base','База')}
+            ${thSort('amount','Кол-во')}
+            <th class="no-sort" style="min-width:80px">Запас</th>
+            <th class="no-sort" style="min-width:120px">Примечания</th>
+          </tr></thead>
+          <tbody id="pgk-mat-tbody">${rows||`<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--tx3)">Нет материалов</td></tr>`}</tbody>
+        </table>
+      </div>
     </div>
   </div>`;
+}
 
-  const srch=window._pgkMSearchM||'';
-  if(srch){const inp=document.getElementById('pgk-mat-search');if(inp)inp.value=srch;}
+function matCheckbox(ev,cb){ev.stopPropagation();const tr=cb.closest('tr');if(tr)tr.style.background=cb.checked?'var(--accl)':'';_matUpdateSelInfo();}
+function matCheckAll(allCb){document.querySelectorAll('.mat-chk').forEach(cb=>{cb.checked=allCb.checked;const tr=cb.closest('tr');if(tr)tr.style.background=cb.checked?'var(--accl)':'';});_matUpdateSelInfo();}
+function _matUpdateSelInfo(){const sel=document.querySelectorAll('.mat-chk:checked');const si=document.getElementById('mat-sel-info'),sc=document.getElementById('mat-sel-cnt');if(si&&sc){si.style.display=sel.length?'':'none';sc.textContent=sel.length;}}
+function _matSelectedIds(){return[...document.querySelectorAll('.mat-chk:checked')].map(cb=>cb.dataset.id);}
+function matDragStart(ev,mid){const sel=_matSelectedIds();ev.dataTransfer.setData('text/plain',sel.length?JSON.stringify(sel):JSON.stringify([mid]));ev.dataTransfer.effectAllowed='move';}
+async function matDropToGroup(ev,grpName){
+  ev.preventDefault();
+  let ids=[];try{ids=JSON.parse(ev.dataTransfer.getData('text/plain'));}catch(e){return;}
+  await Promise.all(ids.map(id=>{
+    const b=bases.find(b=>(b.materials||[]).some(m=>m.id===id));
+    const m=b&&(b.materials||[]).find(m=>m.id===id);
+    if(!m)return Promise.resolve();
+    return fetch(`${API}/materials/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...m,category:grpName,user_name:un()})});
+  }));
+  await loadPGK();await loadAll();toast(`Перемещено: ${ids.length}`,'ok');
+}
+async function matMoveSelected(){
+  const ids=_matSelectedIds();if(!ids.length)return;
+  const allGroups=[...new Set(bases.flatMap(b=>(b.materials||[]).map(m=>m.category||'')).filter(Boolean))].sort();
+  const grpOpts=allGroups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');
+  showModal('→ Переместить в группу',`<div class="fgr">
+    <div class="fg s2"><label>Группа (существующая или новая)</label>
+      <div style="display:flex;gap:5px">
+        <select id="f-mg" style="flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+          <option value="">— без группы —</option>${grpOpts}
+        </select>
+        <input id="f-mg-new" placeholder="или новая…" style="flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none">
+      </div>
+    </div></div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Переместить',cls:'bp',fn:async()=>{
+    const newG=(document.getElementById('f-mg-new').value||'').trim();
+    const selG=v('f-mg')||'';
+    const grp=newG||selG;
+    await Promise.all(ids.map(id=>{
+      const b=bases.find(b=>(b.materials||[]).some(m=>m.id===id));
+      const m=b&&(b.materials||[]).find(m=>m.id===id);
+      if(!m)return Promise.resolve();
+      return fetch(`${API}/materials/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...m,category:grp,user_name:un()})});
+    }));
+    closeModal();await loadPGK();await loadAll();toast(`Перемещено: ${ids.length}`,'ok');
+  }}]);
+}
+function matGrpAdd(){
+  showModal('Новая группа',`<div class="fgr"><div class="fg s2"><label>Название</label><input id="f-n" placeholder="Топливо"></div></div>`,
+    [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Создать',cls:'bp',fn:()=>{
+    const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
+    window._pgkMFGroup=name;
+    closeModal();
+    toast(`Группа "${name}" — добавьте материалы через форму добавления`,'ok');
+  }}]);
+}
+async function matGrpRename(oldName){
+  showModal('Переименовать группу',`<div class="fgr"><div class="fg s2"><label>Новое название</label><input id="f-n" value="${esc(oldName)}"></div></div>`,
+    [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Переименовать',cls:'bp',fn:async()=>{
+    const newName=v('f-n').trim();if(!newName||newName===oldName){closeModal();return;}
+    const toUpdate=bases.flatMap(b=>(b.materials||[]).filter(m=>(m.category||'')===oldName));
+    await Promise.all(toUpdate.map(m=>fetch(`${API}/materials/${m.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...m,category:newName,user_name:un()})})));
+    closeModal();await loadPGK();await loadAll();toast(`Переименовано: ${toUpdate.length} позиций`,'ok');
+  }}]);
 }
 
 // Карточка материала
@@ -1388,62 +1458,6 @@ function pgkAddMatGlobal(){
   }}]);
 }
 
-// Управление группами
-function pgkManageGroups(){
-  const allGroups=[...new Set(bases.flatMap(b=>(b.materials||[]).map(m=>m.category||'')).filter(Boolean))].sort();
-  const counts={};
-  bases.forEach(b=>(b.materials||[]).forEach(m=>{ const g=m.category||''; counts[g]=(counts[g]||0)+1; }));
-  showModal('🗂 Группы материалов',`
-    <div style="font-size:11px;color:var(--tx2);margin-bottom:10px">
-      Группы создаются автоматически при добавлении/редактировании материала.<br>
-      Здесь можно переименовать группу или перенести все позиции в другую.
-    </div>
-    ${allGroups.length?`<div style="border:1.5px solid var(--bd);border-radius:var(--rs);overflow:hidden;margin-bottom:10px">
-      ${allGroups.map(g=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--bd);font-size:12px">
-        <span style="font-size:14px">🗂</span>
-        <span style="flex:1;font-weight:600">${esc(g)}</span>
-        <span style="font-size:10px;color:var(--tx3)">${counts[g]||0} поз.</span>
-        <button class="btn bs bxs" data-grp="${esc(g)}" onclick="pgkRenameGroup(this.dataset.grp)">✏️ Переим.</button>
-      </div>`).join('')}
-    </div>`:'<div style="text-align:center;padding:16px;color:var(--tx3);font-size:12px">Групп пока нет.<br>Создайте их при добавлении материалов.</div>'}
-    <div style="font-size:11px;font-weight:700;margin-bottom:5px">Создать новую группу</div>
-    <div style="display:flex;gap:6px">
-      <input id="f-newgroup" placeholder="Название группы..." style="flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none">
-      <button class="btn bp bsm" onclick="pgkCreateGroup()">＋ Создать</button>
-    </div>`,
-  [{label:'Закрыть',cls:'bs',fn:closeModal}]);
-}
-
-function pgkCreateGroup(){
-  const val=(document.getElementById('f-newgroup')?.value||'').trim();
-  if(!val){toast('Введите название группы','err');return;}
-  // Группа создаётся при следующем добавлении материала — просто уведомляем
-  toast(`Группа "${val}" будет создана при добавлении материала`,'ok');
-  closeModal();
-}
-
-async function pgkRenameGroup(oldName){
-  showModal('✏️ Переименовать группу',`
-    <div style="font-size:11px;color:var(--tx2);margin-bottom:10px">
-      Будет переименовано для всех материалов в группе «${esc(oldName)}»
-    </div>
-    <div class="fg s2">
-      <label>Новое название</label>
-      <input id="f-grpname" value="${esc(oldName)}">
-    </div>`,
-  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Переименовать',cls:'bp',fn:async()=>{
-    const newName=(document.getElementById('f-grpname').value||'').trim();
-    if(!newName||newName===oldName){closeModal();return;}
-    // Обновляем все материалы этой группы
-    const toUpdate=bases.flatMap(b=>(b.materials||[]).filter(m=>(m.category||'')===oldName));
-    await Promise.all(toUpdate.map(m=>
-      fetch(`${API}/materials/${m.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({...m,category:newName,user_name:un()})})
-    ));
-    closeModal();await loadPGK();await loadAll();
-    toast(`Группа переименована: ${toUpdate.length} материалов обновлено`,'ok');
-  }}]);
-}
 
 // Assign base from PGK page dropdowns
 async function pgkAssignWorkerBase(id,baseId){
@@ -2037,7 +2051,12 @@ async function delMat(id){if(!confirm('Удалить?'))return;await apiDelUndo
 // TRANSFER RESOURCES BETWEEN BASES
 // ═══════════════════════════════════════════════════════════
 function openTransferModal(type, itemId){
-  const otherBases=bases.filter(b=>b.id!==currentObj.id);
+  // find source base for material
+  let sourceBaseId=currentObj?currentObj.id:null;
+  if(type==='material'){
+    for(const b of bases){if((b.materials||[]).some(m=>m.id===itemId)){sourceBaseId=b.id;break;}}
+  }
+  const otherBases=bases.filter(b=>b.id!==sourceBaseId);
   if(!otherBases.length){toast('Нет других баз для перевода','err');return;}
   const labels={worker:'сотрудника',machine:'технику',equipment:'оборудование',material:'материал'};
   const baseOpts=otherBases.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
@@ -2045,50 +2064,53 @@ function openTransferModal(type, itemId){
     <div class="fg"><label>Перевести на базу</label><select id="f-tb">${baseOpts}</select></div>
   </div>`,[
     {label:'Отмена',cls:'bs',fn:closeModal},
-    {label:'Перевести →',cls:'bp',fn:()=>doTransfer(type,itemId,v('f-tb'))}
+    {label:'Перевести →',cls:'bp',fn:()=>doTransfer(type,itemId,v('f-tb'),sourceBaseId)}
   ]);
 }
-async function doTransfer(type, itemId, targetBaseId){
+async function doTransfer(type, itemId, targetBaseId, sourceBaseId){
   if(!targetBaseId){toast('Выберите базу','err');return;}
   const targetBase=bases.find(b=>b.id===targetBaseId);
+  const sourceBase=bases.find(b=>b.id===sourceBaseId)||currentObj||{};
   let endpoint='', body={};
+  const afterDone=async()=>{
+    if(pgkTab==='materials'){await loadPGK();await loadAll();}else{await refreshCurrent();}
+  };
   if(type==='worker'){
-    const w=(currentObj.workers||[]).find(x=>x.id===itemId);
+    const w=pgkWorkers.find(x=>x.id===itemId)||(currentObj&&(currentObj.workers||[]).find(x=>x.id===itemId));
     if(!w)return;
     endpoint=`${API}/pgk/workers/${itemId}`;
     body={...w,base_id:targetBaseId,user_name:un()};
   } else if(type==='machine'){
-    const m=(currentObj.machinery||[]).find(x=>x.id===itemId);
+    const m=pgkMachinery.find(x=>x.id===itemId)||(currentObj&&(currentObj.machinery||[]).find(x=>x.id===itemId));
     if(!m)return;
     endpoint=`${API}/pgk/machinery/${itemId}`;
     body={...m,base_id:targetBaseId,user_name:un()};
   } else if(type==='equipment'){
-    const e=(currentObj.equipment||[]).find(x=>x.id===itemId);
+    const e=pgkEquipment.find(x=>x.id===itemId)||(currentObj&&(currentObj.equipment||[]).find(x=>x.id===itemId));
     if(!e)return;
     endpoint=`${API}/pgk/equipment/${itemId}`;
     body={...e,base_id:targetBaseId};
   } else if(type==='material'){
-    const m=(currentObj.materials||[]).find(x=>x.id===itemId);
+    let m=null;
+    for(const b of bases){m=(b.materials||[]).find(x=>x.id===itemId);if(m)break;}
+    if(!m&&currentObj)m=(currentObj.materials||[]).find(x=>x.id===itemId);
     if(!m)return;
-    // Check if same-name material exists on target base
     const targetBaseData=await fetch(`${API}/bases/${targetBaseId}`).then(r=>r.json()).catch(()=>null);
     const existing=targetBaseData&&(targetBaseData.materials||[]).find(x=>x.name.trim().toLowerCase()===m.name.trim().toLowerCase()&&x.unit===m.unit);
     if(existing){
-      // Merge: add amounts + log as приход
       await fetch(`${API}/materials/${existing.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({...existing,amount:existing.amount+m.amount,user_name:un()})});
       await fetch(`${API}/materials/${existing.id}/actualize`,{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({new_amount:existing.amount+m.amount,act_date:new Date().toISOString().split('T')[0],
-          notes:'Приход при переводе с базы '+esc(currentObj.name||'')+': +'+m.amount+' '+m.unit,user_name:un()})});
+          notes:'Приход при переводе с базы '+esc(sourceBase.name||'')+': +'+m.amount+' '+m.unit,user_name:un()})});
     } else {
-      // Create new on target base
       await fetch(`${API}/bases/${targetBaseId}/materials`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...m,user_name:un()})});
     }
     await fetch(`${API}/materials/${itemId}`,{method:'DELETE'});
-    closeModal();await refreshCurrent();toast(`Переведено на базу ${esc(targetBase?.name||'')}${existing?' (объединено с существующей позицией)':''}`, 'ok');return;
+    closeModal();await afterDone();toast(`Переведено на базу ${esc(targetBase?.name||'')}${existing?' (объединено)':''}`, 'ok');return;
   }
   await fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  closeModal();await refreshCurrent();toast(`Переведено на базу ${esc(targetBase?.name||'')}`, 'ok');
+  closeModal();await afterDone();toast(`Переведено на базу ${esc(targetBase?.name||'')}`, 'ok');
 }
 
 // ═══════════════════════════════════════════════════════════

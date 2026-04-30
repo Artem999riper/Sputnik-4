@@ -1,5 +1,7 @@
 async function openActualizeModal(matId){
-  const mat=(currentObj&&currentObj.materials||[]).find(m=>m.id===matId);
+  let mat=null;
+  for(const b of bases){const m=(b.materials||[]).find(m=>m.id===matId);if(m){mat=m;break;}}
+  if(!mat&&currentObj)mat=(currentObj.materials||[]).find(m=>m.id===matId);
   if(!mat)return;
   const today=new Date().toISOString().split('T')[0];
   showModal('📝 Движение материала — '+esc(mat.name),
@@ -25,12 +27,14 @@ async function openActualizeModal(matId){
         body:JSON.stringify({new_amount:newAmt,act_date:v('f-md'),notes:(op==='minus'?'Расход: ':'Приход: ')+delta+' '+mat.unit+(v('f-mn')?' — '+v('f-mn'):''),user_name:un()})});
       const d=await r.json();
       closeModal();
-      await refreshCurrent();currentTab='materials';renderTab();
+      if(pgkTab==='materials'){await loadPGK();}else{await refreshCurrent();currentTab='materials';renderTab();}
       toast((op==='minus'?'Списано: -':'Добавлено: +')+delta.toFixed(2)+' '+mat.unit,'ok');
     }}]);
 }
 async function openMatLogModal(matId){
-  const mat=(currentObj&&currentObj.materials||[]).find(m=>m.id===matId);
+  let mat=null;
+  for(const b of bases){const m=(b.materials||[]).find(m=>m.id===matId);if(m){mat=m;break;}}
+  if(!mat&&currentObj)mat=(currentObj.materials||[]).find(m=>m.id===matId);
   if(!mat)return;
   const log=await fetch(API+'/materials/'+matId+'/log').then(r=>r.json()).catch(()=>[]);
   const html='<div style="margin-bottom:8px;font-size:12px;font-weight:700">'+esc(mat.name)
