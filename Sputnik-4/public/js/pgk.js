@@ -11,6 +11,11 @@ async function loadPGK(){
   ]);
   pgkWorkers=await wr.json();pgkMachinery=await mr.json();
   pgkEquipment=await er.json();bases=await br.json();
+  [pgkFuelReserves,pgkSpareGroups,pgkSpares]=await Promise.all([
+    fetch(`${API}/fuel_reserves`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/spare_groups`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/spare_parts`).then(r=>r.json()).catch(()=>[])
+  ]);
   await renderPGK();
 }
 async function renderPGK(){
@@ -509,8 +514,41 @@ async function openEndShiftModal(wid){
     }}]);
 }
 
+// ── MACHINERY PAGE (4 tabs) ────────────────────────────────
 function pgkPageMachinery(pb){
-  const _ms=window._pgkMSort||'name', _ma=window._pgkMAsc!==false;
+  const tab=window._mchTab||'park';
+  const view=window._mchView||'cards';
+  pb.innerHTML=`<div class="mch-outer">
+  <div class="mch-topbar">
+    <div class="mch-page-tabs">
+      <button class="mch-page-tab${tab==='park'?' on':''}" onclick="_setMchTab('park')">🚛 Парк <span class="mch-cnt">${pgkMachinery.length}</span></button>
+      <button class="mch-page-tab${tab==='fuel'?' on':''}" onclick="_setMchTab('fuel')">⛽ Топливо</button>
+      <button class="mch-page-tab${tab==='drivers'?' on':''}" onclick="_setMchTab('drivers')">👤 Водители</button>
+      <button class="mch-page-tab${tab==='spares'?' on':''}" onclick="_setMchTab('spares')">🔧 Запчасти <span class="mch-cnt">${pgkSpares.length}</span></button>
+    </div>
+    <div class="mch-topbar-act">
+      ${tab==='park'?`<div class="mch-view-toggle">
+        <button class="btn bsm ${view==='cards'?'bp':'bs'}" onclick="_setMchView('cards')" title="Карточки">⊞</button>
+        <button class="btn bsm ${view==='table'?'bp':'bs'}" onclick="_setMchView('table')" title="Таблица">☰</button>
+      </div><button class="btn bp bsm" onclick="pgkAddMach()">＋ Добавить</button>`:''}
+      ${tab==='fuel'?`<button class="btn bp bsm" onclick="mchFuelRecord()">＋ Записать</button>`:''}
+      ${tab==='spares'?`<button class="btn bs bsm" onclick="mchSpareAddGroup()">＋ Группа</button><button class="btn bp bsm" onclick="mchSpareAdd()">＋ Запчасть</button>`:''}
+    </div>
+  </div>
+  <div id="mch-park" class="mch-panel${tab==='park'?' active':''}">${_mchBuildPark(view)}</div>
+  <div id="mch-fuel" class="mch-panel${tab==='fuel'?' active':''}">${_mchBuildFuel()}</div>
+  <div id="mch-drivers" class="mch-panel${tab==='drivers'?' active':''}">${_mchBuildDrivers()}</div>
+  <div id="mch-spares" class="mch-panel${tab==='spares'?' active':''}">${_mchBuildSpares()}</div>
+  </div>`;
+  if(tab==='park'){const s=window._pgkMSearchVal||'';if(s){const inp=document.getElementById('mch-search');if(inp){inp.value=s;_mchParkSearch(s);}}}
+}
+function _setMchTab(t){window._mchTab=t;const pb=document.getElementById('machinery-page');if(pb)pgkPageMachinery(pb);}
+function _setMchView(v){window._mchView=v;const pb=document.getElementById('machinery-page');if(pb)pgkPageMachinery(pb);}
+function _mchSpareGrp(gid){window._mchSpareGroup=gid;const pb=document.getElementById('machinery-page');if(pb)pgkPageMachinery(pb);}
+
+function _mchBuildPark(view){
+  const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
+  const statLbl={working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'};
   const _mfBase=window._pgkMFBase||'';
   const _mfStatus=window._pgkMFStatus||'';
   const _mfType=window._pgkMFType||'';
@@ -518,156 +556,284 @@ function pgkPageMachinery(pb){
   const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
   const statLbl={working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'};
 
-  const getBase=m=>(bases.find(x=>x.id===m.base_id)||{}).name||'';
-
-  let filtered=[...pgkMachinery].filter(m=>{
-    if(_mfBase&&m.base_id!==_mfBase)return false;
-    if(_mfStatus&&(m.status||'working')!==_mfStatus)return false;
-    if(_mfType&&(m.type||'')!==_mfType)return false;
-    return true;
-  });
-  filtered.sort((a,b)=>{
-    let va,vb;
-    if(_ms==='base'){va=getBase(a);vb=getBase(b);}
-    else{va=a[_ms]||'';vb=b[_ms]||'';}
-    return String(va).localeCompare(String(vb),'ru')*(_ma?1:-1);
-  });
-
-  const thSort=(col,lbl)=>`<th class="${_ms===col?(_ma?'wt-asc':'wt-desc'):''}" onclick="if(window._pgkMSort==='${col}'){window._pgkMAsc=!(window._pgkMAsc!==false);}else{window._pgkMSort='${col}';window._pgkMAsc=true;}renderPGK()">${lbl}</th>`;
-
   const baseOpts=`<option value="">Все базы</option>`+bases.map(b=>`<option value="${b.id}" ${_mfBase===b.id?'selected':''}>${esc(b.name)}</option>`).join('');
   const statOpts=`<option value="">Все статусы</option>`+Object.entries(statLbl).map(([k,v])=>`<option value="${k}" ${_mfStatus===k?'selected':''}>${v}</option>`).join('');
   const types=[...new Set(pgkMachinery.map(m=>m.type).filter(Boolean))].sort();
   const typeOpts=`<option value="">Все типы</option>`+types.map(t=>`<option value="${t}" ${_mfType===t?'selected':''}>${esc(t)}</option>`).join('');
-
-  const byCnt={working:0,idle:0,broken:0};
-  pgkMachinery.forEach(m=>{ byCnt[m.status||'working']=(byCnt[m.status||'working']||0)+1; });
-
+  let filtered=[...pgkMachinery];
+  if(_mfBase)filtered=filtered.filter(m=>m.base_id===_mfBase);
+  if(_mfStatus)filtered=filtered.filter(m=>(m.status||'working')===_mfStatus);
+  if(_mfType)filtered=filtered.filter(m=>(m.type||'')===_mfType);
+  const cnt={working:0,idle:0,broken:0};
+  pgkMachinery.forEach(m=>cnt[m.status||'working']=(cnt[m.status||'working']||0)+1);
+  const statDot={working:'#22c55e',idle:'#f59e0b',broken:'#ef4444'};
+  const toolbar=`<div class="wt-toolbar" style="flex-shrink:0">
+    <input id="mch-search" type="search" placeholder="🔍 Поиск…"
+      style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:150px"
+      oninput="_mchParkSearch(this.value)" />
+    <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFStatus=this.value;_setMchTab('park')">${statOpts}</select>
+    <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFType=this.value;_setMchTab('park')">${typeOpts}</select>
+    <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFBase=this.value;_setMchTab('park')">${baseOpts}</select>
+    <span style="font-size:10px;color:var(--tx3);white-space:nowrap">
+      <span style="color:#15803d">✅ ${cnt.working}</span> · <span style="color:#a16207">⏸ ${cnt.idle}</span> · <span style="color:#b91c1c">🔴 ${cnt.broken}</span>
+    </span>
+  </div>`;
+  if(view==='cards'){
+    const cards=filtered.map(m=>{
+      const b=bases.find(x=>x.id===m.base_id);
+      const driver=pgkWorkers.find(x=>x.id===m.driver_id);
+      const st=m.status||'working';const _id=escAttr(m.id);
+      return `<div class="mch-card" data-search="${esc((m.name+' '+(m.type||'')+' '+(m.plate_number||'')+' '+(b?b.name:'')+' '+(driver?driver.name:'')).toLowerCase())}"
+        onclick="openMachDetail('${_id}')" oncontextmenu="event.preventDefault();machCtxMenu(event,'${_id}')">
+        <div class="mch-card-top"><div class="mch-card-ico">${MICONS[m.type]||'🔧'}</div>
+          <span class="mch-card-stdot" style="background:${statDot[st]||'#9ca3af'}" title="${statLbl[st]||st}"></span></div>
+        <div class="mch-card-name">${esc(m.name)}</div>
+        ${m.plate_number?`<div class="mch-card-plate">${esc(m.plate_number)}</div>`:''}
+        <div class="mch-card-type">${esc(m.type||'—')}</div>
+        <div class="mch-card-chips"><span class="wt-badge ${statCls[st]||'wbs-idle'}" style="font-size:9px">${statLbl[st]||st}</span>
+          ${b?`<span class="mch-card-base">🏕 ${esc(b.name)}</span>`:''}</div>
+        ${driver?`<div class="mch-card-drv">👤 ${esc(driver.name)}</div>`:''}
+      </div>`;
+    }).join('');
+    return toolbar+`<div class="mch-grid" id="mch-park-grid">${filtered.length?cards:'<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--tx3)">Нет техники</div>'}</div>`;
+  }
   const rows=filtered.map((m,i)=>{
     const b=bases.find(x=>x.id===m.base_id);
-    const st=m.status||'working';
-    const _id=escAttr(m.id);
-    return `<tr data-mid="${m.id}"
-      data-search="${esc((m.name+' '+(m.type||'')+' '+(m.plate_number||'')+' '+(m.vehicle_type||'')+' '+(b?b.name:'')+' '+(m.notes||'')).toLowerCase())}"
+    const driver=pgkWorkers.find(x=>x.id===m.driver_id);
+    const st=m.status||'working';const _id=escAttr(m.id);
+    return `<tr data-search="${esc((m.name+' '+(m.type||'')+' '+(m.plate_number||'')+' '+(b?b.name:'')+' '+(driver?driver.name:'')).toLowerCase())}"
       oncontextmenu="event.preventDefault();machCtxMenu(event,'${_id}')">
-      <td style="text-align:center;color:var(--tx3);font-size:10px;font-weight:600">${i+1}</td>
-      <td class="td-link" onclick="openMachDetail('${_id}')"><span style="font-size:15px">${MICONS[m.type]||'🔧'}</span> <span style="font-weight:600">${esc(m.name)}</span></td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','type')">${esc(m.type||'—')}</td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','status')"><span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span></td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','base_id')">${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
-      <td class="td-editable" style="font-size:10px" onclick="pgkCellEdit(event,this,'machinery','${_id}','plate_number')">${esc(m.plate_number||'—')}</td>
-      <td class="td-notes td-editable" title="${esc(m.notes||'')}" onclick="pgkCellEdit(event,this,'machinery','${_id}','notes')">${esc(m.notes||'')}</td>
+      <td style="text-align:center;color:var(--tx3);font-size:10px">${i+1}</td>
+      <td class="td-link" onclick="openMachDetail('${_id}')"><span style="font-size:14px">${MICONS[m.type]||'🔧'}</span> <b>${esc(m.name)}</b></td>
+      <td>${esc(m.type||'—')}</td>
+      <td>${m.plate_number?`<code style="font-size:11px;background:var(--s2);padding:1px 5px;border-radius:3px">${esc(m.plate_number)}</code>`:'<span style="color:var(--tx3)">—</span>'}</td>
+      <td><span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span></td>
+      <td>${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
+      <td>${driver?`👤 ${esc(driver.name)}`:'<span style="color:var(--tx3)">—</span>'}</td>
     </tr>`;
   }).join('');
-
-  pb.innerHTML=`<div class="wt-outer">
-    <div class="wt-toolbar">
-      <span style="font-size:13px;font-weight:800;flex-shrink:0">🚛 Техника</span>
-      <input id="pgk-m-search" type="search" placeholder="🔍 Поиск по названию, номеру…"
-        style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:160px;flex-shrink:0"
-        oninput="pgkMachSearchFilter(this.value)" />
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFStatus=this.value;renderPGK()">${statOpts}</select>
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFType=this.value;renderPGK()">${typeOpts}</select>
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFBase=this.value;renderPGK()">${baseOpts}</select>
-      <div style="margin-left:auto;display:flex;gap:4px;flex-shrink:0">
-        <button class="btn bp bsm" onclick="pgkAddMach()">＋ Добавить</button>
-      </div>
-    </div>
-    <div class="wt-summary">
-      <span>Всего: <b>${pgkMachinery.length}</b></span>
-      <span style="color:#15803d">✅ В работе: <b>${byCnt.working||0}</b></span>
-      <span style="color:#a16207">⏸ Простой: <b>${byCnt.idle||0}</b></span>
-      <span style="color:#b91c1c">🔴 Сломана: <b>${byCnt.broken||0}</b></span>
-      <span style="color:var(--tx3)">На базах: <b>${pgkMachinery.filter(m=>m.base_id).length}</b></span>
-      <span id="mt-shown-count" style="color:var(--acc);margin-left:4px;display:none">Найдено: <b id="mt-shown-n">0</b></span>
-    </div>
-    <div class="wt-scroll">
-      <table class="wt-tbl" style="min-width:700px">
-        <thead><tr>
-          <th class="no-sort" style="width:36px;text-align:center;color:var(--tx3)">#</th>
-          ${thSort('name','Название / Марка')}
-          ${thSort('type','Тип')}
-          ${thSort('status','Статус')}
-          ${thSort('base','База')}
-          ${thSort('plate_number','Номер')}
-          <th class="no-sort" style="min-width:140px">Примечания</th>
-        </tr></thead>
-        <tbody id="mt-tbody">${rows||`<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--tx3)">Нет техники</td></tr>`}</tbody>
-      </table>
-    </div>
+  return toolbar+`<div class="wt-scroll"><table class="wt-tbl" style="min-width:680px">
+    <thead><tr><th class="no-sort" style="width:36px;text-align:center">#</th>
+      <th>Название</th><th>Тип</th><th>Номер</th><th>Статус</th><th>База</th><th>Водитель</th></tr></thead>
+    <tbody>${rows||`<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--tx3)">Нет техники</td></tr>`}</tbody>
+  </table></div>`;
+}
+function _mchParkSearch(val){
+  window._pgkMSearchVal=val;const q=val.toLowerCase().trim();
+  document.querySelectorAll('.mch-card[data-search]').forEach(c=>{c.style.display=!q||c.dataset.search.includes(q)?'':'none';});
+  document.querySelectorAll('#mch-park-tbl tbody tr[data-search]').forEach(r=>{r.style.display=!q||r.dataset.search.includes(q)?'':'none';});
+}
+function _mchBuildFuel(){
+  const byBase={};
+  pgkFuelReserves.forEach(r=>(byBase[r.base_id]=byBase[r.base_id]||[]).push(r));
+  if(!bases.length)return '<div style="padding:24px;color:var(--tx3)">Нет баз</div>';
+  return `<div class="fuel-wrap">${bases.map(b=>{
+    const rsvs=byBase[b.id]||[];
+    return `<div class="fuel-base-card">
+      <div class="fuel-base-head"><span class="fuel-base-name">🏕 ${esc(b.name)}</span>
+        <button class="btn bs bxs" onclick="mchFuelRecord('${escAttr(b.id)}','')">＋ Добавить</button></div>
+      ${rsvs.map(r=>`<div class="fuel-row">
+        <span class="fuel-type">${esc(r.fuel_type)}</span>
+        <span class="fuel-amount"><b>${(+r.amount||0).toLocaleString('ru')}</b> л</span>
+        <button class="btn bs bxs" onclick="mchFuelRecord('${escAttr(b.id)}','${esc(r.fuel_type)}')">＋/－</button>
+      </div>`).join('')||'<div style="font-size:11px;color:var(--tx3);padding:6px 0">Нет данных</div>'}
+    </div>`;
+  }).join('')}</div>`;
+}
+function _mchBuildDrivers(){
+  const machByDrv={};pgkMachinery.forEach(m=>{if(m.driver_id)machByDrv[m.driver_id]=m;});
+  const workers=pgkWorkers.filter(w=>w.status!=='fired');
+  const rows=workers.map(w=>{
+    const mach=machByDrv[w.id];const b=bases.find(x=>x.id===w.base_id);
+    return `<tr>
+      <td><div style="font-weight:700">${esc(w.name)}</div><div style="font-size:10px;color:var(--tx3)">${esc(w.role||'')}</div></td>
+      <td>${mach?`${MICONS[mach.type]||'🔧'} <b>${esc(mach.name)}</b>`:'<span style="color:var(--tx3)">—</span>'}</td>
+      <td>${b?esc(b.name):'<span style="color:var(--tx3)">—</span>'}</td>
+      <td><button class="btn bs bsm" onclick="mchAssignDriver('${escAttr(w.id)}')">🔄 Назначить</button></td>
+    </tr>`;
+  }).join('');
+  return `<div class="wt-scroll"><table class="wt-tbl" style="min-width:540px">
+    <thead><tr><th>Сотрудник</th><th>Машина</th><th>База</th><th class="no-sort">Действия</th></tr></thead>
+    <tbody>${rows||`<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--tx3)">Нет сотрудников</td></tr>`}</tbody>
+  </table></div>`;
+}
+function _mchBuildSpares(){
+  const selGroup=window._mchSpareGroup;
+  let filtered=selGroup==='__none__'?pgkSpares.filter(s=>!s.group_id):selGroup?pgkSpares.filter(s=>s.group_id===selGroup):[...pgkSpares];
+  const sidebar=`<div class="spare-sidebar">
+    <div class="spare-sidebar-hd">Группы</div>
+    <div class="spare-grp-item${!selGroup?' on':''}" onclick="_mchSpareGrp(null)">Все <span class="mch-cnt" style="background:var(--s3);color:var(--tx3)">${pgkSpares.length}</span></div>
+    <div class="spare-grp-item${selGroup==='__none__'?' on':''}" onclick="_mchSpareGrp('__none__')">Без группы <span class="mch-cnt" style="background:var(--s3);color:var(--tx3)">${pgkSpares.filter(s=>!s.group_id).length}</span></div>
+    ${pgkSpareGroups.map(g=>`<div class="spare-grp-item${selGroup===g.id?' on':''}">
+      <span class="spare-grp-nm" onclick="_mchSpareGrp('${escAttr(g.id)}')">${esc(g.name)} <span class="mch-cnt" style="background:var(--s3);color:var(--tx3)">${pgkSpares.filter(s=>s.group_id===g.id).length}</span></span>
+      <span class="spare-grp-acts">
+        <button class="btn bxs bs" onclick="event.stopPropagation();mchSpareEditGroup('${escAttr(g.id)}')">✏️</button>
+        <button class="btn bxs bd" onclick="event.stopPropagation();mchSpareDelGroup('${escAttr(g.id)}')">🗑</button>
+      </span></div>`).join('')}
   </div>`;
-
-  const srch=window._pgkMSearchVal||'';
-  if(srch){const inp=document.getElementById('pgk-m-search');if(inp)inp.value=srch;pgkMachSearchFilter(srch);}
+  const rows=filtered.map(s=>{
+    const grp=pgkSpareGroups.find(g=>g.id===s.group_id);
+    return `<tr>
+      <td><div style="font-weight:600">${esc(s.name)}</div>${s.notes?`<div style="font-size:10px;color:var(--tx3)">${esc(s.notes)}</div>`:''}</td>
+      <td style="font-weight:700;font-size:14px;color:var(--acc)">${+(s.quantity||0)}</td>
+      <td style="color:var(--tx3)">${esc(s.unit||'шт')}</td>
+      <td>${s.location?esc(s.location):'<span style="color:var(--tx3)">—</span>'}</td>
+      <td>${grp?`<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:var(--s3)">${esc(grp.name)}</span>`:'—'}</td>
+      <td style="white-space:nowrap">
+        <button class="btn bs bxs" onclick="mchSpareEdit('${escAttr(s.id)}')">✏️</button>
+        <button class="btn bd bxs" onclick="mchSpareDel('${escAttr(s.id)}')">🗑</button></td>
+    </tr>`;
+  }).join('');
+  return `<div class="spare-layout">${sidebar}<div class="spare-main">
+    <div class="wt-scroll"><table class="wt-tbl" style="min-width:480px">
+      <thead><tr><th>Название</th><th style="width:70px">Кол-во</th><th style="width:55px">Ед.</th>
+        <th>Хранение</th><th>Группа</th><th class="no-sort" style="width:70px">—</th></tr></thead>
+      <tbody>${rows||`<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--tx3)">Нет запчастей</td></tr>`}</tbody>
+    </table></div></div></div>`;
 }
 
-function pgkMachSearchFilter(val){
-  window._pgkMSearchVal=val;
-  const q=val.toLowerCase().trim();
-  const rows=document.querySelectorAll('#mt-tbody tr[data-mid]');
-  let shown=0;
-  rows.forEach(tr=>{const match=!q||tr.dataset.search.includes(q);tr.style.display=match?'':'none';if(match)shown++;});
-  let num=1;
-  rows.forEach(tr=>{if(tr.style.display!=='none'){const c=tr.querySelector('td:first-child');if(c)c.textContent=num++;}});
-  const cw=document.getElementById('mt-shown-count'),cn=document.getElementById('mt-shown-n');
-  if(cw&&cn){if(q){cw.style.display='';cn.textContent=shown;}else{cw.style.display='none';}}
+// ── MACHINERY ACTION FUNCTIONS ─────────────────────────────
+function mchFuelRecord(baseId,fuelType){
+  baseId=baseId||'';fuelType=fuelType||'';
+  const fuelTypes=['Дизельное топливо','Бензин','Масло моторное','Масло трансмиссионное','Антифриз'];
+  const baseOpts=bases.map(b=>`<option value="${b.id}" ${b.id===baseId?'selected':''}>${esc(b.name)}</option>`).join('');
+  const typeOpts=fuelTypes.map(t=>`<option value="${t}" ${t===fuelType?'selected':''}>${esc(t)}</option>`).join('');
+  showModal('⛽ Записать топливо',`<div class="fgr">
+    <div class="fg s2"><label>База</label><select id="f-fb">${baseOpts}</select></div>
+    <div class="fg s2"><label>Вид топлива</label><select id="f-ftype">${typeOpts}</select></div>
+    <div class="fg"><label>Изменение, л (+ приход / − расход)</label><input id="f-fdelta" type="number" step="any" placeholder="500 или -200"></div>
+    <div class="fg s2"><label>Примечание</label><input id="f-fnotes" placeholder="Заправка, расход за неделю…"></div>
+  </div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const delta=parseFloat(v('f-fdelta'));
+    if(isNaN(delta)||delta===0){toast('Введите ненулевое значение','err');return;}
+    await fetch(`${API}/fuel_reserves/transaction`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({base_id:v('f-fb'),fuel_type:v('f-ftype'),delta,notes:v('f-fnotes')})});
+    pgkFuelReserves=await fetch(`${API}/fuel_reserves`).then(r=>r.json()).catch(()=>[]);
+    closeModal();_setMchTab('fuel');toast(delta>0?`+${delta} л записано`:`${delta} л записано`,'ok');
+  }}]);
+}
+function mchAssignDriver(workerId){
+  const w=pgkWorkers.find(x=>x.id===workerId);if(!w)return;
+  const curMach=pgkMachinery.find(m=>m.driver_id===workerId);
+  const machOpts=`<option value="">— Снять назначение —</option>`+
+    pgkMachinery.map(m=>`<option value="${m.id}" ${m.id===curMach?.id?'selected':''}>${MICONS[m.type]||'🔧'} ${esc(m.name)}</option>`).join('');
+  showModal('👤 Назначить машину — '+esc(w.name),`<div class="fgr fone"><div class="fg"><label>Машина</label><select id="f-mdrv">${machOpts}</select></div></div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const newMid=v('f-mdrv');
+    if(curMach&&curMach.id!==newMid)
+      await fetch(`${API}/pgk/machinery/${curMach.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...curMach,driver_id:null,user_name:un()})});
+    if(newMid){const nm=pgkMachinery.find(x=>x.id===newMid);
+      if(nm)await fetch(`${API}/pgk/machinery/${newMid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...nm,driver_id:workerId,user_name:un()})});}
+    closeModal();await loadPGK();toast('Назначение обновлено','ok');
+  }}]);
+}
+function mchSpareAdd(){
+  const grpOpts=`<option value="">— Без группы —</option>`+pgkSpareGroups.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('');
+  showModal('🔧 Новая запчасть',`<div class="fgr">
+    <div class="fg s2"><label>Название *</label><input id="f-spn" placeholder="Фильтр масляный"></div>
+    <div class="fg"><label>Количество</label><input id="f-spq" type="number" value="0" step="any" min="0"></div>
+    <div class="fg"><label>Единица</label><input id="f-spu" value="шт" placeholder="шт, л, м, кг…"></div>
+    <div class="fg s2"><label>Место хранения</label><input id="f-spl" placeholder="Склад А, Бокс №2…"></div>
+    <div class="fg s2"><label>Группа</label><select id="f-spg">${grpOpts}</select></div>
+    <div class="fg s2"><label>Примечание</label><input id="f-spnote"></div>
+  </div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:async()=>{
+    const name=v('f-spn').trim();if(!name){toast('Введите название','err');return;}
+    await fetch(`${API}/spare_parts`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,quantity:parseFloat(v('f-spq'))||0,unit:v('f-spu')||'шт',location:v('f-spl'),group_id:v('f-spg')||null,notes:v('f-spnote')})});
+    pgkSpares=await fetch(`${API}/spare_parts`).then(r=>r.json()).catch(()=>[]);
+    closeModal();_setMchTab('spares');toast('Добавлено','ok');
+  }}]);
+}
+function mchSpareEdit(id){
+  const s=pgkSpares.find(x=>x.id===id);if(!s)return;
+  const grpOpts=`<option value="">— Без группы —</option>`+pgkSpareGroups.map(g=>`<option value="${g.id}" ${g.id===s.group_id?'selected':''}>${esc(g.name)}</option>`).join('');
+  showModal('✏️ Редактировать запчасть',`<div class="fgr">
+    <div class="fg s2"><label>Название *</label><input id="f-spn" value="${esc(s.name)}"></div>
+    <div class="fg"><label>Количество</label><input id="f-spq" type="number" value="${s.quantity||0}" step="any" min="0"></div>
+    <div class="fg"><label>Единица</label><input id="f-spu" value="${esc(s.unit||'шт')}"></div>
+    <div class="fg s2"><label>Место хранения</label><input id="f-spl" value="${esc(s.location||'')}"></div>
+    <div class="fg s2"><label>Группа</label><select id="f-spg">${grpOpts}</select></div>
+    <div class="fg s2"><label>Примечание</label><input id="f-spnote" value="${esc(s.notes||'')}"></div>
+  </div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const name=v('f-spn').trim();if(!name){toast('Введите название','err');return;}
+    await fetch(`${API}/spare_parts/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,quantity:parseFloat(v('f-spq'))||0,unit:v('f-spu')||'шт',location:v('f-spl'),group_id:v('f-spg')||null,notes:v('f-spnote')})});
+    pgkSpares=await fetch(`${API}/spare_parts`).then(r=>r.json()).catch(()=>[]);
+    closeModal();_setMchTab('spares');toast('Сохранено','ok');
+  }}]);
+}
+async function mchSpareDel(id){
+  if(!confirm('Удалить запчасть?'))return;
+  await fetch(`${API}/spare_parts/${id}`,{method:'DELETE'});
+  pgkSpares=pgkSpares.filter(s=>s.id!==id);_setMchTab('spares');toast('Удалено','ok');
+}
+function mchSpareAddGroup(){
+  showModal('＋ Новая группа',`<div class="fgr fone"><div class="fg"><label>Название *</label><input id="f-sgn" placeholder="Фильтры, Масла, Шины…"></div></div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:async()=>{
+    const name=v('f-sgn').trim();if(!name){toast('Введите название','err');return;}
+    await fetch(`${API}/spare_groups`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    pgkSpareGroups=await fetch(`${API}/spare_groups`).then(r=>r.json()).catch(()=>[]);
+    closeModal();_setMchTab('spares');toast('Группа добавлена','ok');
+  }}]);
+}
+function mchSpareEditGroup(id){
+  const g=pgkSpareGroups.find(x=>x.id===id);if(!g)return;
+  showModal('✏️ Переименовать группу',`<div class="fgr fone"><div class="fg"><label>Название</label><input id="f-sgn" value="${esc(g.name)}"></div></div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const name=v('f-sgn').trim();if(!name){toast('Введите название','err');return;}
+    await fetch(`${API}/spare_groups/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    pgkSpareGroups=await fetch(`${API}/spare_groups`).then(r=>r.json()).catch(()=>[]);
+    closeModal();_setMchTab('spares');toast('Переименовано','ok');
+  }}]);
+}
+async function mchSpareDelGroup(id){
+  const g=pgkSpareGroups.find(x=>x.id===id);if(!g)return;
+  if(!confirm(`Удалить группу "${g.name}"? Запчасти останутся без группы.`))return;
+  await fetch(`${API}/spare_groups/${id}`,{method:'DELETE'});
+  pgkSpareGroups=pgkSpareGroups.filter(x=>x.id!==id);
+  pgkSpares=pgkSpares.map(s=>s.group_id===id?{...s,group_id:null}:s);
+  if(window._mchSpareGroup===id)window._mchSpareGroup=null;
+  _setMchTab('spares');toast('Группа удалена','ok');
 }
 
 async function openMachDetail(mid){
   const m=pgkMachinery.find(x=>x.id===mid);if(!m)return;
   const b=bases.find(x=>x.id===m.base_id);
-  const st={working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'};
-  const drill=pgkMachinery.find(x=>x.id===m.drill_id);
-  const isDrill=DRILL_TYPES.includes(m.type);
-  const transport=isDrill&&m.drill_id?pgkMachinery.find(x=>x.id===m.drill_id):null;
-
-  // Fetch vol_progress for drills
-  let volHtml='';
-  if(isDrill){
-    try{
-      const vp=await fetch(`${API}/pgk/machinery/${mid}/vol_progress`).then(r=>r.json()).catch(()=>[]);
-      if(vp.length){
-        const bySite={};
-        vp.forEach(p=>{if(!bySite[p.site_name])bySite[p.site_name]=[];bySite[p.site_name].push(p);});
-        volHtml=`<h4 style="font-size:11px;font-weight:700;margin:10px 0 6px">📐 Выполненные объёмы (${vp.length} записей)</h4>`+
-          Object.keys(bySite).map(sn=>`<div style="font-size:10px;font-weight:700;color:var(--acc);margin:6px 0 3px">🏗 ${esc(sn)}</div>`+
-            bySite[sn].map(p=>`<div style="padding:4px 0;border-bottom:1px solid var(--bd);font-size:11px"><div><span style="font-weight:600;color:var(--acc)">${p.completed} ${esc(p.unit)}</span> — ${esc(p.vol_name)}</div><div style="font-size:9px;color:var(--tx3)">${fmt(p.work_date)}${p.notes?' · '+esc(p.notes):''}</div></div>`).join('')
-          ).join('');
-      }
-    }catch(e){}
-  }
-
-  const html=`<div style="margin-bottom:12px">
-    <div style="font-size:14px;font-weight:800">${MICONS[m.type]||'🔧'} ${esc(m.name)}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:2px">${esc(m.type||'—')}${m.plate_number?' · '+esc(m.plate_number):''}</div>
-    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-      <span class="wt-badge ${st[m.status||'working']?'wbs-'+(m.status||'working'):'wbs-idle'}">${st[m.status||'working']||m.status}</span>
-      ${b?`<span style="font-size:11px;color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="font-size:11px;color:var(--tx3)">Не на базе</span>'}
+  const driver=pgkWorkers.find(x=>x.id===m.driver_id);
+  const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
+  const statLbl={working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'};
+  const st=m.status||'working';
+  const html=`
+  <div class="wdc-hd">
+    <div class="mdc-ico">${MICONS[m.type]||'🔧'}</div>
+    <div class="wdc-info">
+      <div class="wdc-name">${esc(m.name)}</div>
+      <div class="wdc-role">${esc(m.type||'—')}${m.plate_number?` · <code style="font-size:11px;background:var(--s3);padding:1px 5px;border-radius:3px">${esc(m.plate_number)}</code>`:''}</div>
+      <div class="wdc-chips">
+        <span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span>
+        ${b?`<span class="wdc-chip" style="color:var(--bpc);background:var(--bpl);border-color:var(--bpb)">🏕 ${esc(b.name)}</span>`:''}
+        ${driver?`<span class="wdc-chip" style="color:var(--geo);background:var(--geol);border-color:#7dd3fc">👤 ${esc(driver.name)}</span>`:''}
+      </div>
     </div>
   </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;font-size:11px">
-    ${m.vehicle_type?`<div><span style="color:var(--tx3)">Тип ТС:</span> ${esc(m.vehicle_type)}</div>`:''}
-    ${isDrill&&transport?`<div><span style="color:var(--tx3)">Транспорт:</span> 🚙 ${esc(transport.name)}</div>`:''}
-    ${!isDrill&&drill?`<div><span style="color:var(--tx3)">Буровая:</span> ⛏ ${esc(drill.name)}</div>`:''}
-    ${m.lat&&m.lng?`<div><span style="color:var(--tx3)">Позиция:</span> ${parseFloat(m.lat).toFixed(5)}, ${parseFloat(m.lng).toFixed(5)}</div>`:''}
+  <div class="wdc-actions">
+    <button class="btn bs wdc-btn" onclick="pgkAssignMachBaseModal('${mid}')">🏕 База</button>
+    ${m.lat&&m.lng?`<button class="btn bg2 wdc-btn" onclick="closeModal();flyToMach('${mid}')">📍 На карте</button>`:''}
+    <button class="btn bs wdc-btn" onclick="closeModal();showMachHistory('${mid}')">🕐 История</button>
   </div>
-  ${m.notes?`<div style="font-size:11px;color:var(--tx2);background:var(--s2);border-radius:6px;padding:8px 10px;margin-bottom:10px">📝 ${esc(m.notes)}</div>`:''}
-  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-    <button class="btn bp bsm" onclick="pgkAssignMachBaseModal('${mid}')">🏕 Назначить на базу</button>
-    ${m.lat&&m.lng?`<button class="btn bg2 bsm" onclick="closeModal();flyToMach('${mid}')">📍 На карте</button>`:''}
-    <button class="btn bs bsm" onclick="closeModal();showMachHistory('${mid}')">🕐 История</button>
-    ${isDrill?`<button class="btn bs bsm" onclick="closeModal();openDrillStats('${mid}')">📐 Объёмы</button>`:''}
+  <div style="font-size:10px;font-weight:700;color:var(--tx3);margin-bottom:6px;letter-spacing:.4px;text-transform:uppercase">Быстрый статус</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:${m.notes?'10':'0'}px">
+    ${Object.entries(statLbl).map(([k,lbl])=>`<button class="btn bsm ${st===k?'bp':'bs'}" onclick="pgkQuickStatus('${mid}','${k}');openMachDetail('${mid}')">${lbl}</button>`).join('')}
   </div>
-  <div style="font-size:10px;font-weight:700;color:var(--tx3);margin-bottom:4px">БЫСТРЫЙ СТАТУС</div>
-  <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px">
-    ${Object.entries({working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'}).map(([k,v])=>`<button class="btn bsm ${m.status===k?'bp':'bs'}" onclick="pgkQuickStatus('${mid}','${k}');openMachDetail('${mid}')">${v}</button>`).join('')}
-  </div>
-  ${volHtml}`;
-
+  ${m.notes?`<div style="font-size:11px;color:var(--tx2);background:var(--s2);border-radius:var(--rs);padding:8px 10px;margin-top:10px">📝 ${esc(m.notes)}</div>`:''}`;
   showModal((MICONS[m.type]||'🔧')+' '+esc(m.name),html,[
     {label:'Закрыть',cls:'bs',fn:closeModal},
     {label:'✏️ Редактировать',cls:'bp',fn:()=>{closeModal();pgkEditMach(mid);}}
   ]);
+
 }
 
 async function pgkAssignMachBaseModal(mid){
@@ -1511,115 +1677,49 @@ async function pgkDelWorker(id){if(!confirm('Удалить?'))return;await apiD
 
 // ── PGK MACHINERY CRUD ─────────────────────────────────────
 function pgkAddMach(){
+  const baseOpts=`<option value="">— не на базе —</option>`+bases.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
   showModal('Добавить технику',`<div class="fgr">
     <div class="fg s2"><label>Название *</label><input id="f-n" placeholder="ТРЭКОЛ-39294"></div>
-    <div class="fg"><label>Категория</label><select id="f-cat" onchange="pgkMachCatChange()">
-      <option value="transport">🚙 Транспорт</option>
-      <option value="drill">⛏ Буровая установка</option>
-    </select></div>
-    <div class="fg" id="f-tw"><label>Тип</label><select id="f-t">
-      ${TRANSPORT_TYPES.map(t=>`<option>${t}</option>`).join('')}
-    </select></div>
-    <div class="fg"><label>Номер / Серийный №</label><input id="f-pl"></div>
-    <div class="fg s2" id="f-dw" style="display:none"><label>Прикрепить к транспорту</label>
-      <select id="f-dh"><option value="">— не прикреплять —</option>
-        ${pgkMachinery.filter(m=>TRANSPORT_TYPES.includes(m.type)).map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}
-      </select></div>
+    <div class="fg"><label>Тип</label><select id="f-t">${TRANSPORT_TYPES.map(t=>`<option>${t}</option>`).join('')}</select></div>
+    <div class="fg"><label>Гос. номер</label><input id="f-pl" placeholder="А123БВ"></div>
+    <div class="fg s2"><label>База</label><select id="f-b">${baseOpts}</select></div>
     <div class="fg s2"><label>Статус</label><select id="f-st">
-      <option value="working">✅ В работе</option><option value="idle">⏸ Стоит</option><option value="broken">🔴 Сломана</option>
+      <option value="working">✅ В работе</option><option value="idle">⏸ Простой</option><option value="broken">🔴 Сломана</option>
     </select></div>
     <div class="fg s2"><label>Примечания</label><textarea id="f-nt"></textarea></div>
-  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:async()=>{
+  </div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:async()=>{
     const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
-    const cat=v('f-cat'),type=v('f-t');
     await fetch(`${API}/pgk/machinery`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name,type,vehicle_type:cat,drill_id:v('f-dh')||null,plate_number:v('f-pl'),status:v('f-st')||'working',notes:v('f-nt'),user_name:un()})});
-    closeModal();await loadPGK();
-    if(cat==='transport'){toast('⚠️ Не забудьте назначить водителя на технику '+name,'warn');}
-    await loadAll();toast('Добавлено','ok');
+      body:JSON.stringify({name,type:v('f-t'),plate_number:v('f-pl'),base_id:v('f-b')||null,status:v('f-st')||'working',notes:v('f-nt'),user_name:un()})});
+    closeModal();await loadPGK();await loadAll();toast('Добавлено','ok');
   }}]);
-}
-function pgkMachCatChange(){
-  const cat=v('f-cat');
-  const tw=document.getElementById('f-tw');
-  const dw=document.getElementById('f-dw');
-  const ts=document.getElementById('f-t');
-  if(!ts)return;
-  ts.innerHTML=(cat==='drill'?DRILL_TYPES:TRANSPORT_TYPES).map(t=>`<option>${t}</option>`).join('');
-  if(dw)dw.style.display=cat==='drill'?'':'none';
 }
 function pgkEditMach(id){
   const m=pgkMachinery.find(x=>x.id===id);if(!m)return;
-  const isDrill=DRILL_TYPES.includes(m.type);
-  const types=isDrill?DRILL_TYPES:TRANSPORT_TYPES;
-  const transports=pgkMachinery.filter(x=>TRANSPORT_TYPES.includes(x.type));
-  const attachedDrill=!isDrill?pgkMachinery.find(x=>x.drill_id===id&&DRILL_TYPES.includes(x.type)):null;
+  const baseOpts=`<option value="">— не на базе —</option>`+bases.map(b=>`<option value="${b.id}" ${m.base_id===b.id?'selected':''}>${esc(b.name)}</option>`).join('');
+  const driverOpts=`<option value="">— без водителя —</option>`+pgkWorkers.filter(w=>w.status!=='fired').map(w=>`<option value="${w.id}" ${m.driver_id===w.id?'selected':''}>${esc(w.name)}</option>`).join('');
   showModal('Редактировать — '+esc(m.name),`<div class="fgr">
     <div class="fg s2"><label>Название *</label><input id="f-n" value="${esc(m.name)}"></div>
-    <div class="fg"><label>Тип</label><select id="f-t">${types.map(t=>`<option ${m.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
-    <div class="fg"><label>Номер / Серийный №</label><input id="f-pl" value="${esc(m.plate_number||'')}"></div>
+    <div class="fg"><label>Тип</label><select id="f-t">${TRANSPORT_TYPES.map(t=>`<option ${m.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
+    <div class="fg"><label>Гос. номер</label><input id="f-pl" value="${esc(m.plate_number||'')}"></div>
+    <div class="fg s2"><label>База</label><select id="f-b">${baseOpts}</select></div>
+    <div class="fg s2"><label>Водитель</label><select id="f-drv">${driverOpts}</select></div>
     <div class="fg s2"><label>Статус</label><select id="f-st">
       <option value="working" ${m.status==='working'?'selected':''}>✅ В работе</option>
-      <option value="idle" ${m.status==='idle'?'selected':''}>⏸ Стоит</option>
+      <option value="idle" ${m.status==='idle'?'selected':''}>⏸ Простой</option>
       <option value="broken" ${m.status==='broken'?'selected':''}>🔴 Сломана</option>
     </select></div>
-    ${isDrill?`<div class="fg s2"><label>Прикрепить к транспорту</label>
-      <select id="f-dh"><option value="">— не прикреплять —</option>
-        ${transports.map(t=>`<option value="${t.id}" ${m.drill_id===t.id?'selected':''}>${esc(t.name)}</option>`).join('')}
-      </select></div>`:''}
-    ${attachedDrill?`<div style="font-size:10px;color:var(--tx2);margin:4px 0">⛏ Прикреплена: <strong>${esc(attachedDrill.name)}</strong></div>`:''}
     <div class="fg s2"><label>Примечания</label><textarea id="f-nt">${esc(m.notes||'')}</textarea></div>
-  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+  </div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
     const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
-    const newDrillHost=isDrill?(v('f-dh')||null):m.drill_id;
-    const upd={...m,name,type:v('f-t'),plate_number:v('f-pl'),status:v('f-st')||'working',notes:v('f-nt'),user_name:un()};
-    if(isDrill){upd.drill_id=newDrillHost;if(newDrillHost){const host=pgkMachinery.find(x=>x.id===newDrillHost);if(host)upd.base_id=host.base_id;}}
-    await fetch(`${API}/pgk/machinery/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(upd)});
-    closeModal();await loadPGK();await loadAll();
-    if(!isDrill){
-      const hasDriver=pgkWorkers.some(w=>w.machine_id===id);
-      if(!hasDriver)toast('⚠️ Транспорт '+name+' — водитель не назначен!','warn');
-      else toast('Обновлено','ok');
-    } else toast('Обновлено','ok');
+    await fetch(`${API}/pgk/machinery/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({...m,name,type:v('f-t'),plate_number:v('f-pl'),base_id:v('f-b')||null,driver_id:v('f-drv')||null,status:v('f-st')||'working',notes:v('f-nt'),user_name:un()})});
+    closeModal();await loadPGK();await loadAll();toast('Обновлено','ok');
   }}]);
 }
 
-async function openDrillStats(machId){
-  const m=pgkMachinery.find(x=>x.id===machId);if(!m)return;
-  const volProg=await fetch(`${API}/pgk/machinery/${machId}/vol_progress`).then(r=>r.json()).catch(()=>[]);
-  const bySite={};
-  volProg.forEach(function(p){
-    if(!bySite[p.site_name])bySite[p.site_name]=[];
-    bySite[p.site_name].push(p);
-  });
-  const unitTotals={};
-  volProg.forEach(function(p){const u=p.unit||'шт';unitTotals[u]=(unitTotals[u]||0)+(+p.completed||0);});
-  const totalStr=Object.keys(unitTotals).map(u=>unitTotals[u]+' '+u).join(', ')||'0';
-  const html=`<div style="margin-bottom:10px">
-    <div style="font-size:13px;font-weight:800">⛏️ ${esc(m.name)}</div>
-    <div style="font-size:11px;color:var(--tx2)">${esc(m.type||'')} ${m.plate_number?'· '+m.plate_number:''}</div>
-    <div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">
-      <div style="font-size:11px">Всего записей: <strong>${volProg.length}</strong></div>
-      <div style="font-size:11px;color:var(--acc)">Общий объём: <strong>${totalStr}</strong></div>
-    </div>
-  </div>
-  ${!volProg.length?'<div class="empty">Нет записей объёмов</div>':Object.keys(bySite).map(sn=>`
-    <div style="font-size:10px;font-weight:700;color:var(--acc);margin:8px 0 3px">🏗 ${esc(sn)}</div>
-    ${bySite[sn].map(p=>`<div style="padding:4px 0;border-bottom:1px solid var(--bd);font-size:11px">
-      <div><span style="font-weight:700;color:var(--acc)">${p.completed} ${esc(p.unit)}</span> — ${esc(p.vol_name)}</div>
-      <div style="font-size:9px;color:var(--tx3)">${fmt(p.work_date)}${p.act_number?' · Акт №'+p.act_number:''}${p.notes?' · '+esc(p.notes):''}</div>
-    </div>`).join('')}
-  `).join('')}`;
-  showModal('📐 Объёмы буровой — '+esc(m.name),html,[
-    {label:'Закрыть',cls:'bs',fn:closeModal},
-    {label:'🗑 Очистить историю',cls:'bd',fn:async()=>{
-      if(!confirm('Удалить всю историю объёмов для '+m.name+'?'))return;
-      for(const p of volProg)await fetch(`${API}/vol_progress/${p.id}`,{method:'DELETE'}).catch(()=>{});
-      closeModal();if(currentObj)await refreshCurrent();toast('История объёмов очищена','ok');
-    }}
-  ]);
-}
-async function savePGKMach(id){} // legacy stub
 
 async function pgkDelMach(id){if(!confirm('Удалить?'))return;await apiDelUndo(`/pgk/machinery/${id}`,'Техника удалена',async()=>{await loadPGK();await loadAll();});}
 

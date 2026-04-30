@@ -188,6 +188,10 @@ async function getDb() {
   ta("ALTER TABLE kml_layers ADD COLUMN max_zoom INTEGER DEFAULT 20");
   ta("ALTER TABLE kml_layers ADD COLUMN size REAL DEFAULT 1");
   ta("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+  ta("ALTER TABLE pgk_machinery ADD COLUMN driver_id TEXT");
+  ta(`CREATE TABLE IF NOT EXISTS fuel_reserves (id TEXT PRIMARY KEY, base_id TEXT NOT NULL, fuel_type TEXT NOT NULL DEFAULT 'Дизельное топливо', amount REAL DEFAULT 0, notes TEXT DEFAULT '', updated_at TEXT DEFAULT (datetime('now')))`);
+  ta(`CREATE TABLE IF NOT EXISTS spare_parts_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, sort_order INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))`);
+  ta(`CREATE TABLE IF NOT EXISTS spare_parts (id TEXT PRIMARY KEY, group_id TEXT, name TEXT NOT NULL, quantity REAL DEFAULT 0, unit TEXT DEFAULT 'шт', location TEXT DEFAULT '', notes TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')))`);
 
   return _db;
 }
