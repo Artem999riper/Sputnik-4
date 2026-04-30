@@ -485,6 +485,33 @@ body.panel-open #gruz-page{right:var(--pw)}
 .rem-open{border-color:#fca5a5}.rem-open .rem-dot{background:var(--red)}
 .rem-closed{opacity:.65}.rem-closed .rem-dot{background:var(--grn)}
 
+/* ── Worker detail card (modal) ── */
+.wdc-hd{display:flex;align-items:flex-start;gap:14px;padding:4px 0 16px;border-bottom:1px solid var(--bd);margin-bottom:14px}
+.wdc-av{width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,var(--acc),var(--bpc));color:#fff;font-size:19px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;letter-spacing:-1px;box-shadow:0 3px 10px rgba(26,86,219,.3)}
+.wdc-info{flex:1;min-width:0}
+.wdc-name{font-size:18px;font-weight:800;color:var(--tx);line-height:1.2;margin-bottom:3px}
+.wdc-role{font-size:12px;color:var(--tx2);margin-bottom:8px}
+.wdc-chips{display:flex;flex-wrap:wrap;gap:5px}
+.wdc-chip{display:inline-flex;align-items:center;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;border:1px solid}
+.wdc-actions{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.wdc-btn{padding:8px 18px!important;font-size:13px!important;border-radius:var(--rs)!important}
+.wdc-tabs{display:flex;border-bottom:2px solid var(--bd);margin-bottom:14px}
+.wdc-tab{background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;padding:7px 14px;font-size:12px;font-weight:600;color:var(--tx3);cursor:pointer;transition:all .15s;font-family:inherit}
+.wdc-tab:hover{color:var(--tx2)}.wdc-tab.on{color:var(--acc);border-bottom-color:var(--acc)}
+.wdc-panel{animation:fadeIn .15s ease both}
+.wdc-row{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px;align-items:flex-start}
+.wdc-row:last-child{border-bottom:none}
+.wdc-lbl{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--tx3);min-width:90px;padding-top:1px;flex-shrink:0}
+.wdc-shift{padding:8px 10px;background:var(--s2);border-radius:var(--rs);margin-bottom:6px;border-left:3px solid var(--acc)}
+.wdc-shift-base{font-size:12px;font-weight:700;color:var(--tx);margin-bottom:2px}
+.wdc-shift-meta{font-size:10px;color:var(--tx3)}.wdc-shift-notes{font-size:11px;color:var(--tx2);margin-top:3px}
+.wdc-vol-site{font-size:11px;font-weight:800;color:var(--acc);margin:10px 0 5px;letter-spacing:.3px}
+.wdc-vol-row{padding:5px 0;border-bottom:1px solid var(--bd);font-size:11px}
+.wdc-vol-row:last-child{border-bottom:none}
+.wdc-vol-val{font-weight:700;color:var(--acc)}
+.wdc-vol-date{font-size:9px;color:var(--tx3);margin-top:1px}
+.wdc-empty{font-size:11px;color:var(--tx3);padding:12px 0;text-align:center}
+
 /* ── Progress ── */
 .pbw{margin-bottom:8px}
 .pbh{display:flex;justify-content:space-between;font-size:10px;font-weight:600;margin-bottom:3px}

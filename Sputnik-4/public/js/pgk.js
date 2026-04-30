@@ -333,7 +333,7 @@ function workerCtxMenu(ev,wid){
     {i:'✏️',l:'Редактировать',f:()=>pgkEditWorker(wid)},
     {i:'📝',l:'Добавить примечание',f:()=>pgkEditWorkerNotes(wid)},
     {sep:true},
-    {i:'📍',l:'Назначить на базу',f:()=>openStartShiftModal(wid)},
+    {i:'🏕',l:'Начать вахту',f:()=>openStartShiftModal(wid)},
     ...(w.start_date?[{i:'🏁',l:'Завершить вахту',f:()=>openEndShiftModal(wid)}]:[]),
     {sep:true},
     {i:'🔄',l:'Изменить статус ▸',f:()=>{}},
@@ -359,71 +359,97 @@ async function pgkChangeWorkerStatus(wid,status){
   await loadPGK();
 }
 async function openWorkerDetail(wid){
-  // Re-fetch fresh worker data so we always see current start_date/base_id
   try{
     const all=await fetch(`${API}/pgk/workers`).then(r=>r.json());
     const fresh=all.find(x=>x.id===wid);
     if(fresh){const i=pgkWorkers.findIndex(x=>x.id===wid);if(i>=0)pgkWorkers[i]=fresh;}
   }catch(e){}
   const w=pgkWorkers.find(x=>x.id===wid);if(!w)return;
-  const [shifts, volProg] = await Promise.all([
+  const [shifts,volProg]=await Promise.all([
     fetch(`${API}/pgk/workers/${wid}/shifts`).then(r=>r.json()).catch(()=>[]),
     fetch(`${API}/pgk/workers/${wid}/vol_progress`).then(r=>r.json()).catch(()=>[])
   ]);
   const b=bases.find(x=>x.id===w.base_id);
-  const today=new Date().toISOString().split('T')[0];
-  // Group vol_progress by site
+  const parts=w.name.trim().split(/\s+/);
+  const initials=parts.slice(0,2).map(p=>p[0]||'').join('').toUpperCase();
+  const st=w.status||'home';
+  const stStyle={
+    working:'color:var(--grn);background:var(--grnl);border-color:#a7f3d0',
+    home:'color:var(--tx2);background:var(--s3);border-color:var(--bd)',
+    fired:'color:var(--red);background:var(--redl);border-color:#fca5a5'
+  };
+  const onShift=!!w.start_date;
   const vpBySite={};
-  volProg.forEach(function(p){
-    if(!vpBySite[p.site_name])vpBySite[p.site_name]=[];
-    vpBySite[p.site_name].push(p);
-  });
-  const vpTotal=volProg.length;
-  const html=`<div style="margin-bottom:10px">
-    <div style="font-size:14px;font-weight:800">${esc(w.name)}</div>
-    <div style="font-size:11px;color:var(--tx2)">${w.role||'—'}</div>
-    <div style="font-size:10px;margin-top:4px">${WORKER_STATUSES[w.status||'home']||''} ${b?'· 🏕 '+esc(b.name):''}</div>
+  volProg.forEach(p=>{if(!vpBySite[p.site_name])vpBySite[p.site_name]=[];vpBySite[p.site_name].push(p);});
+  const html=`
+  <div class="wdc-hd">
+    <div class="wdc-av">${initials}</div>
+    <div class="wdc-info">
+      <div class="wdc-name">${esc(w.name)}</div>
+      <div class="wdc-role">${esc(w.role||'—')}</div>
+      <div class="wdc-chips">
+        <span class="wdc-chip" style="${stStyle[st]||stStyle.home}">${WORKER_STATUSES[st]||''}</span>
+        ${b?`<span class="wdc-chip" style="color:var(--bpc);background:var(--bpl);border-color:var(--bpb)">🏕 ${esc(b.name)}</span>`:''}
+        ${onShift?`<span class="wdc-chip" style="color:var(--acc);background:var(--accl);border-color:var(--accm)">📅 с ${fmt(w.start_date)}</span>`:''}
+      </div>
+    </div>
   </div>
-  ${w.base_id?`<div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap">
-    <button class="btn bp bsm" onclick="openStartShiftModal('${wid}')">📍 Назначить на базу</button>
-    ${w.start_date?`<button class="btn bs bsm" onclick="openEndShiftModal('${wid}')">🏁 Завершить вахту</button>`:''}
-  </div>`:`<div style="margin-bottom:10px"><button class="btn bp bsm" onclick="openStartShiftModal('${wid}')">📍 Назначить на базу</button></div>`}
-  <h4 style="font-size:11px;font-weight:700;margin-bottom:6px">📋 История вахт (${shifts.length})</h4>
-  ${shifts.map(s=>`<div style="padding:5px 0;border-bottom:1px solid var(--bd);font-size:11px">
-    <div style="font-weight:600">${esc(s.base_name||'—')} · ${s.days||0} дн.</div>
-    <div style="font-size:9px;color:var(--tx3)">${fmt(s.start_date)}${s.end_date?' — '+fmt(s.end_date):''}${s.notes?' · '+esc(s.notes):''}</div>
-  </div>`).join('')||'<div style="font-size:11px;color:var(--tx3)">Нет вахт</div>'}
-  ${vpTotal?`<h4 style="font-size:11px;font-weight:700;margin:10px 0 6px">📐 Выполненные объёмы (${vpTotal} записей)</h4>
-  ${Object.keys(vpBySite).map(sn=>`
-    <div style="font-size:10px;font-weight:700;color:var(--acc);margin:6px 0 3px">🏗 ${esc(sn)}</div>
-    ${vpBySite[sn].map(p=>`<div style="padding:4px 0;border-bottom:1px solid var(--bd);font-size:11px">
-      <div><span style="font-weight:600;color:var(--acc)">${p.completed} ${esc(p.unit)}</span> — ${esc(p.vol_name)}</div>
-      <div style="font-size:9px;color:var(--tx3)">${fmt(p.work_date)}${p.notes?' · '+esc(p.notes):''}</div>
-    </div>`).join('')}
-  `).join('')}`:''}
-  `;
+  <div class="wdc-actions">
+    <button class="btn ${onShift?'bs':'bp'} wdc-btn" onclick="closeModal();openStartShiftModal('${wid}')">
+      🏕 ${onShift?'Переназначить вахту':'Начать вахту'}
+    </button>
+    ${onShift?`<button class="btn bd wdc-btn" onclick="closeModal();openEndShiftModal('${wid}')">🏁 Завершить вахту</button>`:''}
+  </div>
+  <div class="wdc-tabs">
+    <button class="wdc-tab on" onclick="wdcSwitch(this,'main')">Основное</button>
+    <button class="wdc-tab" onclick="wdcSwitch(this,'shifts')">История вахт (${shifts.length})</button>
+    <button class="wdc-tab" onclick="wdcSwitch(this,'vols')">Объёмы (${volProg.length})</button>
+  </div>
+  <div id="wdc-main" class="wdc-panel">
+    ${w.phone?`<div class="wdc-row"><span class="wdc-lbl">Телефон</span><span>${esc(w.phone)}</span></div>`:''}
+    ${w.notes?`<div class="wdc-row"><span class="wdc-lbl">Примечания</span><span style="color:var(--tx2)">${esc(w.notes)}</span></div>`:''}
+    ${!w.phone&&!w.notes?'<div class="wdc-empty">Дополнительная информация не указана</div>':''}
+  </div>
+  <div id="wdc-shifts" class="wdc-panel" style="display:none">
+    ${shifts.length?shifts.map(s=>`<div class="wdc-shift">
+      <div class="wdc-shift-base">${esc(s.base_name||'—')} · <b>${s.days||0} дн.</b></div>
+      <div class="wdc-shift-meta">${fmt(s.start_date)}${s.end_date?' → '+fmt(s.end_date):' — по сей день'}</div>
+      ${s.notes?`<div class="wdc-shift-notes">${esc(s.notes)}</div>`:''}
+    </div>`).join(''):'<div class="wdc-empty">Вахт не было</div>'}
+  </div>
+  <div id="wdc-vols" class="wdc-panel" style="display:none">
+    ${volProg.length?Object.keys(vpBySite).map(sn=>`
+      <div class="wdc-vol-site">🏗 ${esc(sn)}</div>
+      ${vpBySite[sn].map(p=>`<div class="wdc-vol-row">
+        <div><span class="wdc-vol-val">${p.completed} ${esc(p.unit)}</span> — ${esc(p.vol_name)}</div>
+        <div class="wdc-vol-date">${fmt(p.work_date)}${p.notes?' · '+esc(p.notes):''}</div>
+      </div>`).join('')}`).join(''):'<div class="wdc-empty">Нет данных</div>'}
+  </div>`;
   showModal('👤 '+esc(w.name),html,[
     {label:'Закрыть',cls:'bs',fn:closeModal},
     {label:'🗑 Очистить историю',cls:'bd',fn:async()=>{
       if(!confirm('Удалить всю историю вахт и объёмов сотрудника '+w.name+'?'))return;
-      // Delete all shifts (re-fetch to be sure)
       const sh=await fetch(`${API}/pgk/workers/${wid}/shifts`).then(r=>r.json()).catch(()=>[]);
       for(const s2 of sh)await fetch(`${API}/pgk/workers/shifts/${s2.id}`,{method:'DELETE'}).catch(()=>{});
-      // Delete all vol_progress entries (re-fetch to be sure)
       const freshVp=await fetch(`${API}/pgk/workers/${wid}/vol_progress`).then(r=>r.json()).catch(()=>[]);
       for(const vp of freshVp)await fetch(`${API}/vol_progress/${vp.id}`,{method:'DELETE'}).catch(()=>{});
       if(currentObj)await refreshCurrent();
       toast('История очищена','ok');
-      // Reopen modal with fresh empty data
       await openWorkerDetail(wid);
     }},
     {label:'✏️ Редактировать',cls:'bp',fn:()=>{closeModal();pgkEditWorker(wid);}}
   ]);
 }
+function wdcSwitch(el,tabId){
+  document.querySelectorAll('.wdc-tab').forEach(t=>t.classList.remove('on'));
+  document.querySelectorAll('.wdc-panel').forEach(p=>p.style.display='none');
+  el.classList.add('on');
+  const p=document.getElementById('wdc-'+tabId);if(p)p.style.display='block';
+}
 function openStartShiftModal(wid){
   const w=pgkWorkers.find(x=>x.id===wid);if(!w)return;
   const today=new Date().toISOString().split('T')[0];
-  showModal('📍 Назначить на базу — '+esc(w.name),
+  showModal('🏕 Начать вахту — '+esc(w.name),
     `<div class="fgr fone">
       <div class="fg"><label>База</label><select id="f-sb">${bases.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
       <div class="fg"><label>Дата заезда</label><input id="f-sd" type="date" value="${today}"></div>

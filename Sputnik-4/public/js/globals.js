@@ -32,4 +32,3 @@ let siteLayerVisibility={}; // user-toggled visible state for site KML layers
 let vpVisible={}; // per fact-entry visibility toggle
 let drawingFactId=null; // which fact entry is being drawn
 let moveMode=null, moveData=null;
-let kamSiteId=null;
