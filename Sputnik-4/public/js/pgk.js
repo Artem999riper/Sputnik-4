@@ -554,9 +554,6 @@ function _mchBuildPark(view){
   const _mfStatus=window._pgkMFStatus||'';
   const _mfType=window._pgkMFType||'';
 
-  const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
-  const statLbl={working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'};
-
   const baseOpts=`<option value="">Все базы</option>`+bases.map(b=>`<option value="${b.id}" ${_mfBase===b.id?'selected':''}>${esc(b.name)}</option>`).join('');
   const statOpts=`<option value="">Все статусы</option>`+Object.entries(statLbl).map(([k,v])=>`<option value="${k}" ${_mfStatus===k?'selected':''}>${v}</option>`).join('');
   const types=[...new Set(pgkMachinery.map(m=>m.type).filter(Boolean))].sort();
