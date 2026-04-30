@@ -190,18 +190,27 @@ module.exports = (app, getDb, L) => {
     const err = required(['name'], req.body);
     if (err) return res.status(400).json({ error: err });
     const id = uuid();
-    const { name, type, serial_number, base_id, status, responsible, notes } = req.body;
-    run(db(), 'INSERT INTO pgk_equipment(id,name,type,serial_number,base_id,status,responsible,notes)VALUES(?,?,?,?,?,?,?,?)',
-      [id, name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '']);
+    const { name, type, serial_number, base_id, status, responsible, notes, group_id } = req.body;
+    const d = db();
+    run(d, 'INSERT INTO pgk_equipment(id,name,type,serial_number,base_id,status,responsible,notes,group_id)VALUES(?,?,?,?,?,?,?,?,?)',
+      [id, name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '', group_id || '']);
+    if (responsible) {
+      run(d, 'INSERT INTO equipment_responsible_history(id,equipment_id,responsible)VALUES(?,?,?)', [uuid(), id, responsible]);
+    }
     res.json({ id });
   }));
 
   app.put('/api/pgk/equipment/:id', wrap((req, res) => {
     const err = required(['name'], req.body);
     if (err) return res.status(400).json({ error: err });
-    const { name, type, serial_number, base_id, status, responsible, notes } = req.body;
-    run(db(), 'UPDATE pgk_equipment SET name=?,type=?,serial_number=?,base_id=?,status=?,responsible=?,notes=? WHERE id=?',
-      [name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '', req.params.id]);
+    const { name, type, serial_number, base_id, status, responsible, notes, group_id } = req.body;
+    const d = db();
+    const prev = get(d, 'SELECT responsible FROM pgk_equipment WHERE id=?', [req.params.id]);
+    run(d, 'UPDATE pgk_equipment SET name=?,type=?,serial_number=?,base_id=?,status=?,responsible=?,notes=?,group_id=? WHERE id=?',
+      [name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '', group_id || '', req.params.id]);
+    if (responsible && (!prev || prev.responsible !== responsible)) {
+      run(d, 'INSERT INTO equipment_responsible_history(id,equipment_id,responsible)VALUES(?,?,?)', [uuid(), req.params.id, responsible]);
+    }
     res.json({ success: true });
   }));
 
@@ -209,6 +218,44 @@ module.exports = (app, getDb, L) => {
     const _restore = trashAndDelete(db(), 'pgk_equipment', req.params.id);
     if (!_restore) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true, _restore });
+  }));
+
+  app.put('/api/pgk/equipment/:id/group', wrap((req, res) => {
+    run(db(), 'UPDATE pgk_equipment SET group_id=? WHERE id=?', [req.body.group_id || null, req.params.id]);
+    res.json({ success: true });
+  }));
+
+  app.get('/api/equip_groups', wrap((req, res) =>
+    res.json(all(db(), 'SELECT * FROM equipment_groups ORDER BY sort_order, name'))
+  ));
+  app.post('/api/equip_groups', wrap((req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Название обязательно' });
+    const id = uuid();
+    run(db(), 'INSERT INTO equipment_groups(id,name)VALUES(?,?)', [id, name]);
+    res.json({ id });
+  }));
+  app.put('/api/equip_groups/:id', wrap((req, res) => {
+    run(db(), 'UPDATE equipment_groups SET name=? WHERE id=?', [req.body.name, req.params.id]);
+    res.json({ success: true });
+  }));
+  app.delete('/api/equip_groups/:id', wrap((req, res) => {
+    const d = db();
+    run(d, "UPDATE pgk_equipment SET group_id='' WHERE group_id=?", [req.params.id]);
+    run(d, 'DELETE FROM equipment_groups WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  }));
+
+  app.get('/api/equip_responsible_history/:id', wrap((req, res) =>
+    res.json(all(db(), 'SELECT * FROM equipment_responsible_history WHERE equipment_id=? ORDER BY assigned_at DESC', [req.params.id]))
+  ));
+  app.post('/api/equip_responsible_history', wrap((req, res) => {
+    const { equipment_id, responsible, notes } = req.body;
+    if (!equipment_id || !responsible) return res.status(400).json({ error: 'equipment_id и responsible обязательны' });
+    const id = uuid();
+    run(db(), 'INSERT INTO equipment_responsible_history(id,equipment_id,responsible,notes)VALUES(?,?,?,?)',
+      [id, equipment_id, responsible, notes || '']);
+    res.json({ id });
   }));
 
   // ── FUEL RESERVES ─────────────────────────────────────────

@@ -192,6 +192,9 @@ async function getDb() {
   ta(`CREATE TABLE IF NOT EXISTS fuel_reserves (id TEXT PRIMARY KEY, base_id TEXT NOT NULL, fuel_type TEXT NOT NULL DEFAULT 'Дизельное топливо', amount REAL DEFAULT 0, notes TEXT DEFAULT '', updated_at TEXT DEFAULT (datetime('now')))`);
   ta(`CREATE TABLE IF NOT EXISTS spare_parts_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, sort_order INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))`);
   ta(`CREATE TABLE IF NOT EXISTS spare_parts (id TEXT PRIMARY KEY, group_id TEXT, name TEXT NOT NULL, quantity REAL DEFAULT 0, unit TEXT DEFAULT 'шт', location TEXT DEFAULT '', notes TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')))`);
+  ta(`CREATE TABLE IF NOT EXISTS equipment_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, sort_order INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))`);
+  ta(`CREATE TABLE IF NOT EXISTS equipment_responsible_history (id TEXT PRIMARY KEY, equipment_id TEXT NOT NULL, responsible TEXT NOT NULL, assigned_at TEXT DEFAULT (datetime('now')), notes TEXT DEFAULT '')`);
+  ta("ALTER TABLE pgk_equipment ADD COLUMN group_id TEXT DEFAULT ''");
 
   return _db;
 }

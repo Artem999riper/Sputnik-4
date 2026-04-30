@@ -11,10 +11,11 @@ async function loadPGK(){
   ]);
   pgkWorkers=await wr.json();pgkMachinery=await mr.json();
   pgkEquipment=await er.json();bases=await br.json();
-  [pgkFuelReserves,pgkSpareGroups,pgkSpares]=await Promise.all([
+  [pgkFuelReserves,pgkSpareGroups,pgkSpares,pgkEquipGroups]=await Promise.all([
     fetch(`${API}/fuel_reserves`).then(r=>r.json()).catch(()=>[]),
     fetch(`${API}/spare_groups`).then(r=>r.json()).catch(()=>[]),
-    fetch(`${API}/spare_parts`).then(r=>r.json()).catch(()=>[])
+    fetch(`${API}/spare_parts`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/equip_groups`).then(r=>r.json()).catch(()=>[])
   ]);
   await renderPGK();
 }
@@ -870,22 +871,23 @@ function machCtxMenu(ev,mid){
 }
 
 function pgkPageEquipment(pb){
+  const _egGrp=window._pgkEGrp||'';
   const _es=window._pgkESort||'name', _ea=window._pgkEAsc!==false;
   const _efBase=window._pgkEFBase||'';
   const _efStatus=window._pgkEFStatus||'';
-  const _efType=window._pgkEFType||'';
-
   const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
   const statLbl={working:'✅ В работе',idle:'Не используется',broken:'🔴 Неисправно'};
-
   const getBase=e=>(bases.find(x=>x.id===e.base_id)||{}).name||'';
 
   let filtered=[...pgkEquipment].filter(e=>{
+    if(_egGrp==='__none'){if(e.group_id)return false;}
+    else if(_egGrp&&e.group_id!==_egGrp)return false;
     if(_efBase&&e.base_id!==_efBase)return false;
     if(_efStatus&&(e.status||'working')!==_efStatus)return false;
-    if(_efType&&(e.type||'')!==_efType)return false;
     return true;
   });
+  const _q=(window._pgkESearchVal||'').toLowerCase().trim();
+  if(_q)filtered=filtered.filter(e=>(e.name+' '+(e.type||'')+' '+(e.serial_number||'')+' '+(e.responsible||'')+' '+getBase(e)+' '+(e.notes||'')).toLowerCase().includes(_q));
   filtered.sort((a,b)=>{
     let va,vb;
     if(_es==='base'){va=getBase(a);vb=getBase(b);}
@@ -894,116 +896,240 @@ function pgkPageEquipment(pb){
   });
 
   const thSort=(col,lbl)=>`<th class="${_es===col?(_ea?'wt-asc':'wt-desc'):''}" onclick="if(window._pgkESort==='${col}'){window._pgkEAsc=!(window._pgkEAsc!==false);}else{window._pgkESort='${col}';window._pgkEAsc=true;}renderPGK()">${lbl}</th>`;
-
   const baseOpts=`<option value="">Все базы</option>`+bases.map(b=>`<option value="${b.id}" ${_efBase===b.id?'selected':''}>${esc(b.name)}</option>`).join('');
   const statOpts=`<option value="">Все статусы</option>`+Object.entries(statLbl).map(([k,v])=>`<option value="${k}" ${_efStatus===k?'selected':''}>${v}</option>`).join('');
-  const types=[...new Set(pgkEquipment.map(e=>e.type).filter(Boolean))].sort();
-  const typeOpts=`<option value="">Все типы</option>`+types.map(t=>`<option value="${t}" ${_efType===t?'selected':''}>${esc(t)}</option>`).join('');
-
   const byCnt={working:0,idle:0,broken:0};
   pgkEquipment.forEach(e=>{byCnt[e.status||'working']=(byCnt[e.status||'working']||0)+1;});
+
+  const grpSidebar=`
+    <div class="spare-grp-item${!_egGrp?' on':''}" onclick="window._pgkEGrp='';renderPGK()">
+      <span class="spare-grp-nm">Все</span>
+      <span style="font-size:10px;color:var(--tx3);margin-left:4px">${pgkEquipment.length}</span>
+    </div>
+    <div class="spare-grp-item${_egGrp==='__none'?' on':''}" onclick="window._pgkEGrp='__none';renderPGK()">
+      <span class="spare-grp-nm" style="color:var(--tx3)">Без группы</span>
+      <span style="font-size:10px;color:var(--tx3);margin-left:4px">${pgkEquipment.filter(e=>!e.group_id).length}</span>
+    </div>
+    ${pgkEquipGroups.map(g=>{
+      const cnt=pgkEquipment.filter(e=>e.group_id===g.id).length;
+      const _gid=escAttr(g.id);
+      return `<div class="spare-grp-item${_egGrp===g.id?' on':''}" onclick="window._pgkEGrp='${_gid}';renderPGK()"
+        ondragover="event.preventDefault();this.style.background='var(--accl)'" ondragleave="this.style.background=''" ondrop="equipDropToGroup(event,'${_gid}');this.style.background=''">
+        <span class="spare-grp-nm">${esc(g.name)}</span>
+        <span style="font-size:10px;color:var(--tx3);margin-left:4px">${cnt}</span>
+        <span class="spare-grp-acts">
+          <button class="btn bs bsm" style="padding:1px 5px;font-size:10px" onclick="event.stopPropagation();equipGrpEdit('${_gid}','${esc(g.name).replace(/'/g,"\\'")}')">✏️</button>
+          <button class="btn bs bsm" style="padding:1px 5px;font-size:10px;color:var(--red)" onclick="event.stopPropagation();equipGrpDel('${_gid}')">🗑</button>
+        </span>
+      </div>`;
+    }).join('')}
+    <button class="btn bs bsm" style="width:100%;margin-top:6px;font-size:11px" onclick="equipGrpAdd()">＋ Группа</button>`;
 
   const rows=filtered.map((e,i)=>{
     const b=bases.find(x=>x.id===e.base_id);
     const st=e.status||'working';
     const _id=escAttr(e.id);
-    return `<tr data-eid="${e.id}"
-      data-search="${esc((e.name+' '+(e.type||'')+' '+(e.serial_number||'')+' '+(e.responsible||'')+' '+(b?b.name:'')+' '+(e.notes||'')).toLowerCase())}"
+    return `<tr data-eid="${e.id}" draggable="true"
+      ondragstart="equipDragStart(event,'${_id}')"
       oncontextmenu="event.preventDefault();equipCtxMenu(event,'${_id}')">
-      <td style="text-align:center;color:var(--tx3);font-size:10px;font-weight:600">${i+1}</td>
+      <td style="text-align:center;width:28px"><input type="checkbox" class="eq-chk" data-id="${e.id}" onclick="equipCheckbox(event,this)" style="cursor:pointer"></td>
       <td class="td-link" style="font-weight:600" onclick="openEquipDetail('${_id}')">🔩 ${esc(e.name)}</td>
       <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','type')">${esc(e.type||'—')}</td>
       <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','status')"><span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span></td>
       <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','base_id')">${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
-      <td class="td-editable" style="font-size:10px" onclick="pgkCellEdit(event,this,'equipment','${_id}','serial_number')">${esc(e.serial_number||'—')}</td>
-      <td class="td-editable" style="font-size:10px" onclick="pgkCellEdit(event,this,'equipment','${_id}','responsible')">${e.responsible?'👤 '+esc(e.responsible):'—'}</td>
-      <td class="td-notes td-editable" title="${esc(e.notes||'')}" onclick="pgkCellEdit(event,this,'equipment','${_id}','notes')">${esc(e.notes||'')}</td>
+      <td style="font-size:10px">${esc(e.serial_number||'—')}</td>
+      <td style="font-size:11px">${e.responsible?'👤 '+esc(e.responsible):'<span style="color:var(--tx3)">—</span>'}</td>
+      <td class="td-notes" title="${esc(e.notes||'')}">${esc(e.notes||'')}</td>
     </tr>`;
   }).join('');
 
-  pb.innerHTML=`<div class="wt-outer">
-    <div class="wt-toolbar">
-      <span style="font-size:13px;font-weight:800;flex-shrink:0">🔩 Оборудование</span>
-      <input id="pgk-e-search" type="search" placeholder="🔍 Поиск по названию, серийному номеру…"
-        style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:160px;flex-shrink:0"
-        oninput="pgkEquipSearchFilter(this.value)" />
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFStatus=this.value;renderPGK()">${statOpts}</select>
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFType=this.value;renderPGK()">${typeOpts}</select>
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFBase=this.value;renderPGK()">${baseOpts}</select>
-      <div style="margin-left:auto;display:flex;gap:4px;flex-shrink:0">
-        <button class="btn bs bsm" onclick="pgkImportEquip()" title="Импорт из Excel">📥 Excel</button>
-        <button class="btn bp bsm" onclick="pgkAddEquip()">＋ Добавить</button>
+  pb.innerHTML=`<div class="spare-layout" style="height:100%">
+    <div class="spare-sidebar">
+      <div class="spare-sidebar-hd">Группы</div>
+      ${grpSidebar}
+    </div>
+    <div class="spare-main">
+      <div class="spare-main-hd">
+        <span style="font-size:13px;font-weight:800;flex-shrink:0">🔩 Оборудование</span>
+        <input id="pgk-e-search" type="search" placeholder="🔍 Поиск…" value="${esc(_q)}"
+          style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:140px;flex:1"
+          oninput="window._pgkESearchVal=this.value;renderPGK()" />
+        <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFStatus=this.value;renderPGK()">${statOpts}</select>
+        <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFBase=this.value;renderPGK()">${baseOpts}</select>
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          <button class="btn bs bsm" onclick="pgkImportEquip()" title="Импорт из Excel">📥</button>
+          <button class="btn bp bsm" onclick="pgkAddEquip()">＋ Добавить</button>
+        </div>
+      </div>
+      <div class="wt-summary" style="padding:4px 12px">
+        <span>Всего: <b>${pgkEquipment.length}</b></span>
+        <span style="color:#15803d">✅ <b>${byCnt.working||0}</b></span>
+        <span style="color:#a16207">⏸ <b>${byCnt.idle||0}</b></span>
+        <span style="color:#b91c1c">🔴 <b>${byCnt.broken||0}</b></span>
+        ${filtered.length<pgkEquipment.length?`<span style="color:var(--acc)">Показано: <b>${filtered.length}</b></span>`:''}
+        <span id="eq-sel-info" style="color:var(--acc);display:none">Выбрано: <b id="eq-sel-cnt">0</b> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="equipMoveSelected()">→ В группу</button></span>
+      </div>
+      <div class="spare-tbl-wrap">
+        <table class="wt-tbl" style="min-width:600px">
+          <thead><tr>
+            <th class="no-sort" style="width:28px;text-align:center"><input type="checkbox" id="eq-chk-all" onclick="equipCheckAll(this)" style="cursor:pointer"></th>
+            ${thSort('name','Название')}
+            ${thSort('type','Тип')}
+            ${thSort('status','Статус')}
+            ${thSort('base','База')}
+            <th class="no-sort">Серийный №</th>
+            ${thSort('responsible','Ответственный')}
+            <th class="no-sort" style="min-width:120px">Примечания</th>
+          </tr></thead>
+          <tbody id="et-tbody">${rows||`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx3)">Нет оборудования</td></tr>`}</tbody>
+        </table>
       </div>
     </div>
-    <div class="wt-summary">
-      <span>Всего: <b>${pgkEquipment.length}</b></span>
-      <span style="color:#15803d">✅ В работе: <b>${byCnt.working||0}</b></span>
-      <span style="color:#a16207">⏸ Не используется: <b>${byCnt.idle||0}</b></span>
-      <span style="color:#b91c1c">🔴 Неисправно: <b>${byCnt.broken||0}</b></span>
-      <span style="color:var(--tx3)">На базах: <b>${pgkEquipment.filter(e=>e.base_id).length}</b></span>
-      <span id="et-shown-count" style="color:var(--acc);margin-left:4px;display:none">Найдено: <b id="et-shown-n">0</b></span>
-    </div>
-    <div class="wt-scroll">
-      <table class="wt-tbl" style="min-width:700px">
-        <thead><tr>
-          <th class="no-sort" style="width:36px;text-align:center;color:var(--tx3)">#</th>
-          ${thSort('name','Название')}
-          ${thSort('type','Тип')}
-          ${thSort('status','Статус')}
-          ${thSort('base','База')}
-          ${thSort('serial_number','Серийный №')}
-          ${thSort('responsible','Ответственный')}
-          <th class="no-sort" style="min-width:140px">Примечания</th>
-        </tr></thead>
-        <tbody id="et-tbody">${rows||`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx3)">Нет оборудования</td></tr>`}</tbody>
-      </table>
-    </div>
   </div>`;
-
-  const srch=window._pgkESearchVal||'';
-  if(srch){const inp=document.getElementById('pgk-e-search');if(inp)inp.value=srch;pgkEquipSearchFilter(srch);}
 }
 
-function pgkEquipSearchFilter(val){
-  window._pgkESearchVal=val;
-  const q=val.toLowerCase().trim();
-  const rows=document.querySelectorAll('#et-tbody tr[data-eid]');
-  let shown=0;
-  rows.forEach(tr=>{const match=!q||tr.dataset.search.includes(q);tr.style.display=match?'':'none';if(match)shown++;});
-  let num=1;
-  rows.forEach(tr=>{if(tr.style.display!=='none'){const c=tr.querySelector('td:first-child');if(c)c.textContent=num++;}});
-  const cw=document.getElementById('et-shown-count'),cn=document.getElementById('et-shown-n');
-  if(cw&&cn){if(q){cw.style.display='';cn.textContent=shown;}else{cw.style.display='none';}}
+function equipCheckbox(ev,cb){
+  ev.stopPropagation();
+  const tr=cb.closest('tr');
+  if(tr)tr.style.background=cb.checked?'var(--accl)':'';
+  _equipUpdateSelInfo();
+}
+function equipCheckAll(allCb){
+  document.querySelectorAll('.eq-chk').forEach(cb=>{
+    cb.checked=allCb.checked;
+    const tr=cb.closest('tr');if(tr)tr.style.background=cb.checked?'var(--accl)':'';
+  });
+  _equipUpdateSelInfo();
+}
+function _equipUpdateSelInfo(){
+  const sel=document.querySelectorAll('.eq-chk:checked');
+  const si=document.getElementById('eq-sel-info');
+  const sc=document.getElementById('eq-sel-cnt');
+  if(si&&sc){si.style.display=sel.length?'':'none';sc.textContent=sel.length;}
+}
+function _equipSelectedIds(){
+  return [...document.querySelectorAll('.eq-chk:checked')].map(cb=>cb.dataset.id);
+}
+function equipDragStart(ev,eid){
+  const sel=_equipSelectedIds();
+  ev.dataTransfer.setData('text/plain',sel.length?JSON.stringify(sel):JSON.stringify([eid]));
+  ev.dataTransfer.effectAllowed='move';
+}
+async function equipDropToGroup(ev,gid){
+  ev.preventDefault();
+  let ids=[];
+  try{ids=JSON.parse(ev.dataTransfer.getData('text/plain'));}catch(e){return;}
+  await Promise.all(ids.map(id=>fetch(`${API}/pgk/equipment/${id}/group`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({group_id:gid})})));
+  await loadPGK();
+  toast(`Перемещено: ${ids.length}`,'ok');
+}
+async function equipMoveSelected(){
+  const ids=_equipSelectedIds();
+  if(!ids.length)return;
+  const grpOpts=pgkEquipGroups.map(g=>`<option value="${escAttr(g.id)}">${esc(g.name)}</option>`).join('');
+  if(!grpOpts){toast('Сначала создайте группу','warn');return;}
+  showModal('→ Переместить в группу',`<div class="fgr"><div class="fg s2"><label>Группа</label>
+    <select id="f-grp" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+      <option value="">— Без группы —</option>${grpOpts}
+    </select></div></div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Переместить',cls:'bp',fn:async()=>{
+    const gid=v('f-grp')||'';
+    await Promise.all(ids.map(id=>fetch(`${API}/pgk/equipment/${id}/group`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({group_id:gid})})));
+    closeModal();await loadPGK();toast(`Перемещено: ${ids.length}`,'ok');
+  }}]);
+}
+async function equipGrpAdd(){
+  showModal('Новая группа',`<div class="fgr"><div class="fg s2"><label>Название *</label><input id="f-n" placeholder="Геодезия"></div></div>`,
+    [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Создать',cls:'bp',fn:async()=>{
+    const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
+    await fetch(`${API}/equip_groups`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    closeModal();await loadPGK();toast('Группа создана','ok');
+  }}]);
+}
+async function equipGrpEdit(gid,curName){
+  showModal('Переименовать группу',`<div class="fgr"><div class="fg s2"><label>Название *</label><input id="f-n" value="${esc(curName)}"></div></div>`,
+    [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
+    await fetch(`${API}/equip_groups/${gid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    closeModal();await loadPGK();toast('Переименовано','ok');
+  }}]);
+}
+async function equipGrpDel(gid){
+  if(!confirm('Удалить группу? Оборудование станет "без группы".'))return;
+  await fetch(`${API}/equip_groups/${gid}`,{method:'DELETE'});
+  if(window._pgkEGrp===gid)window._pgkEGrp='';
+  await loadPGK();toast('Группа удалена','ok');
 }
 
 async function openEquipDetail(eid){
   const e=pgkEquipment.find(x=>x.id===eid);if(!e)return;
   const b=bases.find(x=>x.id===e.base_id);
+  const grp=pgkEquipGroups.find(g=>g.id===e.group_id);
   const statLbl={working:'✅ В работе',idle:'⏸ Не используется',broken:'🔴 Неисправно'};
-  const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
+  const statClr={working:'var(--grn)',idle:'var(--warn)',broken:'var(--red)'};
   const st=e.status||'working';
-  const html=`<div style="margin-bottom:12px">
-    <div style="font-size:14px;font-weight:800">🔩 ${esc(e.name)}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:2px">${esc(e.type||'—')}${e.serial_number?' · S/N '+esc(e.serial_number):''}</div>
-    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-      <span class="wt-badge ${statCls[st]}">${statLbl[st]||st}</span>
-      ${b?`<span style="font-size:11px;color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="font-size:11px;color:var(--tx3)">Не на базе</span>'}
-      ${e.responsible?`<span style="font-size:11px;color:var(--tx2)">👤 ${esc(e.responsible)}</span>`:''}
+  const initials=e.name.split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()||'?';
+  const _eid=escAttr(eid);
+  function renderEqTab(tab){
+    if(tab==='main'){
+      return `<div class="wdc-panel">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;font-size:12px">
+          <div style="color:var(--tx3)">Тип</div><div>${esc(e.type||'—')}</div>
+          <div style="color:var(--tx3)">Серийный №</div><div style="font-family:monospace">${esc(e.serial_number||'—')}</div>
+          <div style="color:var(--tx3)">База</div><div>${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</div>
+          <div style="color:var(--tx3)">Группа</div><div>${grp?esc(grp.name):'<span style="color:var(--tx3)">—</span>'}</div>
+        </div>
+        ${e.notes?`<div style="font-size:11px;color:var(--tx2);background:var(--s2);border-radius:6px;padding:8px 10px;margin-bottom:12px">📝 ${esc(e.notes)}</div>`:''}
+        <div style="font-size:10px;font-weight:700;color:var(--tx3);margin-bottom:6px">НАЗНАЧИТЬ НА БАЗУ</div>
+        <select style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);margin-bottom:12px" onchange="pgkAssignEquipBase('${_eid}',this.value)">
+          <option value="">— Снять с базы —</option>${bases.map(bx=>`<option value="${bx.id}" ${e.base_id===bx.id?'selected':''}>${esc(bx.name)}</option>`).join('')}
+        </select>
+        <div style="font-size:10px;font-weight:700;color:var(--tx3);margin-bottom:6px">СТАТУС</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          ${Object.entries(statLbl).map(([k,v])=>`<button class="btn bsm ${st===k?'bp':'bs'}" onclick="pgkEquipQuickStatus('${_eid}','${k}');openEquipDetail('${_eid}')">${v}</button>`).join('')}
+        </div>
+      </div>`;
+    }
+    return `<div class="wdc-panel" id="eq-hist-panel">
+      <div style="font-size:11px;color:var(--tx3);margin-bottom:8px">Загрузка...</div>
+    </div>`;
+  }
+  const _tab=window._pgkEqDetailTab||'main';
+  const html=`<div class="wdc-hd">
+    <div class="wdc-av" style="border-radius:var(--rs);font-size:16px">🔩</div>
+    <div class="wdc-info">
+      <div class="wdc-name">${esc(e.name)}</div>
+      <div class="wdc-role">${esc(e.type||'Оборудование')}${e.serial_number?' · S/N '+esc(e.serial_number):''}</div>
+      <div class="wdc-chips">
+        <span class="wt-badge" style="background:${statClr[st]}22;color:${statClr[st]};border-color:${statClr[st]}44">${statLbl[st]}</span>
+        ${b?`<span class="wdc-chip" style="background:var(--s2);border-color:var(--bd);color:var(--bpc)">🏕 ${esc(b.name)}</span>`:''}
+        ${e.responsible?`<span class="wdc-chip" style="background:var(--s2);border-color:var(--bd);color:var(--tx2)">👤 ${esc(e.responsible)}</span>`:''}
+      </div>
     </div>
   </div>
-  ${e.notes?`<div style="font-size:11px;color:var(--tx2);background:var(--s2);border-radius:6px;padding:8px 10px;margin-bottom:10px">📝 ${esc(e.notes)}</div>`:''}
-  <div style="font-size:10px;font-weight:700;color:var(--tx3);margin-bottom:6px">НАЗНАЧИТЬ НА БАЗУ</div>
-  <select id="eq-base-sel" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);margin-bottom:12px" onchange="pgkAssignEquipBase('${eid}',this.value)">
-    <option value="">— Снять с базы —</option>${bases.map(bx=>`<option value="${bx.id}" ${e.base_id===bx.id?'selected':''}>${esc(bx.name)}</option>`).join('')}
-  </select>
-  <div style="font-size:10px;font-weight:700;color:var(--tx3);margin-bottom:4px">БЫСТРЫЙ СТАТУС</div>
-  <div style="display:flex;gap:4px;flex-wrap:wrap">
-    ${Object.entries(statLbl).map(([k,v])=>`<button class="btn bsm ${st===k?'bp':'bs'}" onclick="pgkEquipQuickStatus('${eid}','${k}');openEquipDetail('${eid}')">${v}</button>`).join('')}
-  </div>`;
-  showModal('🔩 '+esc(e.name),html,[
-    {label:'Закрыть',cls:'bs',fn:closeModal},
-    {label:'✏️ Редактировать',cls:'bp',fn:()=>{closeModal();pgkEditEquip(eid);}}
-  ]);
+  <div class="wdc-actions">
+    <button class="btn bp wdc-btn" onclick="closeModal();pgkEditEquip('${_eid}')">✏️ Редактировать</button>
+    <button class="btn bs wdc-btn" onclick="pgkAssignEquipResponsible('${_eid}')">👤 Ответственный</button>
+    <button class="btn bs wdc-btn" style="color:var(--red);margin-left:auto" onclick="closeModal();pgkDelEquip('${_eid}')">🗑</button>
+  </div>
+  <div class="wdc-tabs">
+    <button class="wdc-tab${_tab==='main'?' on':''}" onclick="window._pgkEqDetailTab='main';document.getElementById('eq-tab-main').classList.add('on');document.getElementById('eq-tab-hist').classList.remove('on');document.getElementById('eq-body-main').style.display='';document.getElementById('eq-body-hist').style.display='none';" id="eq-tab-main">Основное</button>
+    <button class="wdc-tab${_tab==='hist'?' on':''}" onclick="window._pgkEqDetailTab='hist';document.getElementById('eq-tab-hist').classList.add('on');document.getElementById('eq-tab-main').classList.remove('on');document.getElementById('eq-body-hist').style.display='';document.getElementById('eq-body-main').style.display='none';loadEquipHistory('${_eid}')" id="eq-tab-hist">История ответственных</button>
+  </div>
+  <div id="eq-body-main" style="display:${_tab==='main'?'':'none'}">${renderEqTab('main')}</div>
+  <div id="eq-body-hist" style="display:${_tab==='hist'?'':'none'}">${renderEqTab('hist')}</div>`;
+  showModal('🔩 '+esc(e.name),html,[{label:'Закрыть',cls:'bs',fn:closeModal}]);
+  if(_tab==='hist')loadEquipHistory(eid);
+}
+
+async function loadEquipHistory(eid){
+  const panel=document.getElementById('eq-body-hist');if(!panel)return;
+  panel.innerHTML='<div class="wdc-panel"><div style="font-size:11px;color:var(--tx3)">Загрузка...</div></div>';
+  const hist=await fetch(`${API}/equip_responsible_history/${eid}`).then(r=>r.json()).catch(()=>[]);
+  if(!hist.length){panel.innerHTML='<div class="wdc-panel"><div style="font-size:11px;color:var(--tx3);padding:12px 0">История пуста</div></div>';return;}
+  panel.innerHTML=`<div class="wdc-panel">${hist.map(h=>`<div class="wdc-shift">
+    <div style="font-size:12px;font-weight:600">👤 ${esc(h.responsible)}</div>
+    <div style="font-size:10px;color:var(--tx3);margin-top:2px">${(h.assigned_at||'').replace('T',' ').slice(0,16)}</div>
+  </div>`).join('')}</div>`;
 }
 
 async function pgkEquipQuickStatus(eid,status){
@@ -1724,32 +1850,34 @@ function pgkEditMach(id){
 async function pgkDelMach(id){if(!confirm('Удалить?'))return;await apiDelUndo(`/pgk/machinery/${id}`,'Техника удалена',async()=>{await loadPGK();await loadAll();});}
 
 // ── PGK EQUIPMENT CRUD ─────────────────────────────────────
+function _equipFormHtml(e){
+  const grpOpts=`<option value="">— без группы —</option>`+pgkEquipGroups.map(g=>`<option value="${escAttr(g.id)}" ${e&&e.group_id===g.id?'selected':''}>${esc(g.name)}</option>`).join('');
+  const respOpts=`<option value="">— не назначен —</option>`+(pgkWorkers||[]).map(w=>`<option value="${esc(w.name)}" ${e&&e.responsible===w.name?'selected':''}>${esc(w.name)}${w.role?' ('+esc(w.role)+')':''}</option>`).join('');
+  return `<div class="fgr">
+    <div class="fg s2"><label>Название *</label><input id="f-n" value="${esc(e?e.name:'')}"></div>
+    <div class="fg"><label>Тип</label><input id="f-t" value="${esc(e?e.type:'')}"></div>
+    <div class="fg"><label>Серийный №</label><input id="f-sr" value="${esc(e?e.serial_number:'')}"></div>
+    <div class="fg s2"><label>Статус</label><select id="f-st">
+      <option value="working" ${!e||e.status==='working'?'selected':''}>✅ В работе</option>
+      <option value="idle" ${e&&e.status==='idle'?'selected':''}>⏸ Не используется</option>
+      <option value="broken" ${e&&e.status==='broken'?'selected':''}>🔴 Неисправно</option>
+    </select></div>
+    <div class="fg s2"><label>Группа</label><select id="f-grp">${grpOpts}</select></div>
+    <div class="fg s2"><label>База</label><select id="f-b"><option value="">— не назначено —</option>${bases.map(b=>`<option value="${b.id}" ${e&&e.base_id===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}</select></div>
+    <div class="fg s2"><label>Ответственный</label><select id="f-resp">${respOpts}</select></div>
+    <div class="fg s2"><label>Примечания</label><textarea id="f-nt">${esc(e?e.notes:'')}</textarea></div>
+  </div>`;
+}
 function pgkAddEquip(){
-  showModal('Новое оборудование',`<div class="fgr">
-    <div class="fg s2"><label>Название *</label><input id="f-n" placeholder="GPS Trimble R10"></div>
-    <div class="fg"><label>Тип</label><input id="f-t" placeholder="Геодезический прибор"></div>
-    <div class="fg"><label>Серийный №</label><input id="f-sr"></div>
-    <div class="fg s2"><label>Статус</label><select id="f-st"><option value="working">В работе</option><option value="idle">Не используется</option><option value="broken">Неисправно</option></select></div>
-    <div class="fg s2"><label>База</label><select id="f-b"><option value="">— не назначено —</option>${bases.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
-    <div class="fg s2"><label>Ответственный</label><select id="f-resp"><option value="">— не назначен —</option>${(pgkWorkers||[]).map(w=>`<option value="${esc(w.name)}">${esc(w.name)}${w.role?' ('+esc(w.role)+')':''}</option>`).join('')}</select></div>
-    <div class="fg s2"><label>Примечания</label><textarea id="f-nt"></textarea></div>
-  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:savePGKEquip}]);
+  showModal('Новое оборудование',_equipFormHtml(null),[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:savePGKEquip}]);
 }
 function pgkEditEquip(id){
   const e=pgkEquipment.find(x=>x.id===id);if(!e)return;
-  showModal('Редактировать оборудование',`<div class="fgr">
-    <div class="fg s2"><label>Название *</label><input id="f-n" value="${esc(e.name)}"></div>
-    <div class="fg"><label>Тип</label><input id="f-t" value="${esc(e.type||'')}"></div>
-    <div class="fg"><label>Серийный №</label><input id="f-sr" value="${esc(e.serial_number||'')}"></div>
-    <div class="fg s2"><label>Статус</label><select id="f-st"><option value="working" ${e.status==='working'?'selected':''}>В работе</option><option value="idle" ${e.status==='idle'?'selected':''}>Не используется</option><option value="broken" ${e.status==='broken'?'selected':''}>Неисправно</option></select></div>
-    <div class="fg s2"><label>База</label><select id="f-b"><option value="">— не назначено —</option>${bases.map(b=>`<option value="${b.id}" ${e.base_id===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}</select></div>
-    <div class="fg s2"><label>Ответственный</label><select id="f-resp"><option value="">— не назначен —</option>${(pgkWorkers||[]).map(w=>`<option value="${esc(w.name)}" ${e.responsible===w.name?'selected':''}>${esc(w.name)}${w.role?' ('+esc(w.role)+')':''}</option>`).join('')}</select></div>
-    <div class="fg s2"><label>Примечания</label><textarea id="f-nt">${esc(e.notes||'')}</textarea></div>
-  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:()=>savePGKEquip(id)}]);
+  showModal('Редактировать оборудование',_equipFormHtml(e),[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:()=>savePGKEquip(id)}]);
 }
 async function savePGKEquip(id){
   const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
-  const data={name,type:v('f-t'),serial_number:v('f-sr'),status:v('f-st'),base_id:v('f-b')||null,responsible:v('f-resp')||null,notes:v('f-nt')};
+  const data={name,type:v('f-t'),serial_number:v('f-sr'),status:v('f-st'),base_id:v('f-b')||null,responsible:v('f-resp')||'',notes:v('f-nt'),group_id:v('f-grp')||''};
   if(id)await fetch(`${API}/pgk/equipment/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   else  await fetch(`${API}/pgk/equipment`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   closeModal();await loadPGK();toast(id?'Обновлено':'Добавлено','ok');
@@ -1759,11 +1887,11 @@ async function pgkDelEquip(id){if(!confirm('Удалить?'))return;await apiDe
 function pgkAssignEquipResponsible(eid){
   const e=pgkEquipment.find(x=>x.id===eid);if(!e)return;
   const opts=`<option value="">— снять ответственного —</option>`+(pgkWorkers||[]).map(w=>`<option value="${esc(w.name)}" ${e.responsible===w.name?'selected':''}>${esc(w.name)}${w.role?' ('+esc(w.role)+')':''}</option>`).join('');
-  showModal('👤 Ответственный за оборудование',`<div class="fgr">
+  showModal('👤 Ответственный',`<div class="fgr">
     <div class="fg s2"><label>Оборудование</label><input disabled value="${esc(e.name)}"></div>
     <div class="fg s2"><label>Ответственный</label><select id="f-resp" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">${opts}</select></div>
   </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
-    const responsible=v('f-resp')||null;
+    const responsible=v('f-resp')||'';
     await fetch(`${API}/pgk/equipment/${eid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...e,responsible})});
     closeModal();await loadPGK();toast('Ответственный обновлён','ok');
   }}]);

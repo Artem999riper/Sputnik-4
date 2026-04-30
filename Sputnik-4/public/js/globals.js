@@ -22,6 +22,7 @@ let mapMode='view', machinePlaceId=null, machinePlaceBaseId=null;
 let bMarkers={}, mMarkers={}, lGroups={}, volLayers={};
 let pgkTab='workers', pgkWorkers=[], pgkMachinery=[], pgkEquipment=[];
 let pgkFuelReserves=[], pgkSpareGroups=[], pgkSpares=[];
+let pgkEquipGroups=[];
 let kamSiteId=null;
 let drawMode=null, drawPts=[], drawPtNames=[], drawTmpLayer=null, drawVolId=null, drawSiteId=null, drawVolData=null;
 let volVisible={}; // per-volume show/hide
