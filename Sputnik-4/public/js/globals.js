@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════
 const API='/api';
 const TRANSPORT_TYPES=['ТРЭКОЛ','БУРЛАК','ТАНК','ТРОМ','ЛЕГКОВАЯ','ГРУЗОВАЯ','СНЕГОХОД'];
-const MICONS={ТРЭКОЛ:'🚙',БУРЛАК:'🚛',ТАНК:'🪖',ТРОМ:'🚐',ЛЕГКОВАЯ:'🚗',ГРУЗОВАЯ:'🚚',СНЕГОХОД:'🏂'};
+const MICONS={ТРЭКОЛ:'🚙',БУРЛАК:'🚛',ТАНК:'⚔️',ТРОМ:'🚐',ЛЕГКОВАЯ:'🚗',ГРУЗОВАЯ:'🚚',СНЕГОХОД:'🏂'};
 const MTYPES=[...TRANSPORT_TYPES];
 const WORKER_STATUSES={working:'🟢 В работе',home:'🏠 Дома',fired:'🚫 Уволен'};
 const SL={working:'В работе',idle:'Стоит',broken:'Сломана'};
@@ -33,6 +33,7 @@ let bMarkers={}, mMarkers={}, lGroups={}, volLayers={};
 let pgkTab='workers', pgkWorkers=[], pgkMachinery=[], pgkEquipment=[];
 let pgkFuelReserves=[], pgkSpareGroups=[], pgkSpares=[];
 let pgkEquipGroups=[];
+let pgkMatGroups=[];
 let kamSiteId=null;
 let drawMode=null, drawPts=[], drawPtNames=[], drawTmpLayer=null, drawVolId=null, drawSiteId=null, drawVolData=null;
 let volVisible={}; // per-volume show/hide

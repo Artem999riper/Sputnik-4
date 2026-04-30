@@ -68,9 +68,14 @@ function openPanel(isBase){
 }
 function closePanel(){
   document.getElementById('panel').classList.remove('open');
-  document.getElementById('mini-panel').classList.remove('open');
   document.body.classList.remove('panel-open');
   setTimeout(()=>map.invalidateSize({animate:false,pan:false}),260);
+  // For sites: go back to mini panel instead of closing entirely
+  if(currentType==='site'&&currentObj){
+    try{openMiniSitePanel();}catch(e){}
+    return;
+  }
+  document.getElementById('mini-panel').classList.remove('open');
   currentObj=null;currentType=null;activeSiteId=null;
   clearVolumesFromMap();
   renderSidebar();

@@ -246,6 +246,25 @@ module.exports = (app, getDb, L) => {
     res.json({ success: true });
   }));
 
+  app.get('/api/mat_groups', wrap((req, res) =>
+    res.json(all(db(), 'SELECT * FROM materials_groups ORDER BY sort_order, name'))
+  ));
+  app.post('/api/mat_groups', wrap((req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Название обязательно' });
+    const id = uuid();
+    run(db(), 'INSERT INTO materials_groups(id,name)VALUES(?,?)', [id, name]);
+    res.json({ id });
+  }));
+  app.put('/api/mat_groups/:id', wrap((req, res) => {
+    run(db(), 'UPDATE materials_groups SET name=? WHERE id=?', [req.body.name, req.params.id]);
+    res.json({ success: true });
+  }));
+  app.delete('/api/mat_groups/:id', wrap((req, res) => {
+    run(db(), 'DELETE FROM materials_groups WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  }));
+
   app.get('/api/equip_responsible_history/:id', wrap((req, res) =>
     res.json(all(db(), 'SELECT * FROM equipment_responsible_history WHERE equipment_id=? ORDER BY assigned_at DESC', [req.params.id]))
   ));

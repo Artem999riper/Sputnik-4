@@ -11,11 +11,12 @@ async function loadPGK(){
   ]);
   pgkWorkers=await wr.json();pgkMachinery=await mr.json();
   pgkEquipment=await er.json();bases=await br.json();
-  [pgkFuelReserves,pgkSpareGroups,pgkSpares,pgkEquipGroups]=await Promise.all([
+  [pgkFuelReserves,pgkSpareGroups,pgkSpares,pgkEquipGroups,pgkMatGroups]=await Promise.all([
     fetch(`${API}/fuel_reserves`).then(r=>r.json()).catch(()=>[]),
     fetch(`${API}/spare_groups`).then(r=>r.json()).catch(()=>[]),
     fetch(`${API}/spare_parts`).then(r=>r.json()).catch(()=>[]),
-    fetch(`${API}/equip_groups`).then(r=>r.json()).catch(()=>[])
+    fetch(`${API}/equip_groups`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/mat_groups`).then(r=>r.json()).catch(()=>[])
   ]);
   await renderPGK();
 }
@@ -1162,6 +1163,10 @@ function _initLasso(tbodyId, onChangeCallback){
       return r.bottom>top&&r.top<bot&&r.right>left&&r.left<right;
     });
   }
+  // Prevent browser DnD from hijacking the lasso gesture
+  tbody.addEventListener('dragstart',e=>{
+    if(startTarget){e.preventDefault();}
+  });
   scroller.addEventListener('mousedown',e=>{
     if(e.button!==0)return;
     const tr=e.target.closest('tr');
@@ -1193,6 +1198,13 @@ function _initLasso(tbodyId, onChangeCallback){
     dragging=false;startTarget=null;
     overlay.style.display='none';
     if(!wasDragging)return; // plain click — don't change selection
+    onChangeCallback&&onChangeCallback();
+  });
+  // Safety net: browser DnD (if not fully prevented) ends with dragend, not mouseup
+  window.addEventListener('dragend',()=>{
+    if(!startTarget)return;
+    dragging=false;startTarget=null;
+    overlay.style.display='none';
     onChangeCallback&&onChangeCallback();
   });
 }
@@ -1356,11 +1368,11 @@ async function pgkPageMaterials(pb){
   const _ma=window._pgkMAscM!==false;
   const _q=(window._pgkMSearchM||'').toLowerCase().trim();
 
-  const allGroups=[...new Set(allMats.map(m=>m.category||'').filter(Boolean))].sort();
   const lowStock=allMats.filter(m=>m.min_amount>0&&m.amount<m.min_amount).length;
+  const _knownGrpNames=new Set(pgkMatGroups.map(g=>g.name));
 
   let filtered=allMats.filter(m=>{
-    if(_mfGroup==='__none'){if(m.category)return false;}
+    if(_mfGroup==='__none'){if(m.category&&_knownGrpNames.has(m.category))return false;}
     else if(_mfGroup&&(m.category||'')!==_mfGroup)return false;
     if(_mfBase&&m.base_id!==_mfBase)return false;
     if(_q){const hay=(m.name+' '+(m.category||'')+' '+(m.base_name||'')+' '+(m.notes||'')).toLowerCase();if(!hay.includes(_q))return false;}
@@ -1381,6 +1393,9 @@ async function pgkPageMaterials(pb){
   const baseOpts=`<option value="">Все базы</option>`+bases.map(b=>`<option value="${b.id}" ${_mfBase===b.id?'selected':''}>${esc(b.name)}</option>`).join('');
 
   const grpCounts={};allMats.forEach(m=>{const g=m.category||'__none';grpCounts[g]=(grpCounts[g]||0)+1;});
+  // Count materials that don't belong to any known group
+  const knownNames=new Set(pgkMatGroups.map(g=>g.name));
+  const noneCount=allMats.filter(m=>!m.category||!knownNames.has(m.category)).length;
 
   const grpSidebar=`
     <div class="spare-grp-item${!_mfGroup?' on':''}" onclick="window._pgkMFGroup='';renderPGK()">
@@ -1389,17 +1404,18 @@ async function pgkPageMaterials(pb){
     </div>
     <div class="spare-grp-item${_mfGroup==='__none'?' on':''}" onclick="window._pgkMFGroup='__none';renderPGK()">
       <span class="spare-grp-nm" style="color:var(--tx3)">Без группы</span>
-      <span style="font-size:10px;color:var(--tx3);margin-left:4px">${grpCounts['__none']||0}</span>
+      <span style="font-size:10px;color:var(--tx3);margin-left:4px">${noneCount}</span>
     </div>
-    ${allGroups.map(g=>{
-      const cnt=grpCounts[g]||0;
-      const _g=escAttr(g);
-      return `<div class="spare-grp-item${_mfGroup===g?' on':''}" onclick="window._pgkMFGroup='${_g}';renderPGK()"
-        ondragover="event.preventDefault();this.style.background='var(--accl)'" ondragleave="this.style.background=''" ondrop="matDropToGroup(event,'${_g}');this.style.background=''">
-        <span class="spare-grp-nm">${esc(g)}</span>
+    ${pgkMatGroups.map(g=>{
+      const cnt=allMats.filter(m=>m.category===g.name).length;
+      const _gn=escAttr(g.name);const _gid=escAttr(g.id);
+      return `<div class="spare-grp-item${_mfGroup===g.name?' on':''}" onclick="window._pgkMFGroup='${_gn}';renderPGK()"
+        ondragover="event.preventDefault();this.style.background='var(--accl)'" ondragleave="this.style.background=''" ondrop="matDropToGroup(event,'${_gn}');this.style.background=''">
+        <span class="spare-grp-nm">${esc(g.name)}</span>
         <span style="font-size:10px;color:var(--tx3);margin-left:4px">${cnt}</span>
         <span class="spare-grp-acts">
-          <button class="btn bs bsm" style="padding:1px 5px;font-size:10px" onclick="event.stopPropagation();matGrpRename('${_g}')">✏️</button>
+          <button class="btn bs bsm" style="padding:1px 5px;font-size:10px" onclick="event.stopPropagation();matGrpRename('${_gid}','${_gn}')">✏️</button>
+          <button class="btn bs bsm" style="padding:1px 5px;font-size:10px;color:var(--red)" onclick="event.stopPropagation();matGrpDel('${_gid}','${_gn}')">🗑</button>
         </span>
       </div>`;
     }).join('')}
@@ -1525,23 +1541,29 @@ async function matMoveSelected(){
     closeModal();await loadPGK();await loadAll();toast(`Перемещено: ${ids.length}`,'ok');
   }}]);
 }
-function matGrpAdd(){
+async function matGrpAdd(){
   showModal('Новая группа',`<div class="fgr"><div class="fg s2"><label>Название</label><input id="f-n" placeholder="Топливо"></div></div>`,
-    [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Создать',cls:'bp',fn:()=>{
+    [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Создать',cls:'bp',fn:async()=>{
     const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
-    window._pgkMFGroup=name;
-    closeModal();
-    toast(`Группа "${name}" — добавьте материалы через форму добавления`,'ok');
+    await fetch(`${API}/mat_groups`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    closeModal();await loadPGK();window._pgkMFGroup=name;toast(`Группа "${name}" создана — перетащите материалы в неё`,'ok');
   }}]);
 }
-async function matGrpRename(oldName){
+async function matGrpRename(gid,oldName){
   showModal('Переименовать группу',`<div class="fgr"><div class="fg s2"><label>Новое название</label><input id="f-n" value="${esc(oldName)}"></div></div>`,
     [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Переименовать',cls:'bp',fn:async()=>{
     const newName=v('f-n').trim();if(!newName||newName===oldName){closeModal();return;}
+    await fetch(`${API}/mat_groups/${gid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newName})});
     const toUpdate=bases.flatMap(b=>(b.materials||[]).filter(m=>(m.category||'')===oldName));
     await Promise.all(toUpdate.map(m=>fetch(`${API}/materials/${m.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...m,category:newName,user_name:un()})})));
-    closeModal();await loadPGK();await loadAll();toast(`Переименовано: ${toUpdate.length} позиций`,'ok');
+    closeModal();await loadPGK();await loadAll();toast(`Переименовано`,'ok');
   }}]);
+}
+async function matGrpDel(gid,grpName){
+  if(!confirm(`Удалить группу "${grpName}"? Материалы станут "без группы".`))return;
+  await fetch(`${API}/mat_groups/${gid}`,{method:'DELETE'});
+  if(window._pgkMFGroup===grpName)window._pgkMFGroup='';
+  await loadPGK();toast('Группа удалена','ok');
 }
 
 // Карточка материала
