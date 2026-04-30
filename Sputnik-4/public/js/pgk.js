@@ -529,8 +529,8 @@ function pgkPageMachinery(pb){
     </div>
     <div class="mch-topbar-act">
       ${tab==='park'?`<div class="mch-view-toggle">
-        <button class="btn bsm ${view==='cards'?'bp':'bs'}" onclick="_setMchView('cards')" title="Карточки">⊞</button>
-        <button class="btn bsm ${view==='table'?'bp':'bs'}" onclick="_setMchView('table')" title="Таблица">☰</button>
+        <button class="btn bsm ${view==='cards'?'bp':'bs'}" onclick="_setMchView('cards')" title="Карточки">⊞ Карточки</button>
+        <button class="btn bsm ${view==='table'?'bp':'bs'}" onclick="_setMchView('table')" title="Список">☰ Список</button>
       </div><button class="btn bp bsm" onclick="pgkAddMach()">＋ Добавить</button>`:''}
       ${tab==='fuel'?`<button class="btn bp bsm" onclick="mchFuelRecord()">＋ Записать</button>`:''}
       ${tab==='spares'?`<button class="btn bs bsm" onclick="mchSpareAddGroup()">＋ Группа</button><button class="btn bp bsm" onclick="mchSpareAdd()">＋ Запчасть</button>`:''}
@@ -627,32 +627,93 @@ function _mchBuildFuel(){
   if(!bases.length)return '<div style="padding:24px;color:var(--tx3)">Нет баз</div>';
   return `<div class="fuel-wrap">${bases.map(b=>{
     const rsvs=byBase[b.id]||[];
+    const _bid=escAttr(b.id);
     return `<div class="fuel-base-card">
       <div class="fuel-base-head"><span class="fuel-base-name">🏕 ${esc(b.name)}</span>
-        <button class="btn bs bxs" onclick="mchFuelRecord('${escAttr(b.id)}','')">＋ Добавить</button></div>
-      ${rsvs.map(r=>`<div class="fuel-row">
-        <span class="fuel-type">${esc(r.fuel_type)}</span>
-        <span class="fuel-amount"><b>${(+r.amount||0).toLocaleString('ru')}</b> л</span>
-        <button class="btn bs bxs" onclick="mchFuelRecord('${escAttr(b.id)}','${esc(r.fuel_type)}')">＋/－</button>
-      </div>`).join('')||'<div style="font-size:11px;color:var(--tx3);padding:6px 0">Нет данных</div>'}
+        <button class="btn bs bxs" onclick="mchFuelRecord('${_bid}','')">＋ Добавить</button></div>
+      ${rsvs.map(r=>{
+        const _ft=esc(r.fuel_type);
+        return `<div class="fuel-row" onclick="mchFuelCard('${_bid}','${_ft}')" style="cursor:pointer">
+          <span class="fuel-type">${_ft}</span>
+          <span class="fuel-amount"><b>${(+r.amount||0).toLocaleString('ru')}</b> л</span>
+          <button class="btn bs bxs" style="flex-shrink:0" onclick="event.stopPropagation();mchFuelQuick('${_bid}','${_ft}')">＋/－</button>
+        </div>`;
+      }).join('')||'<div style="font-size:11px;color:var(--tx3);padding:6px 0">Нет данных — нажмите ＋ Добавить</div>'}
     </div>`;
   }).join('')}</div>`;
+}
+function mchFuelQuick(baseId,fuelType){
+  // Simplified modal: just op type + amount + date + comment
+  const today=new Date().toISOString().split('T')[0];
+  const b=bases.find(x=>x.id===baseId);
+  showModal(`⛽ ${b?esc(b.name):''} — ${fuelType}`,`<div class="fgr">
+    <div class="fg"><label>Операция</label>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px"><input type="radio" name="fq-op" id="fq-in" value="in" checked style="accent-color:var(--grn)"> <span style="color:var(--grn);font-weight:700">▲ Приход</span></label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px"><input type="radio" name="fq-op" id="fq-out" value="out" style="accent-color:var(--red)"> <span style="color:var(--red);font-weight:700">▼ Расход</span></label>
+      </div>
+    </div>
+    <div class="fg s2"><label>Дата</label><input id="fq-date" type="date" value="${today}"></div>
+    <div class="fg"><label>Количество, л</label><input id="fq-amt" type="number" step="any" min="0" placeholder="500" autofocus></div>
+    <div class="fg s2"><label>Комментарий</label><input id="fq-notes" placeholder="Заправка от поставщика…"></div>
+  </div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const amt=parseFloat(v('fq-amt'));
+    if(isNaN(amt)||amt<=0){toast('Введите количество','err');return;}
+    const opIn=document.getElementById('fq-in')&&document.getElementById('fq-in').checked;
+    const delta=opIn?amt:-amt;
+    await fetch(`${API}/fuel_transactions`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({base_id:baseId,fuel_type:fuelType,delta,notes:v('fq-notes'),op_date:v('fq-date')||today})});
+    pgkFuelReserves=await fetch(`${API}/fuel_reserves`).then(r=>r.json()).catch(()=>[]);
+    closeModal();_setMchTab('fuel');toast(delta>0?`+${amt} л — приход`:`${amt} л — расход`,'ok');
+  }}]);
+}
+async function mchFuelCard(baseId,fuelType){
+  const b=bases.find(x=>x.id===baseId);
+  const rsv=pgkFuelReserves.find(r=>r.base_id===baseId&&r.fuel_type===fuelType);
+  const params=new URLSearchParams({base_id:baseId,fuel_type:fuelType});
+  const txns=await fetch(`${API}/fuel_transactions?${params}`).then(r=>r.json()).catch(()=>[]);
+  const histRows=txns.length?txns.map(t=>{
+    const sign=t.delta>0?'+':'';const clr=t.delta>0?'var(--grn)':'var(--red)';
+    return `<tr>
+      <td style="font-size:10px;color:var(--tx3)">${(t.op_date||t.created_at||'').slice(0,10)}</td>
+      <td style="font-weight:700;color:${clr};text-align:right">${sign}${t.delta} л</td>
+      <td style="font-size:10px;color:var(--tx3)">${esc(t.notes||'')}</td>
+    </tr>`;
+  }).join(''):`<tr><td colspan="3" style="text-align:center;padding:16px;color:var(--tx3)">История пуста</td></tr>`;
+  showModal(`⛽ ${b?esc(b.name):''} — ${fuelType}`,`
+    <div style="text-align:center;padding:12px 0 16px;border-bottom:1px solid var(--bd);margin-bottom:12px">
+      <div style="font-size:32px;font-weight:800;color:var(--acc)">${(+(rsv?.amount||0)).toLocaleString('ru')} <span style="font-size:14px;font-weight:400;color:var(--tx3)">л</span></div>
+      <div style="font-size:11px;color:var(--tx3);margin-top:4px">Текущий остаток</div>
+    </div>
+    <div style="font-size:11px;font-weight:700;color:var(--tx3);margin-bottom:8px;letter-spacing:.4px">ИСТОРИЯ ОПЕРАЦИЙ</div>
+    <div style="max-height:280px;overflow-y:auto">
+      <table class="wt-tbl" style="min-width:260px">
+        <thead><tr><th>Дата</th><th style="text-align:right">Количество</th><th>Комментарий</th></tr></thead>
+        <tbody>${histRows}</tbody>
+      </table>
+    </div>`,
+    [{label:'Закрыть',cls:'bs',fn:closeModal},{label:'＋/－ Записать',cls:'bp',fn:()=>{closeModal();mchFuelQuick(baseId,fuelType);}}]);
 }
 function _mchBuildDrivers(){
   const machByDrv={};pgkMachinery.forEach(m=>{if(m.driver_id)machByDrv[m.driver_id]=m;});
   const workers=pgkWorkers.filter(w=>w.status!=='fired'&&(w.role||'').toLowerCase().includes('водитель'));
+  const wstCls={'working':'wbs-working','vacation':'wbs-vacation','home':'wbs-home','sick':'wbs-sick'};
+  const wstLbl={'working':'В работе','vacation':'Отпуск','home':'Дома','sick':'Больничный'};
   const rows=workers.map(w=>{
     const mach=machByDrv[w.id];const b=bases.find(x=>x.id===w.base_id);
+    const ws=w.status||'home';
     return `<tr>
       <td><div style="font-weight:700">${esc(w.name)}</div><div style="font-size:10px;color:var(--tx3)">${esc(w.role||'')}</div></td>
+      <td><span class="wt-badge ${wstCls[ws]||'wbs-home'}" style="font-size:10px">${wstLbl[ws]||ws}</span></td>
       <td>${mach?`${MICONS[mach.type]||'🔧'} <b>${esc(mach.name)}</b>`:'<span style="color:var(--tx3)">—</span>'}</td>
       <td>${b?esc(b.name):'<span style="color:var(--tx3)">—</span>'}</td>
       <td><button class="btn bs bsm" onclick="mchAssignDriver('${escAttr(w.id)}')">🔄 Назначить</button></td>
     </tr>`;
   }).join('');
-  return `<div class="wt-scroll"><table class="wt-tbl" style="min-width:540px">
-    <thead><tr><th>Сотрудник</th><th>Машина</th><th>База</th><th class="no-sort">Действия</th></tr></thead>
-    <tbody>${rows||`<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--tx3)">Нет сотрудников</td></tr>`}</tbody>
+  return `<div class="wt-scroll"><table class="wt-tbl" style="min-width:600px">
+    <thead><tr><th>Сотрудник</th><th>Статус</th><th>Машина</th><th>База</th><th class="no-sort">Действия</th></tr></thead>
+    <tbody>${rows||`<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--tx3)">Нет водителей</td></tr>`}</tbody>
   </table></div>`;
 }
 function _mchBuildSpares(){
@@ -855,8 +916,10 @@ async function openMachDetail(mid){
     <div class="mdc-row"><span class="mdc-lbl">Гос. номер</span><span class="mdc-val">${m.plate_number?`<code style="background:var(--s3);padding:1px 6px;border-radius:3px;font-size:12px">${esc(m.plate_number)}</code>`:'<span style="color:var(--tx3)">—</span>'}</span></div>
     <div class="mdc-row"><span class="mdc-lbl">Тип</span><span class="mdc-val">${esc(m.type||'—')}</span></div>
     <div class="mdc-row"><span class="mdc-lbl">Статус</span><span class="mdc-val">
-      <span class="wt-badge ${statCls[st]||'wbs-idle'}" style="margin-right:6px">${statLbl[st]||st}</span>
-      ${Object.entries(statLbl).filter(([k])=>k!==st).map(([k,lbl])=>`<button class="btn bsm bs" style="font-size:10px;padding:1px 6px" onclick="pgkQuickStatus('${mid}','${k}');openMachDetail('${mid}')">${lbl}</button>`).join('')}
+      <span class="wt-badge ${statCls[st]||'wbs-idle'}" style="margin-right:8px">${statLbl[st]||st}</span>
+      <select style="font-size:12px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="pgkQuickStatus('${mid}',this.value);openMachDetail('${mid}')">
+        ${Object.entries(statLbl).map(([k,lbl])=>`<option value="${k}" ${k===st?'selected':''}>${lbl}</option>`).join('')}
+      </select>
     </span></div>
     <div class="mdc-row"><span class="mdc-lbl">Водитель</span><span class="mdc-val">
       <select id="mdc-drv-${mid}" style="font-size:12px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);max-width:200px" onchange="mchInlineSetDriver('${mid}',this.value)">${driverOpts}</select>
@@ -867,7 +930,9 @@ async function openMachDetail(mid){
     ${m.notes?`<div class="mdc-row"><span class="mdc-lbl">Примечание</span><span class="mdc-val" style="color:var(--tx2)">${esc(m.notes)}</span></div>`:''}
   </div>
   <div class="wdc-actions" style="margin-top:12px">
-    <button class="btn bs wdc-btn" onclick="mchPlaceOnMap('${mid}')">📍 Расставить на карте</button>
+    ${m.lat&&m.lng
+      ? `<button class="btn bg2 wdc-btn" onclick="closeModal();flyToMach('${mid}')">📍 Показать на карте</button>`
+      : `<button class="btn bs wdc-btn" onclick="mchStartPlace('${mid}')">📍 Расставить на карте</button>`}
     <button class="btn bs wdc-btn" onclick="closeModal();showMachHistory('${mid}')">🕐 История</button>
     <button class="btn bs wdc-btn" style="color:var(--red);margin-left:auto" onclick="closeModal();pgkDelMach('${mid}')">🗑</button>
   </div>`;
@@ -894,17 +959,16 @@ async function mchInlineSetBase(mid,baseId){
   await loadPGK();await loadAll();toast(baseId?'База назначена':'Снята с базы','ok');
   openMachDetail(mid);
 }
-function mchPlaceOnMap(mid){
+function mchStartPlace(mid){
   const m=pgkMachinery.find(x=>x.id===mid);if(!m)return;
   if(!m.base_id){
     toast('⚠️ Сначала назначьте базу для этой техники','warn');return;
   }
   closeModal();
-  if(m.lat&&m.lng){flyToMach(mid);}
-  else{
-    const b=bases.find(x=>x.id===m.base_id);
-    toast(`Откройте карту и установите метку для "${m.name}" (база: ${b?b.name:'?'})`,'ok');
-    switchView('map');
+  switchView('map');
+  // Use existing startMove mechanism from panel.js
+  if(typeof startMove==='function'){
+    setTimeout(()=>startMove('machine',{mach:m,baseId:m.base_id}),100);
   }
 }
 
@@ -1101,20 +1165,19 @@ function _initLasso(tbodyId, onChangeCallback){
   scroller.addEventListener('mousedown',e=>{
     if(e.button!==0)return;
     const tr=e.target.closest('tr');
-    if(tr&&(tr.dataset.eid||tr.dataset.matid)&&!e.target.closest('button,a,input,select,td.td-editable,td.td-link')){
-      e.preventDefault();
-      dragging=true;startTarget=tr;
+    if(tr&&(tr.dataset.eid||tr.dataset.matid)&&!e.target.closest('button,a,input,select')){
+      startTarget=tr;dragging=false;
       rect=scroller.getBoundingClientRect();
       startX=e.clientX;startY=e.clientY;
       box={x1:startX,y1:startY,x2:startX,y2:startY};
-      overlay.style.display='block';
-      overlay.style.left=startX+'px';overlay.style.top=startY+'px';
-      overlay.style.width='0';overlay.style.height='0';
     }
   });
   window.addEventListener('mousemove',e=>{
-    if(!dragging)return;
+    if(!startTarget)return;
     box.x2=e.clientX;box.y2=e.clientY;
+    const dx=Math.abs(box.x2-box.x1),dy=Math.abs(box.y2-box.y1);
+    if(!dragging&&dx<6&&dy<6)return; // not yet a drag
+    if(!dragging){dragging=true;overlay.style.display='block';e.preventDefault();}
     overlay.style.left=Math.min(box.x1,box.x2)+'px';
     overlay.style.top=Math.min(box.y1,box.y2)+'px';
     overlay.style.width=Math.abs(box.x2-box.x1)+'px';
@@ -1125,13 +1188,11 @@ function _initLasso(tbodyId, onChangeCallback){
     onChangeCallback&&onChangeCallback();
   });
   window.addEventListener('mouseup',e=>{
-    if(!dragging)return;
-    dragging=false;
+    if(!startTarget){return;}
+    const wasDragging=dragging;
+    dragging=false;startTarget=null;
     overlay.style.display='none';
-    // Single click without drag → toggle row
-    if(Math.abs(box.x2-box.x1)<5&&Math.abs(box.y2-box.y1)<5&&startTarget){
-      startTarget.classList.toggle('lasso-sel');
-    }
+    if(!wasDragging)return; // plain click — don't change selection
     onChangeCallback&&onChangeCallback();
   });
 }
