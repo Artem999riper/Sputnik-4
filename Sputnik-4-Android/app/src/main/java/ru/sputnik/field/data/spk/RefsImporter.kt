@@ -19,9 +19,9 @@ private data class RefsJson(
 )
 
 @Serializable
-private data class WorkerJson(val id: Int, val name: String, val role: String = "", val phone: String = "")
+private data class WorkerJson(val id: String, val name: String, val role: String = "", val phone: String = "")
 @Serializable
-private data class TransportJson(val id: Int, val type: String = "", val name: String, val plate: String = "")
+private data class TransportJson(val id: String, val type: String = "", val name: String, val plate: String = "")
 @Serializable
 private data class SiteJson(val id: String, val name: String, val lat: Double? = null, val lng: Double? = null)
 @Serializable

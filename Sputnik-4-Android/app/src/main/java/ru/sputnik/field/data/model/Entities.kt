@@ -9,7 +9,7 @@ import androidx.room.PrimaryKey
 
 @Entity(tableName = "workers")
 data class Worker(
-    @PrimaryKey val id: Int,
+    @PrimaryKey val id: String,
     val name: String,
     val role: String = "",
     val phone: String = ""
@@ -17,7 +17,7 @@ data class Worker(
 
 @Entity(tableName = "transport")
 data class Transport(
-    @PrimaryKey val id: Int,
+    @PrimaryKey val id: String,
     val type: String = "",
     val name: String,
     val plate: String = ""
@@ -46,7 +46,7 @@ data class KmlPoint(
 data class Brigade(
     @PrimaryKey val id: String,
     val createdAt: String,
-    val transportId: Int? = null
+    val transportId: String? = null
 )
 
 @Entity(
@@ -55,7 +55,7 @@ data class Brigade(
 )
 data class BrigadeMember(
     val brigadeId: String,
-    val workerId: Int
+    val workerId: String
 )
 
 // ── Полевые данные ───────────────────────────────────────────

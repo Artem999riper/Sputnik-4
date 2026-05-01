@@ -28,8 +28,8 @@ fun BrigadeScreen(onBack: () -> Unit) {
     val transport by db.transport().all().collectAsState(initial = emptyList())
 
     var currentBrigade by remember { mutableStateOf<Brigade?>(null) }
-    var memberIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    var selectedTransport by remember { mutableStateOf<Int?>(null) }
+    var memberIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedTransport by remember { mutableStateOf<String?>(null) }
     var saved by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
