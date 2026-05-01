@@ -1,9 +1,15 @@
 async function selectSite(id){
   try{
+    // Close full panel silently (no mini-restore for old site)
+    const panelEl=document.getElementById('panel');
+    if(panelEl.classList.contains('open')){
+      panelEl.classList.remove('open');
+      document.body.classList.remove('panel-open');
+    }
+    document.getElementById('mini-panel').classList.remove('open');
     const r=await fetch(`${API}/sites/${id}`);
     if(!r.ok)throw new Error('not found');
     currentObj=await r.json();currentType='site';activeSiteId=id;
-    // Show mini panel first
     _showMiniPanel();
     renderSidebar();
     await repaintMap();
@@ -43,6 +49,7 @@ function closeMiniPanel(){
 }
 async function selectBase(id){
   try{
+    document.getElementById('mini-panel').classList.remove('open');
     const r=await fetch(`${API}/bases/${id}`);
     if(!r.ok)throw new Error('not found');
     currentObj=await r.json();currentType='base';activeSiteId=null;
@@ -72,7 +79,7 @@ function closePanel(){
   setTimeout(()=>map.invalidateSize({animate:false,pan:false}),260);
   // For sites: go back to mini panel instead of closing entirely
   if(currentType==='site'&&currentObj){
-    try{openMiniSitePanel();}catch(e){}
+    _showMiniPanel();
     return;
   }
   document.getElementById('mini-panel').classList.remove('open');

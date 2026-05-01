@@ -302,7 +302,7 @@ body.panel-open #gruz-page{right:var(--pw)}
 /* ── GLOBAL TASKS ── */
 .nt.gtasks.on{background:#7c3aed}
 #gtasks-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden}
-#gtasks-page.show{display:flex;animation:fadeIn .2s ease both}
+#gtasks-page.show{display:flex}
 .gt-toolbar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--s);border-bottom:1.5px solid var(--bd);flex-shrink:0;flex-wrap:wrap}
 .gt-toolbar h3{font-size:13px;font-weight:800;color:#7c3aed;margin:0 6px 0 0}
 .gt-filters{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
@@ -346,7 +346,7 @@ body.panel-open #gruz-page{right:var(--pw)}
 /* ── ГРУЗ ── */
 .nt.gruz.on{background:#b45309}
 #gruz-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden}
-#gruz-page.show{display:flex;animation:fadeIn .2s ease both}
+#gruz-page.show{display:flex}
 .gruz-toolbar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--s);border-bottom:1.5px solid var(--bd);flex-shrink:0;flex-wrap:wrap}
 .gruz-toolbar h3{font-size:14px;font-weight:800;color:#b45309;margin-right:4px}
 .gruz-filter-bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap}

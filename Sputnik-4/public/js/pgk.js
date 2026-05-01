@@ -1528,7 +1528,7 @@ async function matDropToGroup(ev,grpName){
 }
 async function matMoveSelected(){
   const ids=_matSelectedIds();if(!ids.length)return;
-  const allGroups=[...new Set(bases.flatMap(b=>(b.materials||[]).map(m=>m.category||'')).filter(Boolean))].sort();
+  const allGroups=pgkMatGroups.map(g=>g.name);
   const grpOpts=allGroups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');
   showModal('→ Переместить в группу',`<div class="fgr">
     <div class="fg s2"><label>Группа (существующая или новая)</label>
