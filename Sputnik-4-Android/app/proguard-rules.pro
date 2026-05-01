@@ -1,0 +1,3 @@
+-keep class ru.sputnik.field.data.model.** { *; }
+-keep class ru.sputnik.field.data.spk.** { *; }
+-keepattributes *Annotation*
