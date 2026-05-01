@@ -13,6 +13,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import ru.sputnik.field.ui.voice.VoiceTextField
+import ru.sputnik.field.ui.voice.rememberSpeechHelper
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import ru.sputnik.field.data.db.AppDatabase
@@ -123,7 +125,8 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
                     onDepth = { depthStr = it }, onDiameter = { diameterStr = it },
                     onDate = { drillDate = it }, onGeo = { geomorphDesc = it },
                     onDesc = { description = it }, onLat = { latStr = it }, onLng = { lngStr = it },
-                    onSave = ::save
+                    onSave = ::save,
+                    speech = rememberSpeechHelper()
                 )
                 1 -> LayersTab(uuid, db, scope, layers)
                 2 -> UgvTab(uuid, db, scope, ugvList)
@@ -144,7 +147,8 @@ private fun HeaderTab(
     onDepth: (String) -> Unit, onDiameter: (String) -> Unit,
     onDate: (String) -> Unit, onGeo: (String) -> Unit,
     onDesc: (String) -> Unit, onLat: (String) -> Unit, onLng: (String) -> Unit,
-    onSave: () -> Unit
+    onSave: () -> Unit,
+    speech: ru.sputnik.field.ui.voice.SpeechHelper
 ) {
     LazyColumn(Modifier.padding(horizontal = 16.dp)) {
         item { Spacer(Modifier.height(12.dp)) }
@@ -183,9 +187,9 @@ private fun HeaderTab(
             }
         }
         item { Spacer(Modifier.height(8.dp)) }
-        item { FieldInput("Геоморфология", geomorph, onGeo, multiline = true) }
+        item { VoiceTextField("Геоморфология", geomorph, onGeo, speech = speech) }
         item { Spacer(Modifier.height(8.dp)) }
-        item { FieldInput("Описание", description, onDesc, multiline = true) }
+        item { VoiceTextField("Описание", description, onDesc, speech = speech) }
         item { Spacer(Modifier.height(80.dp)) }
     }
 }
@@ -269,7 +273,7 @@ private fun LayerEditSheet(
         item { Spacer(Modifier.height(8.dp)) }
         item { FieldInput("Глубина подошвы, м", depthStr, { depthStr = it }, KeyboardType.Decimal) }
         item { Spacer(Modifier.height(8.dp)) }
-        item { FieldInput("Описание", desc, { desc = it }, multiline = true) }
+        item { VoiceTextField("Описание слоя", desc, { desc = it }) }
         item { Spacer(Modifier.height(16.dp)) }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -367,7 +371,7 @@ private fun MmgTab(
                 FieldInput("Подошва, м", botStr, { botStr = it }, KeyboardType.Decimal, Modifier.weight(1f))
             }
             Spacer(Modifier.height(6.dp))
-            FieldInput("Описание", desc, { desc = it }, multiline = true)
+            VoiceTextField("Описание ММГ", desc, { desc = it })
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = {

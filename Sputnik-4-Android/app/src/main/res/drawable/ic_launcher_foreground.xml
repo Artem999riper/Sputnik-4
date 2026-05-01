@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Cyan circle background -->
+    <path android:fillColor="#0891B2"
+        android:pathData="M54,54m-54,0a54,54 0,1 1,108 0a54,54 0,1 1,-108 0"/>
+    <!-- Satellite dish (simple) -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M54,30 Q70,38 72,54 Q70,70 54,78 Q38,70 36,54 Q38,38 54,30Z"
+        android:strokeWidth="0"/>
+    <!-- Dot in center -->
+    <circle android:fillColor="#0891B2" android:cx="54" android:cy="54" android:r="8"/>
+</vector>
