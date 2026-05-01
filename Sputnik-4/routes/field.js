@@ -115,8 +115,10 @@ module.exports = (app, getDb, L) => {
   app.get('/api/field/boreholes', wrap((req, res) => {
     const { site_id } = req.query;
     const sql = site_id
-      ? 'SELECT * FROM field_boreholes WHERE site_id=? ORDER BY drill_date DESC'
-      : 'SELECT * FROM field_boreholes ORDER BY drill_date DESC';
+      ? `SELECT b.*, (SELECT p.file_path FROM field_photos p WHERE p.borehole_uuid=b.uuid ORDER BY p.taken_at LIMIT 1) AS photo_path
+         FROM field_boreholes b WHERE b.site_id=? ORDER BY b.drill_date DESC`
+      : `SELECT b.*, (SELECT p.file_path FROM field_photos p WHERE p.borehole_uuid=b.uuid ORDER BY p.taken_at LIMIT 1) AS photo_path
+         FROM field_boreholes b ORDER BY b.drill_date DESC`;
     res.json(all(db(), sql, site_id ? [site_id] : []));
   }));
 

@@ -21,6 +21,7 @@ async function loadField() {
   renderFieldSiteFilter();
   renderFieldImports();
   renderFieldBoreholes();
+  try{if(typeof renderFieldMarkers==='function')renderFieldMarkers();}catch(e){}
 }
 
 function renderFieldSiteFilter() {

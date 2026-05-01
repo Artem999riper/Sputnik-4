@@ -255,6 +255,7 @@ async function repaintMap(){
   }
   // Объёмы всегда поверх KML-слоёв
   setTimeout(bringVolumesToFront, 50);
+  try{renderFieldMarkers();}catch(e){}
 }
 function updateStats(){
   document.getElementById('st-s').textContent=sites.length;

@@ -78,6 +78,49 @@ function renderBaseMarkers(){
   });
 }
 
+// ═══════════════════════════════════════════════════════════
+// FIELD BOREHOLE MARKERS
+// ═══════════════════════════════════════════════════════════
+function renderFieldMarkers(){
+  if(fieldBhLayer){try{map.removeLayer(fieldBhLayer);}catch(e){} fieldBhLayer=null;}
+  if(!fieldBhVisible)return;
+  const bhs=(typeof fieldBoreholes!=='undefined'?fieldBoreholes:[]).filter(b=>b.lat&&b.lng);
+  if(!bhs.length)return;
+  const markers=[];
+  bhs.forEach(b=>{
+    const s=(sites||[]).find(x=>x.id===b.site_id);
+    const icon=L.divIcon({className:'',
+      html:`<div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+        <div style="width:26px;height:26px;background:#0891b2;border:2.5px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,.4)">🕳️</div>
+        <div style="background:rgba(8,145,178,.85);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;white-space:nowrap;max-width:100px;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 4px rgba(0,0,0,.3)">${esc(b.name||'Скв')}</div>
+      </div>`,
+      iconSize:[110,46],iconAnchor:[55,18]
+    });
+    const mk=L.marker([b.lat,b.lng],{icon});
+    const photoPreview=b.photo_path?`<div style="margin-top:6px"><img src="${esc(b.photo_path)}" style="width:100%;border-radius:4px;max-height:80px;object-fit:cover" onerror="this.style.display='none'"></div>`:'';
+    mk.bindPopup(`<div class="popup" style="min-width:180px">
+      <div class="popup-n">🕳️ ${esc(b.name||'Скважина')}</div>
+      <div class="popup-s">${esc(b.work_type||'—')}</div>
+      <div style="font-size:10px;color:var(--tx2);margin-top:4px;display:flex;flex-direction:column;gap:2px">
+        <div>📏 ${b.planned_depth_m||0} м &nbsp;⌀ ${b.diameter_mm||0} мм</div>
+        <div>📅 ${esc(b.drill_date||'—')}</div>
+        ${s?`<div>📍 ${esc(s.name)}</div>`:''}
+      </div>
+      ${photoPreview}
+      <button class="btn bp bsm" style="width:100%;margin-top:7px;justify-content:center" onclick="openFieldBoreholeCard('${escAttr(b.uuid)}');this.closest('.leaflet-popup').querySelector('.leaflet-popup-close-button').click()">Открыть →</button>
+    </div>`,{maxWidth:220});
+    markers.push(mk);
+  });
+  fieldBhLayer=L.layerGroup(markers).addTo(map);
+}
+
+function toggleFieldBhLayer(){
+  fieldBhVisible=!fieldBhVisible;
+  const btn=document.getElementById('field-bh-toggle');
+  if(btn)btn.classList.toggle('on',fieldBhVisible);
+  renderFieldMarkers();
+}
+
 function showBCard(b,ev){
   const card=document.getElementById('bcard');
   const w=(b.workers||[]).length,mc=(b.machinery||[]).length;
