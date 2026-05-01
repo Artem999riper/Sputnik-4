@@ -179,6 +179,7 @@ function switchView(v){
   document.getElementById('materials-page').classList.toggle('show',v==='materials');
   document.getElementById('gruz-page').classList.toggle('show',v==='gruz');
   document.getElementById('gtasks-page').classList.toggle('show',v==='gtasks');
+  const fp=document.getElementById('field-page');if(fp)fp.classList.toggle('show',v==='field');
 
   document.getElementById('sidebar').style.display='flex';
   document.getElementById('mtb').style.display=v==='map'?'flex':'none';
@@ -191,6 +192,7 @@ function switchView(v){
   if(v==='materials'){closePanel();pgkTab='materials';if(typeof loadPGK==='function')loadPGK();}
   if(v==='gruz'){closePanel();if(typeof loadGruz==='function')loadGruz();}
   if(v==='gtasks'){closePanel();if(typeof loadGTasks==='function')loadGTasks();}
+  if(v==='field'){closePanel();if(typeof loadField==='function')loadField();}
   if(v==='pers'){closePanel();if(typeof loadPersonnel==='function')loadPersonnel();}
 }
 

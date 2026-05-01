@@ -115,6 +115,7 @@
     <div class="nt" data-v="materials" onclick="switchView('materials')">📦 Материалы</div>
     <div class="nt gruz" data-v="gruz" onclick="switchView('gruz')">🚚 Груз <span id="gruz-notif-badge" style="display:none;background:#d97706;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="gruz-active-badge" style="display:none;background:#1e40af;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="gruz-my-tasks-badge" style="display:none;background:#ef4444;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle" title="Мои незакрытые задачи"></span></div>
     <div class="nt gtasks" data-v="gtasks" onclick="switchView('gtasks')">📋 Задачи <span id="gtasks-open-badge" style="display:none;background:#7c3aed;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="notif-badge" style="display:none;background:#ef4444;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span></div>
+    <div class="nt field" data-v="field" onclick="switchView('field')">🛰️ Полевые материалы</div>
   </div>
   <div class="tdv"></div>
   <div id="gsearch-wrap">
@@ -342,6 +343,31 @@
   </div>
 </div>
 
+<!-- FIELD MATERIALS PAGE -->
+<div id="field-page">
+  <div class="field-toolbar">
+    <h3>🛰️ Полевые материалы</h3>
+    <button class="btn bp bsm" onclick="fieldExportRefs()">⬇️ Экспорт справочников</button>
+    <button class="btn bg bsm" onclick="document.getElementById('field-spk-input').click()">⬆️ Загрузить .spk</button>
+    <input type="file" id="field-spk-input" accept=".spk,.zip" style="display:none" onchange="fieldUploadSpk(this.files[0])">
+    <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+      <select id="field-site-filter" onchange="renderFieldBoreholes()" class="smg-site-sel">
+        <option value="">Все объекты</option>
+      </select>
+    </div>
+  </div>
+  <div class="field-body">
+    <div class="field-section">
+      <h4>📥 Загруженные архивы</h4>
+      <div id="field-imports-list" class="field-imports-list"></div>
+    </div>
+    <div class="field-section">
+      <h4>🕳️ Скважины с поля</h4>
+      <div id="field-bh-list" class="field-bh-list"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ГРУЗ PAGE -->
 <div id="gruz-page">
   <div class="gruz-toolbar">
@@ -410,6 +436,7 @@
 <script src="js/volumes.js"></script>
 <script src="js/cargo.js"></script>
 <script src="js/tasks.js"></script>
+<script src="js/field.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/dem.js"></script>
 <script src="js/html-export.js"></script>

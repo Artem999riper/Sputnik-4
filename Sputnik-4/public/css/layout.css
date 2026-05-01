@@ -38,7 +38,7 @@
 
 /* ── Map ── */
 #map{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;z-index:1;transition:right .25s cubic-bezier(.4,0,.2,1)}
-#personnel-page,#workers-page,#machinery-page,#equipment-page,#materials-page,#dash-page,#gtasks-page,#gruz-page{transition:right .25s cubic-bezier(.4,0,.2,1)}
+#personnel-page,#workers-page,#machinery-page,#equipment-page,#materials-page,#dash-page,#gtasks-page,#gruz-page,#field-page{transition:right .25s cubic-bezier(.4,0,.2,1)}
 body.panel-open #map,
 body.panel-open #personnel-page,
 body.panel-open #workers-page,
