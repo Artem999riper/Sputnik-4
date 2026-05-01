@@ -111,11 +111,11 @@ function renderAllMachinery(){
       iconSize:[90,44],iconAnchor:[45,26]
     });
     const mk=L.marker([mach.lat,mach.lng],{icon}).addTo(map);
-    const driverList=(b.workers||[]).filter(w=>w.machine_id===mach.id);
+    const driver=mach.driver_id?(pgkWorkers||[]).find(w=>w.id===mach.driver_id):null;
     mk.bindPopup(`<div class="popup">
       <div class="popup-n">${ico} ${esc(mach.name)}</div>
       <div class="popup-s">${esc(mach.type||'')}${mach.plate_number?' · '+mach.plate_number:''}</div>
-      ${driverList.length?`<div style="padding:4px 7px;background:var(--orgl);border-radius:5px;margin-bottom:5px;font-size:11px;font-weight:600;color:var(--org)">${driverList.map(d=>'👤 '+esc(d.name)+(d.role?' — '+esc(d.role):'')).join('<br>')}</div>`:'<div style="font-size:10px;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:2px 6px;margin-bottom:5px;font-weight:600">⚠️ Водитель не назначен</div>'}
+      ${driver?`<div style="padding:4px 7px;background:var(--orgl);border-radius:5px;margin-bottom:5px;font-size:11px;font-weight:600;color:var(--org)">👤 ${esc(driver.name)}${driver.role?' — '+esc(driver.role):''}</div>`:'<div style="font-size:10px;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:2px 6px;margin-bottom:5px;font-weight:600">⚠️ Водитель не назначен</div>'}
       <span class="badge ${mach.status==='working'?'bw':mach.status==='idle'?'bi':'br'}">${SL[mach.status]||mach.status}</span>
       <div style="font-size:9px;color:var(--tx3);margin-top:4px">🏕 ${esc(b.name)}</div>
       ${mach.notes?`<div style="font-size:10px;color:var(--tx2);margin-top:5px;padding-top:5px;border-top:1px solid var(--bd)">📝 ${esc(mach.notes)}</div>`:''}
@@ -153,11 +153,11 @@ function renderMachineMarkers(baseList){
         iconSize:[90,44],iconAnchor:[45,26]
       });
       const mk=L.marker([mach.lat,mach.lng],{icon}).addTo(map);
-      const driverList=(b.workers||[]).filter(w=>w.machine_id===mach.id);
+      const driver=mach.driver_id?(pgkWorkers||[]).find(w=>w.id===mach.driver_id):null;
       mk.bindPopup(`<div class="popup">
         <div class="popup-n">${ico} ${esc(mach.name)}</div>
         <div class="popup-s">${esc(mach.type||'')}${mach.plate_number?' · '+mach.plate_number:''}</div>
-        ${driverList.length?`<div style="padding:4px 7px;background:var(--orgl);border-radius:5px;margin-bottom:5px;font-size:11px;font-weight:600;color:var(--org)">${driverList.map(d=>'👤 '+esc(d.name)+(d.role?' — '+esc(d.role):'')).join('<br>')}</div>`:'<div style="font-size:10px;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:2px 6px;margin-bottom:5px;font-weight:600">⚠️ Водитель не назначен</div>'}
+        ${driver?`<div style="padding:4px 7px;background:var(--orgl);border-radius:5px;margin-bottom:5px;font-size:11px;font-weight:600;color:var(--org)">👤 ${esc(driver.name)}${driver.role?' — '+esc(driver.role):''}</div>`:'<div style="font-size:10px;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:2px 6px;margin-bottom:5px;font-weight:600">⚠️ Водитель не назначен</div>'}
         <span class="badge ${mach.status==='working'?'bw':mach.status==='idle'?'bi':'br'}">${SL[mach.status]||mach.status}</span>
         <div style="font-size:9px;color:var(--tx3);margin-top:4px">🏕 ${esc(b.name)}</div>
         ${mach.notes?`<div style="font-size:10px;color:var(--tx2);margin-top:5px;padding-top:5px;border-top:1px solid var(--bd)">📝 ${esc(mach.notes)}</div>`:''}

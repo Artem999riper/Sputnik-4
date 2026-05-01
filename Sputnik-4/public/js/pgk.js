@@ -928,7 +928,7 @@ async function openMachDetail(mid){
     <div class="mdc-row"><span class="mdc-lbl">Тип</span><span class="mdc-val">${esc(m.type||'—')}</span></div>
     <div class="mdc-row"><span class="mdc-lbl">Статус</span><span class="mdc-val">
       <span class="wt-badge ${statCls[st]||'wbs-idle'}" style="margin-right:8px">${statLbl[st]||st}</span>
-      <select style="font-size:12px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="pgkQuickStatus('${mid}',this.value);openMachDetail('${mid}')">
+      <select style="font-size:12px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="(async()=>{await pgkQuickStatus('${mid}',this.value);openMachDetail('${mid}');})()">
         ${Object.entries(statLbl).map(([k,lbl])=>`<option value="${k}" ${k===st?'selected':''}>${lbl}</option>`).join('')}
       </select>
     </span></div>
