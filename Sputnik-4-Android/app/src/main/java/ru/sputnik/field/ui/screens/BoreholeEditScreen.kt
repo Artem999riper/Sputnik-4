@@ -13,23 +13,33 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import ru.sputnik.field.ui.voice.VoiceTextField
-import ru.sputnik.field.ui.voice.rememberSpeechHelper
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import ru.sputnik.field.data.db.AppDatabase
 import ru.sputnik.field.data.model.*
+import ru.sputnik.field.ui.voice.VoiceTextField
+import ru.sputnik.field.ui.voice.rememberSpeechHelper
 import java.util.UUID
 
-private val WORK_TYPES = listOf("SEARCH" to "Поисковая", "EXPLORATION" to "Разведочная",
-    "TRENCH" to "Шурф", "GEOLOGICAL" to "Геологическая")
-private val SOIL_TYPES = listOf("Торф", "Супесь", "Суглинок", "Глина", "Песок", "Гравий",
-    "Галечник", "Мерзлота", "Скала", "Прочее")
-private val SOIL_STATES = listOf("Мягкопластичный", "Тугопластичный", "Полутвёрдый", "Твёрдый",
-    "Текучий", "Текучепластичный", "Плотный", "Средней плотности", "Рыхлый", "Прочее")
-private val SAMPLE_TYPES = listOf("Монолит", "Нарушенный", "Воды", "Газ")
-private val PACKAGING = listOf("Полиэтилен", "Мешок", "Коробка", "Банка", "Пакет",
-    "Труба", "Контейнер", "Пробирка", "Прочее")
+private val WORK_TYPES = listOf(
+    "SEARCH" to "Поисковая", "EXPLORATION" to "Разведочная",
+    "TRENCH" to "Шурф", "GEOLOGICAL" to "Геологическая"
+)
+private val SOIL_TYPES = listOf(
+    "Торф", "Супесь", "Суглинок", "Глина", "Песок",
+    "Гравий", "Галечник", "Мерзлота", "Скала", "Прочее"
+)
+private val SOIL_STATES = listOf(
+    "Мягкопластичный", "Тугопластичный", "Полутвёрдый", "Твёрдый",
+    "Текучий", "Текучепластичный", "Плотный", "Средней плотности", "Рыхлый", "Прочее"
+)
+private val SAMPLE_TYPES = listOf("Монолит", "Нарушенный", "Вода", "Газ")
+private val PACKAGING_TYPES = listOf(
+    "Полиэтилен", "Мешок", "Коробка", "Банка", "Пакет",
+    "Труба", "Контейнер", "Пробирка", "Прочее"
+)
+
+// ── Главный экран ────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,11 +47,12 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
     val context = LocalContext.current
     val db = remember { AppDatabase.get(context) }
     val scope = rememberCoroutineScope()
+    val speech = rememberSpeechHelper()
 
     val isNew = boreholeUuid == null
     val uuid = remember { boreholeUuid ?: UUID.randomUUID().toString() }
 
-    // ── Шапка ─────────────────────────────────────────────────
+    // Шапка
     var name by remember { mutableStateOf("") }
     var workType by remember { mutableStateOf("EXPLORATION") }
     var depthStr by remember { mutableStateOf("") }
@@ -54,25 +65,22 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
     var status by remember { mutableStateOf("draft") }
 
     var selectedTab by remember { mutableIntStateOf(0) }
+    var showDoneDialog by remember { mutableStateOf(false) }
 
     val layers by db.soilLayers().byBorehole(uuid).collectAsState(initial = emptyList())
     val ugvList by db.ugv().byBorehole(uuid).collectAsState(initial = emptyList())
     val mmgList by db.mmg().byBorehole(uuid).collectAsState(initial = emptyList())
     val photos by db.photos().byBorehole(uuid).collectAsState(initial = emptyList())
 
-    // Load existing borehole
     LaunchedEffect(boreholeUuid) {
         if (boreholeUuid != null) {
             db.boreholes().byUuid(boreholeUuid)?.let { bh ->
-                name = bh.name
-                workType = bh.workType
-                depthStr = bh.plannedDepthM.toString()
-                diameterStr = bh.diameterMm.toString()
-                drillDate = bh.drillDate
-                geomorphDesc = bh.geomorphDesc
+                name = bh.name; workType = bh.workType
+                depthStr = bh.plannedDepthM.takeIf { it > 0 }?.toString() ?: ""
+                diameterStr = bh.diameterMm.takeIf { it > 0 }?.toString() ?: ""
+                drillDate = bh.drillDate; geomorphDesc = bh.geomorphDesc
                 description = bh.description
-                latStr = bh.manualLat?.toString() ?: ""
-                lngStr = bh.manualLng?.toString() ?: ""
+                latStr = bh.manualLat?.toString() ?: ""; lngStr = bh.manualLng?.toString() ?: ""
                 status = bh.status
             }
         } else {
@@ -80,7 +88,7 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
         }
     }
 
-    fun save() {
+    fun saveBorehole() {
         scope.launch {
             db.boreholes().insert(Borehole(
                 uuid = uuid, siteId = siteId, name = name, workType = workType,
@@ -93,40 +101,87 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
         }
     }
 
+    // Диалог валидации при завершении
+    if (showDoneDialog) {
+        val warnings = buildList {
+            if (layers.isEmpty()) add("Не добавлено ни одного слоя грунта")
+            if (photos.isEmpty()) add("Нет ни одной фотографии")
+            if (name.isBlank()) add("Не указано название скважины")
+        }
+        AlertDialog(
+            onDismissRequest = { showDoneDialog = false },
+            title = { Text(if (warnings.isEmpty()) "Завершить скважину?" else "Есть незаполненные поля") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (warnings.isNotEmpty()) {
+                        warnings.forEach { w ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("⚠️"); Text(w)
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text("Завершить всё равно?",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .6f))
+                    } else {
+                        Text("Скважина будет отмечена как готова к экспорту.")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    status = "done"; saveBorehole(); showDoneDialog = false; onBack()
+                }) { Text("Завершить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDoneDialog = false }) { Text("Отмена") }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(if (isNew) "Новая скважина" else name.ifEmpty { "Скважина" }) },
                 navigationIcon = {
-                    IconButton(onClick = { save(); onBack() }) { Icon(Icons.Default.ArrowBack, null) }
+                    IconButton(onClick = { saveBorehole(); onBack() }) {
+                        Icon(Icons.Default.ArrowBack, null)
+                    }
                 },
                 actions = {
                     if (status != "done") {
-                        TextButton(onClick = { status = "done"; save(); onBack() }) { Text("✓ Завершить") }
+                        TextButton(onClick = { saveBorehole(); showDoneDialog = true }) {
+                            Text("✓ Завершить")
+                        }
                     }
-                    TextButton(onClick = { save(); onBack() }) { Text("Сохранить") }
+                    TextButton(onClick = { saveBorehole(); onBack() }) { Text("Сохранить") }
                 }
             )
         }
     ) { pad ->
         Column(Modifier.padding(pad)) {
-            TabRow(selectedTab) {
-                listOf("Шапка", "Слои (${layers.size})", "УГВ (${ugvList.size})",
-                    "ММГ (${mmgList.size})", "Фото (${photos.size})")
-                    .forEachIndexed { i, t ->
-                        Tab(i == selectedTab, onClick = { selectedTab = i }, text = { Text(t) })
-                    }
+            ScrollableTabRow(selectedTabIndex = selectedTab) {
+                listOf(
+                    "Шапка",
+                    "Слои (${layers.size})",
+                    "УГВ (${ugvList.size})",
+                    "ММГ (${mmgList.size})",
+                    "Фото (${photos.size})"
+                ).forEachIndexed { i, title ->
+                    Tab(i == selectedTab, onClick = { selectedTab = i },
+                        text = { Text(title, maxLines = 1) })
+                }
             }
 
             when (selectedTab) {
                 0 -> HeaderTab(
-                    name, workType, depthStr, diameterStr, drillDate, geomorphDesc, description, latStr, lngStr,
+                    name, workType, depthStr, diameterStr, drillDate,
+                    geomorphDesc, description, latStr, lngStr,
                     onName = { name = it }, onWorkType = { workType = it },
                     onDepth = { depthStr = it }, onDiameter = { diameterStr = it },
                     onDate = { drillDate = it }, onGeo = { geomorphDesc = it },
                     onDesc = { description = it }, onLat = { latStr = it }, onLng = { lngStr = it },
-                    onSave = ::save,
-                    speech = rememberSpeechHelper()
+                    speech = speech
                 )
                 1 -> LayersTab(uuid, db, scope, layers)
                 2 -> UgvTab(uuid, db, scope, ugvList)
@@ -137,7 +192,7 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
     }
 }
 
-// ── Шапка ──────────────────────────────────────────────────
+// ── Шапка ────────────────────────────────────────────────────
 
 @Composable
 private fun HeaderTab(
@@ -147,15 +202,12 @@ private fun HeaderTab(
     onDepth: (String) -> Unit, onDiameter: (String) -> Unit,
     onDate: (String) -> Unit, onGeo: (String) -> Unit,
     onDesc: (String) -> Unit, onLat: (String) -> Unit, onLng: (String) -> Unit,
-    onSave: () -> Unit,
     speech: ru.sputnik.field.ui.voice.SpeechHelper
 ) {
     LazyColumn(Modifier.padding(horizontal = 16.dp)) {
         item { Spacer(Modifier.height(12.dp)) }
         item { FieldInput("Название скважины", name, onName) }
-        item { Spacer(Modifier.height(8.dp)) }
-
-        // Тип работ — сегментированный выбор
+        item { Spacer(Modifier.height(10.dp)) }
         item {
             Text("Тип работ", style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = .6f))
@@ -163,23 +215,20 @@ private fun HeaderTab(
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 WORK_TYPES.forEachIndexed { i, (key, label) ->
                     SegmentedButton(
-                        selected = workType == key,
-                        onClick = { onWorkType(key) },
+                        selected = workType == key, onClick = { onWorkType(key) },
                         shape = SegmentedButtonDefaults.itemShape(i, WORK_TYPES.size),
                         label = { Text(label, maxLines = 1) }
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
         }
-
         item { FieldInput("Плановая глубина, м", depth, onDepth, KeyboardType.Decimal) }
         item { Spacer(Modifier.height(8.dp)) }
         item { FieldInput("Диаметр, мм", diameter, onDiameter, KeyboardType.Decimal) }
         item { Spacer(Modifier.height(8.dp)) }
         item { FieldInput("Дата бурения (ГГГГ-ММ-ДД)", date, onDate) }
         item { Spacer(Modifier.height(8.dp)) }
-
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FieldInput("Широта", lat, onLat, KeyboardType.Decimal, Modifier.weight(1f))
@@ -194,79 +243,126 @@ private fun HeaderTab(
     }
 }
 
-// ── Слои ────────────────────────────────────────────────────
+// ── Слои + Пробы ─────────────────────────────────────────────
 
 @Composable
 private fun LayersTab(
     boreholeUuid: String, db: AppDatabase,
     scope: kotlinx.coroutines.CoroutineScope, layers: List<SoilLayer>
 ) {
-    var showAdd by remember { mutableStateOf(false) }
     var editLayer by remember { mutableStateOf<SoilLayer?>(null) }
+    var samplesForLayer by remember { mutableStateOf<SoilLayer?>(null) }
 
-    if (showAdd || editLayer != null) {
-        val layer = editLayer ?: SoilLayer(uuid = UUID.randomUUID().toString(),
-            boreholeUuid = boreholeUuid, orderIdx = layers.size)
-        LayerEditSheet(
-            layer = layer,
-            onDismiss = { showAdd = false; editLayer = null },
-            onSave = { l ->
-                scope.launch { db.soilLayers().insert(l) }
-                showAdd = false; editLayer = null
-            },
-            onDelete = { l ->
-                scope.launch { db.soilLayers().delete(l) }
-                editLayer = null
-            }
-        )
-        return
-    }
-
-    LazyColumn(Modifier.padding(horizontal = 16.dp)) {
-        item { Spacer(Modifier.height(8.dp)) }
-        items(layers, key = { it.uuid }) { l ->
-            Card(
-                onClick = { editLayer = l },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Text("Слой ${l.orderIdx + 1} · до ${l.depthM} м",
-                        fontWeight = FontWeight.Bold)
-                    if (l.soilType.isNotEmpty())
-                        Text("${l.soilType}  ${l.state}",
-                            style = MaterialTheme.typography.bodySmall)
-                    if (l.description.isNotEmpty())
-                        Text(l.description, style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .6f))
+    when {
+        samplesForLayer != null -> {
+            val layer = samplesForLayer!!
+            val samples by db.samples().byLayer(layer.uuid).collectAsState(initial = emptyList())
+            SamplesSheet(
+                layer = layer,
+                samples = samples,
+                db = db, scope = scope,
+                onBack = { samplesForLayer = null }
+            )
+        }
+        editLayer != null -> {
+            LayerEditSheet(
+                layer = editLayer!!,
+                onDismiss = { editLayer = null },
+                onSave = { l -> scope.launch { db.soilLayers().insert(l) }; editLayer = null },
+                onDelete = { l -> scope.launch { db.soilLayers().delete(l) }; editLayer = null },
+                onSamples = { l -> editLayer = null; samplesForLayer = l }
+            )
+        }
+        else -> {
+            LazyColumn(Modifier.padding(horizontal = 16.dp)) {
+                item { Spacer(Modifier.height(8.dp)) }
+                items(layers, key = { it.uuid }) { l ->
+                    val sampleCount by db.samples().byLayer(l.uuid)
+                        .collectAsState(initial = emptyList())
+                    LayerCard(
+                        layer = l,
+                        sampleCount = sampleCount.size,
+                        onClick = { editLayer = l }
+                    )
                 }
+                item {
+                    OutlinedButton(
+                        onClick = {
+                            editLayer = SoilLayer(
+                                uuid = UUID.randomUUID().toString(),
+                                boreholeUuid = boreholeUuid,
+                                orderIdx = layers.size
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Добавить слой")
+                    }
+                }
+                item { Spacer(Modifier.height(80.dp)) }
             }
         }
-        item {
-            OutlinedButton(
-                onClick = { showAdd = true },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-            ) {
-                Icon(Icons.Default.Add, null)
-                Spacer(Modifier.width(6.dp))
-                Text("Добавить слой")
+    }
+}
+
+@Composable
+private fun LayerCard(layer: SoilLayer, sampleCount: Int, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Слой ${layer.orderIdx + 1} · до ${layer.depthM} м",
+                    fontWeight = FontWeight.Bold)
+                if (sampleCount > 0)
+                    Badge(containerColor = MaterialTheme.colorScheme.secondary) {
+                        Text("🧪 $sampleCount проб")
+                    }
             }
+            if (layer.soilType.isNotEmpty())
+                Text("${layer.soilType}  ${layer.state}",
+                    style = MaterialTheme.typography.bodySmall)
+            if (layer.description.isNotEmpty())
+                Text(layer.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .6f),
+                    maxLines = 2)
         }
-        item { Spacer(Modifier.height(80.dp)) }
     }
 }
 
 @Composable
 private fun LayerEditSheet(
     layer: SoilLayer, onDismiss: () -> Unit,
-    onSave: (SoilLayer) -> Unit, onDelete: (SoilLayer) -> Unit
+    onSave: (SoilLayer) -> Unit, onDelete: (SoilLayer) -> Unit,
+    onSamples: (SoilLayer) -> Unit
 ) {
     var soilType by remember { mutableStateOf(layer.soilType) }
     var state by remember { mutableStateOf(layer.state) }
-    var depthStr by remember { mutableStateOf(layer.depthM.let { if (it == 0.0) "" else it.toString() }) }
+    var depthStr by remember { mutableStateOf(layer.depthM.takeIf { it > 0 }?.toString() ?: "") }
     var desc by remember { mutableStateOf(layer.description) }
 
     LazyColumn(Modifier.padding(16.dp)) {
-        item { Text("Слой", fontWeight = FontWeight.Bold); Spacer(Modifier.height(12.dp)) }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("Слой ${layer.orderIdx + 1}", fontWeight = FontWeight.Bold)
+                TextButton(onClick = {
+                    onSave(layer.copy(soilType = soilType, state = state,
+                        depthM = depthStr.toDoubleOrNull() ?: 0.0, description = desc))
+                    onSamples(layer.copy(soilType = soilType, state = state,
+                        depthM = depthStr.toDoubleOrNull() ?: 0.0, description = desc))
+                }) {
+                    Icon(Icons.Default.Science, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Пробы →")
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
         item { DropdownField("Тип грунта", soilType, SOIL_TYPES) { soilType = it } }
         item { Spacer(Modifier.height(8.dp)) }
         item { DropdownField("Состояние", state, SOIL_STATES) { state = it } }
@@ -277,12 +373,15 @@ private fun LayerEditSheet(
         item { Spacer(Modifier.height(16.dp)) }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Отмена") }
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                    Text("Отмена")
+                }
                 if (layer.soilType.isNotEmpty())
                     OutlinedButton(
                         onClick = { onDelete(layer) },
                         modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error)
                     ) { Text("Удалить") }
                 Button(
                     onClick = {
@@ -297,6 +396,100 @@ private fun LayerEditSheet(
     }
 }
 
+// ── Пробы ────────────────────────────────────────────────────
+
+@Composable
+private fun SamplesSheet(
+    layer: SoilLayer,
+    samples: List<Sample>,
+    db: AppDatabase,
+    scope: kotlinx.coroutines.CoroutineScope,
+    onBack: () -> Unit
+) {
+    var collType by remember { mutableStateOf(SAMPLE_TYPES[0]) }
+    var packaging by remember { mutableStateOf(PACKAGING_TYPES[0]) }
+    var depthStr by remember { mutableStateOf("") }
+    var showAdd by remember { mutableStateOf(false) }
+
+    Column {
+        // Заголовок
+        Surface(tonalElevation = 2.dp) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) }
+                Text("Пробы · Слой ${layer.orderIdx + 1}",
+                    fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                TextButton(onClick = { showAdd = true }) {
+                    Icon(Icons.Default.Add, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Добавить")
+                }
+            }
+        }
+
+        // Диалог добавления
+        if (showAdd) {
+            AlertDialog(
+                onDismissRequest = { showAdd = false },
+                title = { Text("Новая проба") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DropdownField("Вид отбора", collType, SAMPLE_TYPES) { collType = it }
+                        DropdownField("Упаковка", packaging, PACKAGING_TYPES) { packaging = it }
+                        FieldInput("Глубина отбора, м", depthStr, { depthStr = it }, KeyboardType.Decimal)
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        scope.launch {
+                            db.samples().insert(Sample(
+                                uuid = UUID.randomUUID().toString(),
+                                layerUuid = layer.uuid,
+                                collectionType = collType,
+                                packaging = packaging,
+                                depthM = depthStr.toDoubleOrNull() ?: 0.0
+                            ))
+                        }
+                        depthStr = ""; showAdd = false
+                    }) { Text("Добавить") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAdd = false }) { Text("Отмена") }
+                }
+            )
+        }
+
+        LazyColumn(Modifier.padding(horizontal = 16.dp)) {
+            if (samples.isEmpty()) {
+                item {
+                    Box(Modifier.fillMaxWidth().padding(32.dp), Alignment.Center) {
+                        Text("Проб нет. Нажмите «Добавить».",
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .4f))
+                    }
+                }
+            } else {
+                items(samples, key = { it.uuid }) { s ->
+                    ListItem(
+                        leadingContent = { Text("🧪", style = MaterialTheme.typography.titleMedium) },
+                        headlineContent = { Text("${s.collectionType} · ${s.depthM} м") },
+                        supportingContent = { Text(s.packaging) },
+                        trailingContent = {
+                            IconButton(onClick = { scope.launch { db.samples().delete(s) } }) {
+                                Icon(Icons.Default.Delete, null,
+                                    tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    )
+                    HorizontalDivider()
+                }
+            }
+            item { Spacer(Modifier.height(80.dp)) }
+        }
+    }
+}
+
 // ── УГВ ─────────────────────────────────────────────────────
 
 @Composable
@@ -306,9 +499,17 @@ private fun UgvTab(
 ) {
     var depthStr by remember { mutableStateOf("") }
     LazyColumn(Modifier.padding(16.dp)) {
+        if (list.isEmpty()) {
+            item {
+                Box(Modifier.fillMaxWidth().padding(24.dp), Alignment.Center) {
+                    Text("УГВ не зафиксированы",
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .4f))
+                }
+            }
+        }
         items(list, key = { it.uuid }) { u ->
             ListItem(
-                headlineContent = { Text("УГВ ${list.indexOf(u) + 1}: ${u.depthM} м") },
+                headlineContent = { Text("💧 УГВ ${list.indexOf(u) + 1}: ${u.depthM} м") },
                 trailingContent = {
                     IconButton(onClick = { scope.launch { db.ugv().delete(u) } }) {
                         Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error)
@@ -347,6 +548,14 @@ private fun MmgTab(
     var botStr by remember { mutableStateOf("") }
     var desc by remember { mutableStateOf("") }
     LazyColumn(Modifier.padding(16.dp)) {
+        if (list.isEmpty()) {
+            item {
+                Box(Modifier.fillMaxWidth().padding(24.dp), Alignment.Center) {
+                    Text("ММГ не зафиксированы",
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .4f))
+                }
+            }
+        }
         items(list, key = { it.uuid }) { m ->
             Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -386,6 +595,7 @@ private fun MmgTab(
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Добавить") }
         }
+        item { Spacer(Modifier.height(80.dp)) }
     }
 }
 
@@ -397,93 +607,97 @@ private fun PhotosTab(
     scope: kotlinx.coroutines.CoroutineScope, photos: List<Photo>,
     context: android.content.Context
 ) {
-    val categories = listOf("vyrabotka" to "Выработка", "drilling" to "Бурение",
-        "core_box" to "Керновый ящик", "journal" to "Журнал")
+    val categories = listOf(
+        "vyrabotka" to "Выработка",
+        "drilling" to "Бурение",
+        "core_box" to "Керновый ящик",
+        "journal" to "Журнал"
+    )
     val maxPerCat = mapOf("vyrabotka" to 2, "drilling" to 5, "core_box" to 5, "journal" to 4)
     var activeCategory by remember { mutableStateOf("vyrabotka") }
+    var pendingFile by remember { mutableStateOf<java.io.File?>(null) }
 
     val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.TakePicture()
     ) { saved ->
-        // Camera result handled by PhotoCapture helper — see CameraHelper.kt
-    }
-    var pendingPhotoUri by remember { mutableStateOf<android.net.Uri?>(null) }
-    var pendingPhotoFile by remember { mutableStateOf<java.io.File?>(null) }
-
-    LazyColumn(Modifier.padding(16.dp)) {
-        item {
-            ScrollableTabRow(
-                selectedTabIndex = categories.indexOfFirst { it.first == activeCategory }
-            ) {
-                categories.forEachIndexed { i, (key, label) ->
-                    val cnt = photos.count { it.category == key }
-                    Tab(activeCategory == key,
-                        onClick = { activeCategory = key },
-                        text = { Text("$label ($cnt)") })
+        if (saved) {
+            pendingFile?.let { file ->
+                scope.launch {
+                    db.photos().insert(Photo(
+                        uuid = UUID.randomUUID().toString(),
+                        boreholeUuid = boreholeUuid,
+                        category = activeCategory,
+                        filePath = file.absolutePath,
+                        takenAt = java.time.Instant.now().toString()
+                    ))
                 }
             }
-            Spacer(Modifier.height(12.dp))
+        }
+        pendingFile = null
+    }
+
+    Column {
+        ScrollableTabRow(
+            selectedTabIndex = categories.indexOfFirst { it.first == activeCategory }
+        ) {
+            categories.forEachIndexed { _, (key, label) ->
+                val cnt = photos.count { it.category == key }
+                Tab(activeCategory == key, onClick = { activeCategory = key },
+                    text = { Text("$label ($cnt)") })
+            }
         }
 
         val catPhotos = photos.filter { it.category == activeCategory }
         val max = maxPerCat[activeCategory] ?: 5
 
-        items(catPhotos, key = { it.uuid }) { p ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                coil.compose.AsyncImage(
-                    model = p.filePath,
-                    contentDescription = null,
-                    modifier = Modifier.size(80.dp)
-                        .padding(end = 8.dp),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                )
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = {
-                    scope.launch { db.photos().delete(p) }
-                }) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
+        LazyColumn(Modifier.padding(16.dp)) {
+            items(catPhotos, key = { it.uuid }) { p ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    coil.compose.AsyncImage(
+                        model = p.filePath, contentDescription = null,
+                        modifier = Modifier.size(90.dp).padding(end = 10.dp),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(p.category, style = MaterialTheme.typography.labelSmall)
+                        Text(p.takenAt.take(16), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f))
+                    }
+                    IconButton(onClick = { scope.launch { db.photos().delete(p) } }) {
+                        Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+                HorizontalDivider()
             }
-            HorizontalDivider()
-        }
 
-        if (catPhotos.size < max) {
-            item {
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = {
-                        // Create temp file and launch camera
-                        val photoDir = java.io.File(context.getExternalFilesDir(null), "photos").also { it.mkdirs() }
-                        val file = java.io.File(photoDir, "${UUID.randomUUID()}.jpg")
-                        pendingPhotoFile = file
-                        val uri = androidx.core.content.FileProvider.getUriForFile(
-                            context, "${context.packageName}.fileprovider", file)
-                        pendingPhotoUri = uri
-                        scope.launch {
+            if (catPhotos.size < max) {
+                item {
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            val photoDir = java.io.File(
+                                context.getExternalFilesDir(null), "photos").also { it.mkdirs() }
+                            val file = java.io.File(photoDir, "${UUID.randomUUID()}.jpg")
+                            pendingFile = file
+                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                context, "${context.packageName}.fileprovider", file)
                             launcher.launch(uri)
-                            if (pendingPhotoFile?.exists() == true && pendingPhotoFile!!.length() > 0) {
-                                db.photos().insert(Photo(
-                                    uuid = UUID.randomUUID().toString(),
-                                    boreholeUuid = boreholeUuid,
-                                    category = activeCategory,
-                                    filePath = file.absolutePath,
-                                    takenAt = java.time.Instant.now().toString()
-                                ))
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.CameraAlt, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Сфотографировать (${catPhotos.size}/$max)")
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.CameraAlt, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Сфотографировать (${catPhotos.size}/$max)")
+                    }
+                    Spacer(Modifier.height(80.dp))
                 }
             }
         }
-        item { Spacer(Modifier.height(80.dp)) }
     }
 }
 
-// ── Переиспользуемые UI-компоненты ──────────────────────────
+// ── Переиспользуемые компоненты ──────────────────────────────
 
 @Composable
 fun FieldInput(
@@ -507,17 +721,14 @@ fun DropdownField(label: String, value: String, options: List<String>, onSelect:
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
             value = value, onValueChange = {},
-            label = { Text(label) },
-            readOnly = true,
+            label = { Text(label) }, readOnly = true,
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             modifier = Modifier.fillMaxWidth().menuAnchor()
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { opt ->
-                DropdownMenuItem(
-                    text = { Text(opt) },
-                    onClick = { onSelect(opt); expanded = false }
-                )
+                DropdownMenuItem(text = { Text(opt) },
+                    onClick = { onSelect(opt); expanded = false })
             }
         }
     }
