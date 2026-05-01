@@ -5,12 +5,15 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <!-- Cyan circle background -->
-    <path android:fillColor="#0891B2"
-        android:pathData="M54,54m-54,0a54,54 0,1 1,108 0a54,54 0,1 1,-108 0"/>
-    <!-- Satellite dish (simple) -->
-    <path android:fillColor="#FFFFFF"
-        android:pathData="M54,30 Q70,38 72,54 Q70,70 54,78 Q38,70 36,54 Q38,38 54,30Z"
-        android:strokeWidth="0"/>
-    <!-- Dot in center -->
-    <circle android:fillColor="#0891B2" android:cx="54" android:cy="54" android:r="8"/>
+    <path
+        android:fillColor="#0891B2"
+        android:pathData="M54,0 A54,54 0,1,1 53.999,0 Z"/>
+    <!-- Satellite dish body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,28 Q72,36 74,54 Q72,72 54,80 Q36,72 34,54 Q36,36 54,28Z"/>
+    <!-- Center hole (cyan) -->
+    <path
+        android:fillColor="#0891B2"
+        android:pathData="M54,46 A8,8 0,1,1 53.999,46 Z"/>
 </vector>
