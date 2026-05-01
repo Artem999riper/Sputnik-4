@@ -198,6 +198,70 @@ async function getDb() {
   ta(`CREATE TABLE IF NOT EXISTS equipment_responsible_history (id TEXT PRIMARY KEY, equipment_id TEXT NOT NULL, responsible TEXT NOT NULL, assigned_at TEXT DEFAULT (datetime('now')), notes TEXT DEFAULT '')`);
   ta("ALTER TABLE pgk_equipment ADD COLUMN group_id TEXT DEFAULT ''");
 
+  // ── ПОЛЕВЫЕ МАТЕРИАЛЫ (Android-приложение «Спутник Полевик») ──
+  ta(`CREATE TABLE IF NOT EXISTS field_boreholes (
+    uuid TEXT PRIMARY KEY,
+    site_id TEXT,
+    lat REAL, lng REAL,
+    kml_point_id TEXT,
+    name TEXT DEFAULT '',
+    planned_depth_m REAL,
+    diameter_mm REAL,
+    work_type TEXT,
+    geomorph_desc TEXT DEFAULT '',
+    description TEXT DEFAULT '',
+    drill_date TEXT,
+    brigade_info TEXT DEFAULT '',
+    imported_at TEXT DEFAULT (datetime('now')),
+    imported_from_spk TEXT DEFAULT ''
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_soil_layers (
+    uuid TEXT PRIMARY KEY,
+    borehole_uuid TEXT NOT NULL,
+    order_idx INTEGER DEFAULT 0,
+    soil_type TEXT,
+    state TEXT,
+    description TEXT DEFAULT '',
+    depth_m REAL
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_samples (
+    uuid TEXT PRIMARY KEY,
+    layer_uuid TEXT NOT NULL,
+    collection_type TEXT,
+    packaging TEXT,
+    depth_m REAL
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_ugv (
+    uuid TEXT PRIMARY KEY,
+    borehole_uuid TEXT NOT NULL,
+    order_idx INTEGER DEFAULT 0,
+    depth_m REAL
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_mmg (
+    uuid TEXT PRIMARY KEY,
+    borehole_uuid TEXT NOT NULL,
+    order_idx INTEGER DEFAULT 0,
+    top_m REAL,
+    bottom_m REAL,
+    description TEXT DEFAULT ''
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_photos (
+    uuid TEXT PRIMARY KEY,
+    borehole_uuid TEXT NOT NULL,
+    category TEXT,
+    file_path TEXT,
+    taken_at TEXT
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_imports (
+    id TEXT PRIMARY KEY,
+    filename TEXT,
+    imported_at TEXT DEFAULT (datetime('now')),
+    imported_by TEXT DEFAULT '',
+    manifest_json TEXT DEFAULT '',
+    counts_json TEXT DEFAULT '',
+    status TEXT DEFAULT 'ok'
+  )`);
+
   return _db;
 }
 
