@@ -1,0 +1,22 @@
+:root{
+  --bg:#f0f2f5;--s:#fff;--s2:#f7f8fa;--s3:#eef0f4;--bd:#dde1e8;--bd2:#c8cdd8;
+  --acc:#1a56db;--acc2:#1e429f;--accl:#e8effc;--accm:#b3c6f7;
+  --tx:#111928;--tx2:#4b5563;--tx3:#9ca3af;
+  --grn:#057a55;--grnl:#def7ec;--red:#c81e1e;--redl:#fde8e8;
+  --ylw:#92400e;--ylwl:#fdf6b2;--org:#c05621;--orgl:#feecdc;
+  --bpc:#7c3aed;--bpl:#ede9fe;--bpb:#c4b5fd;
+  --geo:#0891b2;--geol:#e0f2fe;--geo2:#065f46;--geo2l:#d1fae5;
+  --kam:#b45309;--kaml:#fef3c7;--kamb:#fcd34d;
+  --sw:260px;--pw:450px;--th:52px;
+  --r:12px;--rs:8px;
+  --sh:0 1px 4px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.04);
+  --shm:0 4px 16px rgba(0,0,0,.09),0 2px 6px rgba(0,0,0,.05);
+  --shl:0 12px 36px rgba(0,0,0,.13),0 4px 12px rgba(0,0,0,.07);
+  font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;
+}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes modalIn{from{transform:scale(.96) translateY(-6px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
+@keyframes panelIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-size:13px;background:var(--bg);color:var(--tx);overflow:hidden;height:100vh}
