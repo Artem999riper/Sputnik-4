@@ -19,6 +19,9 @@ import ru.sputnik.field.data.db.AppDatabase
 import ru.sputnik.field.data.model.*
 import ru.sputnik.field.ui.voice.VoiceTextField
 import ru.sputnik.field.ui.voice.rememberSpeechHelper
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 import java.util.UUID
 
 private val WORK_TYPES = listOf(
@@ -601,6 +604,7 @@ private fun MmgTab(
 
 // ── Фото ────────────────────────────────────────────────────
 
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 private fun PhotosTab(
     boreholeUuid: String, db: AppDatabase,
@@ -616,6 +620,8 @@ private fun PhotosTab(
     val maxPerCat = mapOf("vyrabotka" to 2, "drilling" to 5, "core_box" to 5, "journal" to 4)
     var activeCategory by remember { mutableStateOf("vyrabotka") }
     var pendingFile by remember { mutableStateOf<java.io.File?>(null) }
+
+    val cameraPerm = rememberPermissionState(android.Manifest.permission.CAMERA)
 
     val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.TakePicture()
@@ -634,6 +640,16 @@ private fun PhotosTab(
             }
         }
         pendingFile = null
+    }
+
+    fun launchCamera() {
+        val photoDir = java.io.File(
+            context.getExternalFilesDir(null), "photos").also { it.mkdirs() }
+        val file = java.io.File(photoDir, "${UUID.randomUUID()}.jpg")
+        pendingFile = file
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context, "${context.packageName}.fileprovider", file)
+        launcher.launch(uri)
     }
 
     Column {
@@ -676,13 +692,11 @@ private fun PhotosTab(
                     Spacer(Modifier.height(8.dp))
                     Button(
                         onClick = {
-                            val photoDir = java.io.File(
-                                context.getExternalFilesDir(null), "photos").also { it.mkdirs() }
-                            val file = java.io.File(photoDir, "${UUID.randomUUID()}.jpg")
-                            pendingFile = file
-                            val uri = androidx.core.content.FileProvider.getUriForFile(
-                                context, "${context.packageName}.fileprovider", file)
-                            launcher.launch(uri)
+                            if (cameraPerm.status.isGranted) {
+                                launchCamera()
+                            } else {
+                                cameraPerm.launchPermissionRequest()
+                            }
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -690,6 +704,14 @@ private fun PhotosTab(
                         Spacer(Modifier.width(8.dp))
                         Text("Сфотографировать (${catPhotos.size}/$max)")
                     }
+
+                    // После выдачи разрешения — автозапуск камеры
+                    LaunchedEffect(cameraPerm.status.isGranted) {
+                        if (cameraPerm.status.isGranted && pendingFile == null) {
+                            // разрешение только что выдано, пользователь нажмёт кнопку ещё раз
+                        }
+                    }
+
                     Spacer(Modifier.height(80.dp))
                 }
             }
