@@ -337,6 +337,7 @@ private fun LayerCard(layer: SoilLayer, sampleCount: Int, onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LayerEditSheet(
     layer: SoilLayer, onDismiss: () -> Unit,
