@@ -38,6 +38,11 @@ fun BoreholesScreen(
     val boreholes by db.boreholes().bySite(siteId).collectAsState(initial = emptyList())
     val siteName = sites.find { it.id == siteId }?.name ?: siteId
 
+    val drafts = boreholes.filter { it.status != "done" }
+    val done = boreholes.filter { it.status == "done" }
+    var selectedTab by remember { mutableIntStateOf(0) }
+    val displayList = if (selectedTab == 0) drafts else done
+
     var kmlStatus by remember { mutableStateOf<String?>(null) }
     var kmlLoading by remember { mutableStateOf(false) }
 
@@ -110,6 +115,19 @@ fun BoreholesScreen(
                 }
             }
 
+            TabRow(selectedTabIndex = selectedTab) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("Черновики (${drafts.size})") }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("Выполненные (${done.size})") }
+                )
+            }
+
             if (boreholes.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(
@@ -124,9 +142,16 @@ fun BoreholesScreen(
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = .4f))
                     }
                 }
+            } else if (displayList.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        if (selectedTab == 0) "Все скважины выполнены" else "Нет выполненных скважин",
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f)
+                    )
+                }
             } else {
                 LazyColumn {
-                    items(boreholes, key = { it.uuid }) { bh ->
+                    items(displayList, key = { it.uuid }) { bh ->
                         BoreholeItem(bh, onClick = { onBorehole(bh.uuid) })
                         HorizontalDivider()
                     }

@@ -15,6 +15,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import ru.sputnik.field.data.db.AppDatabase
 import ru.sputnik.field.data.model.*
 import ru.sputnik.field.ui.voice.VoiceTextField
@@ -91,16 +93,19 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
         }
     }
 
-    fun saveBorehole() {
+    fun saveBorehole(then: () -> Unit = {}) {
         scope.launch {
-            db.boreholes().insert(Borehole(
-                uuid = uuid, siteId = siteId, name = name, workType = workType,
-                plannedDepthM = depthStr.toDoubleOrNull() ?: 0.0,
-                diameterMm = diameterStr.toDoubleOrNull() ?: 0.0,
-                drillDate = drillDate, geomorphDesc = geomorphDesc, description = description,
-                manualLat = latStr.toDoubleOrNull(), manualLng = lngStr.toDoubleOrNull(),
-                status = status
-            ))
+            withContext(NonCancellable) {
+                db.boreholes().insert(Borehole(
+                    uuid = uuid, siteId = siteId, name = name, workType = workType,
+                    plannedDepthM = depthStr.toDoubleOrNull() ?: 0.0,
+                    diameterMm = diameterStr.toDoubleOrNull() ?: 0.0,
+                    drillDate = drillDate, geomorphDesc = geomorphDesc, description = description,
+                    manualLat = latStr.toDoubleOrNull(), manualLng = lngStr.toDoubleOrNull(),
+                    status = status
+                ))
+            }
+            then()
         }
     }
 
@@ -133,7 +138,8 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
             },
             confirmButton = {
                 Button(onClick = {
-                    status = "done"; saveBorehole(); showDoneDialog = false; onBack()
+                    status = "done"
+                    saveBorehole { showDoneDialog = false; onBack() }
                 }) { Text("Завершить") }
             },
             dismissButton = {
@@ -147,17 +153,17 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
             TopAppBar(
                 title = { Text(if (isNew) "Новая скважина" else name.ifEmpty { "Скважина" }) },
                 navigationIcon = {
-                    IconButton(onClick = { saveBorehole(); onBack() }) {
+                    IconButton(onClick = { saveBorehole(onBack) }) {
                         Icon(Icons.Default.ArrowBack, null)
                     }
                 },
                 actions = {
                     if (status != "done") {
-                        TextButton(onClick = { saveBorehole(); showDoneDialog = true }) {
+                        TextButton(onClick = { saveBorehole { showDoneDialog = true } }) {
                             Text("✓ Завершить")
                         }
                     }
-                    TextButton(onClick = { saveBorehole(); onBack() }) { Text("Сохранить") }
+                    TextButton(onClick = { saveBorehole(onBack) }) { Text("Сохранить") }
                 }
             )
         }
