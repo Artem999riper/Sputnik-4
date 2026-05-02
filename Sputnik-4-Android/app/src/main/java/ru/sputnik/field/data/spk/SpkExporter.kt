@@ -20,10 +20,13 @@ private val json = Json { encodeDefaults = true; prettyPrint = false }
 
 data class ExportResult(val uri: Uri, val boreholes: Int, val photos: Int)
 
-suspend fun exportSpk(context: Context, fromDate: String, toDate: String): ExportResult =
+suspend fun exportSpk(context: Context, fromDate: String, toDate: String, siteId: String? = null): ExportResult =
     withContext(Dispatchers.IO) {
         val db = AppDatabase.get(context)
-        val boreholes = db.boreholes().forExportAll(fromDate, toDate)
+        val boreholes = if (siteId != null)
+            db.boreholes().forExportBySite(siteId, fromDate, toDate)
+        else
+            db.boreholes().forExportAll(fromDate, toDate)
 
         val cards = boreholes.map { bh ->
             val layers = db.soilLayers().byBoreholeOnce(bh.uuid)

@@ -347,6 +347,35 @@ private fun LayerEditSheet(
     var state by remember { mutableStateOf(layer.state) }
     var depthStr by remember { mutableStateOf(layer.depthM.takeIf { it > 0 }?.toString() ?: "") }
     var desc by remember { mutableStateOf(layer.description) }
+    var showCustomTypeDialog by remember { mutableStateOf(false) }
+    var customTypeInput by remember { mutableStateOf("") }
+
+    if (showCustomTypeDialog) {
+        AlertDialog(
+            onDismissRequest = { showCustomTypeDialog = false; customTypeInput = "" },
+            title = { Text("Свой тип грунта") },
+            text = {
+                OutlinedTextField(
+                    value = customTypeInput,
+                    onValueChange = { customTypeInput = it },
+                    placeholder = { Text("Введите тип грунта") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (customTypeInput.isNotBlank()) soilType = customTypeInput.trim()
+                    showCustomTypeDialog = false; customTypeInput = ""
+                }) { Text("Применить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomTypeDialog = false; customTypeInput = "" }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
 
     LazyColumn(Modifier.padding(16.dp)) {
         item {
@@ -366,7 +395,28 @@ private fun LayerEditSheet(
             }
             Spacer(Modifier.height(12.dp))
         }
-        item { DropdownField("Тип грунта", soilType, SOIL_TYPES) { soilType = it } }
+        item {
+            var soilExpanded by remember { mutableStateOf(false) }
+            ExposedDropdownMenuBox(expanded = soilExpanded, onExpandedChange = { soilExpanded = it }) {
+                OutlinedTextField(
+                    value = soilType, onValueChange = {},
+                    label = { Text("Тип грунта") }, readOnly = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(soilExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor()
+                )
+                ExposedDropdownMenu(expanded = soilExpanded, onDismissRequest = { soilExpanded = false }) {
+                    SOIL_TYPES.forEach { opt ->
+                        DropdownMenuItem(text = { Text(opt) },
+                            onClick = { soilType = opt; soilExpanded = false })
+                    }
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("✏️ Свой тип...") },
+                        onClick = { soilExpanded = false; customTypeInput = ""; showCustomTypeDialog = true }
+                    )
+                }
+            }
+        }
         item { Spacer(Modifier.height(8.dp)) }
         item { DropdownField("Состояние", state, SOIL_STATES) { state = it } }
         item { Spacer(Modifier.height(8.dp)) }

@@ -55,6 +55,9 @@ interface BoreholeDao {
     @Query("SELECT * FROM boreholes WHERE uuid = :uuid")
     suspend fun byUuid(uuid: String): Borehole?
 
+    @Query("SELECT * FROM boreholes WHERE siteId = :siteId")
+    suspend fun bySiteOnce(siteId: String): List<Borehole>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(b: Borehole)
     @Update suspend fun update(b: Borehole)
     @Delete suspend fun delete(b: Borehole)
@@ -64,6 +67,9 @@ interface BoreholeDao {
 
     @Query("SELECT * FROM boreholes WHERE drillDate BETWEEN :from AND :to")
     suspend fun forExportAll(from: String, to: String): List<Borehole>
+
+    @Query("SELECT * FROM boreholes WHERE siteId = :siteId AND drillDate BETWEEN :from AND :to")
+    suspend fun forExportBySite(siteId: String, from: String, to: String): List<Borehole>
 }
 
 @Dao
