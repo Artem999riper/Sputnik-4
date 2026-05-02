@@ -89,14 +89,19 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
                 status = bh.status
             }
         } else {
-            drillDate = java.time.LocalDate.now().toString()
+            // Pre-save empty placeholder so FK constraints are satisfied when layers are added.
+            val today = java.time.LocalDate.now().toString()
+            drillDate = today
+            db.boreholes().upsert(Borehole(uuid = uuid, siteId = siteId, drillDate = today))
         }
     }
 
     fun saveBorehole(then: () -> Unit = {}) {
         scope.launch {
             withContext(NonCancellable) {
-                db.boreholes().insert(Borehole(
+                // @Upsert = INSERT OR IGNORE + UPDATE — does not delete the row,
+                // so FK-CASCADE on soil_layers/photos is never triggered.
+                db.boreholes().upsert(Borehole(
                     uuid = uuid, siteId = siteId, name = name, workType = workType,
                     plannedDepthM = depthStr.toDoubleOrNull() ?: 0.0,
                     diameterMm = diameterStr.toDoubleOrNull() ?: 0.0,
@@ -277,8 +282,14 @@ private fun LayersTab(
             LayerEditSheet(
                 layer = editLayer!!,
                 onDismiss = { editLayer = null },
-                onSave = { l -> scope.launch { db.soilLayers().insert(l) }; editLayer = null },
-                onDelete = { l -> scope.launch { db.soilLayers().delete(l) }; editLayer = null },
+                onSave = { l ->
+                    scope.launch { withContext(NonCancellable) { db.soilLayers().upsert(l) } }
+                    editLayer = null
+                },
+                onDelete = { l ->
+                    scope.launch { withContext(NonCancellable) { db.soilLayers().delete(l) } }
+                    editLayer = null
+                },
                 onSamples = { l -> editLayer = null; samplesForLayer = l }
             )
         }
@@ -404,14 +415,23 @@ private fun LayerEditSheet(
         }
         item {
             var soilExpanded by remember { mutableStateOf(false) }
+            // If a custom type was entered, show it as the first option in the dropdown
+            val customInList = soilType.isNotEmpty() && soilType !in SOIL_TYPES
             ExposedDropdownMenuBox(expanded = soilExpanded, onExpandedChange = { soilExpanded = it }) {
                 OutlinedTextField(
-                    value = soilType, onValueChange = {},
+                    value = soilType.ifEmpty { "Выбрать..." }, onValueChange = {},
                     label = { Text("Тип грунта") }, readOnly = true,
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(soilExpanded) },
                     modifier = Modifier.fillMaxWidth().menuAnchor()
                 )
                 ExposedDropdownMenu(expanded = soilExpanded, onDismissRequest = { soilExpanded = false }) {
+                    if (customInList) {
+                        DropdownMenuItem(
+                            text = { Text("✓ $soilType", color = MaterialTheme.colorScheme.primary) },
+                            onClick = { soilExpanded = false }
+                        )
+                        HorizontalDivider()
+                    }
                     SOIL_TYPES.forEach { opt ->
                         DropdownMenuItem(text = { Text(opt) },
                             onClick = { soilType = opt; soilExpanded = false })
@@ -419,7 +439,7 @@ private fun LayerEditSheet(
                     HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("✏️ Свой тип...") },
-                        onClick = { soilExpanded = false; customTypeInput = ""; showCustomTypeDialog = true }
+                        onClick = { soilExpanded = false; customTypeInput = soilType.takeIf { customInList } ?: ""; showCustomTypeDialog = true }
                     )
                 }
             }

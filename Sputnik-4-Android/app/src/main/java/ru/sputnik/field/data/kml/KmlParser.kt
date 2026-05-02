@@ -43,7 +43,7 @@ suspend fun importKmlForSite(context: Context, uri: Uri, siteId: String): KmlImp
                 .any { it.name == name && it.manualLat == lat && it.manualLng == lng }
             if (exists) { skipped++; return@forEach }
 
-            db.boreholes().insert(Borehole(
+            db.boreholes().upsert(Borehole(
                 uuid = UUID.randomUUID().toString(),
                 siteId = siteId,
                 name = name,

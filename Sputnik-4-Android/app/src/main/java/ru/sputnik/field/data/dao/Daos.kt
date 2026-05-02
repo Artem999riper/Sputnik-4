@@ -58,8 +58,9 @@ interface BoreholeDao {
     @Query("SELECT * FROM boreholes WHERE siteId = :siteId")
     suspend fun bySiteOnce(siteId: String): List<Borehole>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(b: Borehole)
-    @Update suspend fun update(b: Borehole)
+    // @Upsert = INSERT OR IGNORE + UPDATE — does NOT delete the row, so FK CASCADE is not triggered.
+    // Never use @Insert(REPLACE) for Borehole — it would DELETE the row first, cascade-deleting all layers/photos.
+    @Upsert suspend fun upsert(b: Borehole)
     @Delete suspend fun delete(b: Borehole)
 
     @Query("SELECT * FROM boreholes WHERE brigadeId = :brigadeId AND drillDate BETWEEN :from AND :to")
@@ -78,8 +79,8 @@ interface SoilLayerDao {
     fun byBorehole(uuid: String): Flow<List<SoilLayer>>
     @Query("SELECT * FROM soil_layers WHERE boreholeUuid = :uuid ORDER BY orderIdx, depthM")
     suspend fun byBoreholeOnce(uuid: String): List<SoilLayer>
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(l: SoilLayer)
-    @Update suspend fun update(l: SoilLayer)
+    // Same reason as BoreholeDao: @Upsert avoids cascade-deleting Samples when saving a layer.
+    @Upsert suspend fun upsert(l: SoilLayer)
     @Delete suspend fun delete(l: SoilLayer)
 }
 
