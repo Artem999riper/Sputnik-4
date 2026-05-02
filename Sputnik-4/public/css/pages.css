@@ -200,6 +200,25 @@
 .field-mmg-card{background:var(--s2);border:1.5px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;font-size:11px}
 .field-row-simple{padding:5px 8px;background:var(--s2);border-radius:var(--rs);margin-bottom:4px;font-size:11px}
 
+/* v2: tabs and tree (object → volume → boreholes) */
+.field-tab-buttons{display:flex;gap:4px}
+.field-tab-btn{background:var(--s2);border:1.5px solid var(--bd);border-radius:var(--rs);padding:6px 12px;font-size:12px;font-weight:700;color:var(--tx2);cursor:pointer;transition:all .15s}
+.field-tab-btn:hover{color:var(--tx);border-color:var(--bd2)}
+.field-tab-btn.on{background:#0891b2;color:#fff;border-color:#0891b2}
+.field-tab-pane{display:flex;flex-direction:column;gap:8px}
+.field-site-block{background:var(--s);border:1.5px solid var(--bd);border-radius:var(--rs);overflow:hidden}
+.field-site-header{display:flex;align-items:center;gap:6px;padding:9px 11px;cursor:pointer;font-size:13px;color:var(--tx);user-select:none}
+.field-site-header:hover{background:var(--s2)}
+.field-chev{display:inline-block;width:14px;color:var(--tx3);font-size:11px}
+.field-site-body{padding:6px 12px 10px 28px;border-top:1px solid var(--bd);display:flex;flex-direction:column;gap:6px}
+.field-volume-row{background:var(--s2);border:1px solid var(--bd);border-radius:var(--rs);overflow:hidden}
+.field-volume-head{display:flex;align-items:center;gap:6px;padding:7px 10px}
+.field-volume-name{flex:1;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--tx);user-select:none}
+.field-volume-meta{font-size:10px;color:var(--tx2);font-weight:500}
+.field-volume-spk-btn{flex-shrink:0}
+.field-volume-bh-list{padding:6px 10px 10px;border-top:1px solid var(--bd);display:flex;flex-direction:column;gap:6px}
+.field-vols-loading{padding:8px;color:var(--tx3);font-size:11px}
+
 /* ── Section pages (Сотрудники / Техника / Оборудование / Материалы) ── */
 #workers-page,#machinery-page,#equipment-page,#materials-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden}
 #workers-page.show,#machinery-page.show,#equipment-page.show,#materials-page.show{display:flex}

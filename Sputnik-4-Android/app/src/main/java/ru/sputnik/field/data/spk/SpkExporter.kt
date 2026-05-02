@@ -12,7 +12,6 @@ import ru.sputnik.field.data.db.AppDatabase
 import ru.sputnik.field.data.model.*
 import java.io.File
 import java.io.FileOutputStream
-import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -23,6 +22,8 @@ data class ExportResult(val uri: Uri, val boreholes: Int, val photos: Int)
 suspend fun exportSpk(context: Context, fromDate: String, toDate: String, siteId: String? = null): ExportResult =
     withContext(Dispatchers.IO) {
         val db = AppDatabase.get(context)
+        val resolver = context.contentResolver
+
         val boreholes = if (siteId != null)
             db.boreholes().forExportBySite(siteId, fromDate, toDate)
         else
@@ -37,47 +38,55 @@ suspend fun exportSpk(context: Context, fromDate: String, toDate: String, siteId
             BoreholeCard(bh, layers, samples, ugv, mmg, photos)
         }
 
+        // Бригада: текущая активная (current) — она использовалась для всех скважин
+        val brigade = db.brigades().current()
+        val brigadeMembers = brigade?.let { db.brigades().members(it.id).map { m -> m.workerId } } ?: emptyList()
+        val brigadeJson = brigade?.let { BrigadeJson(it.transportId, brigadeMembers) }
+
         val exportDir = File(context.getExternalFilesDir(null), "exports").also { it.mkdirs() }
         val fileName = "spk_${fromDate}_${toDate}.spk"
         val outFile = File(exportDir, fileName)
 
         ZipOutputStream(FileOutputStream(outFile).buffered()).use { zos ->
-            // boreholes.json
             zos.putEntry("boreholes.json", json.encodeToString(boreholes.map { it.toJson() }))
-
-            // soil_layers.json
             val allLayers = cards.flatMap { it.layers }
             zos.putEntry("soil_layers.json", json.encodeToString(allLayers.map { it.toJson() }))
-
-            // samples.json
             val allSamples = cards.flatMap { it.samples }
             zos.putEntry("samples.json", json.encodeToString(allSamples.map { it.toJson() }))
-
-            // ugv.json
             val allUgv = cards.flatMap { it.ugv }
             zos.putEntry("ugv.json", json.encodeToString(allUgv.map { it.toJson() }))
-
-            // mmg.json
             val allMmg = cards.flatMap { it.mmg }
             zos.putEntry("mmg.json", json.encodeToString(allMmg.map { it.toJson() }))
 
-            // photos/ — copy files into zip
+            // photos/ — фото читаются через ContentResolver (URI хранится в Photo.filePath
+            // как content://media/external/images/media/<id>, см. PhotosTab.launchCamera).
             val allPhotos = cards.flatMap { it.photos }
             var photosCopied = 0
             allPhotos.forEach { photo ->
-                val src = File(photo.filePath)
-                if (src.exists()) {
-                    val ext = src.extension.ifEmpty { "jpg" }
+                try {
+                    val photoUri = Uri.parse(photo.filePath)
+                    val ext = "jpg"  // фото всегда сохраняются как JPEG в DCIM/Sputnik
                     val entryName = "photos/${photo.boreholeUuid}_${photo.category}_${photo.uuid.take(8)}.$ext"
-                    zos.putFile(entryName, src)
-                    photosCopied++
+                    resolver.openInputStream(photoUri)?.use { input ->
+                        zos.putNextEntry(ZipEntry(entryName))
+                        input.copyTo(zos)
+                        zos.closeEntry()
+                        photosCopied++
+                    }
+                } catch (e: Exception) {
+                    // Пропускаем удалённые / недоступные снимки
+                    android.util.Log.w("SpkExporter", "Skip photo ${photo.uuid}: ${e.message}")
                 }
             }
 
-            // manifest.json (last — after we know counts)
-            val manifest = buildManifest(
-                fromDate, toDate, boreholes.size, photosCopied,
-                cards.firstOrNull()?.borehole?.brigadeId
+            // manifest.json (last — counts known)
+            val manifest = ManifestJson(
+                format_version = 1,
+                app_version = "1.0.0",
+                exported_at = java.time.Instant.now().toString(),
+                period = PeriodJson(fromDate, toDate),
+                counts = CountsJson(boreholes.size, photosCopied),
+                brigade = brigadeJson
             )
             zos.putEntry("manifest.json", json.encodeToString(manifest))
         }
@@ -101,19 +110,14 @@ private fun ZipOutputStream.putEntry(name: String, content: String) {
     closeEntry()
 }
 
-private fun ZipOutputStream.putFile(name: String, file: File) {
-    putNextEntry(ZipEntry(name))
-    file.inputStream().use { it.copyTo(this) }
-    closeEntry()
-}
-
 @kotlinx.serialization.Serializable
 private data class ManifestJson(
     val format_version: Int,
     val app_version: String,
     val exported_at: String,
     val period: PeriodJson,
-    val counts: CountsJson
+    val counts: CountsJson,
+    val brigade: BrigadeJson? = null
 )
 
 @kotlinx.serialization.Serializable
@@ -122,14 +126,8 @@ private data class PeriodJson(val from: String, val to: String)
 @kotlinx.serialization.Serializable
 private data class CountsJson(val boreholes: Int, val photos: Int)
 
-private fun buildManifest(from: String, to: String, bh: Int, photos: Int, brigadeId: String?) =
-    ManifestJson(
-        format_version = 1,
-        app_version = "1.0.0",
-        exported_at = java.time.Instant.now().toString(),
-        period = PeriodJson(from, to),
-        counts = CountsJson(bh, photos)
-    )
+@kotlinx.serialization.Serializable
+private data class BrigadeJson(val transport_id: String?, val members: List<String>)
 
 // ── Entity → JSON serialisable maps ─────────────────────────
 

@@ -281,11 +281,16 @@ function openVolProgressHistoryModal(volId){
   const total=prog.reduce((a,p)=>a+(+p.completed||0),0);
   showModal('История выполнения — '+esc(vol.name),
     `<div style="font-size:11px;color:var(--tx2);margin-bottom:8px">Итого: <strong>${total}/${vol.amount} ${esc(vol.unit)}</strong></div>
-    ${prog.map(p=>`<div class="li" style="padding:5px 8px">
-      <div class="lim"><div class="lin">${fmt(p.work_date)} — <strong style="color:var(--acc)">${p.completed} ${esc(vol.unit)}</strong></div>
-      ${p.notes?`<div class="lis">${esc(p.notes)}</div>`:''}</div>
-      <div class="lia"><button class="btn bd bxs" onclick="deleteVolProgress('${p.id}','${volId}')">🗑</button></div>
-    </div>`).join('')||'<div class="empty">Нет записей</div>'}`,
+    ${prog.map(p=>{
+      const fromField=!!p.field_borehole_uuid;
+      const fieldBadge=fromField?` <span title="Импортировано с поля" style="background:#0891b2;color:#fff;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;letter-spacing:.3px">📥 ПОЛЕ</span>`:'';
+      const openBtn=fromField?`<button class="btn bp bxs" title="Открыть карточку" onclick="openFieldBoreholeCard('${escAttr(p.field_borehole_uuid)}')">🔍</button>`:'';
+      return `<div class="li" style="padding:5px 8px">
+        <div class="lim"><div class="lin">${fmt(p.work_date)} — <strong style="color:var(--acc)">${p.completed} ${esc(vol.unit)}</strong>${fieldBadge}</div>
+        ${p.notes?`<div class="lis">${esc(p.notes)}</div>`:''}</div>
+        <div class="lia">${openBtn}<button class="btn bd bxs" onclick="deleteVolProgress('${p.id}','${volId}')">🗑</button></div>
+      </div>`;
+    }).join('')||'<div class="empty">Нет записей</div>'}`,
     [{label:'Закрыть',cls:'bs',fn:closeModal}]);
 }
 async function deleteVolProgress(id,volId){

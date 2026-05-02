@@ -45,4 +45,4 @@ let siteLayerVisibility={}; // user-toggled visible state for site KML layers
 let vpVisible={}; // per fact-entry visibility toggle
 let drawingFactId=null; // which fact entry is being drawn
 let moveMode=null, moveData=null;
-let fieldBhLayer=null, fieldBhVisible=true;
+// fieldBhLayer удалён в v2 — полевые скважины теперь идут через vol_progress.

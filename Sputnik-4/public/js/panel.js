@@ -667,22 +667,60 @@ function renderVpLayers(volProgressList){
         var sem=fProps.sem||{};
         var semType=sem.type||'';
         var semData=sem.data||{};
+        var fieldBhUuid=fProps.field_borehole_uuid||sem.uuid||null;
         var semLabel=semType&&VOL_SEM_TYPES[semType]?VOL_SEM_TYPES[semType].icon+' '+VOL_SEM_TYPES[semType].label:'';
         var tipLines=[];
         tipLines.push('<b>'+(p.work_date||'')+'</b>'+(p.completed?' · +'+p.completed+(vol?' '+esc(vol.unit):''):''));
-        if(semLabel) tipLines.push('<span style="color:var(--acc)">'+semLabel+'</span>');
-        if(semType==='borehole'||semType==='pit'){
-          if(semData.depth) tipLines.push('⬇ Глубина: <b>'+semData.depth+' м</b>');
-          if(semData.diam)  tipLines.push('⌀ Диаметр: <b>'+semData.diam+' мм</b>');
-          if(semData.ugv)   tipLines.push('💧 УГВ: <b>'+semData.ugv+' м</b>');
-          if(semData.date)  tipLines.push('📅 '+semData.date);
-          if(semData.exec)  tipLines.push('👤 '+esc(semData.exec));
-          if(semData.desc)  tipLines.push('📋 '+esc(semData.desc));
-        } else if(semData.note){
-          tipLines.push('📝 '+esc(semData.note));
+        if(fieldBhUuid){
+          // Полевая скважина: расширенная семантика из мобильного приложения
+          tipLines.push('<span style="color:#0891b2;font-weight:700">📥 Полевая скважина</span>');
+          if(fProps.name) tipLines.push('🕳 <b>'+esc(fProps.name)+'</b>');
+          if(semData.work_type) tipLines.push('🛠 '+esc(semData.work_type));
+          if(semData.depth)    tipLines.push('⬇ Глубина: <b>'+semData.depth+' м</b>');
+          if(semData.diam)     tipLines.push('⌀ Диаметр: <b>'+semData.diam+' мм</b>');
+          if(semData.drill_date) tipLines.push('📅 '+esc(semData.drill_date));
+          if(p.worker_ids){
+            try{
+              var ids=String(p.worker_ids).split(',').filter(Boolean);
+              var wn=(window.pgkWorkers||[]).filter(function(w){return ids.indexOf(w.id)>=0;}).map(function(w){return w.name;}).join(', ');
+              if(wn) tipLines.push('👥 '+esc(wn));
+            }catch(e){}
+          }
+          if(p.machine_id){
+            var m=(window.pgkMachinery||[]).find(function(x){return x.id===p.machine_id;});
+            if(m) tipLines.push('🚜 '+esc(m.name||m.type||''));
+          }
+        } else {
+          if(semLabel) tipLines.push('<span style="color:var(--acc)">'+semLabel+'</span>');
+          if(semType==='borehole'||semType==='pit'){
+            if(semData.depth) tipLines.push('⬇ Глубина: <b>'+semData.depth+' м</b>');
+            if(semData.diam)  tipLines.push('⌀ Диаметр: <b>'+semData.diam+' мм</b>');
+            if(semData.ugv)   tipLines.push('💧 УГВ: <b>'+semData.ugv+' м</b>');
+            if(semData.date)  tipLines.push('📅 '+semData.date);
+            if(semData.exec)  tipLines.push('👤 '+esc(semData.exec));
+            if(semData.desc)  tipLines.push('📋 '+esc(semData.desc));
+          } else if(semData.note){
+            tipLines.push('📝 '+esc(semData.note));
+          }
+          if(p.notes) tipLines.push('💬 '+esc(p.notes));
         }
-        if(p.notes) tipLines.push('💬 '+esc(p.notes));
         vpLayer.bindTooltip(tipLines.join('<br>'),{permanent:false,className:'mlbl',direction:'top'});
+        if(fieldBhUuid){
+          vpLayer.bindPopup(
+            '<div class="popup" style="min-width:200px">'
+            +'<div class="popup-n">🕳️ '+esc(fProps.name||'Полевая скважина')+'</div>'
+            +'<div class="popup-s" style="color:#0891b2;font-weight:700">📥 С поля</div>'
+            +'<div style="font-size:10px;color:var(--tx2);margin-top:4px;display:flex;flex-direction:column;gap:2px">'
+            +(semData.work_type?'<div>🛠 '+esc(semData.work_type)+'</div>':'')
+            +(semData.depth?'<div>📏 '+semData.depth+' м · ⌀ '+(semData.diam||0)+' мм</div>':'')
+            +(semData.drill_date?'<div>📅 '+esc(semData.drill_date)+'</div>':'')
+            +'</div>'
+            +'<button class="btn bp bsm" style="width:100%;margin-top:7px;justify-content:center" '
+            +'onclick="openFieldBoreholeCard(\''+escAttr(fieldBhUuid)+'\');this.closest(\'.leaflet-popup\').querySelector(\'.leaflet-popup-close-button\').click()">'
+            +'🔍 Открыть карточку</button>'
+            +'</div>',
+            {maxWidth:240});
+        }
       });
 
       // Регистрируем через eachLayer чтобы знать конкретную точку

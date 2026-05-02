@@ -262,6 +262,40 @@ async function getDb() {
     status TEXT DEFAULT 'ok'
   )`);
 
+  // v2: bind field boreholes to a specific volume / vol_progress fact
+  ta('ALTER TABLE vol_progress ADD COLUMN field_borehole_uuid TEXT');
+  ta('ALTER TABLE field_boreholes ADD COLUMN volume_id TEXT');
+  ta('ALTER TABLE field_boreholes ADD COLUMN vol_progress_id TEXT');
+
+  // One-time wipe of legacy field_* data (pre-v2 schema produced unattached
+  // boreholes via fragile name matching). Guarded by app_settings flag.
+  try {
+    const wiped = _db.prepare("SELECT value FROM app_settings WHERE key='field_v2_wiped'").get();
+    if (!wiped) {
+      _db.exec(`
+        DELETE FROM field_photos;
+        DELETE FROM field_samples;
+        DELETE FROM field_ugv;
+        DELETE FROM field_mmg;
+        DELETE FROM field_soil_layers;
+        DELETE FROM field_boreholes;
+        DELETE FROM field_imports;
+      `);
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const dir = path.join(__dirname, 'public', 'uploads', 'field');
+        if (fs.existsSync(dir)) {
+          for (const sub of fs.readdirSync(dir)) {
+            try { fs.rmSync(path.join(dir, sub), { recursive: true, force: true }); } catch {}
+          }
+        }
+      } catch (e) { console.error('field_v2 wipe (fs):', e.message); }
+      _db.prepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES ('field_v2_wiped','1')").run();
+      console.log('[field_v2] wiped legacy field_* tables and uploads/field/*');
+    }
+  } catch (e) { console.error('field_v2 wipe:', e.message); }
+
   return _db;
 }
 

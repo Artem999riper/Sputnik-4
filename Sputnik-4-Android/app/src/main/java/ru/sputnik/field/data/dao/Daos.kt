@@ -66,10 +66,11 @@ interface BoreholeDao {
     @Query("SELECT * FROM boreholes WHERE brigadeId = :brigadeId AND drillDate BETWEEN :from AND :to")
     suspend fun forExport(brigadeId: String, from: String, to: String): List<Borehole>
 
-    @Query("SELECT * FROM boreholes WHERE drillDate BETWEEN :from AND :to")
+    // Только завершённые скважины (status='done') — черновики не экспортируются.
+    @Query("SELECT * FROM boreholes WHERE drillDate BETWEEN :from AND :to AND status='done'")
     suspend fun forExportAll(from: String, to: String): List<Borehole>
 
-    @Query("SELECT * FROM boreholes WHERE siteId = :siteId AND drillDate BETWEEN :from AND :to")
+    @Query("SELECT * FROM boreholes WHERE siteId = :siteId AND drillDate BETWEEN :from AND :to AND status='done'")
     suspend fun forExportBySite(siteId: String, from: String, to: String): List<Borehole>
 }
 

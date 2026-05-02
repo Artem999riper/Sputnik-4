@@ -696,7 +696,9 @@ private fun PhotosTab(
     )
     val maxPerCat = mapOf("vyrabotka" to 2, "drilling" to 5, "core_box" to 5, "journal" to 4)
     var activeCategory by remember { mutableStateOf("vyrabotka") }
-    var pendingFile by remember { mutableStateOf<java.io.File?>(null) }
+    // Храним URI результата (фото идёт сразу в DCIM/Sputnik через MediaStore,
+    // чтобы было видно в галерее телефона). Photo.filePath = content://… URI.
+    var pendingUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     val cameraPerm = rememberPermissionState(android.Manifest.permission.CAMERA)
 
@@ -704,28 +706,39 @@ private fun PhotosTab(
         androidx.activity.result.contract.ActivityResultContracts.TakePicture()
     ) { saved ->
         if (saved) {
-            pendingFile?.let { file ->
+            pendingUri?.let { uri ->
                 scope.launch {
                     db.photos().insert(Photo(
                         uuid = UUID.randomUUID().toString(),
                         boreholeUuid = boreholeUuid,
                         category = activeCategory,
-                        filePath = file.absolutePath,
+                        filePath = uri.toString(),
                         takenAt = java.time.Instant.now().toString()
                     ))
                 }
             }
+        } else {
+            // Снимок отменён — удаляем подготовленную (но пустую) запись MediaStore.
+            pendingUri?.let { try { context.contentResolver.delete(it, null, null) } catch (_: Exception) {} }
         }
-        pendingFile = null
+        pendingUri = null
     }
 
     fun launchCamera() {
-        val photoDir = java.io.File(
-            context.getExternalFilesDir(null), "photos").also { it.mkdirs() }
-        val file = java.io.File(photoDir, "${UUID.randomUUID()}.jpg")
-        pendingFile = file
-        val uri = androidx.core.content.FileProvider.getUriForFile(
-            context, "${context.packageName}.fileprovider", file)
+        val resolver = context.contentResolver
+        val displayName = "sputnik_${java.util.UUID.randomUUID()}.jpg"
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, displayName)
+            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                // Альбом «Sputnik» внутри DCIM — будет виден в системной галерее.
+                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "DCIM/Sputnik")
+            }
+        }
+        val uri = resolver.insert(
+            android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
+        ) ?: return
+        pendingUri = uri
         launcher.launch(uri)
     }
 
@@ -782,10 +795,10 @@ private fun PhotosTab(
                         Text("Сфотографировать (${catPhotos.size}/$max)")
                     }
 
-                    // После выдачи разрешения — автозапуск камеры
+                    // После выдачи разрешения — пользователь нажмёт кнопку ещё раз
                     LaunchedEffect(cameraPerm.status.isGranted) {
-                        if (cameraPerm.status.isGranted && pendingFile == null) {
-                            // разрешение только что выдано, пользователь нажмёт кнопку ещё раз
+                        if (cameraPerm.status.isGranted && pendingUri == null) {
+                            // разрешение получено
                         }
                     }
 

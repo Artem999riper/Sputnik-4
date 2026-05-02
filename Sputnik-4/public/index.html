@@ -249,11 +249,6 @@
 
 <div id="lp">
   <div class="lph"><span>🗺 Слои</span><button class="ph-x" onclick="toggleLP()">✕</button></div>
-  <div class="lpi" style="border-bottom:1px solid var(--bd);background:rgba(8,145,178,.06)">
-    <button class="lp-v on" id="field-bh-toggle" onclick="toggleFieldBhLayer()" title="Показать/скрыть полевые скважины">👁</button>
-    <div style="width:10px;height:10px;border-radius:50%;background:#0891b2;flex-shrink:0"></div>
-    <div style="flex:1;font-size:11px;font-weight:600;color:#0891b2">🕳️ Полевые скважины</div>
-  </div>
   <div id="lp-list"></div>
   <div class="lpft">
     <label class="btn bs bsm" style="width:100%;justify-content:center;cursor:pointer">
@@ -352,23 +347,19 @@
 <div id="field-page">
   <div class="field-toolbar">
     <h3>🛰️ Полевые материалы</h3>
-    <button class="btn bp bsm" onclick="fieldExportRefs()">⬇️ Экспорт справочников</button>
-    <button class="btn bg bsm" onclick="document.getElementById('field-spk-input').click()">⬆️ Загрузить .spk</button>
-    <input type="file" id="field-spk-input" accept=".spk,.zip" style="display:none" onchange="fieldUploadSpk(this.files[0])">
-    <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
-      <select id="field-site-filter" onchange="renderFieldBoreholes()" class="smg-site-sel">
-        <option value="">Все объекты</option>
-      </select>
+    <div class="field-tab-buttons">
+      <button class="field-tab-btn on" id="field-tab-btn-by-sites" onclick="switchFieldTab('by-sites')">🏗 По объектам</button>
+      <button class="field-tab-btn" id="field-tab-btn-imports" onclick="switchFieldTab('imports')">📥 Все импорты</button>
     </div>
+    <button class="btn bp bsm" style="margin-left:auto" onclick="fieldExportRefs()">⬇️ Экспорт справочников</button>
+    <input type="file" id="field-spk-input" accept=".spk,.zip" style="display:none">
   </div>
   <div class="field-body">
-    <div class="field-section">
-      <h4>📥 Загруженные архивы</h4>
-      <div id="field-imports-list" class="field-imports-list"></div>
+    <div id="field-tab-by-sites" class="field-tab-pane">
+      <div id="field-by-sites-list"></div>
     </div>
-    <div class="field-section">
-      <h4>🕳️ Скважины с поля</h4>
-      <div id="field-bh-list" class="field-bh-list"></div>
+    <div id="field-tab-imports" class="field-tab-pane" style="display:none">
+      <div id="field-imports-list" class="field-imports-list"></div>
     </div>
   </div>
 </div>
