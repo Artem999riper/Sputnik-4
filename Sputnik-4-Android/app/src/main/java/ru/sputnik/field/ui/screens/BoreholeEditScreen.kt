@@ -1,5 +1,6 @@
 package ru.sputnik.field.ui.screens
 
+import android.app.DatePickerDialog
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,7 +25,9 @@ import ru.sputnik.field.ui.voice.rememberSpeechHelper
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import java.util.Calendar
 import java.util.UUID
+import kotlin.math.abs
 
 private val WORK_TYPES = listOf(
     "SEARCH" to "Поисковая", "EXPLORATION" to "Разведочная",
@@ -241,12 +244,24 @@ private fun HeaderTab(
         item { Spacer(Modifier.height(8.dp)) }
         item { FieldInput("Диаметр, мм", diameter, onDiameter, KeyboardType.Decimal) }
         item { Spacer(Modifier.height(8.dp)) }
-        item { FieldInput("Дата бурения (ГГГГ-ММ-ДД)", date, onDate) }
+        item { DatePickerButton(date, onDate) }
         item { Spacer(Modifier.height(8.dp)) }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FieldInput("Широта", lat, onLat, KeyboardType.Decimal, Modifier.weight(1f))
-                FieldInput("Долгота", lng, onLng, KeyboardType.Decimal, Modifier.weight(1f))
+            Column {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FieldInput("Широта (десятичные)", lat, onLat, KeyboardType.Decimal, Modifier.weight(1f))
+                    FieldInput("Долгота (десятичные)", lng, onLng, KeyboardType.Decimal, Modifier.weight(1f))
+                }
+                val latD = lat.toDoubleOrNull()
+                val lngD = lng.toDoubleOrNull()
+                if (latD != null && lngD != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "${toDMS(latD, true)}  ${toDMS(lngD, false)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f)
+                    )
+                }
             }
         }
         item { Spacer(Modifier.height(8.dp)) }
@@ -810,6 +825,50 @@ private fun PhotosTab(
 }
 
 // ── Переиспользуемые компоненты ──────────────────────────────
+
+fun toDMS(dd: Double, isLat: Boolean): String {
+    val d = abs(dd).toInt()
+    val mTotal = (abs(dd) - d) * 60
+    val m = mTotal.toInt()
+    val s = (mTotal - m) * 60
+    val dir = if (isLat) (if (dd >= 0) "N" else "S") else (if (dd >= 0) "E" else "W")
+    return "%d°%d'%.1f\"%s".format(d, m, s, dir)
+}
+
+@Composable
+fun DatePickerButton(value: String, onChange: (String) -> Unit) {
+    val context = LocalContext.current
+    val cal = remember(value) {
+        Calendar.getInstance().also { c ->
+            if (value.length == 10) {
+                runCatching {
+                    val parts = value.split("-")
+                    c.set(parts[0].toInt(), parts[1].toInt() - 1, parts[2].toInt())
+                }
+            }
+        }
+    }
+    OutlinedTextField(
+        value = if (value.isEmpty()) "" else value,
+        onValueChange = {},
+        label = { Text("Дата бурения") },
+        modifier = Modifier.fillMaxWidth(),
+        readOnly = true,
+        trailingIcon = {
+            IconButton(onClick = {
+                DatePickerDialog(
+                    context,
+                    { _, year, month, day ->
+                        onChange("%04d-%02d-%02d".format(year, month + 1, day))
+                    },
+                    cal.get(Calendar.YEAR),
+                    cal.get(Calendar.MONTH),
+                    cal.get(Calendar.DAY_OF_MONTH)
+                ).show()
+            }) { Icon(Icons.Default.CalendarToday, "Выбрать дату") }
+        }
+    )
+}
 
 @Composable
 fun FieldInput(

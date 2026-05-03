@@ -4,9 +4,11 @@
 // ═══════════════════════════════════════════════════════════
 
 let fieldImports = [];
-let fieldExpandedSites = {};   // siteId -> bool
-let fieldExpandedVolumes = {}; // volId  -> bool
-let fieldVolumeBhCache = {};   // volId  -> [boreholes]
+let fieldExpandedSites = {};       // siteId -> bool
+let fieldExpandedVolumes = {};     // volId  -> bool
+let fieldVolumeBhCache = {};       // volId  -> [boreholes]
+let fieldSiteVolumesCache = {};    // siteId -> [volumes]
+let fieldSelectedBhs = {};         // volId  -> Set<uuid>
 let fieldPendingVolumeId = null;
 
 async function loadField() {
@@ -53,9 +55,11 @@ function renderFieldBySites() {
 }
 
 function renderFieldVolumesForSite(siteId) {
-  // currentObj.volumes доступен только если этот объект сейчас открыт.
-  // Для общего случая нам нужен список объёмов через API.
-  // Используем ленивую загрузку: при раскрытии объекта.
+  const cached = fieldSiteVolumesCache[siteId];
+  if (cached !== undefined) {
+    if (!cached.length) return '<div class="empty" style="padding:8px">Нет объёмов в объекте</div>';
+    return `<div id="fld-vols-${escAttr(siteId)}">${cached.map(v => renderFieldVolumeRow(v)).join('')}</div>`;
+  }
   return `<div class="field-vols-loading" id="fld-vols-${escAttr(siteId)}">Загрузка…</div>`;
 }
 
@@ -66,6 +70,7 @@ async function toggleFieldSite(siteId) {
     try {
       const r = await fetch(`${API}/sites/${siteId}/volumes`);
       const vols = r.ok ? await r.json() : [];
+      fieldSiteVolumesCache[siteId] = vols;
       const box = document.getElementById('fld-vols-' + siteId);
       if (!box) return;
       if (!vols.length) {
@@ -73,7 +78,6 @@ async function toggleFieldSite(siteId) {
         return;
       }
       box.innerHTML = vols.map(v => renderFieldVolumeRow(v)).join('');
-      // Lazy expand if needed
       for (const v of vols) {
         if (fieldExpandedVolumes[v.id]) loadAndRenderVolumeBoreholes(v.id);
       }
@@ -98,7 +102,7 @@ function renderFieldVolumeRow(v) {
         </div>
         <button class="btn bp bsm field-volume-spk-btn" onclick="triggerSpkUploadForVolume('${escAttr(v.id)}')">📥 Подгрузить .spk</button>
       </div>
-      ${expanded ? `<div class="field-volume-bh-list" id="fld-vol-bh-${escAttr(v.id)}">${cached ? renderFieldVolumeBoreholesHtml(cached) : 'Загрузка…'}</div>` : ''}
+      ${expanded ? `<div class="field-volume-bh-list" id="fld-vol-bh-${escAttr(v.id)}">${cached ? renderFieldVolumeBoreholesHtml(cached, v.id) : 'Загрузка…'}</div>` : ''}
     </div>`;
 }
 
@@ -117,6 +121,7 @@ async function toggleFieldSiteRefresh(siteId) {
   try {
     const r = await fetch(`${API}/sites/${siteId}/volumes`);
     const vols = r.ok ? await r.json() : [];
+    fieldSiteVolumesCache[siteId] = vols;
     const box = document.getElementById('fld-vols-' + siteId);
     if (!box) return;
     box.innerHTML = vols.length
@@ -134,22 +139,105 @@ async function loadAndRenderVolumeBoreholes(volumeId) {
     const list = r.ok ? await r.json() : [];
     fieldVolumeBhCache[volumeId] = list;
     const box = document.getElementById('fld-vol-bh-' + volumeId);
-    if (box) box.innerHTML = renderFieldVolumeBoreholesHtml(list);
+    if (box) box.innerHTML = renderFieldVolumeBoreholesHtml(list, volumeId);
   } catch (e) {}
 }
 
-function renderFieldVolumeBoreholesHtml(list) {
+function renderFieldVolumeBoreholesHtml(list, volId) {
   if (!list.length) return '<div class="empty" style="padding:8px;font-size:11px">Скважин ещё нет — загрузите .spk</div>';
-  return list.map(b => `
-    <div class="field-bh-card" onclick="openFieldBoreholeCard('${escAttr(b.uuid)}')">
-      <div class="field-bh-head">
-        <div class="field-bh-name">${esc(b.name || ('Скв-' + b.uuid.slice(0, 6)))}</div>
-        <div class="field-bh-type">${esc(b.work_type || '—')}</div>
-      </div>
-      <div class="field-bh-meta">
-        📅 ${esc(b.drill_date || '—')} · 📏 ${b.planned_depth_m || 0} м · ⌀ ${b.diameter_mm || 0} мм
-      </div>
-    </div>`).join('');
+
+  const sel = fieldSelectedBhs[volId] || new Set();
+  const selCount = sel.size;
+
+  // Группируем по дате
+  const byDate = {};
+  list.forEach(b => {
+    const d = b.drill_date || '—';
+    if (!byDate[d]) byDate[d] = [];
+    byDate[d].push(b);
+  });
+  const dates = Object.keys(byDate).sort().reverse();
+
+  const deleteBtn = selCount > 0
+    ? `<button class="btn bd bsm" style="margin:4px 8px 4px 0" onclick="deleteSelectedFieldBhs('${escAttr(volId)}')">🗑 Удалить выбранные (${selCount})</button>`
+    : '';
+  const clearBtn = selCount > 0
+    ? `<button class="btn bs bsm" style="margin:4px 0" onclick="clearFieldBhSelection('${escAttr(volId)}')">✕ Снять выделение</button>`
+    : '';
+
+  const groups = dates.map(date => {
+    const bhs = byDate[date];
+    const dateUuids = bhs.map(b => b.uuid);
+    const allChecked = dateUuids.every(u => sel.has(u));
+    return `
+      <div class="field-date-group">
+        <div class="field-date-header">
+          <label class="field-date-check">
+            <input type="checkbox" ${allChecked ? 'checked' : ''} onchange="toggleFieldDateGroup('${escAttr(volId)}',${JSON.stringify(dateUuids)},this.checked)">
+            <span>📅 ${esc(date)}</span>
+          </label>
+          <span class="field-date-count">${bhs.length} скв.</span>
+        </div>
+        ${bhs.map(b => `
+          <div class="field-bh-card ${sel.has(b.uuid) ? 'field-bh-selected' : ''}">
+            <label class="field-bh-check">
+              <input type="checkbox" ${sel.has(b.uuid) ? 'checked' : ''} onchange="toggleFieldBhSelect('${escAttr(volId)}','${escAttr(b.uuid)}')">
+            </label>
+            <div class="field-bh-body" onclick="openFieldBoreholeCard('${escAttr(b.uuid)}')">
+              <div class="field-bh-head">
+                <div class="field-bh-name">${esc(b.name || ('Скв-' + b.uuid.slice(0, 6)))}</div>
+                <div class="field-bh-type">${esc(b.work_type || '—')}</div>
+              </div>
+              <div class="field-bh-meta">📏 ${b.planned_depth_m || 0} м · ⌀ ${b.diameter_mm || 0} мм</div>
+            </div>
+          </div>`).join('')}
+      </div>`;
+  }).join('');
+
+  return `<div class="field-bh-toolbar">${deleteBtn}${clearBtn}</div>${groups}`;
+}
+
+function toggleFieldBhSelect(volId, uuid) {
+  if (!fieldSelectedBhs[volId]) fieldSelectedBhs[volId] = new Set();
+  const s = fieldSelectedBhs[volId];
+  if (s.has(uuid)) s.delete(uuid); else s.add(uuid);
+  const box = document.getElementById('fld-vol-bh-' + volId);
+  if (box && fieldVolumeBhCache[volId]) box.innerHTML = renderFieldVolumeBoreholesHtml(fieldVolumeBhCache[volId], volId);
+}
+
+function toggleFieldDateGroup(volId, uuids, checked) {
+  if (!fieldSelectedBhs[volId]) fieldSelectedBhs[volId] = new Set();
+  const s = fieldSelectedBhs[volId];
+  uuids.forEach(u => checked ? s.add(u) : s.delete(u));
+  const box = document.getElementById('fld-vol-bh-' + volId);
+  if (box && fieldVolumeBhCache[volId]) box.innerHTML = renderFieldVolumeBoreholesHtml(fieldVolumeBhCache[volId], volId);
+}
+
+function clearFieldBhSelection(volId) {
+  delete fieldSelectedBhs[volId];
+  const box = document.getElementById('fld-vol-bh-' + volId);
+  if (box && fieldVolumeBhCache[volId]) box.innerHTML = renderFieldVolumeBoreholesHtml(fieldVolumeBhCache[volId], volId);
+}
+
+async function deleteSelectedFieldBhs(volId) {
+  const sel = [...(fieldSelectedBhs[volId] || new Set())];
+  if (!sel.length) return;
+  if (!confirm(`Удалить ${sel.length} скважин(у) со всеми данными?`)) return;
+  let deleted = 0;
+  for (const uuid of sel) {
+    try {
+      const r = await fetch(`${API}/field/boreholes/${uuid}`, {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_name: un() }),
+      });
+      if (r.ok) deleted++;
+    } catch (e) {}
+  }
+  delete fieldSelectedBhs[volId];
+  toast(`Удалено ${deleted} скважин`, 'ok');
+  await loadAndRenderVolumeBoreholes(volId);
+  if (typeof refreshCurrent === 'function') refreshCurrent();
+  if (typeof repaintMap === 'function') repaintMap();
 }
 
 // ── Загрузка .spk в выбранный объём ────────────────────────
@@ -249,10 +337,15 @@ function showFieldBoreholeModal(b) {
     if (machineName) brigadeBlock += `<div class="mdc-row"><div class="mdc-lbl">Техника</div><div class="mdc-val">${esc(machineName)}</div></div>`;
   } catch (e) {}
 
-  // Объём
+  // Объём — резолвим имя из кеша
   let volumeBlock = '';
   if (b.volume_id) {
-    volumeBlock = `<div class="mdc-row"><div class="mdc-lbl">Объём</div><div class="mdc-val">${esc(b.volume_id)}</div></div>`;
+    let volName = b.volume_id;
+    for (const vols of Object.values(fieldSiteVolumesCache)) {
+      const found = vols.find(v => v.id === b.volume_id);
+      if (found) { volName = found.name || b.volume_id; break; }
+    }
+    volumeBlock = `<div class="mdc-row"><div class="mdc-lbl">Объём</div><div class="mdc-val">${esc(volName)}</div></div>`;
   }
 
   const tabsHtml = `

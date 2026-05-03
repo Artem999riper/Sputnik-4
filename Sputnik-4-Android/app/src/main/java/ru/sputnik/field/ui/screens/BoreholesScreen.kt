@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ru.sputnik.field.data.db.AppDatabase
 import ru.sputnik.field.data.kml.importKmlForSite
 import ru.sputnik.field.data.model.Borehole
@@ -150,9 +151,29 @@ fun BoreholesScreen(
                     )
                 }
             } else {
+                var deleteConfirmBh by remember { mutableStateOf<Borehole?>(null) }
+                if (deleteConfirmBh != null) {
+                    AlertDialog(
+                        onDismissRequest = { deleteConfirmBh = null },
+                        title = { Text("Удалить скважину?") },
+                        text = { Text("«${deleteConfirmBh!!.name.ifEmpty { "Скв-${deleteConfirmBh!!.uuid.take(6)}" }}» будет удалена безвозвратно.") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                val bh = deleteConfirmBh!!
+                                deleteConfirmBh = null
+                                scope.launch { withContext(kotlinx.coroutines.NonCancellable) { db.boreholes().delete(bh) } }
+                            }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+                        },
+                        dismissButton = { TextButton(onClick = { deleteConfirmBh = null }) { Text("Отмена") } }
+                    )
+                }
                 LazyColumn {
                     items(displayList, key = { it.uuid }) { bh ->
-                        BoreholeItem(bh, onClick = { onBorehole(bh.uuid) })
+                        BoreholeItem(
+                            bh,
+                            onClick = { onBorehole(bh.uuid) },
+                            onDelete = if (bh.status == "done") ({ deleteConfirmBh = bh }) else null
+                        )
                         HorizontalDivider()
                     }
                 }
@@ -162,7 +183,7 @@ fun BoreholesScreen(
 }
 
 @Composable
-private fun BoreholeItem(bh: Borehole, onClick: () -> Unit) {
+private fun BoreholeItem(bh: Borehole, onClick: () -> Unit, onDelete: (() -> Unit)? = null) {
     val isDone = bh.status == "done"
     Surface(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         ListItem(
@@ -200,7 +221,14 @@ private fun BoreholeItem(bh: Borehole, onClick: () -> Unit) {
                     Badge(
                         containerColor = if (isDone) Color(0xFF0E9F6E) else Color(0xFFF59E0B)
                     ) { Text(if (isDone) "Готово" else "Черновик") }
-                    Icon(Icons.Default.ChevronRight, null)
+                    if (onDelete != null) {
+                        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Delete, "Удалить", tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp))
+                        }
+                    } else {
+                        Icon(Icons.Default.ChevronRight, null)
+                    }
                 }
             }
         )

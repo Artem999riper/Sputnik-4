@@ -216,8 +216,18 @@
 .field-volume-name{flex:1;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--tx);user-select:none}
 .field-volume-meta{font-size:10px;color:var(--tx2);font-weight:500}
 .field-volume-spk-btn{flex-shrink:0}
-.field-volume-bh-list{padding:6px 10px 10px;border-top:1px solid var(--bd);display:flex;flex-direction:column;gap:6px}
+.field-volume-bh-list{padding:6px 10px 10px;border-top:1px solid var(--bd);display:flex;flex-direction:column;gap:4px}
 .field-vols-loading{padding:8px;color:var(--tx3);font-size:11px}
+.field-bh-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:4px;padding:2px 0 4px}
+.field-date-group{display:flex;flex-direction:column;gap:4px;margin-bottom:6px}
+.field-date-header{display:flex;align-items:center;justify-content:space-between;padding:3px 4px;background:var(--s);border-radius:4px;font-size:11px;font-weight:700;color:var(--tx2)}
+.field-date-check{display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none}
+.field-date-count{font-size:10px;color:var(--tx3)}
+.field-bh-card{display:flex;align-items:center;gap:6px;background:var(--s);border:1.5px solid var(--bd);border-left:3px solid #0891b2;border-radius:var(--rs);padding:7px 10px;transition:all .15s}
+.field-bh-card.field-bh-selected{background:#f0f9ff;border-color:#0891b2}
+.field-bh-check{display:flex;align-items:center;flex-shrink:0;cursor:pointer}
+.field-bh-body{flex:1;cursor:pointer;min-width:0}
+.field-bh-body:hover .field-bh-name{color:#0891b2}
 
 /* ── Section pages (Сотрудники / Техника / Оборудование / Материалы) ── */
 #workers-page,#machinery-page,#equipment-page,#materials-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden}
