@@ -682,12 +682,12 @@ function renderVpLayers(volProgressList){
           if(p.worker_ids){
             try{
               var ids=String(p.worker_ids).split(',').filter(Boolean);
-              var wn=(window.pgkWorkers||[]).filter(function(w){return ids.indexOf(w.id)>=0;}).map(function(w){return w.name;}).join(', ');
+              var wn=(pgkWorkers||[]).filter(function(w){return ids.indexOf(w.id)>=0;}).map(function(w){return w.name;}).join(', ');
               if(wn) tipLines.push('👥 '+esc(wn));
             }catch(e){}
           }
           if(p.machine_id){
-            var m=(window.pgkMachinery||[]).find(function(x){return x.id===p.machine_id;});
+            var m=(pgkMachinery||[]).find(function(x){return x.id===p.machine_id;});
             if(m) tipLines.push('🚜 '+esc(m.name||m.type||''));
           }
         } else {

@@ -34,7 +34,7 @@ function switchFieldTab(name) {
 function renderFieldBySites() {
   const box = document.getElementById('field-by-sites-list');
   if (!box) return;
-  const list = (window.sites || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const list = (sites || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   if (!list.length) {
     box.innerHTML = '<div class="empty"><div class="empty-i">🏗</div>Объектов нет</div>';
     return;
@@ -201,7 +201,7 @@ function renderFieldImports() {
     const volId = m.volume_id;
     const siteId = m.site_id;
     const volLabel = volId ? (() => {
-      const s = (window.sites || []).find(x => x.id === siteId);
+      const s = (sites || []).find(x => x.id === siteId);
       return ` · 🏗 ${esc(s ? s.name : siteId || '—')}`;
     })() : '';
     return `
@@ -242,8 +242,8 @@ function showFieldBoreholeModal(b) {
     const brig = JSON.parse(b.brigade_info || '{}');
     const memberIds = Array.isArray(brig.members) ? brig.members : [];
     const transportId = brig.transport_id;
-    const wn = (window.pgkWorkers || []).filter(w => memberIds.includes(w.id)).map(w => w.name).join(', ');
-    const m = (window.pgkMachinery || []).find(x => x.id === transportId);
+    const wn = (pgkWorkers || []).filter(w => memberIds.includes(w.id)).map(w => w.name).join(', ');
+    const m = (pgkMachinery || []).find(x => x.id === transportId);
     const machineName = m ? (m.name || m.type || '—') : '';
     if (wn) brigadeBlock += `<div class="mdc-row"><div class="mdc-lbl">Бригада</div><div class="mdc-val">${esc(wn)}</div></div>`;
     if (machineName) brigadeBlock += `<div class="mdc-row"><div class="mdc-lbl">Техника</div><div class="mdc-val">${esc(machineName)}</div></div>`;
@@ -267,7 +267,7 @@ function showFieldBoreholeModal(b) {
   const headHtml = `
     <div class="wdc-panel" data-panel="head">
       <div class="mdc-fields">
-        <div class="mdc-row"><div class="mdc-lbl">Объект</div><div class="mdc-val">${esc(((window.sites || []).find(s => s.id === b.site_id) || {}).name || fmt(b.site_id))}</div></div>
+        <div class="mdc-row"><div class="mdc-lbl">Объект</div><div class="mdc-val">${esc(((sites || []).find(s => s.id === b.site_id) || {}).name || fmt(b.site_id))}</div></div>
         ${volumeBlock}
         ${brigadeBlock}
         <div class="mdc-row"><div class="mdc-lbl">Тип работ</div><div class="mdc-val">${esc(fmt(b.work_type))}</div></div>
