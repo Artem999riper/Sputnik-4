@@ -101,6 +101,10 @@ module.exports = (app, getDb, L) => {
   }));
 
   // ── VOLUMES ────────────────────────────────────────────────
+  app.get('/api/sites/:id/volumes', wrap((req, res) => {
+    res.json(all(db(), 'SELECT * FROM volumes WHERE site_id=? ORDER BY category,name', [req.params.id]));
+  }));
+
   app.post('/api/sites/:id/volumes', wrap((req, res) => {
     const err = required(['name'], req.body);
     if (err) return res.status(400).json({ error: err });
