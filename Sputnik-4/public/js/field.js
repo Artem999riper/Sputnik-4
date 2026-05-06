@@ -4,22 +4,29 @@
 // ═══════════════════════════════════════════════════════════
 
 let fieldImports = [];
-let fieldExpandedSites = {};   // siteId -> bool
-let fieldExpandedVolumes = {}; // volId  -> bool
-let fieldVolumeBhCache = {};   // volId  -> [boreholes]
+let fieldExpandedSites = {};       // siteId -> bool
+let fieldExpandedVolumes = {};     // volId  -> bool
+let fieldVolumeBhCache = {};       // volId  -> [boreholes]
+let fieldSiteVolumesCache = {};    // siteId -> [volumes]
+let fieldSelectedBhs = {};         // volId  -> Set<uuid>
+let fieldCollapsedDates = {};      // volId+':'+date -> bool
 let fieldPendingVolumeId = null;
+let fieldPreviewFile = null;       // File object held during preview dialog
+let fieldPreviewVolumeId = null;
+
+const FIELD_WORK_TYPES = {
+  SEARCH: 'Поисковая', EXPLORATION: 'Разведочная',
+  TRENCH: 'Шурф', GEOLOGICAL: 'Геологическая',
+};
+const fieldWorkLabel = t => FIELD_WORK_TYPES[t] || t || '—';
 
 async function loadField() {
   try {
-    // Ensure global sites list is populated
-    if (!window.sites || !window.sites.length) {
-      const sr = await fetch(`${API}/sites`);
-      if (sr.ok) window.sites = await sr.json();
-    }
     const ir = await fetch(`${API}/field/imports`);
     fieldImports = ir.ok ? await ir.json() : [];
   } catch (e) {
     fieldImports = [];
+    toast('⚠️ Не удалось загрузить полевые материалы', 'err');
   }
   renderFieldBySites();
   renderFieldImports();
@@ -38,7 +45,7 @@ function switchFieldTab(name) {
 function renderFieldBySites() {
   const box = document.getElementById('field-by-sites-list');
   if (!box) return;
-  const list = (window.sites || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const list = (sites || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   if (!list.length) {
     box.innerHTML = '<div class="empty"><div class="empty-i">🏗</div>Объектов нет</div>';
     return;
@@ -57,6 +64,11 @@ function renderFieldBySites() {
 }
 
 function renderFieldVolumesForSite(siteId) {
+  const cached = fieldSiteVolumesCache[siteId];
+  if (cached !== undefined) {
+    if (!cached.length) return '<div class="empty" style="padding:8px">Нет объёмов в объекте</div>';
+    return `<div id="fld-vols-${escAttr(siteId)}">${cached.map(v => renderFieldVolumeRow(v)).join('')}</div>`;
+  }
   return `<div class="field-vols-loading" id="fld-vols-${escAttr(siteId)}">Загрузка…</div>`;
 }
 
@@ -67,6 +79,7 @@ async function toggleFieldSite(siteId) {
     try {
       const r = await fetch(`${API}/sites/${siteId}/volumes`);
       const vols = r.ok ? await r.json() : [];
+      fieldSiteVolumesCache[siteId] = vols;
       const box = document.getElementById('fld-vols-' + siteId);
       if (!box) return;
       if (!vols.length) {
@@ -98,7 +111,7 @@ function renderFieldVolumeRow(v) {
         </div>
         <button class="btn bp bsm field-volume-spk-btn" onclick="triggerSpkUploadForVolume('${escAttr(v.id)}')">📥 Подгрузить .spk</button>
       </div>
-      ${expanded ? `<div class="field-volume-bh-list" id="fld-vol-bh-${escAttr(v.id)}">${cached ? renderFieldVolumeBoreholesHtml(cached) : 'Загрузка…'}</div>` : ''}
+      ${expanded ? `<div class="field-volume-bh-list" id="fld-vol-bh-${escAttr(v.id)}">${cached ? renderFieldVolumeBoreholesHtml(cached, v.id) : 'Загрузка…'}</div>` : ''}
     </div>`;
 }
 
@@ -111,10 +124,12 @@ async function toggleFieldVolume(volumeId) {
   if (fieldExpandedVolumes[volumeId]) await loadAndRenderVolumeBoreholes(volumeId);
 }
 
+// Re-fetch volumes for an already-expanded site without toggling
 async function toggleFieldSiteRefresh(siteId) {
   try {
     const r = await fetch(`${API}/sites/${siteId}/volumes`);
     const vols = r.ok ? await r.json() : [];
+    fieldSiteVolumesCache[siteId] = vols;
     const box = document.getElementById('fld-vols-' + siteId);
     if (!box) return;
     box.innerHTML = vols.length
@@ -132,22 +147,116 @@ async function loadAndRenderVolumeBoreholes(volumeId) {
     const list = r.ok ? await r.json() : [];
     fieldVolumeBhCache[volumeId] = list;
     const box = document.getElementById('fld-vol-bh-' + volumeId);
-    if (box) box.innerHTML = renderFieldVolumeBoreholesHtml(list);
+    if (box) box.innerHTML = renderFieldVolumeBoreholesHtml(list, volumeId);
   } catch (e) {}
 }
 
-function renderFieldVolumeBoreholesHtml(list) {
+function renderFieldVolumeBoreholesHtml(list, volId) {
   if (!list.length) return '<div class="empty" style="padding:8px;font-size:11px">Скважин ещё нет — загрузите .spk</div>';
-  return list.map(b => `
-    <div class="field-bh-card" onclick="openFieldBoreholeCard('${escAttr(b.uuid)}')">
-      <div class="field-bh-head">
-        <div class="field-bh-name">${esc(b.name || ('Скв-' + b.uuid.slice(0, 6)))}</div>
-        <div class="field-bh-type">${esc(b.work_type || '—')}</div>
-      </div>
-      <div class="field-bh-meta">
-        📅 ${esc(b.drill_date || '—')} · 📏 ${b.planned_depth_m || 0} м · ⌀ ${b.diameter_mm || 0} мм
-      </div>
-    </div>`).join('');
+
+  const sel = fieldSelectedBhs[volId] || new Set();
+  const selCount = sel.size;
+
+  // Группируем по дате
+  const byDate = {};
+  list.forEach(b => {
+    const d = b.drill_date || '—';
+    if (!byDate[d]) byDate[d] = [];
+    byDate[d].push(b);
+  });
+  const dates = Object.keys(byDate).sort().reverse();
+
+  const deleteBtn = selCount > 0
+    ? `<button class="btn bd bsm" style="margin:4px 8px 4px 0" onclick="deleteSelectedFieldBhs('${escAttr(volId)}')">🗑 Удалить выбранные (${selCount})</button>`
+    : '';
+  const clearBtn = selCount > 0
+    ? `<button class="btn bs bsm" style="margin:4px 0" onclick="clearFieldBhSelection('${escAttr(volId)}')">✕ Снять выделение</button>`
+    : '';
+
+  const groups = dates.map(date => {
+    const bhs = byDate[date];
+    const dateUuids = bhs.map(b => b.uuid);
+    const allChecked = dateUuids.every(u => sel.has(u));
+    const collapsed = !!fieldCollapsedDates[volId + ':' + date];
+    return `
+      <div class="field-date-group">
+        <div class="field-date-header">
+          <label class="field-date-check" onclick="event.stopPropagation()">
+            <input type="checkbox" ${allChecked ? 'checked' : ''} onchange="toggleFieldDateGroup('${escAttr(volId)}',${JSON.stringify(dateUuids)},this.checked)">
+          </label>
+          <span class="field-date-title" onclick="toggleFieldDateCollapse('${escAttr(volId)}','${escAttr(date)}')">
+            <span class="field-chev">${collapsed ? '▸' : '▾'}</span>
+            📅 ${esc(date)}
+          </span>
+          <span class="field-date-count">${bhs.length} скв.</span>
+        </div>
+        ${collapsed ? '' : bhs.map(b => `
+          <div class="field-bh-card ${sel.has(b.uuid) ? 'field-bh-selected' : ''}">
+            <label class="field-bh-check">
+              <input type="checkbox" ${sel.has(b.uuid) ? 'checked' : ''} onchange="toggleFieldBhSelect('${escAttr(volId)}','${escAttr(b.uuid)}')">
+            </label>
+            <div class="field-bh-body" onclick="openFieldBoreholeCard('${escAttr(b.uuid)}')">
+              <div class="field-bh-head">
+                <div class="field-bh-name">${esc(b.name || ('Скв-' + b.uuid.slice(0, 6)))}</div>
+                <div class="field-bh-type">${fieldWorkLabel(b.work_type)}</div>
+              </div>
+              <div class="field-bh-meta">📏 ${b.planned_depth_m || 0} м · ⌀ ${b.diameter_mm || 0} мм</div>
+            </div>
+          </div>`).join('')}
+      </div>`;
+  }).join('');
+
+  return `<div class="field-bh-toolbar">${deleteBtn}${clearBtn}</div>${groups}`;
+}
+
+function toggleFieldBhSelect(volId, uuid) {
+  if (!fieldSelectedBhs[volId]) fieldSelectedBhs[volId] = new Set();
+  const s = fieldSelectedBhs[volId];
+  if (s.has(uuid)) s.delete(uuid); else s.add(uuid);
+  const box = document.getElementById('fld-vol-bh-' + volId);
+  if (box && fieldVolumeBhCache[volId]) box.innerHTML = renderFieldVolumeBoreholesHtml(fieldVolumeBhCache[volId], volId);
+}
+
+function toggleFieldDateGroup(volId, uuids, checked) {
+  if (!fieldSelectedBhs[volId]) fieldSelectedBhs[volId] = new Set();
+  const s = fieldSelectedBhs[volId];
+  uuids.forEach(u => checked ? s.add(u) : s.delete(u));
+  const box = document.getElementById('fld-vol-bh-' + volId);
+  if (box && fieldVolumeBhCache[volId]) box.innerHTML = renderFieldVolumeBoreholesHtml(fieldVolumeBhCache[volId], volId);
+}
+
+function toggleFieldDateCollapse(volId, date) {
+  const key = volId + ':' + date;
+  fieldCollapsedDates[key] = !fieldCollapsedDates[key];
+  const box = document.getElementById('fld-vol-bh-' + volId);
+  if (box && fieldVolumeBhCache[volId]) box.innerHTML = renderFieldVolumeBoreholesHtml(fieldVolumeBhCache[volId], volId);
+}
+
+function clearFieldBhSelection(volId) {
+  delete fieldSelectedBhs[volId];
+  const box = document.getElementById('fld-vol-bh-' + volId);
+  if (box && fieldVolumeBhCache[volId]) box.innerHTML = renderFieldVolumeBoreholesHtml(fieldVolumeBhCache[volId], volId);
+}
+
+async function deleteSelectedFieldBhs(volId) {
+  const sel = [...(fieldSelectedBhs[volId] || new Set())];
+  if (!sel.length) return;
+  if (!confirm(`Удалить ${sel.length} скважин(у) со всеми данными?`)) return;
+  let deleted = 0;
+  for (const uuid of sel) {
+    try {
+      const r = await fetch(`${API}/field/boreholes/${uuid}`, {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_name: un() }),
+      });
+      if (r.ok) deleted++;
+    } catch (e) {}
+  }
+  delete fieldSelectedBhs[volId];
+  toast(`Удалено ${deleted} скважин`, 'ok');
+  await loadAndRenderVolumeBoreholes(volId);
+  if (typeof refreshCurrent === 'function') refreshCurrent();
+  if (typeof repaintMap === 'function') repaintMap();
 }
 
 // ── Загрузка .spk в выбранный объём ────────────────────────
@@ -155,16 +264,103 @@ function triggerSpkUploadForVolume(volumeId) {
   fieldPendingVolumeId = volumeId;
   const inp = document.getElementById('field-spk-input');
   if (!inp) return;
-  inp.onchange = (ev) => fieldUploadSpkToVolume(ev.target.files[0], volumeId);
+  inp.value = '';
+  inp.onchange = async (ev) => {
+    const file = ev.target.files[0];
+    if (!file) return;
+    fieldPreviewFile = file;
+    fieldPreviewVolumeId = volumeId;
+    await fieldShowSpkPreviewModal(file, volumeId);
+  };
   inp.click();
 }
 
-async function fieldUploadSpkToVolume(file, volumeId) {
+async function fieldShowSpkPreviewModal(file, volumeId) {
+  const fd = new FormData();
+  fd.append('spk', file);
+  let preview;
+  try {
+    const r = await fetch(`${API}/field/preview-spk`, { method: 'POST', body: fd });
+    preview = await r.json();
+    if (!r.ok) { toast('❌ ' + (preview.error || 'Ошибка чтения архива'), 'err'); return; }
+  } catch (e) { toast('Ошибка чтения архива', 'err'); return; }
+
+  const byDate = preview.by_date || {};
+  const dates = Object.keys(byDate).sort().reverse();
+
+  const datesHtml = dates.map(date => {
+    const bhs = byDate[date];
+    return `
+      <div class="spk-preview-date">
+        <label class="spk-preview-date-lbl">
+          <input type="checkbox" class="spk-date-chk" data-date="${escAttr(date)}" checked
+                 onchange="fieldPreviewToggleDate('${escAttr(date)}')">
+          <b>📅 ${esc(date)}</b>
+          <span class="field-date-count">${bhs.length} скв.</span>
+        </label>
+        <div class="spk-bh-list" id="spk-bh-list-${escAttr(date)}">
+          ${bhs.map(b => `
+            <label class="spk-bh-row">
+              <input type="checkbox" class="spk-bh-chk" data-uuid="${escAttr(b.uuid)}" data-date="${escAttr(date)}" checked>
+              <span class="spk-bh-name">${esc(b.name)}</span>
+              <span class="spk-bh-meta">${fieldWorkLabel(b.work_type)} · ${b.planned_depth_m} м</span>
+            </label>`).join('')}
+        </div>
+      </div>`;
+  }).join('');
+
+  const brigadeHtml = (preview.worker_names && preview.worker_names.length)
+    ? `<div class="spk-preview-info">👥 ${esc(preview.worker_names.join(', '))}${preview.machine_name ? ' · 🚜 ' + esc(preview.machine_name) : ''}</div>`
+    : '';
+
+  const body = `
+    <div class="spk-preview-head">
+      <div class="spk-preview-info">📦 ${esc(preview.filename)} · 🕳️ ${preview.total_boreholes} скв. · 📷 ${preview.total_photos} фото</div>
+      ${brigadeHtml}
+      <div style="margin-top:8px;display:flex;gap:6px">
+        <button class="btn bs bsm" onclick="fieldPreviewSelectAll(true)">Выбрать все</button>
+        <button class="btn bs bsm" onclick="fieldPreviewSelectAll(false)">Снять все</button>
+      </div>
+    </div>
+    <div class="spk-preview-dates">${datesHtml}</div>`;
+
+  showModal(`📥 Выбор скважин для импорта`, body, [
+    { label: 'Импортировать выбранные', cls: 'bp', fn: fieldDoImportFromPreview },
+    { label: 'Отмена', cls: 'bs', fn: () => { fieldPreviewFile = null; fieldPreviewVolumeId = null; closeModal(); } },
+  ]);
+}
+
+function fieldPreviewToggleDate(date) {
+  const dateCb = document.querySelector(`.spk-date-chk[data-date="${date}"]`);
+  const checked = dateCb ? dateCb.checked : true;
+  document.querySelectorAll(`.spk-bh-chk[data-date="${date}"]`).forEach(cb => { cb.checked = checked; });
+}
+
+function fieldPreviewSelectAll(checked) {
+  document.querySelectorAll('.spk-date-chk, .spk-bh-chk').forEach(cb => { cb.checked = checked; });
+}
+
+async function fieldDoImportFromPreview() {
+  const file = fieldPreviewFile;
+  const volumeId = fieldPreviewVolumeId;
+  if (!file || !volumeId) return;
+
+  const selectedUuids = [...document.querySelectorAll('.spk-bh-chk:checked')].map(cb => cb.dataset.uuid);
+  if (!selectedUuids.length) { toast('Не выбрано ни одной скважины', 'err'); return; }
+
+  closeModal();
+  await fieldUploadSpkToVolume(file, volumeId, selectedUuids);
+  fieldPreviewFile = null;
+  fieldPreviewVolumeId = null;
+}
+
+async function fieldUploadSpkToVolume(file, volumeId, filterUuids) {
   if (!file) return;
   const fd = new FormData();
   fd.append('spk', file);
   fd.append('user_name', un());
-  toast(`Загрузка ${file.name}…`);
+  if (filterUuids) fd.append('filter_uuids', JSON.stringify(filterUuids));
+  toast(`Импорт ${file.name}…`);
   try {
     const r = await fetch(`${API}/field/import-to-volume?volume_id=${encodeURIComponent(volumeId)}`, {
       method: 'POST', body: fd,
@@ -193,9 +389,10 @@ function renderFieldImports() {
     const m = imp.manifest || {};
     const status = imp.status === 'ok' ? '✓' : (imp.status === 'partial' ? '⚠' : '✗');
     const statusColor = imp.status === 'ok' ? 'var(--grn)' : (imp.status === 'partial' ? 'var(--ylw)' : 'var(--red)');
+    const volId = m.volume_id;
     const siteId = m.site_id;
-    const volLabel = siteId ? (() => {
-      const s = (window.sites || []).find(x => x.id === siteId);
+    const volLabel = volId ? (() => {
+      const s = (sites || []).find(x => x.id === siteId);
       return ` · 🏗 ${esc(s ? s.name : siteId || '—')}`;
     })() : '';
     return `
@@ -235,8 +432,8 @@ function showFieldBoreholeModal(b) {
     const brig = JSON.parse(b.brigade_info || '{}');
     const memberIds = Array.isArray(brig.members) ? brig.members : [];
     const transportId = brig.transport_id;
-    const wn = (window.pgkWorkers || []).filter(w => memberIds.includes(w.id)).map(w => w.name).join(', ');
-    const m = (window.pgkMachinery || []).find(x => x.id === transportId);
+    const wn = (pgkWorkers || []).filter(w => memberIds.includes(w.id)).map(w => w.name).join(', ');
+    const m = (pgkMachinery || []).find(x => x.id === transportId);
     const machineName = m ? (m.name || m.type || '—') : '';
     if (wn) brigadeBlock += `<div class="mdc-row"><div class="mdc-lbl">Бригада</div><div class="mdc-val">${esc(wn)}</div></div>`;
     if (machineName) brigadeBlock += `<div class="mdc-row"><div class="mdc-lbl">Техника</div><div class="mdc-val">${esc(machineName)}</div></div>`;
@@ -244,7 +441,12 @@ function showFieldBoreholeModal(b) {
 
   let volumeBlock = '';
   if (b.volume_id) {
-    volumeBlock = `<div class="mdc-row"><div class="mdc-lbl">Объём</div><div class="mdc-val">${esc(b.volume_id)}</div></div>`;
+    let volName = b.volume_id;
+    for (const vols of Object.values(fieldSiteVolumesCache)) {
+      const found = vols.find(v => v.id === b.volume_id);
+      if (found) { volName = found.name || b.volume_id; break; }
+    }
+    volumeBlock = `<div class="mdc-row"><div class="mdc-lbl">Объём</div><div class="mdc-val">${esc(volName)}</div></div>`;
   }
 
   const tabsHtml = `
@@ -259,10 +461,10 @@ function showFieldBoreholeModal(b) {
   const headHtml = `
     <div class="wdc-panel" data-panel="head">
       <div class="mdc-fields">
-        <div class="mdc-row"><div class="mdc-lbl">Объект</div><div class="mdc-val">${esc(((window.sites || []).find(s => s.id === b.site_id) || {}).name || fmt(b.site_id))}</div></div>
+        <div class="mdc-row"><div class="mdc-lbl">Объект</div><div class="mdc-val">${esc(((sites || []).find(s => s.id === b.site_id) || {}).name || fmt(b.site_id))}</div></div>
         ${volumeBlock}
         ${brigadeBlock}
-        <div class="mdc-row"><div class="mdc-lbl">Тип работ</div><div class="mdc-val">${esc(fmt(b.work_type))}</div></div>
+        <div class="mdc-row"><div class="mdc-lbl">Тип работ</div><div class="mdc-val">${esc(fieldWorkLabel(b.work_type))}</div></div>
         <div class="mdc-row"><div class="mdc-lbl">Глубина</div><div class="mdc-val">${fmt(b.planned_depth_m)} м</div></div>
         <div class="mdc-row"><div class="mdc-lbl">Диаметр</div><div class="mdc-val">${fmt(b.diameter_mm)} мм</div></div>
         <div class="mdc-row"><div class="mdc-lbl">Дата</div><div class="mdc-val">${esc(fmt(b.drill_date))}</div></div>

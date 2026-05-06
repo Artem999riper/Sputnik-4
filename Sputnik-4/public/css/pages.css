@@ -217,6 +217,27 @@
 .field-volume-spk-btn{flex-shrink:0}
 .field-volume-bh-list{padding:6px 10px 10px;border-top:1px solid var(--bd);display:flex;flex-direction:column;gap:6px}
 .field-vols-loading{padding:8px;color:var(--tx3);font-size:11px}
+.field-bh-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:4px;padding:2px 0 4px}
+.field-date-group{display:flex;flex-direction:column;gap:4px;margin-bottom:6px}
+.field-date-header{display:flex;align-items:center;gap:5px;padding:3px 4px;background:var(--s);border-radius:4px;font-size:11px;font-weight:700;color:var(--tx2)}
+.field-date-check{display:flex;align-items:center;flex-shrink:0;cursor:pointer;user-select:none}
+.field-date-title{flex:1;display:flex;align-items:center;gap:3px;cursor:pointer;user-select:none;padding:2px 0}
+.field-date-title:hover{color:var(--tx)}
+.field-date-count{font-size:10px;color:var(--tx3);flex-shrink:0}
+.field-bh-card{display:flex;align-items:flex-start;gap:6px;background:var(--s2);border:1.5px solid var(--bd);border-radius:var(--rs);padding:7px 9px}
+.field-bh-card.field-bh-selected{background:#f0f9ff;border-color:#0891b2}
+.field-bh-check{display:flex;align-items:center;flex-shrink:0;cursor:pointer}
+.field-bh-body{flex:1;cursor:pointer;min-width:0}
+.field-bh-body:hover .field-bh-name{color:#0891b2}
+.spk-preview-head{margin-bottom:10px;display:flex;flex-direction:column;gap:4px}
+.spk-preview-info{font-size:12px;color:var(--tx2)}
+.spk-preview-dates{display:flex;flex-direction:column;gap:8px;max-height:55vh;overflow-y:auto}
+.spk-preview-date{border:1px solid var(--bd);border-radius:var(--rs);overflow:hidden}
+.spk-preview-date-lbl{display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--s2);cursor:pointer;font-size:12px;font-weight:700;user-select:none}
+.spk-bh-list{padding:4px 8px;display:flex;flex-direction:column;gap:3px}
+.spk-bh-row{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;cursor:pointer}
+.spk-bh-name{flex:1;font-weight:600;color:var(--tx)}
+.spk-bh-meta{font-size:10px;color:var(--tx2)}
 
 /* ── Section pages (Сотрудники / Техника / Оборудование / Материалы) ── */
 #workers-page,#machinery-page,#equipment-page,#materials-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden}
