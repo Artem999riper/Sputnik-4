@@ -170,6 +170,54 @@
 .smg-leg-dot{width:14px;height:14px;border-radius:2px;flex-shrink:0}
 .smg-add-row{display:flex;gap:4px;margin-bottom:8px;align-items:center}
 
+/* ── Field Materials ── */
+.nt.field.on{background:#0891b2}
+#field-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden}
+#field-page.show{display:flex}
+.field-toolbar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--s);border-bottom:1.5px solid var(--bd);flex-shrink:0;flex-wrap:wrap}
+.field-toolbar h3{font-size:14px;font-weight:800;color:#0891b2;margin-right:4px}
+.field-body{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:14px}
+.field-section h4{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--tx3);margin-bottom:7px}
+.field-imports-list,.field-bh-list{display:flex;flex-direction:column;gap:6px}
+.field-import-row{display:flex;align-items:center;gap:10px;background:var(--s);border:1.5px solid var(--bd);border-radius:var(--rs);padding:8px 12px;transition:box-shadow .15s}
+.field-import-row:hover{box-shadow:var(--sh)}
+.field-import-status{font-size:18px;font-weight:800;flex-shrink:0;width:22px;text-align:center}
+.field-import-main{flex:1;min-width:0}
+.field-import-name{font-size:12px;font-weight:700;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace}
+.field-import-meta{font-size:10px;color:var(--tx2);margin-top:2px}
+.field-bh-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px}
+.field-bh-card{background:var(--s);border:1.5px solid var(--bd);border-left:3px solid #0891b2;border-radius:var(--rs);padding:10px 12px;cursor:pointer;transition:all .15s}
+.field-bh-card:hover{box-shadow:var(--shm);transform:translateY(-1px);border-color:var(--bd2)}
+.field-bh-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px}
+.field-bh-name{font-size:13px;font-weight:800;color:var(--tx)}
+.field-bh-type{font-size:10px;color:#0891b2;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+.field-bh-meta{font-size:11px;color:var(--tx2)}
+.field-layer-card{background:var(--s2);border:1.5px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px}
+.field-layer-head{font-size:11px;color:var(--tx);margin-bottom:3px}
+.field-layer-desc{font-size:11px;color:var(--tx2);line-height:1.4}
+.field-samples-list{margin-top:5px;padding-top:5px;border-top:1px solid var(--bd)}
+.field-sample-row{font-size:10px;color:var(--tx2);padding:2px 0}
+.field-mmg-card{background:var(--s2);border:1.5px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;font-size:11px}
+.field-row-simple{padding:5px 8px;background:var(--s2);border-radius:var(--rs);margin-bottom:4px;font-size:11px}
+.field-tab-buttons{display:flex;gap:4px}
+.field-tab-btn{background:var(--s2);border:1.5px solid var(--bd);border-radius:var(--rs);padding:6px 12px;font-size:12px;font-weight:700;color:var(--tx2);cursor:pointer;transition:all .15s}
+.field-tab-btn:hover{color:var(--tx);border-color:var(--bd2)}
+.field-tab-btn.on{background:#0891b2;color:#fff;border-color:#0891b2}
+.field-tab-pane{display:flex;flex-direction:column;gap:8px}
+.field-site-block{background:var(--s);border:1.5px solid var(--bd);border-radius:var(--rs);overflow:hidden}
+.field-site-header{display:flex;align-items:center;gap:6px;padding:9px 11px;cursor:pointer;font-size:13px;color:var(--tx);user-select:none}
+.field-site-header:hover{background:var(--s2)}
+.field-chev{font-size:10px;color:var(--tx3);flex-shrink:0}
+.field-site-body{border-top:1px solid var(--bd);padding:6px 8px;display:flex;flex-direction:column;gap:4px}
+.field-volume-row{background:var(--s2);border:1.5px solid var(--bd);border-radius:var(--rs);overflow:hidden}
+.field-volume-head{display:flex;align-items:center;gap:6px;padding:7px 10px}
+.field-volume-name{flex:1;min-width:0;cursor:pointer}
+.field-volume-name b{font-size:12px;font-weight:700;color:var(--tx);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.field-volume-meta{font-size:10px;color:var(--tx2);font-weight:500}
+.field-volume-spk-btn{flex-shrink:0}
+.field-volume-bh-list{padding:6px 10px 10px;border-top:1px solid var(--bd);display:flex;flex-direction:column;gap:6px}
+.field-vols-loading{padding:8px;color:var(--tx3);font-size:11px}
+
 /* ── Section pages (Сотрудники / Техника / Оборудование / Материалы) ── */
 #workers-page,#machinery-page,#equipment-page,#materials-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden}
 #workers-page.show,#machinery-page.show,#equipment-page.show,#materials-page.show{display:flex}

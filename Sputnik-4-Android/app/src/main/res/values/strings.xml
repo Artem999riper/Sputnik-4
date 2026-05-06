@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Спутник Полевик</string>
+    <string name="brigade">Бригада</string>
+    <string name="sites">Объекты</string>
+    <string name="boreholes">Скважины</string>
+    <string name="export">Экспорт</string>
+    <string name="import_refs">Импорт справочников</string>
+    <string name="add_borehole">Добавить скважину</string>
+    <string name="save">Сохранить</string>
+    <string name="cancel">Отмена</string>
+    <string name="delete">Удалить</string>
+    <string name="done">Готово</string>
+    <string name="layers">Слои</string>
+    <string name="samples">Пробы</string>
+    <string name="ugv">УГВ</string>
+    <string name="mmg">ММГ</string>
+    <string name="photos">Фото</string>
+    <string name="header">Шапка</string>
+    <string name="no_data">Нет данных</string>
+    <string name="refs_imported">Справочники загружены</string>
+    <string name="export_success">Архив создан и готов к отправке</string>
+</resources>

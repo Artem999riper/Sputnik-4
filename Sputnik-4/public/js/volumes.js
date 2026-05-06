@@ -15,7 +15,7 @@ function openVolCommentModal(volId){
 
 let vertexEditLayerId=null, vertexEditMarkers=[];
 // State shared with RCM handler
-let _veCoords=null, _veGJ=null, _veId=null, _veIsVP=false, _veColor='#1a56db', _veUpdatePreview=null, _veRingRef=null;
+let _veCoords=null, _veGJ=null, _veId=null, _veIsVP=false, _veColor='#1a56db', _veUpdatePreview=null, _veRingRef=null, _veGeomRef=null;
 
 function startVolVertexEdit(volId){
   const vol=(currentObj?.volumes||[]).find(v=>v.id===volId);
@@ -30,7 +30,7 @@ function startVolVertexEdit(volId){
     if(!geom)return;
     if(geom.type==='Point'){coords.push(geom.coordinates);}
     else if(geom.type==='LineString'){geom.coordinates.forEach(c=>coords.push(c));}
-    else if(geom.type==='Polygon'){if(geom.coordinates[0]){_veRingRef=geom.coordinates[0];geom.coordinates[0].forEach(c=>coords.push(c));}}
+    else if(geom.type==='Polygon'){if(geom.coordinates[0]){_veGeomRef=geom;_veRingRef=geom.coordinates[0];geom.coordinates[0].forEach(c=>coords.push(c));}}
     else if(geom.type==='MultiPolygon'){geom.coordinates.forEach(poly=>{if(poly[0])poly[0].forEach(c=>coords.push(c));});}
     else if(geom.type==='FeatureCollection'){(geom.features||[]).forEach(f=>extractCoords(f.geometry));}
     else if(geom.type==='Feature'){extractCoords(geom.geometry);}
@@ -92,15 +92,12 @@ async function _saveVpVertex(factId, gj){
 
 async function saveVertexEdit(volId,gj){
   const vol=(currentObj?.volumes||[]).find(v=>v.id===volId);if(!vol)return;
-  // Sync GeoJSON ring(s) from current _veCoords before every save — handles add/delete vertices reliably
-  if(_veCoords){
-    function _syncRing(geom){
-      if(!geom)return;
-      if(geom.type==='Polygon'&&geom.coordinates[0]){geom.coordinates[0]=_veCoords.slice();}
-      else if(geom.type==='Feature'){_syncRing(geom.geometry);}
-      else if(geom.type==='FeatureCollection'){(geom.features||[]).forEach(function(f){_syncRing(f);});}
-    }
-    _syncRing(gj);
+  // Rebuild polygon ring directly from _veCoords (fresh arrays, properly closed)
+  if(_veCoords&&_veGeomRef&&_veCoords.length>=3){
+    const ring=_veCoords.map(function(c){return[c[0],c[1]];});
+    const f=ring[0],l=ring[ring.length-1];
+    if(f[0]!==l[0]||f[1]!==l[1])ring.push([f[0],f[1]]);
+    _veGeomRef.coordinates[0]=ring;
   }
   const r=await fetch(`${API}/volumes/${volId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({...vol,geojson:JSON.stringify(gj)})});
@@ -116,7 +113,7 @@ function stopVertexEdit(){
   });
   vertexEditMarkers=[];
   vertexEditLayerId=null;
-  _veCoords=null; _veGJ=null; _veId=null; _veIsVP=false; _veUpdatePreview=null; _veRingRef=null;
+  _veCoords=null; _veGJ=null; _veId=null; _veIsVP=false; _veUpdatePreview=null; _veRingRef=null; _veGeomRef=null;
   if(currentObj){
     refreshCurrent().then(function(){
       renderVolumesOnMap(currentObj.volumes||[]);

@@ -130,6 +130,31 @@ function smgEffectivePlan(vol,prog){
   return result;
 }
 
+// Plan accumulated from plan_start to today across all months
+function smgPlanToDate(vol, prog) {
+  const allDates = smgAllPlanDateStrs(vol);
+  if (!allDates.length) return 0;
+  const todayStr = new Date().toISOString().split('T')[0];
+  const datesUpToToday = allDates.filter(ds => ds <= todayStr);
+  if (!datesUpToToday.length) return 0;
+  const allManual = {};
+  (prog || []).filter(p => p.volume_id === vol.id && p.row_type === 'plan').forEach(p => {
+    allManual[p.work_date] = (allManual[p.work_date] || 0) + (+p.completed || 0);
+  });
+  if (Object.keys(allManual).length > 0) {
+    const autoDatesSet = new Set(allDates.filter(ds => !Object.prototype.hasOwnProperty.call(allManual, ds)));
+    const manualTotal = Object.values(allManual).reduce((a, v) => a + v, 0);
+    const perAutoDay = autoDatesSet.size > 0 ? Math.max(0, vol.amount - manualTotal) / autoDatesSet.size : 0;
+    let total = 0;
+    datesUpToToday.forEach(ds => {
+      total += Object.prototype.hasOwnProperty.call(allManual, ds) ? allManual[ds] : Math.round(perAutoDay);
+    });
+    return total;
+  } else {
+    return allDates.length > 0 ? Math.round(vol.amount / allDates.length * datesUpToToday.length) : 0;
+  }
+}
+
 // ── Sparkline SVG ─────────────────────────────────────────────
 function smgSparkline(points,color){
   if(!points.length)return '';
@@ -326,7 +351,7 @@ function smgRender(){
         if(p.cell_color)colorMap[p.work_date]=p.cell_color;
       });
       const totalFact=factEntries.reduce((a,p)=>a+(+p.completed||0),0);
-      const totalPlan=Object.values(plan).reduce((a,v)=>a+v,0);
+      const pT_all=smgPlanToDate(vol,prog);
       const pct=vol.amount>0?Math.min(100,Math.round(totalFact/vol.amount*100)):0;
       // act = count of days marked as skipped (row_type='act')
       const actEntries=prog.filter(p=>p.volume_id===vol.id&&p.row_type==='act');
@@ -340,7 +365,7 @@ function smgRender(){
         if(ds<=today){pT+=(plan[ds]||0);fT+=(factMap[ds]||0);}
         sparkPoints.push(factMap[ds]||0);
       }
-      const delta=Math.round(totalFact-pT);
+      const delta=Math.round(totalFact-pT_all);
       const deltaHtml=delta===0
         ?'<span style="color:#a3a3a3;font-size:11px">—</span>'
         :delta>0
@@ -396,7 +421,7 @@ function smgRender(){
         </td>`;
       }
       tbody+=`<td class="smg-tot" rowspan="2" style="vertical-align:top;padding:4px 6px">
-        <div style="font-size:11px;font-weight:800;color:var(--tx);text-align:right;line-height:1.5">${Math.round(totalPlan).toLocaleString('ru-RU')}</div>
+        <div style="font-size:11px;font-weight:800;color:var(--tx);text-align:right;line-height:1.5">${Math.round(pT_all).toLocaleString('ru-RU')}</div>
         <div style="font-size:11px;font-weight:800;color:var(--tx);text-align:right;line-height:1.5">${Math.round(totalFact).toLocaleString('ru-RU')}</div>
       </td>
         <td class="smg-tot" rowspan="2" style="font-size:10px;color:var(--acc);text-align:right;padding:2px 6px">${vol.amount.toLocaleString('ru-RU')} ${esc(vol.unit)}</td>
