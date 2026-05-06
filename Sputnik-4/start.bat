@@ -11,7 +11,13 @@ if errorlevel 1 (
 )
 
 echo Checking dependencies...
-npm install --prefer-offline 2>nul || npm install
+npm install
+if errorlevel 1 (
+    echo.
+    echo [ERROR] npm install failed! See errors above.
+    pause
+    exit /b 1
+)
 echo.
 
 :MENU
