@@ -166,6 +166,59 @@ module.exports = (app, getDb, L) => {
     res.json({ deleted: { borehole: bh, layers, samples, ugv, mmg, photos } });
   }));
 
+  // ── Предпросмотр .spk (без импорта) ─────────────────────────
+  // POST /api/field/preview-spk (multipart, file=spk)
+  app.post('/api/field/preview-spk', spkUpload.single('spk'), wrap((req, res) => {
+    const d = db();
+    if (!req.file) return res.status(400).json({ error: 'Файл не передан' });
+    const tmpPath = req.file.path;
+    const cleanup = () => { try { fs.unlinkSync(tmpPath); } catch(e) {} };
+
+    let zip;
+    try { zip = new AdmZip(tmpPath); }
+    catch(e) { cleanup(); return res.status(400).json({ error: 'Архив повреждён' }); }
+
+    const readJson = (name) => {
+      const e = zip.getEntry(name);
+      if (!e) return null;
+      try { return JSON.parse(e.getData().toString('utf8')); } catch { return null; }
+    };
+
+    const manifest = readJson('manifest.json');
+    if (!manifest) { cleanup(); return res.status(400).json({ error: 'manifest.json не найден' }); }
+
+    const boreholes = readJson('boreholes.json') || [];
+    const photoEntries = zip.getEntries().filter(e => e.entryName.startsWith('photos/')).length;
+    cleanup();
+
+    const brigade = (manifest.brigade && typeof manifest.brigade === 'object') ? manifest.brigade : {};
+    const memberIds = Array.isArray(brigade.members) ? brigade.members.filter(x => typeof x === 'string') : [];
+    const workerNames = memberIds.length
+      ? all(d, `SELECT name FROM pgk_workers WHERE id IN (${memberIds.map(() => '?').join(',')})`, memberIds).map(w => w.name)
+      : [];
+    const machineRow = brigade.transport_id
+      ? get(d, 'SELECT name, type FROM pgk_machinery WHERE id=?', [brigade.transport_id]) : null;
+
+    // Группируем по датам для чекбоксов
+    const byDate = {};
+    for (const b of boreholes) {
+      if (!b || !b.uuid) continue;
+      const d_ = b.drill_date || '—';
+      if (!byDate[d_]) byDate[d_] = [];
+      byDate[d_].push({ uuid: b.uuid, name: b.name || `Скв-${b.uuid.slice(0, 6)}`, planned_depth_m: b.planned_depth_m || 0, work_type: b.work_type });
+    }
+
+    res.json({
+      filename: (req.file.originalname || 'unknown.spk').slice(0, 200),
+      exported_at: manifest.exported_at,
+      total_boreholes: boreholes.length,
+      total_photos: photoEntries,
+      by_date: byDate,
+      worker_names: workerNames,
+      machine_name: machineRow ? (machineRow.name || machineRow.type || '') : '',
+    });
+  }));
+
   // ── Импорт .spk в КОНКРЕТНЫЙ объём ──────────────────────────
   // POST /api/field/import-to-volume?volume_id=X (multipart, file=spk)
   app.post('/api/field/import-to-volume', spkUpload.single('spk'), wrap((req, res) => {
@@ -174,6 +227,13 @@ module.exports = (app, getDb, L) => {
     const volumeId = req.query.volume_id || req.body.volume_id;
     const tmpPath = req.file.path;
     const cleanup = () => { try { fs.unlinkSync(tmpPath); } catch(e) {} };
+
+    // Фильтр по выбранным UUID (если переданы)
+    let allowedUuids = null;
+    try {
+      const raw = req.body.filter_uuids;
+      if (raw) allowedUuids = new Set(JSON.parse(raw));
+    } catch(e) {}
 
     if (!volumeId) { cleanup(); return res.status(400).json({ error: 'volume_id обязателен' }); }
     const volume = get(d, 'SELECT id, site_id, name, amount, unit FROM volumes WHERE id=?', [volumeId]);
@@ -243,6 +303,7 @@ module.exports = (app, getDb, L) => {
     // ── Скважины + создание vol_progress в выбранном объёме ───
     for (const bh of boreholes) {
       if (!bh || !bh.uuid) { counts.errors++; continue; }
+      if (allowedUuids && !allowedUuids.has(bh.uuid)) continue; // фильтр выбора
       try {
         const exists = get(d, 'SELECT uuid, vol_progress_id FROM field_boreholes WHERE uuid=?', [bh.uuid]);
         const lat = safeNum(bh.lat, -90, 90);

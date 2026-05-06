@@ -46,6 +46,22 @@ fun BoreholesScreen(
 
     var kmlStatus by remember { mutableStateOf<String?>(null) }
     var kmlLoading by remember { mutableStateOf(false) }
+    var showClearDraftsDialog by remember { mutableStateOf(false) }
+
+    if (showClearDraftsDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDraftsDialog = false },
+            title = { Text("Удалить все черновики?") },
+            text = { Text("Все ${drafts.size} черновиков по этому объекту будут удалены безвозвратно.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearDraftsDialog = false
+                    scope.launch { withContext(kotlinx.coroutines.NonCancellable) { db.boreholes().deleteDraftsBySite(siteId) } }
+                }) { Text("Удалить все", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { showClearDraftsDialog = false }) { Text("Отмена") } }
+        )
+    }
 
     val kmlPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -75,6 +91,12 @@ fun BoreholesScreen(
                         CircularProgressIndicator(Modifier.size(24.dp).padding(end = 8.dp),
                             strokeWidth = 2.dp)
                     } else {
+                        if (selectedTab == 0 && drafts.isNotEmpty()) {
+                            IconButton(onClick = { showClearDraftsDialog = true }) {
+                                Icon(Icons.Default.DeleteSweep, "Очистить черновики",
+                                    tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
                         IconButton(onClick = { kmlPicker.launch(arrayOf("application/vnd.google-earth.kml+xml", "*/*")) }) {
                             Icon(Icons.Default.Map, "Импорт KML")
                         }

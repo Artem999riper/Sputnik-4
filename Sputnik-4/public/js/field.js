@@ -9,7 +9,16 @@ let fieldExpandedVolumes = {};     // volId  -> bool
 let fieldVolumeBhCache = {};       // volId  -> [boreholes]
 let fieldSiteVolumesCache = {};    // siteId -> [volumes]
 let fieldSelectedBhs = {};         // volId  -> Set<uuid>
+let fieldCollapsedDates = {};      // volId+':'+date -> bool
 let fieldPendingVolumeId = null;
+let fieldPreviewFile = null;       // File object held during preview dialog
+let fieldPreviewVolumeId = null;
+
+const FIELD_WORK_TYPES = {
+  SEARCH: 'Поисковая', EXPLORATION: 'Разведочная',
+  TRENCH: 'Шурф', GEOLOGICAL: 'Геологическая',
+};
+const fieldWorkLabel = t => FIELD_WORK_TYPES[t] || t || '—';
 
 async function loadField() {
   try {
@@ -169,16 +178,20 @@ function renderFieldVolumeBoreholesHtml(list, volId) {
     const bhs = byDate[date];
     const dateUuids = bhs.map(b => b.uuid);
     const allChecked = dateUuids.every(u => sel.has(u));
+    const collapsed = !!fieldCollapsedDates[volId + ':' + date];
     return `
       <div class="field-date-group">
         <div class="field-date-header">
-          <label class="field-date-check">
+          <label class="field-date-check" onclick="event.stopPropagation()">
             <input type="checkbox" ${allChecked ? 'checked' : ''} onchange="toggleFieldDateGroup('${escAttr(volId)}',${JSON.stringify(dateUuids)},this.checked)">
-            <span>📅 ${esc(date)}</span>
           </label>
+          <span class="field-date-title" onclick="toggleFieldDateCollapse('${escAttr(volId)}','${escAttr(date)}')">
+            <span class="field-chev">${collapsed ? '▸' : '▾'}</span>
+            📅 ${esc(date)}
+          </span>
           <span class="field-date-count">${bhs.length} скв.</span>
         </div>
-        ${bhs.map(b => `
+        ${collapsed ? '' : bhs.map(b => `
           <div class="field-bh-card ${sel.has(b.uuid) ? 'field-bh-selected' : ''}">
             <label class="field-bh-check">
               <input type="checkbox" ${sel.has(b.uuid) ? 'checked' : ''} onchange="toggleFieldBhSelect('${escAttr(volId)}','${escAttr(b.uuid)}')">
@@ -186,7 +199,7 @@ function renderFieldVolumeBoreholesHtml(list, volId) {
             <div class="field-bh-body" onclick="openFieldBoreholeCard('${escAttr(b.uuid)}')">
               <div class="field-bh-head">
                 <div class="field-bh-name">${esc(b.name || ('Скв-' + b.uuid.slice(0, 6)))}</div>
-                <div class="field-bh-type">${esc(b.work_type || '—')}</div>
+                <div class="field-bh-type">${fieldWorkLabel(b.work_type)}</div>
               </div>
               <div class="field-bh-meta">📏 ${b.planned_depth_m || 0} м · ⌀ ${b.diameter_mm || 0} мм</div>
             </div>
@@ -209,6 +222,13 @@ function toggleFieldDateGroup(volId, uuids, checked) {
   if (!fieldSelectedBhs[volId]) fieldSelectedBhs[volId] = new Set();
   const s = fieldSelectedBhs[volId];
   uuids.forEach(u => checked ? s.add(u) : s.delete(u));
+  const box = document.getElementById('fld-vol-bh-' + volId);
+  if (box && fieldVolumeBhCache[volId]) box.innerHTML = renderFieldVolumeBoreholesHtml(fieldVolumeBhCache[volId], volId);
+}
+
+function toggleFieldDateCollapse(volId, date) {
+  const key = volId + ':' + date;
+  fieldCollapsedDates[key] = !fieldCollapsedDates[key];
   const box = document.getElementById('fld-vol-bh-' + volId);
   if (box && fieldVolumeBhCache[volId]) box.innerHTML = renderFieldVolumeBoreholesHtml(fieldVolumeBhCache[volId], volId);
 }
@@ -245,16 +265,104 @@ function triggerSpkUploadForVolume(volumeId) {
   fieldPendingVolumeId = volumeId;
   const inp = document.getElementById('field-spk-input');
   if (!inp) return;
-  inp.onchange = (ev) => fieldUploadSpkToVolume(ev.target.files[0], volumeId);
+  inp.value = '';
+  inp.onchange = async (ev) => {
+    const file = ev.target.files[0];
+    if (!file) return;
+    fieldPreviewFile = file;
+    fieldPreviewVolumeId = volumeId;
+    await fieldShowSpkPreviewModal(file, volumeId);
+  };
   inp.click();
 }
 
-async function fieldUploadSpkToVolume(file, volumeId) {
+async function fieldShowSpkPreviewModal(file, volumeId) {
+  const fd = new FormData();
+  fd.append('spk', file);
+  let preview;
+  try {
+    const r = await fetch(`${API}/field/preview-spk`, { method: 'POST', body: fd });
+    preview = await r.json();
+    if (!r.ok) { toast('❌ ' + (preview.error || 'Ошибка чтения архива'), 'err'); return; }
+  } catch (e) { toast('Ошибка чтения архива', 'err'); return; }
+
+  const byDate = preview.by_date || {};
+  const dates = Object.keys(byDate).sort().reverse();
+
+  // Генерируем чекбоксы по датам
+  const datesHtml = dates.map(date => {
+    const bhs = byDate[date];
+    return `
+      <div class="spk-preview-date">
+        <label class="spk-preview-date-lbl">
+          <input type="checkbox" class="spk-date-chk" data-date="${escAttr(date)}" checked
+                 onchange="fieldPreviewToggleDate('${escAttr(date)}')">
+          <b>📅 ${esc(date)}</b>
+          <span class="field-date-count">${bhs.length} скв.</span>
+        </label>
+        <div class="spk-bh-list" id="spk-bh-list-${escAttr(date)}">
+          ${bhs.map(b => `
+            <label class="spk-bh-row">
+              <input type="checkbox" class="spk-bh-chk" data-uuid="${escAttr(b.uuid)}" data-date="${escAttr(date)}" checked>
+              <span class="spk-bh-name">${esc(b.name)}</span>
+              <span class="spk-bh-meta">${fieldWorkLabel(b.work_type)} · ${b.planned_depth_m} м</span>
+            </label>`).join('')}
+        </div>
+      </div>`;
+  }).join('');
+
+  const brigadeHtml = (preview.worker_names && preview.worker_names.length)
+    ? `<div class="spk-preview-info">👥 ${esc(preview.worker_names.join(', '))}${preview.machine_name ? ' · 🚜 ' + esc(preview.machine_name) : ''}</div>`
+    : '';
+
+  const body = `
+    <div class="spk-preview-head">
+      <div class="spk-preview-info">📦 ${esc(preview.filename)} · 🕳️ ${preview.total_boreholes} скв. · 📷 ${preview.total_photos} фото</div>
+      ${brigadeHtml}
+      <div style="margin-top:8px;display:flex;gap:6px">
+        <button class="btn bs bsm" onclick="fieldPreviewSelectAll(true)">Выбрать все</button>
+        <button class="btn bs bsm" onclick="fieldPreviewSelectAll(false)">Снять все</button>
+      </div>
+    </div>
+    <div class="spk-preview-dates">${datesHtml}</div>`;
+
+  showModal(`📥 Выбор скважин для импорта`, body, [
+    { label: 'Импортировать выбранные', cls: 'bp', fn: fieldDoImportFromPreview },
+    { label: 'Отмена', cls: 'bs', fn: () => { fieldPreviewFile = null; fieldPreviewVolumeId = null; closeModal(); } },
+  ]);
+}
+
+function fieldPreviewToggleDate(date) {
+  const dateCb = document.querySelector(`.spk-date-chk[data-date="${date}"]`);
+  const checked = dateCb ? dateCb.checked : true;
+  document.querySelectorAll(`.spk-bh-chk[data-date="${date}"]`).forEach(cb => { cb.checked = checked; });
+}
+
+function fieldPreviewSelectAll(checked) {
+  document.querySelectorAll('.spk-date-chk, .spk-bh-chk').forEach(cb => { cb.checked = checked; });
+}
+
+async function fieldDoImportFromPreview() {
+  const file = fieldPreviewFile;
+  const volumeId = fieldPreviewVolumeId;
+  if (!file || !volumeId) return;
+
+  const selectedUuids = [...document.querySelectorAll('.spk-bh-chk:checked')].map(cb => cb.dataset.uuid);
+  if (!selectedUuids.length) { toast('Не выбрано ни одной скважины', 'err'); return; }
+
+  closeModal();
+  await fieldUploadSpkToVolume(file, volumeId, selectedUuids);
+  fieldPreviewFile = null;
+  fieldPreviewVolumeId = null;
+}
+
+async function fieldUploadSpkToVolume(file, volumeId, filterUuids) {
   if (!file) return;
   const fd = new FormData();
   fd.append('spk', file);
   fd.append('user_name', un());
-  toast(`Загрузка ${file.name}…`);
+  if (filterUuids) fd.append('filter_uuids', JSON.stringify(filterUuids));
+  toast(`Импорт ${file.name}…`);
   try {
     const r = await fetch(`${API}/field/import-to-volume?volume_id=${encodeURIComponent(volumeId)}`, {
       method: 'POST', body: fd,
@@ -263,11 +371,8 @@ async function fieldUploadSpkToVolume(file, volumeId) {
     if (!r.ok) { toast('❌ ' + (data.error || 'Ошибка импорта'), 'err'); return; }
     toast(`✓ +${data.added} новых · ${data.skipped} обновлено · 📷 ${data.photos_added}`, 'ok');
     document.getElementById('field-spk-input').value = '';
-    // Перезагрузить список скважин в этом объёме
     await loadAndRenderVolumeBoreholes(volumeId);
-    // Обновить список архивов
     await loadField();
-    // Перерисовать карту: vol_progress теперь содержит новые точки
     if (typeof refreshCurrent === 'function') refreshCurrent();
     if (typeof repaintMap === 'function') repaintMap();
   } catch (e) { toast('Ошибка загрузки', 'err'); }
@@ -363,7 +468,7 @@ function showFieldBoreholeModal(b) {
         <div class="mdc-row"><div class="mdc-lbl">Объект</div><div class="mdc-val">${esc(((sites || []).find(s => s.id === b.site_id) || {}).name || fmt(b.site_id))}</div></div>
         ${volumeBlock}
         ${brigadeBlock}
-        <div class="mdc-row"><div class="mdc-lbl">Тип работ</div><div class="mdc-val">${esc(fmt(b.work_type))}</div></div>
+        <div class="mdc-row"><div class="mdc-lbl">Тип работ</div><div class="mdc-val">${esc(fieldWorkLabel(b.work_type))}</div></div>
         <div class="mdc-row"><div class="mdc-lbl">Глубина</div><div class="mdc-val">${fmt(b.planned_depth_m)} м</div></div>
         <div class="mdc-row"><div class="mdc-lbl">Диаметр</div><div class="mdc-val">${fmt(b.diameter_mm)} мм</div></div>
         <div class="mdc-row"><div class="mdc-lbl">Дата</div><div class="mdc-val">${esc(fmt(b.drill_date))}</div></div>

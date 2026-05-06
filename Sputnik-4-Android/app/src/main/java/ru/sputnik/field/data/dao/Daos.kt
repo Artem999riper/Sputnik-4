@@ -72,6 +72,12 @@ interface BoreholeDao {
 
     @Query("SELECT * FROM boreholes WHERE siteId = :siteId AND drillDate BETWEEN :from AND :to AND status='done'")
     suspend fun forExportBySite(siteId: String, from: String, to: String): List<Borehole>
+
+    @Query("DELETE FROM boreholes WHERE siteId = :siteId AND status != 'done'")
+    suspend fun deleteDraftsBySite(siteId: String)
+
+    @Query("DELETE FROM boreholes")
+    suspend fun deleteAll()
 }
 
 @Dao
