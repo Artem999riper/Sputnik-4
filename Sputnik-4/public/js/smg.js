@@ -296,12 +296,12 @@ function smgRender(){
       <div style="font-size:${Math.round(8*_smgZoom)}px;opacity:.7;line-height:1">${SMG_DOWS[dt.getDay()]}</div>
     </th>`;
   }
-  thead+=`<th class="smg-hd-tot" style="min-width:70px;top:0;z-index:19">Факт</th>
-    <th class="smg-hd-tot" style="min-width:70px;top:0;z-index:19">План</th>
+  thead+=`<th class="smg-hd-tot" style="min-width:70px;top:0;z-index:19">Факт<br><span style="opacity:.6;font-size:9px">/ План</span></th>
     <th class="smg-hd-tot" style="min-width:78px;top:0;z-index:19">Общий<br>объём</th>
     <th class="smg-hd-tot" style="min-width:44px;top:0;z-index:19">%</th>
     <th class="smg-hd-tot smg-hd-act" style="min-width:68px;top:0;z-index:19">Акт</th>
     <th class="smg-hd-tot smg-hd-delta" style="min-width:108px;top:0;z-index:19">Δ план</th>
+    <th class="smg-hd-tot" style="min-width:70px;top:0;z-index:19">Остаток</th>
   </tr>`;
 
   // ── Table body
@@ -340,14 +340,19 @@ function smgRender(){
         if(ds<=today){pT+=(plan[ds]||0);fT+=(factMap[ds]||0);}
         sparkPoints.push(factMap[ds]||0);
       }
-      const delta=Math.round(fT-pT);
+      const delta=Math.round(totalFact-vol.amount);
       const deltaHtml=delta===0
         ?'<span style="color:#a3a3a3;font-size:11px">—</span>'
         :delta>0
           ?`<span class="smg-delta-pos">▲ +${delta.toLocaleString('ru-RU')} ${esc(vol.unit)}</span>`
-          :`<span class="smg-delta-neg">▼ ${delta.toLocaleString('ru-RU')} ${esc(vol.unit)}</span>`;
+          :`<span class="smg-delta-neg">▼ ${Math.abs(delta).toLocaleString('ru-RU')} ${esc(vol.unit)}</span>`;
+      const остаток=Math.round(vol.amount-totalFact);
+      const остатокHtml=остаток<=0
+        ?'<span style="color:#059669;font-size:11px;font-weight:700">✓</span>'
+        :`<span style="font-size:11px">${остаток.toLocaleString('ru-RU')} ${esc(vol.unit)}</span>`;
 
       const pctColor=pct>=100?'#059669':pct>=70?'#2563eb':pct>=40?'#d97706':'#dc2626';
+      const pctStyle=`color:${pctColor};font-size:11px;font-weight:800`;
       const pbar=`<div style="margin-top:4px;height:3px;background:#e5e5e5;border-radius:2px;overflow:hidden">
         <div style="width:${Math.min(100,pct)}%;height:3px;background:${pctColor};border-radius:2px;transition:width .3s"></div>
       </div>`;
@@ -390,10 +395,15 @@ function smgRender(){
           ${pval>0?`<span class="smg-plan-val" style="font-size:${pfs}px">${pstr}</span>`:''}
         </td>`;
       }
-      tbody+=`<td class="smg-tot" style="color:#a3a3a3;font-size:10px;text-align:right;padding:2px 6px">—</td>
-        <td class="smg-tot" style="font-size:11px;font-weight:600;text-align:right;padding:2px 6px">${Math.round(totalPlan).toLocaleString('ru-RU')}</td>
-        <td class="smg-tot" style="font-size:10px;color:var(--acc);text-align:right;padding:2px 6px">${vol.amount.toLocaleString('ru-RU')} ${esc(vol.unit)}</td>
-        <td class="smg-tot"></td><td class="smg-tot"></td><td class="smg-tot"></td>
+      tbody+=`<td class="smg-tot" rowspan="2" style="vertical-align:top;padding:4px 6px">
+        <div style="font-size:11px;font-weight:700;text-align:right;line-height:1.5">${Math.round(totalFact).toLocaleString('ru-RU')}</div>
+        <div style="font-size:10px;color:var(--tx3);text-align:right;line-height:1.4">${Math.round(totalPlan).toLocaleString('ru-RU')}</div>
+      </td>
+        <td class="smg-tot" rowspan="2" style="font-size:10px;color:var(--acc);text-align:right;padding:2px 6px">${vol.amount.toLocaleString('ru-RU')} ${esc(vol.unit)}</td>
+        <td class="smg-tot" rowspan="2" style="${pctStyle}">${pct}%</td>
+        <td class="smg-tot smg-tot-act" rowspan="2">${actCount>0?actCount+' дн.':'—'}</td>
+        <td class="smg-tot" rowspan="2">${deltaHtml}</td>
+        <td class="smg-tot" rowspan="2">${остатокHtml}</td>
       </tr>`;
 
       // ── FACT ROW ─────────────────────────────────────────────
@@ -439,14 +449,7 @@ function smgRender(){
           ${inner}
         </td>`;
       }
-      const pctStyle=`color:${pctColor};font-size:11px;font-weight:800`;
-      tbody+=`<td class="smg-tot smg-tot-fact">${Math.round(totalFact).toLocaleString('ru-RU')}</td>
-        <td class="smg-tot" style="color:var(--tx3)">${Math.round(totalPlan).toLocaleString('ru-RU')}</td>
-        <td class="smg-tot"></td>
-        <td class="smg-tot" style="${pctStyle}">${pct}%</td>
-        <td class="smg-tot smg-tot-act">${actCount>0?actCount+' дн.':'—'}</td>
-        <td class="smg-tot">${deltaHtml}</td>
-      </tr>`;
+      tbody+=`</tr>`;
     });
   });
 
@@ -464,10 +467,10 @@ function smgRender(){
     const n=vols.filter(v=>prog.some(p=>p.volume_id===v.id&&p.work_date===ds&&p.row_type!=='plan')).length;
     tbody+=`<td style="font-size:9px;text-align:center;font-weight:700;color:${n?'#059669':'var(--tx3)'}">${n||''}</td>`;
   }
-  tbody+=`<td class="smg-tot" colspan="2" style="font-size:11px;font-weight:800;color:var(--acc)">${doneVols}/${totalVols}</td>
+  tbody+=`<td class="smg-tot" style="font-size:11px;font-weight:800;color:var(--acc)">${doneVols}/${totalVols}</td>
     <td class="smg-tot"></td>
     <td class="smg-tot" style="font-size:11px;font-weight:800;color:${avgPct>=80?'#059669':avgPct>=50?'#2563eb':'#dc2626'}">${avgPct}%</td>
-    <td class="smg-tot"></td><td class="smg-tot"></td>
+    <td class="smg-tot"></td><td class="smg-tot"></td><td class="smg-tot"></td>
   </tr>`;
 
   document.getElementById('smg-body').innerHTML=`

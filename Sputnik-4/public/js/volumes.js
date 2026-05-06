@@ -15,7 +15,7 @@ function openVolCommentModal(volId){
 
 let vertexEditLayerId=null, vertexEditMarkers=[];
 // State shared with RCM handler
-let _veCoords=null, _veGJ=null, _veId=null, _veIsVP=false, _veColor='#1a56db', _veUpdatePreview=null;
+let _veCoords=null, _veGJ=null, _veId=null, _veIsVP=false, _veColor='#1a56db', _veUpdatePreview=null, _veRingRef=null;
 
 function startVolVertexEdit(volId){
   const vol=(currentObj?.volumes||[]).find(v=>v.id===volId);
@@ -30,7 +30,7 @@ function startVolVertexEdit(volId){
     if(!geom)return;
     if(geom.type==='Point'){coords.push(geom.coordinates);}
     else if(geom.type==='LineString'){geom.coordinates.forEach(c=>coords.push(c));}
-    else if(geom.type==='Polygon'){if(geom.coordinates[0])geom.coordinates[0].forEach(c=>coords.push(c));}
+    else if(geom.type==='Polygon'){if(geom.coordinates[0]){_veRingRef=geom.coordinates[0];geom.coordinates[0].forEach(c=>coords.push(c));}}
     else if(geom.type==='MultiPolygon'){geom.coordinates.forEach(poly=>{if(poly[0])poly[0].forEach(c=>coords.push(c));});}
     else if(geom.type==='FeatureCollection'){(geom.features||[]).forEach(f=>extractCoords(f.geometry));}
     else if(geom.type==='Feature'){extractCoords(geom.geometry);}
@@ -69,7 +69,7 @@ function _addVertexMarker(c, volId, gj, coords, updatePreview, isVP){
   });
   mk.on('dblclick',function(){
     const idx=coords.indexOf(c);
-    if(idx>-1&&coords.length>3){coords.splice(idx,1);}
+    if(idx>-1&&coords.length>3){coords.splice(idx,1);if(_veRingRef){const ri=_veRingRef.indexOf(c);if(ri>-1)_veRingRef.splice(ri,1);}}
     updatePreview();
     if(!isVP) saveVertexEdit(volId,gj); else _saveVpVertex(volId,gj);
     try{map.removeLayer(mk);}catch(e){}
@@ -106,7 +106,7 @@ function stopVertexEdit(){
   });
   vertexEditMarkers=[];
   vertexEditLayerId=null;
-  _veCoords=null; _veGJ=null; _veId=null; _veIsVP=false; _veUpdatePreview=null;
+  _veCoords=null; _veGJ=null; _veId=null; _veIsVP=false; _veUpdatePreview=null; _veRingRef=null;
   if(currentObj){
     refreshCurrent().then(function(){
       renderVolumesOnMap(currentObj.volumes||[]);
@@ -138,7 +138,7 @@ function _handleVertexEditRCM(e){
       if(!bestMk)return;
       const ll=bestMk.getLatLng();
       const idx=_veCoords.findIndex(c=>Math.abs(c[0]-ll.lng)<1e-9&&Math.abs(c[1]-ll.lat)<1e-9);
-      if(idx>-1)_veCoords.splice(idx,1);
+      if(idx>-1){const rc=_veCoords[idx];_veCoords.splice(idx,1);if(_veRingRef){const ri=_veRingRef.indexOf(rc);if(ri>-1)_veRingRef.splice(ri,1);}}
       try{map.removeLayer(bestMk);}catch(ex){}
       const mi=vertexEditMarkers.indexOf(bestMk);
       if(mi>-1)vertexEditMarkers.splice(mi,1);
@@ -162,6 +162,7 @@ function _handleVertexEditRCM(e){
       if(bestSeg<0)return;
       const newC=[e.latlng.lng,e.latlng.lat];
       _veCoords.splice(bestSeg+1,0,newC);
+      if(_veRingRef)_veRingRef.splice(bestSeg+1,0,newC);
       _addVertexMarker(newC,_veId,_veGJ,_veCoords,_veUpdatePreview,_veIsVP);
       if(_veUpdatePreview)_veUpdatePreview();
       if(_veIsVP)_saveVpVertex(_veId,_veGJ); else saveVertexEdit(_veId,_veGJ);
