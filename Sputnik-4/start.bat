@@ -11,10 +11,14 @@ if errorlevel 1 (
 )
 
 echo Checking dependencies...
-npm install
+call npm install
+if errorlevel 1 (
+    echo.
+    echo [ERROR] npm install failed!
+    pause
+    exit /b 1
+)
 echo.
-echo npm install finished (see output above).
-pause
 
 :MENU
 cls
@@ -73,7 +77,7 @@ goto MENU
 echo.
 echo    Reinstalling dependencies...
 if exist node_modules rmdir /s /q node_modules
-npm install
+call npm install
 echo.
 echo    Done!
 pause
