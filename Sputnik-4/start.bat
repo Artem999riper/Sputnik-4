@@ -12,13 +12,9 @@ if errorlevel 1 (
 
 echo Checking dependencies...
 npm install
-if errorlevel 1 (
-    echo.
-    echo [ERROR] npm install failed! See errors above.
-    pause
-    exit /b 1
-)
 echo.
+echo npm install finished (see output above).
+pause
 
 :MENU
 cls
