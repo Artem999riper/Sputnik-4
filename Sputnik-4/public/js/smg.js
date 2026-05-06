@@ -296,7 +296,7 @@ function smgRender(){
       <div style="font-size:${Math.round(8*_smgZoom)}px;opacity:.7;line-height:1">${SMG_DOWS[dt.getDay()]}</div>
     </th>`;
   }
-  thead+=`<th class="smg-hd-tot" style="min-width:70px;top:0;z-index:19">Факт<br><span style="opacity:.6;font-size:9px">/ План</span></th>
+  thead+=`<th class="smg-hd-tot" style="min-width:70px;top:0;z-index:19">План<br><span style="opacity:.6;font-size:9px">/ Факт</span></th>
     <th class="smg-hd-tot" style="min-width:78px;top:0;z-index:19">Общий<br>объём</th>
     <th class="smg-hd-tot" style="min-width:44px;top:0;z-index:19">%</th>
     <th class="smg-hd-tot smg-hd-act" style="min-width:68px;top:0;z-index:19">Акт</th>
@@ -340,7 +340,7 @@ function smgRender(){
         if(ds<=today){pT+=(plan[ds]||0);fT+=(factMap[ds]||0);}
         sparkPoints.push(factMap[ds]||0);
       }
-      const delta=Math.round(totalFact-vol.amount);
+      const delta=Math.round(totalFact-pT);
       const deltaHtml=delta===0
         ?'<span style="color:#a3a3a3;font-size:11px">—</span>'
         :delta>0
@@ -396,8 +396,8 @@ function smgRender(){
         </td>`;
       }
       tbody+=`<td class="smg-tot" rowspan="2" style="vertical-align:top;padding:4px 6px">
-        <div style="font-size:11px;font-weight:700;text-align:right;line-height:1.5">${Math.round(totalFact).toLocaleString('ru-RU')}</div>
-        <div style="font-size:10px;color:var(--tx3);text-align:right;line-height:1.4">${Math.round(totalPlan).toLocaleString('ru-RU')}</div>
+        <div style="font-size:11px;font-weight:800;color:var(--tx);text-align:right;line-height:1.5">${Math.round(totalPlan).toLocaleString('ru-RU')}</div>
+        <div style="font-size:11px;font-weight:800;color:var(--tx);text-align:right;line-height:1.5">${Math.round(totalFact).toLocaleString('ru-RU')}</div>
       </td>
         <td class="smg-tot" rowspan="2" style="font-size:10px;color:var(--acc);text-align:right;padding:2px 6px">${vol.amount.toLocaleString('ru-RU')} ${esc(vol.unit)}</td>
         <td class="smg-tot" rowspan="2" style="${pctStyle}">${pct}%</td>

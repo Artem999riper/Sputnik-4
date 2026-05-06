@@ -92,6 +92,16 @@ async function _saveVpVertex(factId, gj){
 
 async function saveVertexEdit(volId,gj){
   const vol=(currentObj?.volumes||[]).find(v=>v.id===volId);if(!vol)return;
+  // Sync GeoJSON ring(s) from current _veCoords before every save — handles add/delete vertices reliably
+  if(_veCoords){
+    function _syncRing(geom){
+      if(!geom)return;
+      if(geom.type==='Polygon'&&geom.coordinates[0]){geom.coordinates[0]=_veCoords.slice();}
+      else if(geom.type==='Feature'){_syncRing(geom.geometry);}
+      else if(geom.type==='FeatureCollection'){(geom.features||[]).forEach(function(f){_syncRing(f);});}
+    }
+    _syncRing(gj);
+  }
   const r=await fetch(`${API}/volumes/${volId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({...vol,geojson:JSON.stringify(gj)})});
   if(!r.ok){toast('Ошибка сохранения','err');return;}
