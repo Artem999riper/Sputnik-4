@@ -198,6 +198,49 @@ async function getDb() {
   ta(`CREATE TABLE IF NOT EXISTS equipment_responsible_history (id TEXT PRIMARY KEY, equipment_id TEXT NOT NULL, responsible TEXT NOT NULL, assigned_at TEXT DEFAULT (datetime('now')), notes TEXT DEFAULT '')`);
   ta("ALTER TABLE pgk_equipment ADD COLUMN group_id TEXT DEFAULT ''");
 
+  // ── field_* tables (полевые материалы) ────────────────────
+  ta(`CREATE TABLE IF NOT EXISTS field_boreholes (
+    uuid TEXT PRIMARY KEY,
+    site_id TEXT, volume_id TEXT, vol_progress_id TEXT,
+    lat REAL, lng REAL, kml_point_id TEXT,
+    name TEXT, planned_depth_m REAL, diameter_mm REAL,
+    work_type TEXT, geomorph_desc TEXT, description TEXT,
+    drill_date TEXT, brigade_info TEXT,
+    imported_at TEXT DEFAULT (datetime('now')),
+    imported_from_spk TEXT
+  )`);
+  ta("ALTER TABLE field_boreholes ADD COLUMN volume_id TEXT");
+  ta("ALTER TABLE field_boreholes ADD COLUMN vol_progress_id TEXT");
+  ta(`CREATE TABLE IF NOT EXISTS field_soil_layers (
+    uuid TEXT PRIMARY KEY, borehole_uuid TEXT NOT NULL,
+    order_idx INTEGER DEFAULT 0, soil_type TEXT, state TEXT,
+    description TEXT, depth_m REAL
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_samples (
+    uuid TEXT PRIMARY KEY, layer_uuid TEXT NOT NULL,
+    collection_type TEXT, packaging TEXT, depth_m REAL
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_ugv (
+    uuid TEXT PRIMARY KEY, borehole_uuid TEXT NOT NULL,
+    order_idx INTEGER DEFAULT 0, depth_m REAL
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_mmg (
+    uuid TEXT PRIMARY KEY, borehole_uuid TEXT NOT NULL,
+    order_idx INTEGER DEFAULT 0, top_m REAL, bottom_m REAL, description TEXT
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_photos (
+    uuid TEXT PRIMARY KEY, borehole_uuid TEXT NOT NULL,
+    category TEXT, file_path TEXT, taken_at TEXT
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_imports (
+    id TEXT PRIMARY KEY, filename TEXT,
+    imported_at TEXT DEFAULT (datetime('now')),
+    imported_by TEXT DEFAULT 'Система',
+    manifest_json TEXT, counts_json TEXT,
+    status TEXT DEFAULT 'ok'
+  )`);
+  ta("ALTER TABLE vol_progress ADD COLUMN field_borehole_uuid TEXT");
+
   return _db;
 }
 
