@@ -10,12 +10,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist node_modules (
-    echo First launch - installing dependencies...
-    npm install
-    echo.
-    pause
-)
+echo Checking dependencies...
+npm install --prefer-offline 2>nul || npm install
+echo.
 
 :MENU
 cls
