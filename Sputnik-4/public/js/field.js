@@ -11,11 +11,15 @@ let fieldPendingVolumeId = null;
 
 async function loadField() {
   try {
+    // Ensure global sites list is populated
+    if (!window.sites || !window.sites.length) {
+      const sr = await fetch(`${API}/sites`);
+      if (sr.ok) window.sites = await sr.json();
+    }
     const ir = await fetch(`${API}/field/imports`);
     fieldImports = ir.ok ? await ir.json() : [];
   } catch (e) {
     fieldImports = [];
-    toast('⚠️ Не удалось загрузить полевые материалы', 'err');
   }
   renderFieldBySites();
   renderFieldImports();

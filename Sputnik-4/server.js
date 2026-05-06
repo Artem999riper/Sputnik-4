@@ -138,6 +138,7 @@ const routePgk   = require('./routes/pgk');
 const routeCargo = require('./routes/cargo');
 const routeTasks = require('./routes/tasks');
 const routeMisc  = require('./routes/misc');
+const routeField = require('./routes/field');
 
 // ── START ──────────────────────────────────────────────────────────────────────
 getDb().then(database => {
@@ -152,6 +153,7 @@ getDb().then(database => {
   routePgk  (app, getDbInstance, L);
   routeCargo(app, getDbInstance, L);
   routeTasks(app, getDbInstance, L);
+  routeField(app, getDbInstance, L);
   routeMisc (app, getDbInstance, L, {
     upload, demProcessor, BACKUP_DIR, doBackup,
     getBackupSettings, setBackupSettings, performAutoBackup,
