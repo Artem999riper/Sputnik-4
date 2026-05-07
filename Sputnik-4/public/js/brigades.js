@@ -182,8 +182,6 @@ async function deleteBrigade(id) {
   const s = document.createElement('style');
   s.id = 'brigade-styles';
   s.textContent = `
-#brigades-page { display:none; overflow-y:auto; }
-#brigades-page.show { display:block; }
 .br-outer { padding:16px 20px; max-width:1200px; margin:0 auto; }
 .br-toolbar { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
 .br-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px; }

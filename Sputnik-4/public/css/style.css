@@ -73,7 +73,7 @@ body{font-size:13px;background:var(--bg);color:var(--tx);overflow:hidden;height:
 /* ── Map ── */
 #map{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;z-index:1;transition:right .25s cubic-bezier(.4,0,.2,1)}
 /* Все полноэкранные страницы и карта сжимаются при открытии панели */
-#personnel-page,#workers-page,#machinery-page,#equipment-page,#materials-page,#dash-page,#gtasks-page,#gruz-page{transition:right .25s cubic-bezier(.4,0,.2,1)}
+#personnel-page,#workers-page,#machinery-page,#equipment-page,#materials-page,#dash-page,#gtasks-page,#gruz-page,#brigades-page{transition:right .25s cubic-bezier(.4,0,.2,1)}
 body.panel-open #map,
 body.panel-open #personnel-page,
 body.panel-open #workers-page,
@@ -442,8 +442,8 @@ body.panel-open #gruz-page{right:var(--pw)}
 .smg-add-row{display:flex;gap:4px;margin-bottom:8px;align-items:center}
 
 /* ── Section pages (Сотрудники / Техника / Оборудование / Материалы) ── */
-#workers-page,#machinery-page,#equipment-page,#materials-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden}
-#workers-page.show,#machinery-page.show,#equipment-page.show,#materials-page.show{display:flex}
+#workers-page,#machinery-page,#equipment-page,#materials-page,#brigades-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden}
+#workers-page.show,#machinery-page.show,#equipment-page.show,#materials-page.show,#brigades-page.show{display:flex}
 /* wt-outer inside fullscreen pages: reset the panel-inner negative margin */
 #workers-page>.wt-outer,#machinery-page>.wt-outer,#equipment-page>.wt-outer,#materials-page>.wt-outer{margin:0}
 
