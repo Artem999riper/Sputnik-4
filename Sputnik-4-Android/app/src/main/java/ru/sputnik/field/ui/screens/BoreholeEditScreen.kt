@@ -598,13 +598,14 @@ private fun SamplesSheet(
                 },
                 confirmButton = {
                     Button(onClick = {
+                        val depth = depthStr.toRusDouble() ?: 0.0
                         scope.launch {
                             db.samples().insert(Sample(
                                 uuid = UUID.randomUUID().toString(),
                                 layerUuid = layer.uuid,
                                 collectionType = collType,
                                 packaging = packaging,
-                                depthM = depthStr.toRusDouble() ?: 0.0
+                                depthM = depth
                             ))
                         }
                         depthStr = ""; showAdd = false

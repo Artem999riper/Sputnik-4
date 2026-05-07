@@ -233,7 +233,7 @@ fun ExportScreen(onBack: () -> Unit) {
                                     exportState = try {
                                         ExportState.Done(
                                             exportSpk(context, fromDate.toString(), toDate.toString(),
-                                                selectedSite?.id)
+                                                selectedSite?.id, selectedSite?.name, geologistName)
                                         )
                                     } catch (e: Exception) {
                                         ExportState.Error(e.message ?: "Ошибка")
