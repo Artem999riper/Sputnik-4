@@ -61,14 +61,7 @@ function renderBrigades() {
 
     const members = (br.members || []).length
       ? `<div class="br-list">` + br.members.map(m =>
-          `<div class="br-list-item">
-            <span class="br-list-icon">👤</span>
-            <span class="br-list-name">${esc(m.name)}</span>
-            ${m.role ? `<span class="br-list-meta">${esc(m.role)}</span>` : ''}
-            ${m.start_date
-              ? `<span class="br-list-suffix br-list-days" title="с ${fmt(m.start_date)}">📅 ${m.days} дн.</span>`
-              : `<span class="br-list-suffix br-list-home">🏠 дома</span>`}
-          </div>`
+          `<div class="br-list-item"><span class="br-list-icon">👤</span><span class="br-list-main">${esc(m.name)}${m.role ? ` <span class="br-list-meta">${esc(m.role)}</span>` : ''}</span>${m.start_date ? `<span class="br-list-days" title="с ${fmt(m.start_date)}">📅 ${m.days} дн.</span>` : `<span class="br-list-home">🏠 дома</span>`}</div>`
         ).join('') + `</div>`
       : empty('нет членов');
 
@@ -249,10 +242,10 @@ async function deleteBrigade(id) {
 .br-list-item { display:flex; align-items:center; gap:6px; font-size:12px; padding:4px 8px; background:var(--s2); border:1px solid var(--bd); border-radius:6px; min-height:24px; }
 .br-list-icon { flex-shrink:0; font-size:13px; line-height:1; }
 .br-list-name { font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.br-list-meta { color:var(--tx2); font-size:11px; flex-shrink:0; }
-.br-list-suffix { margin-left:auto; flex-shrink:0; font-size:11px; font-weight:600; }
-.br-list-days { color:#15803d; }
-.br-list-home { color:var(--tx3); font-weight:500; }
+.br-list-main { font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.br-list-meta { color:var(--tx2); font-size:11px; font-weight:400; }
+.br-list-days { flex-shrink:0; color:#15803d; font-size:11px; font-weight:600; white-space:nowrap; }
+.br-list-home { flex-shrink:0; color:var(--tx3); font-size:11px; font-weight:500; white-space:nowrap; }
 .br-list-base { background:#fef3c7; border-color:#d97706; }
 .br-list-base .br-list-name { color:#92400e; }
 .br-list-site { background:#dbeafe; border-color:#3b82f6; }

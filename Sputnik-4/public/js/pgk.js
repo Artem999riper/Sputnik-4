@@ -614,7 +614,7 @@ async function techExportExcel(){
       items.forEach(m=>{
         seq++;
         aoa.push([seq, m.type||'', m.name||'', m.plate_number||'',
-          baseName(m.base_id), m.status||'', driverNameFor(m.id), m.notes||'']);
+          baseName(m.base_id), SL[m.status]||m.status||'', driverNameFor(m.id), m.notes||'']);
         row++;
       });
     });
