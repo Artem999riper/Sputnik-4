@@ -21,7 +21,8 @@ fun HomeScreen(
     onImportRefs: () -> Unit,
     onBrigade: () -> Unit,
     onSites: () -> Unit,
-    onExport: () -> Unit
+    onExport: () -> Unit,
+    onVedomosti: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.get(context) }
@@ -75,6 +76,8 @@ fun HomeScreen(
             MenuCard("Объекты / Скважины", "Ввод данных по скважинам", Icons.Default.Terrain, onSites)
             Spacer(Modifier.height(12.dp))
             MenuCard("Экспорт .spk", "Сформировать архив для оператора", Icons.Default.Share, onExport)
+            Spacer(Modifier.height(12.dp))
+            MenuCard("Ведомости в Excel", "Образцы и объёмы", Icons.Default.Description, onVedomosti)
             Spacer(Modifier.height(24.dp))
             OutlinedButton(
                 onClick = { showResetDialog = true },

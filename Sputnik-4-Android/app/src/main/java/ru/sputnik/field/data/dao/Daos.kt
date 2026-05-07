@@ -8,6 +8,8 @@ import ru.sputnik.field.data.model.*
 interface WorkerDao {
     @Query("SELECT * FROM workers ORDER BY name")
     fun all(): Flow<List<Worker>>
+    @Query("SELECT * FROM workers WHERE id IN (:ids)")
+    suspend fun byIds(ids: List<String>): List<Worker>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(items: List<Worker>)
     @Query("DELETE FROM workers") suspend fun clear()
 }
@@ -16,6 +18,8 @@ interface WorkerDao {
 interface TransportDao {
     @Query("SELECT * FROM transport ORDER BY name")
     fun all(): Flow<List<Transport>>
+    @Query("SELECT * FROM transport WHERE id = :id LIMIT 1")
+    suspend fun byId(id: String): Transport?
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(items: List<Transport>)
     @Query("DELETE FROM transport") suspend fun clear()
 }

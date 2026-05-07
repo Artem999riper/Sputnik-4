@@ -566,7 +566,7 @@ private fun LayerEditSheet(
                     ) { Text("Удалить") }
                 Button(
                     onClick = {
-                        onSave(layer.copy(soilType = soilType, state = state,
+                        onSave(layer.copy(soilType = soilType, state = state, frozenState = frozenState,
                             depthM = depthStr.toRusDouble() ?: 0.0, description = desc))
                     },
                     modifier = Modifier.weight(1f)

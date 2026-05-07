@@ -21,6 +21,7 @@ sealed class Screen(val route: String) {
         const val NEW = "new"
     }
     object Export : Screen("export")
+    object Vedomosti : Screen("vedomosti")
 }
 
 @Composable
@@ -33,7 +34,8 @@ fun SputnikNav() {
                 onImportRefs = { nav.navigate(Screen.ImportRefs.route) },
                 onBrigade = { nav.navigate(Screen.Brigade.route) },
                 onSites = { nav.navigate(Screen.Sites.route) },
-                onExport = { nav.navigate(Screen.Export.route) }
+                onExport = { nav.navigate(Screen.Export.route) },
+                onVedomosti = { nav.navigate(Screen.Vedomosti.route) }
             )
         }
 
@@ -83,6 +85,10 @@ fun SputnikNav() {
 
         composable(Screen.Export.route) {
             ExportScreen(onBack = { nav.popBackStack() })
+        }
+
+        composable(Screen.Vedomosti.route) {
+            VedomostiScreen(onBack = { nav.popBackStack() })
         }
     }
 }
