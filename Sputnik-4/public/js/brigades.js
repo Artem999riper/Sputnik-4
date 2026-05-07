@@ -8,17 +8,28 @@ async function loadBrigades() {
   const pb = document.getElementById('brigades-page');
   if (!pb) return;
   try {
-    const r = await fetch(`${API}/pgk/brigades`);
-    if (r.ok) pgkBrigades = await r.json();
-    else pgkBrigades = [];
+    const [brR, wR, mR, bR, sR] = await Promise.all([
+      fetch(`${API}/pgk/brigades`),
+      fetch(`${API}/pgk/workers`),
+      fetch(`${API}/pgk/machinery`),
+      fetch(`${API}/bases`),
+      fetch(`${API}/sites`)
+    ]);
+    if (brR.ok) pgkBrigades = await brR.json(); else pgkBrigades = [];
+    if (wR.ok)  window.pgkWorkers   = await wR.json();
+    if (mR.ok)  window.pgkMachinery = await mR.json();
+    if (bR.ok)  window.bases        = await bR.json();
+    if (sR.ok)  window.sites        = await sR.json();
   } catch (e) {
     pgkBrigades = [];
   }
-  // Resolve names from global caches
+  // Resolve display data from global caches
   pgkBrigades.forEach(br => {
-    br.member_names = (br.member_ids || []).map(id => {
+    br.members = (br.member_ids || []).map(id => {
       const w = (window.pgkWorkers || []).find(x => x.id === id);
-      return w ? w.name : id;
+      if (!w) return { id, name: id, role: '', start_date: null, days: 0 };
+      const days = w.start_date ? Math.max(0, Math.floor((Date.now() - new Date(w.start_date)) / 86400000)) : 0;
+      return { id, name: w.name, role: w.role || '', start_date: w.start_date, days };
     });
     br.base_names = (br.base_ids || []).map(id => {
       const b = (window.bases || []).find(x => x.id === id);
@@ -46,8 +57,16 @@ function renderBrigades() {
       ? `<span style="font-size:12px;color:var(--tx2)">🚛 ${esc(br.machine_name)}${br.machine_plate ? ' · <b>' + esc(br.machine_plate) + '</b>' : ''}${br.driver_name ? ' · 👤 ' + esc(br.driver_name) : ''}</span>`
       : `<span style="font-size:12px;color:var(--tx3)">— машина не назначена</span>`;
 
-    const members = (br.member_names || []).length
-      ? br.member_names.map(n => `<span class="br-chip">${esc(n)}</span>`).join('')
+    const members = (br.members || []).length
+      ? `<div class="br-members">` + br.members.map(m =>
+          `<div class="br-member">
+            <span class="br-m-name">${esc(m.name)}</span>
+            ${m.role ? `<span class="br-m-role">${esc(m.role)}</span>` : ''}
+            ${m.start_date
+              ? `<span class="br-m-days" title="с ${fmt(m.start_date)}">📅 ${m.days} дн.</span>`
+              : `<span class="br-m-days br-m-home">🏠 дома</span>`}
+          </div>`
+        ).join('') + `</div>`
       : `<span style="color:var(--tx3);font-size:12px">— нет членов</span>`;
 
     const basesHtml = (br.base_names || []).length
@@ -69,8 +88,8 @@ function renderBrigades() {
         </div>
       </div>
       <div style="margin:6px 0 4px">${mach}</div>
-      <div class="br-section-label">👷 Члены бригады</div>
-      <div class="br-chips">${members}</div>
+      <div class="br-section-label">👷 Члены бригады (${(br.members||[]).length})</div>
+      ${members}
       <div class="br-section-label" style="margin-top:8px">🏕 Базы</div>
       <div class="br-chips">${basesHtml}</div>
       <div class="br-section-label" style="margin-top:8px">📍 Объекты</div>
@@ -89,29 +108,42 @@ function renderBrigades() {
   </div>`;
 }
 
+function brFilterCheckList(input, listSel) {
+  const q = input.value.toLowerCase().trim();
+  document.querySelectorAll(listSel + ' > label').forEach(lbl => {
+    lbl.style.display = (!q || (lbl.dataset.search || '').includes(q)) ? '' : 'none';
+  });
+}
+
 function openBrigadeModal(id) {
   const br = id ? pgkBrigades.find(x => x.id === id) : null;
   const isEdit = !!br;
 
   const machOpts = `<option value="">— не назначена —</option>` +
-    (window.pgkMachinery || []).map(m =>
-      `<option value="${escAttr(m.id)}" ${br && br.machine_id === m.id ? 'selected' : ''}>${esc(m.name)}${m.plate_number ? ' · ' + m.plate_number : ''}</option>`
-    ).join('');
+    (window.pgkMachinery || []).map(m => {
+      const drv = m.driver_id ? (window.pgkWorkers || []).find(w => w.id === m.driver_id) : null;
+      const drvLabel = drv ? ' · 👤 ' + drv.name : '';
+      const sel = br && br.machine_id === m.id ? 'selected' : '';
+      return `<option value="${escAttr(m.id)}" ${sel}>${esc(m.name)}${m.plate_number ? ' · ' + esc(m.plate_number) : ''}${esc(drvLabel)}</option>`;
+    }).join('');
 
   const selWorkerIds = br ? (br.member_ids || []) : [];
-  const workerCheckboxes = (window.pgkWorkers || []).map(w =>
-    `<label class="br-check"><input type="checkbox" name="members" value="${escAttr(w.id)}" ${selWorkerIds.includes(w.id) ? 'checked' : ''}> ${esc(w.name)}${w.role ? ' <span style="color:var(--tx3);font-size:11px">' + esc(w.role) + '</span>' : ''}</label>`
-  ).join('');
+  const workerCheckboxes = (window.pgkWorkers || []).map(w => {
+    const search = (w.name + ' ' + (w.role || '')).toLowerCase();
+    return `<label class="br-check" data-search="${escAttr(search)}"><input type="checkbox" name="members" value="${escAttr(w.id)}" ${selWorkerIds.includes(w.id) ? 'checked' : ''}> ${esc(w.name)}${w.role ? ' <span style="color:var(--tx3);font-size:11px">' + esc(w.role) + '</span>' : ''}</label>`;
+  }).join('');
 
   const selBaseIds = br ? (br.base_ids || []) : [];
-  const baseCheckboxes = (window.bases || []).map(b =>
-    `<label class="br-check"><input type="checkbox" name="bases" value="${escAttr(b.id)}" ${selBaseIds.includes(b.id) ? 'checked' : ''}> ${esc(b.name)}</label>`
-  ).join('');
+  const baseCheckboxes = (window.bases || []).map(b => {
+    const search = (b.name || '').toLowerCase();
+    return `<label class="br-check" data-search="${escAttr(search)}"><input type="checkbox" name="bases" value="${escAttr(b.id)}" ${selBaseIds.includes(b.id) ? 'checked' : ''}> ${esc(b.name)}</label>`;
+  }).join('');
 
   const selSiteIds = br ? (br.site_ids || []) : [];
-  const siteCheckboxes = (window.sites || []).map(s =>
-    `<label class="br-check"><input type="checkbox" name="sites" value="${escAttr(s.id)}" ${selSiteIds.includes(s.id) ? 'checked' : ''}> ${esc(s.name)}</label>`
-  ).join('');
+  const siteCheckboxes = (window.sites || []).map(s => {
+    const search = (s.name || '').toLowerCase();
+    return `<label class="br-check" data-search="${escAttr(search)}"><input type="checkbox" name="sites" value="${escAttr(s.id)}" ${selSiteIds.includes(s.id) ? 'checked' : ''}> ${esc(s.name)}</label>`;
+  }).join('');
 
   const body = `<div class="fgr fone">
     <div class="fg">
@@ -124,15 +156,18 @@ function openBrigadeModal(id) {
     </div>
     <div class="fg">
       <label>Члены бригады</label>
-      <div class="br-check-list">${workerCheckboxes || '<span style="color:var(--tx3)">Нет сотрудников</span>'}</div>
+      <input type="search" class="br-search" placeholder="🔍 Поиск по имени или должности..." oninput="brFilterCheckList(this,'#br-list-members')">
+      <div class="br-check-list" id="br-list-members">${workerCheckboxes || '<span style="color:var(--tx3)">Нет сотрудников</span>'}</div>
     </div>
     <div class="fg">
       <label>Базы</label>
-      <div class="br-check-list">${baseCheckboxes || '<span style="color:var(--tx3)">Нет баз</span>'}</div>
+      <input type="search" class="br-search" placeholder="🔍 Поиск базы..." oninput="brFilterCheckList(this,'#br-list-bases')">
+      <div class="br-check-list" id="br-list-bases">${baseCheckboxes || '<span style="color:var(--tx3)">Нет баз</span>'}</div>
     </div>
     <div class="fg">
       <label>Объекты</label>
-      <div class="br-check-list">${siteCheckboxes || '<span style="color:var(--tx3)">Нет объектов</span>'}</div>
+      <input type="search" class="br-search" placeholder="🔍 Поиск объекта..." oninput="brFilterCheckList(this,'#br-list-sites')">
+      <div class="br-check-list" id="br-list-sites">${siteCheckboxes || '<span style="color:var(--tx3)">Нет объектов</span>'}</div>
     </div>
     <div class="fg">
       <label>Примечания</label>
@@ -189,9 +224,9 @@ async function deleteBrigade(id) {
   const s = document.createElement('style');
   s.id = 'brigade-styles';
   s.textContent = `
-.br-outer { padding:16px 20px; max-width:1200px; margin:0 auto; }
+.br-outer { padding:14px 18px; width:100%; box-sizing:border-box; }
 .br-toolbar { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
-.br-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px; }
+.br-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; }
 .br-card { background:var(--s1); border:1.5px solid var(--bd); border-radius:10px; padding:14px 16px; }
 .br-card-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:4px; }
 .br-card-name { font-weight:800; font-size:15px; }
@@ -201,7 +236,14 @@ async function deleteBrigade(id) {
 .br-chip { background:var(--s2); border:1px solid var(--bd); border-radius:12px; font-size:12px; padding:2px 8px; }
 .br-chip-base { background:#fef3c7; border-color:#d97706; color:#92400e; }
 .br-chip-site { background:#dbeafe; border-color:#3b82f6; color:#1e40af; }
-.br-check-list { max-height:150px; overflow-y:auto; border:1px solid var(--bd); border-radius:6px; padding:6px 8px; display:flex; flex-direction:column; gap:4px; }
+.br-members { display:flex; flex-direction:column; gap:3px; }
+.br-member { display:flex; align-items:center; gap:6px; font-size:12px; padding:3px 6px; background:var(--s2); border:1px solid var(--bd); border-radius:6px; flex-wrap:wrap; }
+.br-m-name { font-weight:600; }
+.br-m-role { color:var(--tx2); font-size:11px; }
+.br-m-days { margin-left:auto; font-size:11px; color:#15803d; font-weight:600; }
+.br-m-home { color:var(--tx3); font-weight:500; }
+.br-search { margin-bottom:6px; font-size:12px; padding:4px 8px; border:1.5px solid var(--bd); border-radius:var(--rs); background:var(--s2); width:100%; box-sizing:border-box; outline:none; }
+.br-check-list { max-height:200px; overflow-y:auto; border:1px solid var(--bd); border-radius:6px; padding:6px 8px; display:flex; flex-direction:column; gap:4px; }
 .br-check { display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer; }
 .br-check input { cursor:pointer; }
 `;
