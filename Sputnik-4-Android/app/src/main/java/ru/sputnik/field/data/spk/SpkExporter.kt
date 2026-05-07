@@ -17,9 +17,16 @@ import java.util.zip.ZipOutputStream
 
 private val json = Json { encodeDefaults = true; prettyPrint = false }
 
-data class ExportResult(val uri: Uri, val boreholes: Int, val photos: Int)
+data class ExportResult(val uri: Uri, val fileName: String, val boreholes: Int, val photos: Int)
 
-suspend fun exportSpk(context: Context, fromDate: String, toDate: String, siteId: String? = null): ExportResult =
+suspend fun exportSpk(
+    context: Context,
+    fromDate: String,
+    toDate: String,
+    siteId: String? = null,
+    siteName: String? = null,
+    geologistName: String? = null,
+): ExportResult =
     withContext(Dispatchers.IO) {
         val db = AppDatabase.get(context)
         val resolver = context.contentResolver
@@ -44,7 +51,11 @@ suspend fun exportSpk(context: Context, fromDate: String, toDate: String, siteId
         val brigadeJson = brigade?.let { BrigadeJson(it.transportId, brigadeMembers) }
 
         val exportDir = File(context.getExternalFilesDir(null), "exports").also { it.mkdirs() }
-        val fileName = "spk_${fromDate}_${toDate}.spk"
+        val safe: (String) -> String = { it.replace(Regex("[^\\p{L}\\p{N}_.-]"), "_") }
+        val sitePart = siteName?.takeIf { it.isNotBlank() }?.let(safe) ?: "all"
+        val geoPart = geologistName?.takeIf { it.isNotBlank() }?.let(safe) ?: "Геолог"
+        val today = java.time.LocalDate.now().toString()
+        val fileName = "${sitePart}_${geoPart}_${today}.spk"
         val outFile = File(exportDir, fileName)
 
         ZipOutputStream(FileOutputStream(outFile).buffered()).use { zos ->
@@ -86,13 +97,14 @@ suspend fun exportSpk(context: Context, fromDate: String, toDate: String, siteId
                 exported_at = java.time.Instant.now().toString(),
                 period = PeriodJson(fromDate, toDate),
                 counts = CountsJson(boreholes.size, photosCopied),
-                brigade = brigadeJson
+                brigade = brigadeJson,
+                geologist_name = geologistName?.takeIf { it.isNotBlank() }
             )
             zos.putEntry("manifest.json", json.encodeToString(manifest))
         }
 
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", outFile)
-        ExportResult(uri, boreholes.size, cards.sumOf { it.photos.size })
+        ExportResult(uri, fileName, boreholes.size, cards.sumOf { it.photos.size })
     }
 
 fun buildShareIntent(uri: Uri, fileName: String): Intent = Intent(Intent.ACTION_SEND).apply {
@@ -117,7 +129,8 @@ private data class ManifestJson(
     val exported_at: String,
     val period: PeriodJson,
     val counts: CountsJson,
-    val brigade: BrigadeJson? = null
+    val brigade: BrigadeJson? = null,
+    val geologist_name: String? = null
 )
 
 @kotlinx.serialization.Serializable

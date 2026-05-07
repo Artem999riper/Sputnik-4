@@ -241,6 +241,19 @@ async function getDb() {
   )`);
   ta("ALTER TABLE vol_progress ADD COLUMN field_borehole_uuid TEXT");
 
+  // ── Бригады (ПГК) ──────────────────────────────────────────
+  ta(`CREATE TABLE IF NOT EXISTS pgk_brigades (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    machine_id TEXT,
+    notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT
+  )`);
+  ta("CREATE TABLE IF NOT EXISTS pgk_brigade_members (brigade_id TEXT NOT NULL, worker_id TEXT NOT NULL, PRIMARY KEY (brigade_id, worker_id))");
+  ta("CREATE TABLE IF NOT EXISTS pgk_brigade_bases (brigade_id TEXT NOT NULL, base_id TEXT NOT NULL, PRIMARY KEY (brigade_id, base_id))");
+  ta("CREATE TABLE IF NOT EXISTS pgk_brigade_sites (brigade_id TEXT NOT NULL, site_id TEXT NOT NULL, PRIMARY KEY (brigade_id, site_id))");
+
   return _db;
 }
 

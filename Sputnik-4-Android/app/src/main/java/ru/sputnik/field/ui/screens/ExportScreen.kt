@@ -3,6 +3,7 @@ package ru.sputnik.field.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import android.content.Context
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarToday
@@ -14,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import ru.sputnik.field.data.db.AppDatabase
 import ru.sputnik.field.data.model.Site
@@ -33,6 +35,9 @@ fun ExportScreen(onBack: () -> Unit) {
 
     val today = LocalDate.now()
     val weekAgo = today.minusDays(7)
+
+    val prefs = remember { context.getSharedPreferences("sputnik_field_prefs", Context.MODE_PRIVATE) }
+    var geologistName by remember { mutableStateOf(prefs.getString("geologist_name", "") ?: "") }
 
     var selectedSite by remember { mutableStateOf<Site?>(null) }
     var fromDate by remember { mutableStateOf(weekAgo) }
@@ -59,7 +64,8 @@ fun ExportScreen(onBack: () -> Unit) {
                     scope.launch {
                         exportState = try {
                             ExportState.Done(
-                                exportSpk(context, fromDate.toString(), toDate.toString(), selectedSite?.id)
+                                exportSpk(context, fromDate.toString(), toDate.toString(),
+                                    selectedSite?.id, selectedSite?.name, geologistName)
                             )
                         } catch (e: Exception) {
                             ExportState.Error(e.message ?: "Ошибка")
@@ -176,6 +182,19 @@ fun ExportScreen(onBack: () -> Unit) {
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium)
 
+                    // Я геолог (имя сохраняется в SharedPreferences)
+                    OutlinedTextField(
+                        value = geologistName,
+                        onValueChange = {
+                            geologistName = it
+                            prefs.edit().putString("geologist_name", it).apply()
+                        },
+                        label = { Text("Я геолог") },
+                        placeholder = { Text("Иванов И.И.") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
                     // Объект
                     OutlinedButton(
                         onClick = { showSitePicker = true },
@@ -237,11 +256,11 @@ fun ExportScreen(onBack: () -> Unit) {
                     Text("Архив готов ✓", fontWeight = FontWeight.Bold)
                     Text("${s.result.boreholes} скважин · ${s.result.photos} фото",
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = .7f))
+                    Text("Файл: ${s.result.fileName}", fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f))
                     Button(
                         onClick = {
-                            val sitePart = selectedSite?.name?.replace(" ", "_") ?: "all"
-                            val fileName = "spk_${fromDate}_${toDate}_$sitePart.spk"
-                            val intent = buildShareIntent(s.result.uri, fileName)
+                            val intent = buildShareIntent(s.result.uri, s.result.fileName)
                             context.startActivity(
                                 android.content.Intent.createChooser(intent, "Отправить .spk"))
                         },

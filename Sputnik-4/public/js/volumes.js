@@ -144,7 +144,7 @@ function _handleVertexEditRCM(e){
       if(_veIsVP){_saveVpVertex(_veId,_veGJ).then(stopVertexEdit);}
       else{saveVertexEdit(_veId,_veGJ).then(stopVertexEdit);}
     }},
-    {i:'❌',l:'Удалить ближайшую вершину',f:function(){
+    {i:'❌',l:'Удалить ближайшую вершину',f:async function(){
       if(!_veCoords||_veCoords.length<=3){toast('Минимум 3 вершины','err');return;}
       let bestMk=null,bestDist=Infinity;
       vertexEditMarkers.forEach(function(mk){
@@ -160,11 +160,11 @@ function _handleVertexEditRCM(e){
       try{map.removeLayer(bestMk);}catch(ex){}
       const mi=vertexEditMarkers.indexOf(bestMk);
       if(mi>-1)vertexEditMarkers.splice(mi,1);
-      if(_veIsVP)_rebuildVpRingFromCoords();
+      _rebuildVpRingFromCoords();
       if(_veUpdatePreview)_veUpdatePreview();
-      if(_veIsVP)_saveVpVertex(_veId,_veGJ); else saveVertexEdit(_veId,_veGJ);
+      if(_veIsVP) await _saveVpVertex(_veId,_veGJ); else { await saveVertexEdit(_veId,_veGJ); if(currentObj) renderVolumesOnMap(currentObj.volumes||[]); }
     }},
-    {i:'➕',l:'Добавить вершину здесь',f:function(){
+    {i:'➕',l:'Добавить вершину здесь',f:async function(){
       if(!_veCoords||!_veGJ)return;
       const T=clickPx;
       let bestSeg=-1,bestDist=Infinity;
@@ -183,9 +183,9 @@ function _handleVertexEditRCM(e){
       _veCoords.splice(bestSeg+1,0,newC);
       if(_veRingRef)_veRingRef.splice(bestSeg+1,0,newC);
       _addVertexMarker(newC,_veId,_veGJ,_veCoords,_veUpdatePreview,_veIsVP);
-      if(_veIsVP)_rebuildVpRingFromCoords();
+      _rebuildVpRingFromCoords();
       if(_veUpdatePreview)_veUpdatePreview();
-      if(_veIsVP)_saveVpVertex(_veId,_veGJ); else saveVertexEdit(_veId,_veGJ);
+      if(_veIsVP) await _saveVpVertex(_veId,_veGJ); else { await saveVertexEdit(_veId,_veGJ); if(currentObj) renderVolumesOnMap(currentObj.volumes||[]); }
     }}
   ]);
 }

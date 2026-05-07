@@ -376,4 +376,85 @@ module.exports = (app, getDb, L) => {
     run(db(), 'DELETE FROM spare_parts WHERE id=?', [req.params.id]);
     res.json({ success: true });
   }));
+
+  // ── BRIGADES (ПГК) ─────────────────────────────────────────
+  app.get('/api/pgk/brigades', wrap((req, res) => {
+    const d = db();
+    const rows = all(d, `
+      SELECT b.*,
+        m.name AS machine_name, m.type AS machine_type,
+        m.plate_number AS machine_plate, m.driver_id AS machine_driver_id,
+        (SELECT GROUP_CONCAT(worker_id) FROM pgk_brigade_members WHERE brigade_id=b.id) AS member_ids,
+        (SELECT GROUP_CONCAT(base_id)   FROM pgk_brigade_bases   WHERE brigade_id=b.id) AS base_ids,
+        (SELECT GROUP_CONCAT(site_id)   FROM pgk_brigade_sites   WHERE brigade_id=b.id) AS site_ids
+      FROM pgk_brigades b
+      LEFT JOIN pgk_machinery m ON m.id = b.machine_id
+      ORDER BY b.name`);
+    rows.forEach(r => {
+      r.member_ids = r.member_ids ? r.member_ids.split(',') : [];
+      r.base_ids   = r.base_ids   ? r.base_ids.split(',')   : [];
+      r.site_ids   = r.site_ids   ? r.site_ids.split(',')   : [];
+    });
+    res.json(rows);
+  }));
+
+  app.post('/api/pgk/brigades', wrap((req, res) => {
+    const err = required(['name'], req.body);
+    if (err) return res.status(400).json({ error: err });
+    const id = uuid();
+    const { name, machine_id, member_ids = [], base_ids = [], site_ids = [], notes } = req.body;
+    const d = db();
+    const tx = d.transaction(() => {
+      run(d, "INSERT INTO pgk_brigades(id,name,machine_id,notes,updated_at) VALUES(?,?,?,?,datetime('now'))",
+        [id, name, machine_id || null, notes || '']);
+      (member_ids || []).filter(Boolean).forEach(wid =>
+        run(d, 'INSERT OR IGNORE INTO pgk_brigade_members(brigade_id,worker_id) VALUES(?,?)', [id, wid]));
+      (base_ids || []).filter(Boolean).forEach(bid =>
+        run(d, 'INSERT OR IGNORE INTO pgk_brigade_bases(brigade_id,base_id) VALUES(?,?)', [id, bid]));
+      (site_ids || []).filter(Boolean).forEach(sid =>
+        run(d, 'INSERT OR IGNORE INTO pgk_brigade_sites(brigade_id,site_id) VALUES(?,?)', [id, sid]));
+    });
+    tx();
+    res.json({ id });
+  }));
+
+  app.put('/api/pgk/brigades/:id', wrap((req, res) => {
+    const err = required(['name'], req.body);
+    if (err) return res.status(400).json({ error: err });
+    const id = req.params.id;
+    const { name, machine_id, member_ids = [], base_ids = [], site_ids = [], notes } = req.body;
+    const d = db();
+    const exists = get(d, 'SELECT id FROM pgk_brigades WHERE id=?', [id]);
+    if (!exists) return res.status(404).json({ error: 'Not found' });
+    const tx = d.transaction(() => {
+      run(d, "UPDATE pgk_brigades SET name=?,machine_id=?,notes=?,updated_at=datetime('now') WHERE id=?",
+        [name, machine_id || null, notes || '', id]);
+      run(d, 'DELETE FROM pgk_brigade_members WHERE brigade_id=?', [id]);
+      run(d, 'DELETE FROM pgk_brigade_bases   WHERE brigade_id=?', [id]);
+      run(d, 'DELETE FROM pgk_brigade_sites   WHERE brigade_id=?', [id]);
+      (member_ids || []).filter(Boolean).forEach(wid =>
+        run(d, 'INSERT OR IGNORE INTO pgk_brigade_members(brigade_id,worker_id) VALUES(?,?)', [id, wid]));
+      (base_ids || []).filter(Boolean).forEach(bid =>
+        run(d, 'INSERT OR IGNORE INTO pgk_brigade_bases(brigade_id,base_id) VALUES(?,?)', [id, bid]));
+      (site_ids || []).filter(Boolean).forEach(sid =>
+        run(d, 'INSERT OR IGNORE INTO pgk_brigade_sites(brigade_id,site_id) VALUES(?,?)', [id, sid]));
+    });
+    tx();
+    res.json({ success: true });
+  }));
+
+  app.delete('/api/pgk/brigades/:id', wrap((req, res) => {
+    const id = req.params.id;
+    const d = db();
+    const row = get(d, 'SELECT * FROM pgk_brigades WHERE id=?', [id]);
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    const tx = d.transaction(() => {
+      run(d, 'DELETE FROM pgk_brigade_members WHERE brigade_id=?', [id]);
+      run(d, 'DELETE FROM pgk_brigade_bases   WHERE brigade_id=?', [id]);
+      run(d, 'DELETE FROM pgk_brigade_sites   WHERE brigade_id=?', [id]);
+      run(d, 'DELETE FROM pgk_brigades        WHERE id=?', [id]);
+    });
+    tx();
+    res.json({ success: true });
+  }));
 };

@@ -181,6 +181,7 @@ function switchView(v){
   document.getElementById('gtasks-page').classList.toggle('show',v==='gtasks');
   const sp=document.getElementById('smg-page');if(sp)sp.classList.toggle('show',v==='smg');
   const fp=document.getElementById('field-page');if(fp)fp.classList.toggle('show',v==='field');
+  const bp=document.getElementById('brigades-page');if(bp)bp.classList.toggle('show',v==='brigades');
 
   document.getElementById('sidebar').style.display='flex';
   document.getElementById('mtb').style.display=v==='map'?'flex':'none';
@@ -196,6 +197,7 @@ function switchView(v){
   if(v==='smg'){closePanel();if(typeof loadSMG==='function')loadSMG();}
   if(v==='field'){closePanel();if(typeof loadField==='function')loadField();}
   if(v==='pers'){closePanel();if(typeof loadPersonnel==='function')loadPersonnel();}
+  if(v==='brigades'){closePanel();if(typeof loadBrigades==='function')loadBrigades();}
 }
 
 // ═══════════════════════════════════════════════════════════

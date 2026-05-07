@@ -107,8 +107,8 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
                 // so FK-CASCADE on soil_layers/photos is never triggered.
                 db.boreholes().upsert(Borehole(
                     uuid = uuid, siteId = siteId, name = name, workType = workType,
-                    plannedDepthM = depthStr.toDoubleOrNull() ?: 0.0,
-                    diameterMm = diameterStr.toDoubleOrNull() ?: 0.0,
+                    plannedDepthM = depthStr.toRusDouble() ?: 0.0,
+                    diameterMm = diameterStr.toRusDouble() ?: 0.0,
                     drillDate = drillDate, geomorphDesc = geomorphDesc, description = description,
                     manualLat = parseLatLng(latStr), manualLng = parseLatLng(lngStr),
                     status = status
@@ -465,9 +465,9 @@ private fun LayerEditSheet(
                 Text("Слой ${layer.orderIdx + 1}", fontWeight = FontWeight.Bold)
                 TextButton(onClick = {
                     onSave(layer.copy(soilType = soilType, state = state,
-                        depthM = depthStr.toDoubleOrNull() ?: 0.0, description = desc))
+                        depthM = depthStr.toRusDouble() ?: 0.0, description = desc))
                     onSamples(layer.copy(soilType = soilType, state = state,
-                        depthM = depthStr.toDoubleOrNull() ?: 0.0, description = desc))
+                        depthM = depthStr.toRusDouble() ?: 0.0, description = desc))
                 }) {
                     Icon(Icons.Default.Science, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
@@ -541,7 +541,7 @@ private fun LayerEditSheet(
                 Button(
                     onClick = {
                         onSave(layer.copy(soilType = soilType, state = state,
-                            depthM = depthStr.toDoubleOrNull() ?: 0.0, description = desc))
+                            depthM = depthStr.toRusDouble() ?: 0.0, description = desc))
                     },
                     modifier = Modifier.weight(1f)
                 ) { Text("Сохранить") }
@@ -604,7 +604,7 @@ private fun SamplesSheet(
                                 layerUuid = layer.uuid,
                                 collectionType = collType,
                                 packaging = packaging,
-                                depthM = depthStr.toDoubleOrNull() ?: 0.0
+                                depthM = depthStr.toRusDouble() ?: 0.0
                             ))
                         }
                         depthStr = ""; showAdd = false
@@ -680,7 +680,7 @@ private fun UgvTab(
                 FieldInput("Глубина УГВ, м", depthStr, { depthStr = it },
                     KeyboardType.Decimal, Modifier.weight(1f))
                 Button(onClick = {
-                    val d = depthStr.toDoubleOrNull() ?: return@Button
+                    val d = depthStr.toRusDouble() ?: return@Button
                     scope.launch {
                         db.ugv().insert(UgvEntry(UUID.randomUUID().toString(),
                             boreholeUuid, list.size, d))
@@ -739,8 +739,8 @@ private fun MmgTab(
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = {
-                    val top = topStr.toDoubleOrNull() ?: return@Button
-                    val bot = botStr.toDoubleOrNull() ?: return@Button
+                    val top = topStr.toRusDouble() ?: return@Button
+                    val bot = botStr.toRusDouble() ?: return@Button
                     scope.launch {
                         db.mmg().insert(MmgEntry(UUID.randomUUID().toString(),
                             boreholeUuid, list.size, top, bot, desc))
@@ -894,6 +894,9 @@ fun toDMS(dd: Double, isLat: Boolean): String {
     val dir = if (isLat) (if (dd >= 0) "N" else "S") else (if (dd >= 0) "E" else "W")
     return "%d°%d'%.1f\"%s".format(d, m, s, dir)
 }
+
+// Парсит число с запятой или точкой как десятичным разделителем (ru-локаль).
+private fun String.toRusDouble(): Double? = this.replace(',', '.').trim().toDoubleOrNull()
 
 /**
  * Парсит строку в десятичные градусы.
