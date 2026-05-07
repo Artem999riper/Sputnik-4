@@ -61,18 +61,18 @@ function renderBrigades() {
 
     const members = (br.members || []).length
       ? `<div class="br-items">${br.members.map(m =>
-          `<div class="br-row">👤 <b>${esc(m.name)}</b>${m.role ? `<span style="color:var(--tx3)"> · ${esc(m.role)}</span>` : ''}<span style="margin-left:6px;color:${m.start_date ? '#15803d' : 'var(--tx3)'}">${m.start_date ? `📅 ${m.days} дн.` : '🏠 дома'}</span></div>`
+          `<div class="br-row"><span class="br-row-info">👤 <b>${esc(m.name)}</b>${m.role ? `<span style="color:var(--tx3)"> · ${esc(m.role)}</span>` : ''}</span><span class="br-row-badge" style="color:${m.start_date ? '#15803d' : 'var(--tx3)'}">${m.start_date ? `📅 ${m.days} дн.` : '🏠 дома'}</span></div>`
         ).join('')}</div>`
       : empty('нет членов');
 
     const basesHtml = (br.base_names || []).length
       ? `<div class="br-items">${br.base_names.map(n =>
-          `<div class="br-row">🏕 ${esc(n)}</div>`).join('')}</div>`
+          `<div class="br-row"><span class="br-row-info">🏕 ${esc(n)}</span></div>`).join('')}</div>`
       : empty('нет баз');
 
     const sitesHtml = (br.site_names || []).length
       ? `<div class="br-items">${br.site_names.map(n =>
-          `<div class="br-row">📍 ${esc(n)}</div>`).join('')}</div>`
+          `<div class="br-row"><span class="br-row-info">📍 ${esc(n)}</span></div>`).join('')}</div>`
       : empty('нет объектов');
 
     const notes = br.notes ? `<div style="font-size:11px;color:var(--tx3);margin-top:6px;border-top:1px solid var(--bd);padding-top:6px">${esc(br.notes)}</div>` : '';
