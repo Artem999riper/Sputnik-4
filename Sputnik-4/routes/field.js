@@ -97,6 +97,36 @@ module.exports = (app, getDb, L) => {
     res.json({ version: 1, exported_at: new Date().toISOString(), workers, transport, sites, kml_points });
   }));
 
+  // ── Полные данные для Excel-экспорта ──────────────────────
+  app.get('/api/field/export-data', wrap((req, res) => {
+    const d = db();
+    const boreholes = all(d, `
+      SELECT b.uuid, b.site_id, b.volume_id, b.lat, b.lng, b.name, b.planned_depth_m,
+             b.diameter_mm, b.work_type, b.geomorph_desc, b.description, b.drill_date,
+             b.brigade_info, b.imported_at, b.imported_from_spk,
+             s.name AS site_name, v.name AS volume_name, v.unit AS volume_unit
+      FROM field_boreholes b
+      LEFT JOIN sites s ON s.id = b.site_id
+      LEFT JOIN volumes v ON v.id = b.volume_id
+      ORDER BY s.name, b.drill_date, b.name`);
+    const layers = all(d, `SELECT uuid, borehole_uuid, order_idx, soil_type, state, description, depth_m
+                           FROM field_soil_layers ORDER BY borehole_uuid, order_idx`);
+    const samples = all(d, `SELECT s.uuid, s.layer_uuid, s.collection_type, s.packaging, s.depth_m,
+                                   l.borehole_uuid, l.soil_type AS layer_soil_type
+                            FROM field_samples s
+                            JOIN field_soil_layers l ON l.uuid = s.layer_uuid
+                            ORDER BY l.borehole_uuid, l.order_idx`);
+    const ugv = all(d, `SELECT uuid, borehole_uuid, order_idx, depth_m
+                        FROM field_ugv ORDER BY borehole_uuid, order_idx`);
+    const mmg = all(d, `SELECT uuid, borehole_uuid, order_idx, top_m, bottom_m, description
+                        FROM field_mmg ORDER BY borehole_uuid, order_idx`);
+    const photos = all(d, `SELECT borehole_uuid, COUNT(*) AS cnt
+                           FROM field_photos GROUP BY borehole_uuid`);
+    const imports = all(d, `SELECT id, filename, imported_at, imported_by, manifest_json, counts_json, status
+                            FROM field_imports ORDER BY imported_at DESC`);
+    res.json({ boreholes, layers, samples, ugv, mmg, photos, imports });
+  }));
+
   // ── Список загруженных архивов ─────────────────────────────
   app.get('/api/field/imports', wrap((req, res) => {
     res.json(all(db(), 'SELECT id, filename, imported_at, imported_by, counts_json, status, manifest_json FROM field_imports ORDER BY imported_at DESC').map(r => ({
@@ -363,6 +393,35 @@ module.exports = (app, getDb, L) => {
           counts.skipped++;
           continue;
         }
+
+        // Per-borehole snapshot бригады (приоритет над глобальным manifest.brigade)
+        let bhBrigadeInfo = null;
+        let bhWorkerIdsCsv = workerIdsCsv;
+        let bhTransportId = transportId;
+        let bhSharedNote = sharedNote;
+        if (bh.brigade_snapshot && typeof bh.brigade_snapshot === 'string') {
+          try {
+            const snap = JSON.parse(bh.brigade_snapshot);
+            const sIds = Array.isArray(snap.memberIds) ? snap.memberIds.filter(x => typeof x === 'string') : [];
+            const sNames = Array.isArray(snap.memberNames) ? snap.memberNames.filter(x => typeof x === 'string') : [];
+            const sTid = typeof snap.transportId === 'string' ? snap.transportId : null;
+            const sLabel = typeof snap.transportLabel === 'string' ? snap.transportLabel : '';
+            bhBrigadeInfo = JSON.stringify({
+              members: sIds, member_names: sNames,
+              transport_id: sTid, transport_label: sLabel,
+            }).slice(0, 5000);
+            bhWorkerIdsCsv = sIds.join(',');
+            bhTransportId = sTid;
+            const np = [];
+            if (sNames.length) np.push('Бригада: ' + sNames.join(', '));
+            if (sLabel) np.push('Техника: ' + sLabel);
+            bhSharedNote = np.join(' · ') || sharedNote;
+          } catch(e) {}
+        }
+        if (!bhBrigadeInfo) {
+          bhBrigadeInfo = JSON.stringify({ members: memberIds, transport_id: transportId }).slice(0, 5000);
+        }
+
         const lat = safeNum(bh.lat, -90, 90);
         const lng = safeNum(bh.lng, -180, 180);
         const depth = safeNum(bh.planned_depth_m, 0, 10000);
@@ -400,14 +459,14 @@ module.exports = (app, getDb, L) => {
                                           notes=?, geojson=?, worker_ids=?, machine_id=?,
                                           field_borehole_uuid=?
                   WHERE id=?`,
-            [volumeId, siteId, drillDate, depth || 0, sharedNote, geojson, workerIdsCsv, transportId, bh.uuid, vpId]);
+            [volumeId, siteId, drillDate, depth || 0, bhSharedNote, geojson, bhWorkerIdsCsv, bhTransportId, bh.uuid, vpId]);
           counts.skipped++;
         } else {
           vpId = uuid();
           run(d, `INSERT INTO vol_progress (id, volume_id, site_id, work_date, completed, notes,
                                             geojson, worker_ids, machine_id, row_type, field_borehole_uuid)
                   VALUES (?,?,?,?,?,?,?,?,?,'fact',?)`,
-            [vpId, volumeId, siteId, drillDate, depth || 0, sharedNote, geojson, workerIdsCsv, transportId, bh.uuid]);
+            [vpId, volumeId, siteId, drillDate, depth || 0, bhSharedNote, geojson, bhWorkerIdsCsv, bhTransportId, bh.uuid]);
           counts.vol_progress_added++;
         }
 
@@ -420,7 +479,7 @@ module.exports = (app, getDb, L) => {
             [siteId, lat, lng, bh.kml_point_id || null, name, depth, safeNum(bh.diameter_mm, 0, 10000),
              clipStr(bh.work_type, 50), clipStr(bh.geomorph_desc, MAX_DESCRIPTION),
              clipStr(bh.description, MAX_DESCRIPTION), drillDate,
-             JSON.stringify({ members: memberIds, transport_id: transportId }).slice(0, 5000),
+             bhBrigadeInfo,
              importedFromSpk, volumeId, vpId, bh.uuid]);
         } else {
           run(d, `INSERT INTO field_boreholes
@@ -431,7 +490,7 @@ module.exports = (app, getDb, L) => {
             [bh.uuid, siteId, lat, lng, bh.kml_point_id || null, name, depth,
              safeNum(bh.diameter_mm, 0, 10000), clipStr(bh.work_type, 50),
              clipStr(bh.geomorph_desc, MAX_DESCRIPTION), clipStr(bh.description, MAX_DESCRIPTION),
-             drillDate, JSON.stringify({ members: memberIds, transport_id: transportId }).slice(0, 5000),
+             drillDate, bhBrigadeInfo,
              importedFromSpk, volumeId, vpId]);
           counts.added++;
         }

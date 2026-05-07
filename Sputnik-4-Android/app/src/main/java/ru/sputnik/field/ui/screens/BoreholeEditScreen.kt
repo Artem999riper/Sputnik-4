@@ -118,7 +118,7 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
                         val transportLabel = transport?.let {
                             if (it.plate.isNotBlank()) "${it.name} ${it.plate}" else it.name
                         } ?: ""
-                        buildBrigadeSnapshotJson(memberNames, transportLabel)
+                        buildBrigadeSnapshotJson(memberIds, memberNames, brigade.transportId, transportLabel)
                     } else ""
                 } else brigadeSnapshot
                 brigadeSnapshot = snapshotToSave
@@ -1054,10 +1054,18 @@ fun FieldInput(
     )
 }
 
-fun buildBrigadeSnapshotJson(memberNames: List<String>, transportLabel: String): String {
-    val namesJson = memberNames.joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }
-    val labelEscaped = transportLabel.replace("\\", "\\\\").replace("\"", "\\\"")
-    return """{"memberNames":[$namesJson],"transportLabel":"$labelEscaped"}"""
+fun buildBrigadeSnapshotJson(
+    memberIds: List<String>,
+    memberNames: List<String>,
+    transportId: String?,
+    transportLabel: String
+): String {
+    fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
+    val idsJson = memberIds.joinToString(",") { "\"${esc(it)}\"" }
+    val namesJson = memberNames.joinToString(",") { "\"${esc(it)}\"" }
+    val tidJson = if (transportId == null) "null" else "\"${esc(transportId)}\""
+    val labelEscaped = esc(transportLabel)
+    return """{"memberIds":[$idsJson],"memberNames":[$namesJson],"transportId":$tidJson,"transportLabel":"$labelEscaped"}"""
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

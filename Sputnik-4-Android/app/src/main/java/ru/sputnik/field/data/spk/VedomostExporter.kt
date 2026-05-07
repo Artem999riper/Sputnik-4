@@ -45,6 +45,25 @@ private fun fmtNum(v: Double): String {
     else v.toString().replace('.', ',')
 }
 
+/** Форматирует пару координат под выбранный формат. Возвращает 2 ячейки. */
+private fun formatCoordCells(lat: Double?, lng: Double?, fmt: String, zone: Int?):
+        Pair<Pair<CellValue, CellStyle>, Pair<CellValue, CellStyle>> {
+    if (lat == null || lng == null) {
+        return empty(CellStyle.BODY_CENTER) to empty(CellStyle.BODY_CENTER)
+    }
+    return when {
+        zone != null -> {
+            val mck = CoordTransform.wgs84ToMsk86(lat, lng, zone)
+            num(mck.north, CellStyle.BODY_CENTER) to num(mck.east, CellStyle.BODY_CENTER)
+        }
+        fmt == "WGS-84 DMS" -> {
+            txt(CoordTransform.toDmsLat(lat), CellStyle.BODY_CENTER) to
+                txt(CoordTransform.toDmsLng(lng), CellStyle.BODY_CENTER)
+        }
+        else -> num(lat, CellStyle.BODY_CENTER) to num(lng, CellStyle.BODY_CENTER)
+    }
+}
+
 // ─────────────────────────────────────────────────────────────
 // Ведомость образцов
 // ─────────────────────────────────────────────────────────────
@@ -146,15 +165,23 @@ suspend fun exportSamplesVedomost(
 // ─────────────────────────────────────────────────────────────
 // Вспомогательные типы для снимка бригады
 // ─────────────────────────────────────────────────────────────
-private data class SnapshotData(val memberNames: List<String>, val transportLabel: String)
+private data class SnapshotData(
+    val memberNames: List<String>,
+    val transportLabel: String,
+    val memberIds: List<String> = emptyList(),
+    val transportId: String? = null
+)
 
 private fun parseSnapshot(json: String): SnapshotData {
     if (json.isBlank()) return SnapshotData(emptyList(), "")
     return try {
         val obj = org.json.JSONObject(json)
-        val arr = obj.optJSONArray("memberNames")
-        val names = if (arr != null) (0 until arr.length()).map { arr.getString(it) } else emptyList()
-        SnapshotData(names, obj.optString("transportLabel", ""))
+        val namesArr = obj.optJSONArray("memberNames")
+        val names = if (namesArr != null) (0 until namesArr.length()).map { namesArr.getString(it) } else emptyList()
+        val idsArr = obj.optJSONArray("memberIds")
+        val ids = if (idsArr != null) (0 until idsArr.length()).map { idsArr.getString(it) } else emptyList()
+        val tid = if (obj.isNull("transportId")) null else obj.optString("transportId", "").ifBlank { null }
+        SnapshotData(names, obj.optString("transportLabel", ""), ids, tid)
     } catch (e: Exception) {
         SnapshotData(emptyList(), "")
     }
@@ -169,7 +196,8 @@ suspend fun exportVolumesVedomost(
     toDate: String,
     siteId: String?,
     siteName: String?,
-    geologistName: String?
+    geologistName: String?,
+    coordFormat: String = "WGS-84 DMS"
 ): VedomostResult = withContext(Dispatchers.IO) {
     val db = AppDatabase.get(context)
     val cards = gatherCards(db, fromDate, toDate, siteId)
@@ -201,6 +229,19 @@ suspend fun exportVolumesVedomost(
         }
     }
 
+    val zone = when (coordFormat) {
+        "МСК-86 зона 3" -> 3
+        "МСК-86 зона 4" -> 4
+        else -> null
+    }
+    val coordsTitle = when (coordFormat) {
+        "МСК-86 зона 3" -> "Координаты МСК-86 (зона 3), м"
+        "МСК-86 зона 4" -> "Координаты МСК-86 (зона 4), м"
+        else -> "Координаты WGS-84"
+    }
+    val coordsSubA = if (zone != null) "X (Север)" else "Широта"
+    val coordsSubB = if (zone != null) "Y (Восток)" else "Долгота"
+
     val xlsx = XlsxBuilder()
     xlsx.sheet("Объемы") {
         // Шапка колонок (один раз)
@@ -208,7 +249,7 @@ suspend fun exportVolumesVedomost(
             txt("п/п", CellStyle.HEADER),
             txt("Имя скважины", CellStyle.HEADER),
             txt("Дата бурения", CellStyle.HEADER),
-            txt("Координаты", CellStyle.HEADER),
+            txt(coordsTitle, CellStyle.HEADER),
             empty(CellStyle.HEADER),
             txt("Общая глубина, м", CellStyle.HEADER),
             txt("Обсад, м", CellStyle.HEADER),
@@ -216,7 +257,7 @@ suspend fun exportVolumesVedomost(
         )
         row(
             empty(CellStyle.HEADER), empty(CellStyle.HEADER), empty(CellStyle.HEADER),
-            txt("Широта", CellStyle.HEADER), txt("Долгота", CellStyle.HEADER),
+            txt(coordsSubA, CellStyle.HEADER), txt(coordsSubB, CellStyle.HEADER),
             empty(CellStyle.HEADER), empty(CellStyle.HEADER), empty(CellStyle.HEADER)
         )
         merge("A1:A2"); merge("B1:B2"); merge("C1:C2")
@@ -244,12 +285,13 @@ suspend fun exportVolumesVedomost(
             for (card in groupCards) {
                 val bh = card.first
                 seq++
+                val (cellLat, cellLng) = formatCoordCells(bh.manualLat, bh.manualLng, coordFormat, zone)
                 row(
                     num(seq, CellStyle.BODY_CENTER),
                     txt(bh.name, CellStyle.BODY_CENTER),
                     txt(bh.drillDate, CellStyle.BODY_CENTER),
-                    num(bh.manualLat, CellStyle.BODY_CENTER),
-                    num(bh.manualLng, CellStyle.BODY_CENTER),
+                    cellLat,
+                    cellLng,
                     num(bh.plannedDepthM.takeIf { it > 0 }, CellStyle.BODY_CENTER),
                     num(bh.casingLengthM.takeIf { it > 0 }, CellStyle.BODY_CENTER),
                     txt(bh.description, CellStyle.BODY_LEFT)

@@ -594,6 +594,143 @@ async function fbhDelete(uuid) {
   } catch (e) { toast('Ошибка', 'err'); }
 }
 
+// ── Excel-экспорт всех полевых материалов ──────────────────
+async function fieldExportExcel() {
+  if (typeof XLSX === 'undefined') { toast('Библиотека XLSX не загружена', 'err'); return; }
+  toast('Готовим Excel…');
+  let data;
+  try {
+    const r = await fetch(`${API}/field/export-data`);
+    if (!r.ok) { toast('Ошибка получения данных', 'err'); return; }
+    data = await r.json();
+  } catch (e) { toast('Ошибка получения данных', 'err'); return; }
+
+  // Стили (миррор pgk.js)
+  const border = {
+    top: { style: 'thin', color: { rgb: '808080' } }, bottom: { style: 'thin', color: { rgb: '808080' } },
+    left: { style: 'thin', color: { rgb: '808080' } }, right: { style: 'thin', color: { rgb: '808080' } },
+  };
+  const baseAlign = { horizontal: 'center', vertical: 'center', wrapText: true };
+  const titleStyle = { font: { bold: true, sz: 14 }, alignment: baseAlign, fill: { patternType: 'solid', fgColor: { rgb: 'D9E1F2' } }, border };
+  const headerStyle = { font: { bold: true, sz: 11 }, alignment: baseAlign, fill: { patternType: 'solid', fgColor: { rgb: 'BDD7EE' } }, border };
+  const bodyStyle = (alt) => ({ font: { sz: 11 }, alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
+    fill: { patternType: 'solid', fgColor: { rgb: alt ? 'DDEBF7' : 'FFFFFF' } }, border });
+
+  function colLetter(c) { let s = '', n = c; do { s = String.fromCharCode(65 + n % 26) + s; n = Math.floor(n / 26) - 1; } while (n >= 0); return s; }
+  function ref(r, c) { return colLetter(c) + (r + 1); }
+  function setStyle(ws, cellRef, style) { if (!ws[cellRef]) ws[cellRef] = { t: 's', v: '' }; ws[cellRef].s = style; }
+
+  function bhMap() {
+    const m = {};
+    (data.boreholes || []).forEach(b => { m[b.uuid] = b; });
+    return m;
+  }
+  const bhById = bhMap();
+  const photoCount = {};
+  (data.photos || []).forEach(p => { photoCount[p.borehole_uuid] = p.cnt; });
+
+  function fmtCoords(b) {
+    if (b.lat == null || b.lng == null) return '';
+    return `${b.lat.toFixed(6)}, ${b.lng.toFixed(6)}`;
+  }
+  function bhLabel(uuid) {
+    const b = bhById[uuid];
+    return b ? (b.name || `Скв-${uuid.slice(0, 6)}`) : uuid.slice(0, 8);
+  }
+  function siteOf(uuid) { return bhById[uuid]?.site_name || '—'; }
+
+  function buildSheet(title, cols, rows, widths) {
+    const aoa = [[title], [], cols];
+    rows.forEach(row => aoa.push(row));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = widths.map(w => ({ wch: w }));
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: cols.length - 1 } }];
+    ws['!freeze'] = { ySplit: 3 };
+    setStyle(ws, ref(0, 0), titleStyle);
+    for (let c = 0; c < cols.length; c++) setStyle(ws, ref(2, c), headerStyle);
+    for (let r = 0; r < rows.length; r++) {
+      const alt = r % 2 === 1;
+      for (let c = 0; c < cols.length; c++) setStyle(ws, ref(r + 3, c), bodyStyle(alt));
+    }
+    return ws;
+  }
+
+  // Лист 1 — Сводка
+  const summaryCols = ['№', 'Объект', 'Объём', 'Скважина', 'Дата', 'Тип работ', 'Глубина план, м', 'Диаметр, мм', 'Координаты', 'Слоёв', 'Проб', 'Фото', 'УГВ', 'ММГ', 'Импортирована'];
+  const layersByBh = {}, samplesByBh = {}, ugvByBh = {}, mmgByBh = {};
+  (data.layers || []).forEach(l => { (layersByBh[l.borehole_uuid] = layersByBh[l.borehole_uuid] || []).push(l); });
+  (data.samples || []).forEach(s => { (samplesByBh[s.borehole_uuid] = samplesByBh[s.borehole_uuid] || []).push(s); });
+  (data.ugv || []).forEach(u => { (ugvByBh[u.borehole_uuid] = ugvByBh[u.borehole_uuid] || []).push(u); });
+  (data.mmg || []).forEach(m => { (mmgByBh[m.borehole_uuid] = mmgByBh[m.borehole_uuid] || []).push(m); });
+
+  const summaryRows = (data.boreholes || []).map((b, i) => [
+    i + 1, b.site_name || '—', b.volume_name || '—', b.name || `Скв-${b.uuid.slice(0, 6)}`,
+    b.drill_date || '—', b.work_type || '—',
+    b.planned_depth_m || 0, b.diameter_mm || 0, fmtCoords(b),
+    (layersByBh[b.uuid] || []).length, (samplesByBh[b.uuid] || []).length,
+    photoCount[b.uuid] || 0, (ugvByBh[b.uuid] || []).length, (mmgByBh[b.uuid] || []).length,
+    b.imported_at ? b.imported_at.slice(0, 10) : '',
+  ]);
+
+  // Лист 2 — Слои
+  const layerCols = ['№', 'Объект', 'Скважина', '№ слоя', 'Тип грунта', 'Состояние', 'Глубина, м', 'Описание'];
+  const layerRows = (data.layers || []).map((l, i) => [
+    i + 1, siteOf(l.borehole_uuid), bhLabel(l.borehole_uuid),
+    l.order_idx + 1, l.soil_type || '—', l.state || '', l.depth_m || 0, l.description || '',
+  ]);
+
+  // Лист 3 — Пробы
+  const sampleCols = ['№', 'Объект', 'Скважина', 'Слой', 'Глубина пробы, м', 'Тип отбора', 'Упаковка'];
+  const sampleRows = (data.samples || []).map((s, i) => [
+    i + 1, siteOf(s.borehole_uuid), bhLabel(s.borehole_uuid),
+    s.layer_soil_type || '—', s.depth_m || 0, s.collection_type || '', s.packaging || '',
+  ]);
+
+  // Лист 4 — УГВ
+  const ugvCols = ['№', 'Объект', 'Скважина', '№ замера', 'Глубина УГВ, м', 'Дата бурения'];
+  const ugvRows = (data.ugv || []).map((u, i) => [
+    i + 1, siteOf(u.borehole_uuid), bhLabel(u.borehole_uuid),
+    u.order_idx + 1, u.depth_m || 0, bhById[u.borehole_uuid]?.drill_date || '',
+  ]);
+
+  // Лист 5 — ММГ
+  const mmgCols = ['№', 'Объект', 'Скважина', 'Кровля, м', 'Подошва, м', 'Описание'];
+  const mmgRows = (data.mmg || []).map((m, i) => [
+    i + 1, siteOf(m.borehole_uuid), bhLabel(m.borehole_uuid),
+    m.top_m || 0, m.bottom_m || 0, m.description || '',
+  ]);
+
+  // Лист 6 — Импорты
+  const importCols = ['№', 'Дата импорта', 'Файл', 'Кем', 'Новых скв.', 'Обновлено', 'Фото добавлено', 'Статус'];
+  const importRows = (data.imports || []).map((imp, i) => {
+    let counts = {}; try { counts = JSON.parse(imp.counts_json || '{}'); } catch (e) {}
+    return [
+      i + 1, (imp.imported_at || '').replace('T', ' ').slice(0, 16), imp.filename || '—',
+      imp.imported_by || '—', counts.added || 0, counts.skipped || 0,
+      counts.photos_added || 0, imp.status || '—',
+    ];
+  });
+
+  const wb = XLSX.utils.book_new();
+  const today = new Date().toLocaleDateString('ru-RU');
+  XLSX.utils.book_append_sheet(wb, buildSheet(`Сводка скважин — ${today}`, summaryCols, summaryRows,
+    [5, 22, 18, 22, 12, 14, 14, 12, 24, 8, 8, 8, 8, 8, 13]), 'Сводка');
+  XLSX.utils.book_append_sheet(wb, buildSheet(`Слои грунта — ${today}`, layerCols, layerRows,
+    [5, 22, 22, 8, 18, 14, 12, 40]), 'Слои грунта');
+  XLSX.utils.book_append_sheet(wb, buildSheet(`Пробы — ${today}`, sampleCols, sampleRows,
+    [5, 22, 22, 18, 14, 16, 14]), 'Пробы');
+  XLSX.utils.book_append_sheet(wb, buildSheet(`Уровень грунтовых вод — ${today}`, ugvCols, ugvRows,
+    [5, 22, 22, 10, 14, 14]), 'УГВ');
+  XLSX.utils.book_append_sheet(wb, buildSheet(`Многолетнемёрзлые грунты — ${today}`, mmgCols, mmgRows,
+    [5, 22, 22, 12, 12, 40]), 'ММГ');
+  XLSX.utils.book_append_sheet(wb, buildSheet(`История импортов — ${today}`, importCols, importRows,
+    [5, 18, 32, 18, 10, 10, 14, 10]), 'Импорты');
+
+  const fname = `Полевые_материалы_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  toast(`✓ ${fname}`, 'ok');
+}
+
 async function fieldExportRefs() {
   try {
     const r = await fetch(`${API}/field/refs/export`);

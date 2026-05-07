@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -45,6 +46,9 @@ fun VedomostiScreen(onBack: () -> Unit) {
     var fromDate by remember { mutableStateOf(weekAgo) }
     var toDate by remember { mutableStateOf(today) }
     var state by remember { mutableStateOf<VedoState>(VedoState.Idle) }
+
+    val coordFormats = listOf("WGS-84 DMS", "МСК-86 зона 3", "МСК-86 зона 4")
+    var coordFormat by rememberSaveable { mutableStateOf(coordFormats[0]) }
 
     var showSitePicker by remember { mutableStateOf(false) }
     var showFromPicker by remember { mutableStateOf(false) }
@@ -113,7 +117,7 @@ fun VedomostiScreen(onBack: () -> Unit) {
                         selectedSite?.id, selectedSite?.name, geologistName)
                     VedoKind.VOLUMES -> exportVolumesVedomost(
                         context, fromDate.toString(), toDate.toString(),
-                        selectedSite?.id, selectedSite?.name, geologistName)
+                        selectedSite?.id, selectedSite?.name, geologistName, coordFormat)
                 }
                 VedoState.Done(kind, res)
             } catch (e: Exception) {
@@ -184,6 +188,8 @@ fun VedomostiScreen(onBack: () -> Unit) {
                             Text("Список скважин с глубиной и обсадом, бригада + борт",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = .6f))
+                            Spacer(Modifier.height(8.dp))
+                            DropdownField("Формат координат", coordFormat, coordFormats) { coordFormat = it }
                             Spacer(Modifier.height(8.dp))
                             Button(onClick = { runExport(VedoKind.VOLUMES) },
                                 modifier = Modifier.fillMaxWidth()) { Text("Сформировать") }

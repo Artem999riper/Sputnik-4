@@ -63,7 +63,8 @@ fun SputnikNav() {
                 siteId = siteId,
                 onBack = { nav.popBackStack() },
                 onBorehole = { uuid -> nav.navigate(Screen.BoreholeEdit.go(uuid, siteId)) },
-                onAdd = { nav.navigate(Screen.BoreholeEdit.go(Screen.BoreholeEdit.NEW, siteId)) }
+                onAdd = { nav.navigate(Screen.BoreholeEdit.go(Screen.BoreholeEdit.NEW, siteId)) },
+                onNavigateToBrigade = { nav.navigate(Screen.Brigade.route) }
             )
         }
 

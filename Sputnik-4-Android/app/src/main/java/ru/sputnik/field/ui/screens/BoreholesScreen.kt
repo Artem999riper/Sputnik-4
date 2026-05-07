@@ -23,6 +23,7 @@ import kotlinx.coroutines.withContext
 import ru.sputnik.field.data.db.AppDatabase
 import ru.sputnik.field.data.kml.importKmlForSite
 import ru.sputnik.field.data.model.Borehole
+import ru.sputnik.field.data.model.Brigade
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,7 +31,8 @@ fun BoreholesScreen(
     siteId: String,
     onBack: () -> Unit,
     onBorehole: (String) -> Unit,
-    onAdd: () -> Unit
+    onAdd: () -> Unit,
+    onNavigateToBrigade: () -> Unit
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.get(context) }
@@ -48,6 +50,21 @@ fun BoreholesScreen(
     var kmlStatus by remember { mutableStateOf<String?>(null) }
     var kmlLoading by remember { mutableStateOf(false) }
     var showClearDraftsDialog by remember { mutableStateOf(false) }
+    var showNoBrigadeDialog by remember { mutableStateOf(false) }
+    var hasBrigade by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(Unit) { hasBrigade = db.brigades().current() != null }
+
+    if (showNoBrigadeDialog) {
+        AlertDialog(
+            onDismissRequest = { showNoBrigadeDialog = false },
+            title = { Text("Сначала задайте бригаду") },
+            text = { Text("Нельзя начать заполнение скважины пока не выбраны участники бригады и техника. Это нужно чтобы при завершении скважина зафиксировала состав исполнителей.") },
+            confirmButton = {
+                TextButton(onClick = { showNoBrigadeDialog = false; onNavigateToBrigade() }) { Text("Перейти к бригаде") }
+            },
+            dismissButton = { TextButton(onClick = { showNoBrigadeDialog = false }) { Text("Отмена") } }
+        )
+    }
 
     if (showClearDraftsDialog) {
         AlertDialog(
@@ -106,7 +123,9 @@ fun BoreholesScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAdd) {
+            FloatingActionButton(onClick = {
+                if (hasBrigade == false) showNoBrigadeDialog = true else onAdd()
+            }) {
                 Icon(Icons.Default.Add, "Добавить скважину")
             }
         }

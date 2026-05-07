@@ -152,13 +152,15 @@ private data class BhJson(
     val work_type: String, val geomorph_desc: String,
     val description: String, val drill_date: String,
     val status: String, val brigade_id: String?,
-    val casing_length_m: Double = 0.0
+    val casing_length_m: Double = 0.0,
+    val brigade_snapshot: String? = null
 )
 
 private fun Borehole.toJson() = BhJson(
     uuid, siteId, kmlPointId, manualLat, manualLng, name,
     plannedDepthM, diameterMm, workType, geomorphDesc,
-    description, drillDate, status, brigadeId, casingLengthM
+    description, drillDate, status, brigadeId, casingLengthM,
+    brigadeSnapshot.takeIf { it.isNotBlank() }
 )
 
 @kotlinx.serialization.Serializable
