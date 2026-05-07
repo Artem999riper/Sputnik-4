@@ -5,6 +5,7 @@ const API='/api';
 const TRANSPORT_TYPES=['ТРЭКОЛ','БУРЛАК','ТАНК','ТРОМ','ЛЕГКОВАЯ','ГРУЗОВАЯ','СНЕГОХОД'];
 const MICONS={ТРЭКОЛ:'🚙',БУРЛАК:'🚛',ТАНК:'🛻',ТРОМ:'🚐',ЛЕГКОВАЯ:'🚗',ГРУЗОВАЯ:'🚚',СНЕГОХОД:'🏂'};
 const MTYPES=[...TRANSPORT_TYPES];
+const DRILL_TYPES=[...TRANSPORT_TYPES];
 const WORKER_STATUSES={working:'🟢 В работе',home:'🏠 Дома',fired:'🚫 Уволен'};
 const SL={working:'В работе',idle:'Стоит',broken:'Сломана'};
 const SSL={active:'Активный',paused:'Пауза',done:'Завершён'};

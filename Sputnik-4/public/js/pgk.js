@@ -725,7 +725,7 @@ async function techExportExcel(){
     const cols=['№','ФИО','Телефон','База','Назначенная техника','Статус'];
     const aoa=[['Водители'],[],cols];
     const merges=[{s:{r:0,c:0},e:{r:0,c:cols.length-1}}];
-    const drivers=(pgkWorkers||[]).filter(w=>(w.role||'').toLowerCase().includes('водитель'));
+    const drivers=(pgkWorkers||[]).filter(w=>{const r=(w.role||'').toLowerCase();return r.includes('водитель')||r.includes('мбу')||r.includes('пмбу');});
     let row=3,seq=0;
     drivers.forEach(w=>{
       seq++;
@@ -907,7 +907,7 @@ async function mchFuelCard(baseId,fuelType){
 }
 function _mchBuildDrivers(){
   const machByDrv={};pgkMachinery.forEach(m=>{if(m.driver_id)machByDrv[m.driver_id]=m;});
-  let workers=pgkWorkers.filter(w=>w.status!=='fired'&&(w.role||'').toLowerCase().includes('водитель'));
+  let workers=pgkWorkers.filter(w=>{if(w.status==='fired')return false;const r=(w.role||'').toLowerCase();return r.includes('водитель')||r.includes('мбу')||r.includes('пмбу');});
   const wstCls={'working':'wbs-working','home':'wbs-home'};
   const wstLbl={'working':'В работе','home':'Дома'};
   const _ds=window._drvSort||'name';const _da=window._drvAsc!==false;
@@ -1121,7 +1121,7 @@ async function openMachDetail(mid){
   const statLbl={working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'};
   const st=m.status||'working';
   const driverOpts=`<option value="">— не назначен —</option>`+
-    pgkWorkers.filter(w=>w.status!=='fired'&&(w.role||'').toLowerCase().includes('водитель'))
+    pgkWorkers.filter(w=>{if(w.status==='fired')return false;const r=(w.role||'').toLowerCase();return r.includes('водитель')||r.includes('мбу')||r.includes('пмбу');})
     .map(w=>`<option value="${escAttr(w.id)}" ${m.driver_id===w.id?'selected':''}>${esc(w.name)}</option>`).join('');
   const baseOpts=`<option value="">— не назначена —</option>`+bases.map(bx=>`<option value="${bx.id}" ${m.base_id===bx.id?'selected':''}>${esc(bx.name)}</option>`).join('');
   const html=`

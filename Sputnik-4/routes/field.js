@@ -103,6 +103,24 @@ module.exports = (app, getDb, L) => {
     res.json({ ...r, manifest: safeJson(r.manifest_json, {}), counts: safeJson(r.counts_json, {}) });
   }));
 
+  // ── Удалить один импорт ───────────────────────────────────
+  app.delete('/api/field/imports/:id', wrap((req, res) => {
+    const d = db();
+    const imp = get(d, 'SELECT id FROM field_imports WHERE id=?', [req.params.id]);
+    if (!imp) return res.status(404).json({ error: 'Not found' });
+    run(d, 'DELETE FROM field_imports WHERE id=?', [req.params.id]);
+    broadcast({ type: 'change', url: '/api/field/imports', method: 'DELETE', t: Date.now() });
+    res.json({ ok: true, id: req.params.id });
+  }));
+
+  // ── Удалить все импорты ────────────────────────────────────
+  app.delete('/api/field/imports', wrap((req, res) => {
+    const d = db();
+    run(d, 'DELETE FROM field_imports');
+    broadcast({ type: 'change', url: '/api/field/imports', method: 'DELETE', t: Date.now() });
+    res.json({ ok: true });
+  }));
+
   // ── Полевые скважины, привязанные к объёму ─────────────────
   app.get('/api/field/boreholes/by-volume', wrap((req, res) => {
     const { volume_id } = req.query;

@@ -386,7 +386,10 @@ function renderFieldImports() {
     box.innerHTML = '<div class="empty"><div class="empty-i">📥</div>Архивов пока нет — загрузите .spk во вкладке «По объектам»</div>';
     return;
   }
-  box.innerHTML = fieldImports.map(imp => {
+  const toolbar = `<div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+    <button class="btn bd bsm" onclick="deleteAllFieldImports()">🗑 Удалить все</button>
+  </div>`;
+  box.innerHTML = toolbar + fieldImports.map(imp => {
     const c = imp.counts || {};
     const m = imp.manifest || {};
     const status = imp.status === 'ok' ? '✓' : (imp.status === 'partial' ? '⚠' : '✗');
@@ -407,8 +410,31 @@ function renderFieldImports() {
             ${c.photos_added ? ` · 📷 ${c.photos_added}` : ''}${volLabel}
           </div>
         </div>
+        <button class="btn bd bxs" title="Удалить запись" onclick="deleteFieldImport('${esc(imp.id)}')">🗑</button>
       </div>`;
   }).join('');
+}
+
+async function deleteFieldImport(id) {
+  if (!confirm('Удалить запись об этом импорте?')) return;
+  try {
+    const r = await fetch(`${API}/field/imports/${id}`, { method: 'DELETE' });
+    if (!r.ok) { toast('Ошибка удаления', 'err'); return; }
+    fieldImports = fieldImports.filter(x => x.id !== id);
+    renderFieldImports();
+    toast('Запись удалена', 'ok');
+  } catch (e) { toast('Ошибка удаления', 'err'); }
+}
+
+async function deleteAllFieldImports() {
+  if (!confirm(`Удалить все ${fieldImports.length} записей об импортах?`)) return;
+  try {
+    const r = await fetch(`${API}/field/imports`, { method: 'DELETE' });
+    if (!r.ok) { toast('Ошибка удаления', 'err'); return; }
+    fieldImports = [];
+    renderFieldImports();
+    toast('Все записи удалены', 'ok');
+  } catch (e) { toast('Ошибка удаления', 'err'); }
 }
 
 // ── Карточка скважины (modal с табами) ─────────────────────
