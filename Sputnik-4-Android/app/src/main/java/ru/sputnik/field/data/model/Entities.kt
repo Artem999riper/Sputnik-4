@@ -189,3 +189,17 @@ data class BoreholeCard(
     val mmg: List<MmgEntry> = emptyList(),
     val photos: List<Photo> = emptyList()
 )
+
+// ── Пользовательские справочники ─────────────────────────────
+
+@Entity(tableName = "custom_soil_types")
+data class CustomSoilType(
+    @PrimaryKey val name: String,
+    val createdAt: String = java.time.Instant.now().toString()
+)
+
+@Entity(tableName = "custom_soil_states")
+data class CustomSoilState(
+    @PrimaryKey val name: String,
+    val createdAt: String = java.time.Instant.now().toString()
+)

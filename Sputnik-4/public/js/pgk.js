@@ -535,6 +535,7 @@ function pgkPageMachinery(pb){
       </div><button class="btn bp bsm" onclick="pgkAddMach()">＋ Добавить</button>`:''}
       ${tab==='fuel'?`<button class="btn bp bsm" onclick="mchFuelRecord()">＋ Записать</button>`:''}
       ${tab==='spares'?`<button class="btn bs bsm" onclick="mchSpareAddGroup()">＋ Группа</button><button class="btn bp bsm" onclick="mchSpareAdd()">＋ Запчасть</button>`:''}
+      <button class="btn bg bsm" onclick="techExportExcel()" title="Экспорт всей вкладки в Excel">📤 Excel</button>
     </div>
   </div>
   <div id="mch-park" class="mch-panel${tab==='park'?' active':''}">${_mchBuildPark(view)}</div>
@@ -547,6 +548,214 @@ function pgkPageMachinery(pb){
 function _setMchTab(t){window._mchTab=t;const pb=document.getElementById('machinery-page');if(pb)pgkPageMachinery(pb);}
 function _setMchView(v){window._mchView=v;const pb=document.getElementById('machinery-page');if(pb)pgkPageMachinery(pb);}
 function _mchSpareGrp(gid){window._mchSpareGroup=gid;const pb=document.getElementById('machinery-page');if(pb)pgkPageMachinery(pb);}
+
+// ─────────────────────────────────────────────────────────────
+// Excel-экспорт вкладки «Техника» (стиль СМГ)
+// ─────────────────────────────────────────────────────────────
+async function techExportExcel(){
+  if(typeof XLSX==='undefined'){toast('Библиотека XLSX не загружена','err');return;}
+  toast('Готовим Excel…');
+
+  // Подгружаем актуальные топливные операции по всем базам (последние 200 на каждую)
+  let allTxns=[];
+  try{
+    const arr=await Promise.all((bases||[]).map(b=>
+      fetch(`${API}/fuel_transactions?base_id=${encodeURIComponent(b.id)}`).then(r=>r.json()).catch(()=>[])
+    ));
+    arr.forEach((rows,i)=>rows.forEach(t=>allTxns.push({...t,_baseName:(bases[i]||{}).name||t.base_id})));
+    allTxns.sort((a,b)=>(b.created_at||b.op_date||'').localeCompare(a.created_at||a.op_date||''));
+    allTxns=allTxns.slice(0,200);
+  }catch(e){}
+
+  const baseName=id=>((bases||[]).find(b=>b.id===id)||{}).name||'—';
+  const driverNameFor=mid=>{
+    const m=(pgkMachinery||[]).find(x=>x.id===mid);
+    if(!m||!m.driver_id)return '';
+    const w=(pgkWorkers||[]).find(w=>w.id===m.driver_id);
+    return w?w.name:'';
+  };
+
+  // ── Стили (мирроринг СМГ) ──────────────────────────────────
+  const border={
+    top:{style:'thin',color:{rgb:'808080'}},bottom:{style:'thin',color:{rgb:'808080'}},
+    left:{style:'thin',color:{rgb:'808080'}},right:{style:'thin',color:{rgb:'808080'}},
+  };
+  const baseAlign={horizontal:'center',vertical:'center',wrapText:true};
+  const titleStyle={font:{bold:true,sz:14},alignment:baseAlign,fill:{patternType:'solid',fgColor:{rgb:'D9E1F2'}},border};
+  const headerStyle={font:{bold:true,sz:11},alignment:baseAlign,fill:{patternType:'solid',fgColor:{rgb:'BDD7EE'}},border};
+  const groupStyle=fill=>({font:{bold:true,sz:12,color:{rgb:'FFFFFF'}},alignment:baseAlign,fill:{patternType:'solid',fgColor:{rgb:fill}},border});
+  const bodyStyle=alt=>({font:{sz:11},alignment:{horizontal:'left',vertical:'center',wrapText:true},
+    fill:{patternType:'solid',fgColor:{rgb:alt?'DDEBF7':'FFFFFF'}},border});
+
+  function colLetter(c){let s='',n=c;do{s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26)-1;}while(n>=0);return s;}
+  function ref(r,c){return colLetter(c)+(r+1);}
+  function setStyle(ws,cellRef,style){if(!ws[cellRef])ws[cellRef]={t:'s',v:''};ws[cellRef].s=style;}
+  function applyTitleAndHeader(ws,colCount,titleText){
+    setStyle(ws,ref(0,0),titleStyle);
+    for(let c=0;c<colCount;c++)setStyle(ws,ref(2,c),headerStyle);
+  }
+
+  // ── Лист «Парк» ─────────────────────────────────────────────
+  function buildPark(){
+    const cols=['№','Тип','Имя','Гос.номер','База','Статус','Водитель','Заметки'];
+    const aoa=[['Парк техники — '+new Date().toLocaleDateString('ru-RU')],[],cols];
+    const merges=[{s:{r:0,c:0},e:{r:0,c:cols.length-1}}];
+    const groupRows=[];
+    const TYPE_FILL={'ТРЭКОЛ':'00B0F0','БУРЛАК':'00B050','ТАНК':'A6A6A6','ТРОМ':'00B0F0',
+      'ЛЕГКОВАЯ':'A6A6A6','ГРУЗОВАЯ':'FFC000','СНЕГОХОД':'D9E1F2'};
+    let row=3,seq=0;
+    (TRANSPORT_TYPES||[]).forEach(t=>{
+      const items=(pgkMachinery||[]).filter(m=>m.type===t);
+      if(!items.length)return;
+      aoa.push([(MICONS[t]||'🔧')+' '+t]);
+      groupRows.push({r:row,fill:TYPE_FILL[t]||'808080'});
+      merges.push({s:{r:row,c:0},e:{r:row,c:cols.length-1}});
+      row++;
+      items.forEach(m=>{
+        seq++;
+        aoa.push([seq, m.type||'', m.name||'', m.plate_number||'',
+          baseName(m.base_id), m.status||'', driverNameFor(m.id), m.notes||'']);
+        row++;
+      });
+    });
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:5},{wch:12},{wch:24},{wch:14},{wch:18},{wch:14},{wch:22},{wch:30}];
+    ws['!merges']=merges;
+    applyTitleAndHeader(ws,cols.length,aoa[0][0]);
+    groupRows.forEach(g=>{for(let c=0;c<cols.length;c++)setStyle(ws,ref(g.r,c),groupStyle(g.fill));});
+    // body zebra
+    let alt=false,prevRow=2;
+    for(let r=3;r<row;r++){
+      if(groupRows.some(g=>g.r===r)){alt=false;continue;}
+      for(let c=0;c<cols.length;c++)setStyle(ws,ref(r,c),bodyStyle(alt));
+      alt=!alt;
+    }
+    return ws;
+  }
+
+  // ── Лист «Топливо» ──────────────────────────────────────────
+  function buildFuel(){
+    const cols=['№','База','Тип топлива','Остаток (л)','Заметки','Обновлено'];
+    const aoa=[['Топливо — остатки и операции'],[],cols];
+    const merges=[{s:{r:0,c:0},e:{r:0,c:cols.length-1}}];
+    let row=3,seq=0;
+    (pgkFuelReserves||[]).forEach(r=>{
+      seq++;
+      aoa.push([seq, baseName(r.base_id), r.fuel_type||'', +(r.amount||0),
+        r.notes||'', (r.updated_at||'').slice(0,16).replace('T',' ')]);
+      row++;
+    });
+    // Раздел «Последние операции»
+    aoa.push([]); row++;
+    aoa.push(['Последние операции']);
+    const opsHeaderRow=row;
+    merges.push({s:{r:row,c:0},e:{r:row,c:cols.length-1}});
+    row++;
+    const opsCols=['Дата','База','Тип','Δ (л)','Заметки',''];
+    aoa.push(opsCols);
+    const opsHdrRow=row;
+    row++;
+    allTxns.forEach(t=>{
+      aoa.push([(t.op_date||t.created_at||'').slice(0,16).replace('T',' '),
+        t._baseName, t.fuel_type||'', +(t.delta||0), t.notes||'', '']);
+      row++;
+    });
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:14},{wch:22},{wch:18},{wch:12},{wch:30},{wch:18}];
+    ws['!merges']=merges;
+    applyTitleAndHeader(ws,cols.length,aoa[0][0]);
+    // зебра для остатков
+    let alt=false;
+    for(let r=3;r<opsHeaderRow;r++){
+      for(let c=0;c<cols.length;c++)setStyle(ws,ref(r,c),bodyStyle(alt));
+      alt=!alt;
+    }
+    // group-row "Последние операции"
+    for(let c=0;c<cols.length;c++)setStyle(ws,ref(opsHeaderRow,c),groupStyle('00B050'));
+    // ops header
+    for(let c=0;c<cols.length;c++)setStyle(ws,ref(opsHdrRow,c),headerStyle);
+    alt=false;
+    for(let r=opsHdrRow+1;r<row;r++){
+      for(let c=0;c<cols.length;c++)setStyle(ws,ref(r,c),bodyStyle(alt));
+      alt=!alt;
+    }
+    return ws;
+  }
+
+  // ── Лист «Запчасти» ─────────────────────────────────────────
+  function buildSpares(){
+    const cols=['№','Название','Кол-во','Ед.','Местоположение','Заметки'];
+    const aoa=[['Запчасти и материалы'],[],cols];
+    const merges=[{s:{r:0,c:0},e:{r:0,c:cols.length-1}}];
+    const groupRows=[];
+    let row=3,seq=0;
+    const groups=[...(pgkSpareGroups||[])].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
+    const ungrouped=(pgkSpares||[]).filter(s=>!s.group_id||!groups.find(g=>g.id===s.group_id));
+    function pushGroup(name,fill,items){
+      if(!items.length)return;
+      aoa.push([name]);
+      groupRows.push({r:row,fill});
+      merges.push({s:{r:row,c:0},e:{r:row,c:cols.length-1}});
+      row++;
+      items.forEach(s=>{seq++;
+        aoa.push([seq, s.name||'', +(s.quantity||0), s.unit||'шт', s.location||'', s.notes||'']);
+        row++;
+      });
+    }
+    groups.forEach((g,i)=>pushGroup('🔧 '+(g.name||'—'), i%2?'00B0F0':'00B050',
+      (pgkSpares||[]).filter(s=>s.group_id===g.id)));
+    pushGroup('Без группы','A6A6A6',ungrouped);
+
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:5},{wch:30},{wch:10},{wch:8},{wch:20},{wch:30}];
+    ws['!merges']=merges;
+    applyTitleAndHeader(ws,cols.length,aoa[0][0]);
+    groupRows.forEach(g=>{for(let c=0;c<cols.length;c++)setStyle(ws,ref(g.r,c),groupStyle(g.fill));});
+    let alt=false;
+    for(let r=3;r<row;r++){
+      if(groupRows.some(g=>g.r===r)){alt=false;continue;}
+      for(let c=0;c<cols.length;c++)setStyle(ws,ref(r,c),bodyStyle(alt));
+      alt=!alt;
+    }
+    return ws;
+  }
+
+  // ── Лист «Водители» ─────────────────────────────────────────
+  function buildDrivers(){
+    const cols=['№','ФИО','Телефон','База','Назначенная техника','Статус'];
+    const aoa=[['Водители'],[],cols];
+    const merges=[{s:{r:0,c:0},e:{r:0,c:cols.length-1}}];
+    const drivers=(pgkWorkers||[]).filter(w=>(w.role||'').toLowerCase().includes('водитель'));
+    let row=3,seq=0;
+    drivers.forEach(w=>{
+      seq++;
+      const mach=(pgkMachinery||[]).find(m=>m.driver_id===w.id);
+      aoa.push([seq, w.name||'', w.phone||'', baseName(w.base_id),
+        mach?`${MICONS[mach.type]||'🔧'} ${mach.name||''} ${mach.plate_number||''}`.trim():'',
+        w.status||'']);
+      row++;
+    });
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:5},{wch:24},{wch:16},{wch:18},{wch:30},{wch:14}];
+    ws['!merges']=merges;
+    applyTitleAndHeader(ws,cols.length,aoa[0][0]);
+    let alt=false;
+    for(let r=3;r<row;r++){
+      for(let c=0;c<cols.length;c++)setStyle(ws,ref(r,c),bodyStyle(alt));
+      alt=!alt;
+    }
+    return ws;
+  }
+
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, buildPark(),    'Парк');
+  XLSX.utils.book_append_sheet(wb, buildFuel(),    'Топливо');
+  XLSX.utils.book_append_sheet(wb, buildSpares(),  'Запчасти');
+  XLSX.utils.book_append_sheet(wb, buildDrivers(), 'Водители');
+  const today=new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `Техника_${today}.xlsx`);
+  toast('✓ Excel сохранён','ok');
+}
 
 function _mchBuildPark(view){
   const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};

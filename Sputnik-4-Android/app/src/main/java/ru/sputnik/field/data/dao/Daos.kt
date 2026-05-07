@@ -130,3 +130,15 @@ interface PhotoDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(p: Photo)
     @Delete suspend fun delete(p: Photo)
 }
+
+@Dao
+interface CustomRefsDao {
+    @Query("SELECT name FROM custom_soil_types ORDER BY name")
+    fun soilTypes(): Flow<List<String>>
+    @Query("SELECT name FROM custom_soil_states ORDER BY name")
+    fun soilStates(): Flow<List<String>>
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun addSoilType(t: CustomSoilType)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun addSoilState(s: CustomSoilState)
+}

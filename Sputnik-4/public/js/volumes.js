@@ -82,14 +82,18 @@ function _addVertexMarker(c, volId, gj, coords, updatePreview, isVP){
   return mk;
 }
 
+// Перестроить ring внутри _veGJ из _veCoords (для splice-операций — drag мутирует in-place).
+// Идемпотентен и безопасен: вызывается из меню перед preview и внутри _saveVpVertex.
+function _rebuildVpRingFromCoords(){
+  if(!_veCoords||!_veGeomRef||_veCoords.length<3)return;
+  const ring=_veCoords.map(function(c){return[c[0],c[1]];});
+  const f=ring[0],l=ring[ring.length-1];
+  if(f[0]!==l[0]||f[1]!==l[1])ring.push([f[0],f[1]]);
+  _veGeomRef.coordinates[0]=ring;
+}
+
 async function _saveVpVertex(factId, gj){
-  // Перестроить ring из _veCoords (фрэшевые массивы, замкнутый контур) — иначе gj хранит старые координаты
-  if(_veCoords&&_veGeomRef&&_veCoords.length>=3){
-    const ring=_veCoords.map(function(c){return[c[0],c[1]];});
-    const f=ring[0],l=ring[ring.length-1];
-    if(f[0]!==l[0]||f[1]!==l[1])ring.push([f[0],f[1]]);
-    _veGeomRef.coordinates[0]=ring;
-  }
+  _rebuildVpRingFromCoords();
   const idx=(currentObj&&currentObj.vol_progress||[]).findIndex(x=>x.id===factId);
   await fetch(`${API}/vol_progress/${factId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({geojson:JSON.stringify(gj)})}).catch(()=>{});
@@ -137,7 +141,7 @@ function _handleVertexEditRCM(e){
   const cx=e.originalEvent.clientX, cy=e.originalEvent.clientY;
   showCtx(cx,cy,[
     {i:'✅',l:'Закончить редактирование',f:function(){
-      if(_veIsVP){stopVertexEdit();}
+      if(_veIsVP){_saveVpVertex(_veId,_veGJ).then(stopVertexEdit);}
       else{saveVertexEdit(_veId,_veGJ).then(stopVertexEdit);}
     }},
     {i:'❌',l:'Удалить ближайшую вершину',f:function(){
@@ -156,6 +160,7 @@ function _handleVertexEditRCM(e){
       try{map.removeLayer(bestMk);}catch(ex){}
       const mi=vertexEditMarkers.indexOf(bestMk);
       if(mi>-1)vertexEditMarkers.splice(mi,1);
+      if(_veIsVP)_rebuildVpRingFromCoords();
       if(_veUpdatePreview)_veUpdatePreview();
       if(_veIsVP)_saveVpVertex(_veId,_veGJ); else saveVertexEdit(_veId,_veGJ);
     }},
@@ -178,6 +183,7 @@ function _handleVertexEditRCM(e){
       _veCoords.splice(bestSeg+1,0,newC);
       if(_veRingRef)_veRingRef.splice(bestSeg+1,0,newC);
       _addVertexMarker(newC,_veId,_veGJ,_veCoords,_veUpdatePreview,_veIsVP);
+      if(_veIsVP)_rebuildVpRingFromCoords();
       if(_veUpdatePreview)_veUpdatePreview();
       if(_veIsVP)_saveVpVertex(_veId,_veGJ); else saveVertexEdit(_veId,_veGJ);
     }}

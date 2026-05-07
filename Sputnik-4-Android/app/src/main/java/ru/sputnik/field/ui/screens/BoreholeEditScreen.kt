@@ -88,7 +88,8 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
                 diameterStr = bh.diameterMm.takeIf { it > 0 }?.toString() ?: ""
                 drillDate = bh.drillDate; geomorphDesc = bh.geomorphDesc
                 description = bh.description
-                latStr = bh.manualLat?.toString() ?: ""; lngStr = bh.manualLng?.toString() ?: ""
+                latStr = bh.manualLat?.let { toDMS(it, true) } ?: ""
+                lngStr = bh.manualLng?.let { toDMS(it, false) } ?: ""
                 status = bh.status
             }
         } else {
@@ -109,7 +110,7 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
                     plannedDepthM = depthStr.toDoubleOrNull() ?: 0.0,
                     diameterMm = diameterStr.toDoubleOrNull() ?: 0.0,
                     drillDate = drillDate, geomorphDesc = geomorphDesc, description = description,
-                    manualLat = latStr.toDoubleOrNull(), manualLng = lngStr.toDoubleOrNull(),
+                    manualLat = parseLatLng(latStr), manualLng = parseLatLng(lngStr),
                     status = status
                 ))
             }
@@ -249,19 +250,20 @@ private fun HeaderTab(
         item {
             Column {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FieldInput("Широта (десятичные)", lat, onLat, KeyboardType.Decimal, Modifier.weight(1f))
-                    FieldInput("Долгота (десятичные)", lng, onLng, KeyboardType.Decimal, Modifier.weight(1f))
+                    FieldInput("Широта (DMS)", lat, onLat, KeyboardType.Text, Modifier.weight(1f))
+                    FieldInput("Долгота (DMS)", lng, onLng, KeyboardType.Text, Modifier.weight(1f))
                 }
-                val latD = lat.toDoubleOrNull()
-                val lngD = lng.toDoubleOrNull()
-                if (latD != null && lngD != null) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "${toDMS(latD, true)}  ${toDMS(lngD, false)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f)
-                    )
-                }
+                val latD = parseLatLng(lat)
+                val lngD = parseLatLng(lng)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    if (latD != null && lngD != null)
+                        "≈ %.6f, %.6f".format(latD, lngD)
+                    else
+                        "Формат: 55°30'15.5\"N или 55.5042",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f)
+                )
             }
         }
         item { Spacer(Modifier.height(8.dp)) }
@@ -296,6 +298,7 @@ private fun LayersTab(
         editLayer != null -> {
             LayerEditSheet(
                 layer = editLayer!!,
+                db = db, scope = scope,
                 onDismiss = { editLayer = null },
                 onSave = { l ->
                     scope.launch { withContext(NonCancellable) { db.soilLayers().upsert(l) } }
@@ -372,7 +375,10 @@ private fun LayerCard(layer: SoilLayer, sampleCount: Int, onClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LayerEditSheet(
-    layer: SoilLayer, onDismiss: () -> Unit,
+    layer: SoilLayer,
+    db: AppDatabase,
+    scope: kotlinx.coroutines.CoroutineScope,
+    onDismiss: () -> Unit,
     onSave: (SoilLayer) -> Unit, onDelete: (SoilLayer) -> Unit,
     onSamples: (SoilLayer) -> Unit
 ) {
@@ -382,6 +388,13 @@ private fun LayerEditSheet(
     var desc by remember { mutableStateOf(layer.description) }
     var showCustomTypeDialog by remember { mutableStateOf(false) }
     var customTypeInput by remember { mutableStateOf("") }
+    var showCustomStateDialog by remember { mutableStateOf(false) }
+    var customStateInput by remember { mutableStateOf("") }
+
+    val customSoilTypes by db.customRefs().soilTypes().collectAsState(initial = emptyList())
+    val customSoilStates by db.customRefs().soilStates().collectAsState(initial = emptyList())
+    val allSoilTypes = remember(customSoilTypes) { (SOIL_TYPES + customSoilTypes).distinct() }
+    val allSoilStates = remember(customSoilStates) { (SOIL_STATES + customSoilStates).distinct() }
 
     if (showCustomTypeDialog) {
         AlertDialog(
@@ -398,12 +411,47 @@ private fun LayerEditSheet(
             },
             confirmButton = {
                 Button(onClick = {
-                    if (customTypeInput.isNotBlank()) soilType = customTypeInput.trim()
+                    val v = customTypeInput.trim()
+                    if (v.isNotBlank()) {
+                        soilType = v
+                        scope.launch { db.customRefs().addSoilType(CustomSoilType(v)) }
+                    }
                     showCustomTypeDialog = false; customTypeInput = ""
                 }) { Text("Применить") }
             },
             dismissButton = {
                 TextButton(onClick = { showCustomTypeDialog = false; customTypeInput = "" }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
+    if (showCustomStateDialog) {
+        AlertDialog(
+            onDismissRequest = { showCustomStateDialog = false; customStateInput = "" },
+            title = { Text("Своё состояние") },
+            text = {
+                OutlinedTextField(
+                    value = customStateInput,
+                    onValueChange = { customStateInput = it },
+                    placeholder = { Text("Введите состояние") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val v = customStateInput.trim()
+                    if (v.isNotBlank()) {
+                        state = v
+                        scope.launch { db.customRefs().addSoilState(CustomSoilState(v)) }
+                    }
+                    showCustomStateDialog = false; customStateInput = ""
+                }) { Text("Применить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomStateDialog = false; customStateInput = "" }) {
                     Text("Отмена")
                 }
             }
@@ -430,8 +478,6 @@ private fun LayerEditSheet(
         }
         item {
             var soilExpanded by remember { mutableStateOf(false) }
-            // If a custom type was entered, show it as the first option in the dropdown
-            val customInList = soilType.isNotEmpty() && soilType !in SOIL_TYPES
             ExposedDropdownMenuBox(expanded = soilExpanded, onExpandedChange = { soilExpanded = it }) {
                 OutlinedTextField(
                     value = soilType.ifEmpty { "Выбрать..." }, onValueChange = {},
@@ -440,27 +486,41 @@ private fun LayerEditSheet(
                     modifier = Modifier.fillMaxWidth().menuAnchor()
                 )
                 ExposedDropdownMenu(expanded = soilExpanded, onDismissRequest = { soilExpanded = false }) {
-                    if (customInList) {
-                        DropdownMenuItem(
-                            text = { Text("✓ $soilType", color = MaterialTheme.colorScheme.primary) },
-                            onClick = { soilExpanded = false }
-                        )
-                        HorizontalDivider()
-                    }
-                    SOIL_TYPES.forEach { opt ->
+                    allSoilTypes.forEach { opt ->
                         DropdownMenuItem(text = { Text(opt) },
                             onClick = { soilType = opt; soilExpanded = false })
                     }
                     HorizontalDivider()
                     DropdownMenuItem(
-                        text = { Text("✏️ Свой тип...") },
-                        onClick = { soilExpanded = false; customTypeInput = soilType.takeIf { customInList } ?: ""; showCustomTypeDialog = true }
+                        text = { Text("➕ Свой тип…") },
+                        onClick = { soilExpanded = false; customTypeInput = ""; showCustomTypeDialog = true }
                     )
                 }
             }
         }
         item { Spacer(Modifier.height(8.dp)) }
-        item { DropdownField("Состояние", state, SOIL_STATES) { state = it } }
+        item {
+            var stateExpanded by remember { mutableStateOf(false) }
+            ExposedDropdownMenuBox(expanded = stateExpanded, onExpandedChange = { stateExpanded = it }) {
+                OutlinedTextField(
+                    value = state.ifEmpty { "Выбрать..." }, onValueChange = {},
+                    label = { Text("Состояние") }, readOnly = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(stateExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor()
+                )
+                ExposedDropdownMenu(expanded = stateExpanded, onDismissRequest = { stateExpanded = false }) {
+                    allSoilStates.forEach { opt ->
+                        DropdownMenuItem(text = { Text(opt) },
+                            onClick = { state = opt; stateExpanded = false })
+                    }
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("➕ Своё состояние…") },
+                        onClick = { stateExpanded = false; customStateInput = ""; showCustomStateDialog = true }
+                    )
+                }
+            }
+        }
         item { Spacer(Modifier.height(8.dp)) }
         item { FieldInput("Глубина подошвы, м", depthStr, { depthStr = it }, KeyboardType.Decimal) }
         item { Spacer(Modifier.height(8.dp)) }
@@ -833,6 +893,31 @@ fun toDMS(dd: Double, isLat: Boolean): String {
     val s = (mTotal - m) * 60
     val dir = if (isLat) (if (dd >= 0) "N" else "S") else (if (dd >= 0) "E" else "W")
     return "%d°%d'%.1f\"%s".format(d, m, s, dir)
+}
+
+/**
+ * Парсит строку в десятичные градусы.
+ * Поддерживает: «55°30'15.5"N», «55 30 15.5», «55°30.5'», «55.5042», «-55.5042».
+ * Возвращает null если строка не распознана.
+ */
+fun parseLatLng(input: String): Double? {
+    val s = input.trim()
+    if (s.isEmpty()) return null
+    s.replace(',', '.').toDoubleOrNull()?.let { return it }
+    val sign = when {
+        s.endsWith("S", true) || s.endsWith("W", true) -> -1.0
+        s.endsWith("N", true) || s.endsWith("E", true) -> 1.0
+        s.startsWith("-") -> -1.0
+        else -> 1.0
+    }
+    val nums = Regex("\\d+(?:[.,]\\d+)?").findAll(s).map { it.value.replace(',', '.').toDouble() }.toList()
+    if (nums.isEmpty()) return null
+    val deg = nums.getOrNull(0) ?: 0.0
+    val min = nums.getOrNull(1) ?: 0.0
+    val sec = nums.getOrNull(2) ?: 0.0
+    if (min < 0 || min >= 60 || sec < 0 || sec >= 60) return null
+    val dd = deg + min / 60.0 + sec / 3600.0
+    return sign * dd
 }
 
 @Composable
