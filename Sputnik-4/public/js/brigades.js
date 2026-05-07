@@ -113,35 +113,42 @@ function openBrigadeModal(id) {
     `<label class="br-check"><input type="checkbox" name="sites" value="${escAttr(s.id)}" ${selSiteIds.includes(s.id) ? 'checked' : ''}> ${esc(s.name)}</label>`
   ).join('');
 
-  openModal(`<h3>${isEdit ? 'Редактировать бригаду' : 'Новая бригада'}</h3>
-    <div class="form-group">
+  const body = `<div class="fgr fone">
+    <div class="fg">
       <label>Название <span style="color:red">*</span></label>
-      <input id="br-name" class="form-input" value="${br ? escAttr(br.name) : ''}" placeholder="Бригада 1" required>
+      <input id="br-name" class="form-input" value="${br ? escAttr(br.name) : ''}" placeholder="Бригада 1">
     </div>
-    <div class="form-group">
+    <div class="fg">
       <label>Машина</label>
       <select id="br-machine" class="form-input">${machOpts}</select>
     </div>
-    <div class="form-group">
+    <div class="fg">
       <label>Члены бригады</label>
       <div class="br-check-list">${workerCheckboxes || '<span style="color:var(--tx3)">Нет сотрудников</span>'}</div>
     </div>
-    <div class="form-group">
+    <div class="fg">
       <label>Базы</label>
       <div class="br-check-list">${baseCheckboxes || '<span style="color:var(--tx3)">Нет баз</span>'}</div>
     </div>
-    <div class="form-group">
+    <div class="fg">
       <label>Объекты</label>
       <div class="br-check-list">${siteCheckboxes || '<span style="color:var(--tx3)">Нет объектов</span>'}</div>
     </div>
-    <div class="form-group">
+    <div class="fg">
       <label>Примечания</label>
       <textarea id="br-notes" class="form-input" rows="2" placeholder="Доп. информация">${br ? esc(br.notes || '') : ''}</textarea>
     </div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
-      <button class="btn bs" onclick="closeModal()">Отмена</button>
-      <button class="btn bp" onclick="saveBrigade(${isEdit ? `'${escAttr(id)}'` : 'null'})">${isEdit ? 'Сохранить' : 'Создать'}</button>
-    </div>`);
+  </div>`;
+
+  const saveId = id || null;
+  showModal(
+    isEdit ? 'Редактировать бригаду' : 'Новая бригада',
+    body,
+    [
+      { cls: 'bs', label: 'Отмена', fn: closeModal },
+      { cls: 'bp', label: isEdit ? 'Сохранить' : 'Создать', fn: () => saveBrigade(saveId) }
+    ]
+  );
 }
 
 async function saveBrigade(id) {
