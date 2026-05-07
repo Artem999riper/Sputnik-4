@@ -42,6 +42,15 @@ function safeNum(v, lo, hi) {
   if (!Number.isFinite(n) || n < lo || n > hi) return null;
   return n;
 }
+function safeFolderName(name) {
+  return String(name || 'без_имени')
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    || 'без_имени';
+}
+
 function isSafeZipPath(name) {
   if (!name) return false;
   if (name.includes('..')) return false;
@@ -223,7 +232,18 @@ module.exports = (app, getDb, L) => {
       if (!b || !b.uuid) continue;
       const d_ = b.drill_date || '—';
       if (!byDate[d_]) byDate[d_] = [];
-      byDate[d_].push({ uuid: b.uuid, name: b.name || `Скв-${b.uuid.slice(0, 6)}`, planned_depth_m: b.planned_depth_m || 0, work_type: b.work_type });
+      const existingBh = get(d, 'SELECT uuid FROM field_boreholes WHERE uuid=?', [b.uuid]);
+      const existingPhotoCount = existingBh
+        ? (get(d, 'SELECT COUNT(*) as c FROM field_photos WHERE borehole_uuid=?', [b.uuid])?.c || 0)
+        : 0;
+      byDate[d_].push({
+        uuid: b.uuid,
+        name: b.name || `Скв-${b.uuid.slice(0, 6)}`,
+        planned_depth_m: b.planned_depth_m || 0,
+        work_type: b.work_type,
+        duplicateStatus: existingBh ? 'update' : 'new',
+        existingPhotoCount,
+      });
     }
 
     res.json({
@@ -251,6 +271,20 @@ module.exports = (app, getDb, L) => {
     try {
       const raw = req.body.filter_uuids;
       if (raw) allowedUuids = new Set(JSON.parse(raw));
+    } catch(e) {}
+
+    // UUID скважин, данные которых нужно обновить при повторном импорте
+    let updateDataUuids = null;
+    try {
+      const raw = req.body.update_data_uuids;
+      if (raw) updateDataUuids = new Set(JSON.parse(raw));
+    } catch(e) {}
+
+    // UUID скважин, фото которых нужно заменить
+    const replacePhotoUuids = new Set();
+    try {
+      const raw = req.body.replace_photo_uuids;
+      if (raw) JSON.parse(raw).forEach(id => replacePhotoUuids.add(id));
     } catch(e) {}
 
     if (!volumeId) { cleanup(); return res.status(400).json({ error: 'volume_id обязателен' }); }
@@ -324,6 +358,11 @@ module.exports = (app, getDb, L) => {
       if (allowedUuids && !allowedUuids.has(bh.uuid)) continue; // фильтр выбора
       try {
         const exists = get(d, 'SELECT uuid, vol_progress_id FROM field_boreholes WHERE uuid=?', [bh.uuid]);
+        // Если скважина уже есть и пользователь не выбрал обновление — пропустить
+        if (exists && updateDataUuids !== null && !updateDataUuids.has(bh.uuid)) {
+          counts.skipped++;
+          continue;
+        }
         const lat = safeNum(bh.lat, -90, 90);
         const lng = safeNum(bh.lng, -180, 180);
         const depth = safeNum(bh.planned_depth_m, 0, 10000);
@@ -460,20 +499,21 @@ module.exports = (app, getDb, L) => {
       const m = baseName.match(/^([0-9a-f-]{36})_([a-z_]+)_([0-9a-f]+)\.(jpg|jpeg|png)$/i);
       if (!m) continue;
       const [, bhUuid, category] = m;
-      const bhExists = get(d, 'SELECT uuid FROM field_boreholes WHERE uuid=?', [bhUuid]);
-      if (!bhExists) continue;
-      const targetDir = path.join(FIELD_UPLOADS, bhUuid);
+      const bhRow = get(d, 'SELECT uuid, name, site_id FROM field_boreholes WHERE uuid=?', [bhUuid]);
+      if (!bhRow) continue;
+      const siteRow = get(d, 'SELECT name FROM sites WHERE id=?', [bhRow.site_id]);
+      const siteFolderName = safeFolderName(siteRow && siteRow.name ? siteRow.name : (bhRow.site_id || bhUuid));
+      const bhFolderName = safeFolderName(bhRow.name || bhUuid);
+      const targetDir = path.join(FIELD_UPLOADS, siteFolderName, bhFolderName);
       if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
       const targetPath = path.join(targetDir, baseName);
+      const filePathRel = `uploads/field/${siteFolderName}/${bhFolderName}/${baseName}`;
       try {
-        // Skip if same file already exists (re-import idempotent)
-        if (!fs.existsSync(targetPath)) {
+        if (!fs.existsSync(targetPath) || replacePhotoUuids.has(bhUuid)) {
           fs.writeFileSync(targetPath, pe.getData());
         }
-        // Avoid duplicate field_photos rows on re-import
-        const filePathRel = `uploads/field/${bhUuid}/${baseName}`;
-        const exists = get(d, 'SELECT uuid FROM field_photos WHERE borehole_uuid=? AND file_path=?', [bhUuid, filePathRel]);
-        if (!exists) {
+        const photoExists = get(d, 'SELECT uuid FROM field_photos WHERE borehole_uuid=? AND file_path=?', [bhUuid, filePathRel]);
+        if (!photoExists) {
           run(d, `INSERT INTO field_photos (uuid, borehole_uuid, category, file_path, taken_at)
                   VALUES (?,?,?,?,datetime('now'))`,
             [uuid(), bhUuid, category, filePathRel]);

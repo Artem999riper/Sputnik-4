@@ -32,6 +32,8 @@ class SheetBuilder(val name: String) {
     val merges = mutableListOf<String>()  // e.g. "A1:F1"
     val colWidths = mutableMapOf<Int, Double>()  // 1-based col index → width
 
+    val nextRowNum: Int get() = rows.size + 1
+
     fun row(vararg cells: Pair<CellValue, CellStyle>) {
         rows.add(XlsxRow(cells.toList()))
     }

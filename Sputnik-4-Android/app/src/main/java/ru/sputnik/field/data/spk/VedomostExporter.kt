@@ -6,6 +6,9 @@ import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import ru.sputnik.field.data.db.AppDatabase
+import ru.sputnik.field.data.model.Borehole
+import ru.sputnik.field.data.model.SoilLayer
+import ru.sputnik.field.data.model.Sample
 import java.io.File
 import java.io.FileOutputStream
 
@@ -111,7 +114,8 @@ suspend fun exportSamplesVedomost(
         )
         merge("E7:F7")
         // Данные
-        rows.forEach { r ->
+        val dataStart = nextRowNum
+        rows.forEachIndexed { idx, r ->
             row(
                 num(r.n, CellStyle.BODY_CENTER),
                 txt(r.geo, CellStyle.BODY_CENTER),
@@ -123,6 +127,7 @@ suspend fun exportSamplesVedomost(
                 txt(r.frozen, CellStyle.BODY_CENTER),
                 txt(r.soil, CellStyle.BODY_LEFT)
             )
+            merge("E${dataStart + idx}:F${dataStart + idx}")
         }
         // Ширины
         colWidth(1, 6.0); colWidth(2, 14.0); colWidth(3, 14.0); colWidth(4, 22.0)
@@ -136,6 +141,23 @@ suspend fun exportSamplesVedomost(
     FileOutputStream(outFile).use { xlsx.writeTo(it) }
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", outFile)
     VedomostResult(uri, fileName, rows.size)
+}
+
+// ─────────────────────────────────────────────────────────────
+// Вспомогательные типы для снимка бригады
+// ─────────────────────────────────────────────────────────────
+private data class SnapshotData(val memberNames: List<String>, val transportLabel: String)
+
+private fun parseSnapshot(json: String): SnapshotData {
+    if (json.isBlank()) return SnapshotData(emptyList(), "")
+    return try {
+        val obj = org.json.JSONObject(json)
+        val arr = obj.optJSONArray("memberNames")
+        val names = if (arr != null) (0 until arr.length()).map { arr.getString(it) } else emptyList()
+        SnapshotData(names, obj.optString("transportLabel", ""))
+    } catch (e: Exception) {
+        SnapshotData(emptyList(), "")
+    }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -153,25 +175,35 @@ suspend fun exportVolumesVedomost(
     val cards = gatherCards(db, fromDate, toDate, siteId)
     val today = java.time.LocalDate.now().toString()
 
-    // Бригада
-    val brigade = db.brigades().current()
-    val transport = brigade?.transportId?.let { db.transport().byId(it) }
-    val members = brigade?.let {
-        val ids = db.brigades().members(it.id).map { m -> m.workerId }
-        db.workers().byIds(ids).joinToString(", ") { w -> w.name }
-    } ?: ""
-    val transportLabel = transport?.let {
-        val plate = if (it.plate.isNotBlank()) " ${it.plate}" else ""
-        "${it.name}$plate"
-    } ?: "—"
+    // Разбиваем скважины на группы по снимку бригады, сохраняя порядок по дате
+    val groups = mutableListOf<Pair<SnapshotData, List<Triple<Borehole, List<SoilLayer>, List<Sample>>>>>()
+    var lastSnapshot: String? = null
+    var currentGroup = mutableListOf<Triple<Borehole, List<SoilLayer>, List<Sample>>>()
+    for (card in cards) {
+        val snap = card.first.brigadeSnapshot
+        if (snap != lastSnapshot) {
+            if (currentGroup.isNotEmpty()) {
+                groups.add(parseSnapshot(lastSnapshot ?: "") to currentGroup)
+                currentGroup = mutableListOf()
+            }
+            lastSnapshot = snap
+        }
+        currentGroup.add(card)
+    }
+    if (currentGroup.isNotEmpty()) groups.add(parseSnapshot(lastSnapshot ?: "") to currentGroup)
+
+    // Считаем суммарные объёмы по людям
+    val personDepths = mutableMapOf<String, Double>()
+    for ((snap, groupCards) in groups) {
+        val totalDepth = groupCards.sumOf { it.first.plannedDepthM }
+        snap.memberNames.forEach { name ->
+            personDepths[name] = (personDepths[name] ?: 0.0) + totalDepth
+        }
+    }
 
     val xlsx = XlsxBuilder()
     xlsx.sheet("Объемы") {
-        row(txt("Борт:", CellStyle.HEADER), txt(transportLabel, CellStyle.BODY_LEFT))
-        merge("B1:H1")
-        row(txt("Бригада:", CellStyle.HEADER), txt(members.ifBlank { "—" }, CellStyle.BODY_LEFT))
-        merge("B2:H2")
-        // Шапка таблицы (3-4 строки: некоторые ячейки с merged)
+        // Шапка колонок (один раз)
         row(
             txt("п/п", CellStyle.HEADER),
             txt("Имя скважины", CellStyle.HEADER),
@@ -187,41 +219,70 @@ suspend fun exportVolumesVedomost(
             txt("Широта", CellStyle.HEADER), txt("Долгота", CellStyle.HEADER),
             empty(CellStyle.HEADER), empty(CellStyle.HEADER), empty(CellStyle.HEADER)
         )
-        merge("A3:A4"); merge("B3:B4"); merge("C3:C4")
-        merge("D3:E3")
-        merge("F3:F4"); merge("G3:G4"); merge("H3:H4")
+        merge("A1:A2"); merge("B1:B2"); merge("C1:C2")
+        merge("D1:E1")
+        merge("F1:F2"); merge("G1:G2"); merge("H1:H2")
 
-        // Объект
         row(txt("Объект: ${siteName ?: "—"}", CellStyle.HEADER))
-        merge("A5:H5")
+        merge("A3:H3")
 
-        // Данные
+        val firstDepthCol = 6  // колонка F (1-based)
+        val depthRanges = mutableListOf<String>() // для суммы ИТОГО
         var seq = 0
-        val firstDataRow = 6  // 1-based row number of first data row
-        cards.forEach { (bh, _, _) ->
-            seq++
-            row(
-                num(seq, CellStyle.BODY_CENTER),
-                txt(bh.name, CellStyle.BODY_CENTER),
-                txt(bh.drillDate, CellStyle.BODY_CENTER),
-                num(bh.manualLat, CellStyle.BODY_CENTER),
-                num(bh.manualLng, CellStyle.BODY_CENTER),
-                num(bh.plannedDepthM.takeIf { it > 0 }, CellStyle.BODY_CENTER),
-                num(bh.casingLengthM.takeIf { it > 0 }, CellStyle.BODY_CENTER),
-                txt(bh.description, CellStyle.BODY_LEFT)
-            )
+
+        for ((snapData, groupCards) in groups) {
+            // Строка с составом бригады
+            val brigadeLabel = buildString {
+                if (snapData.transportLabel.isNotBlank()) append("Борт: ${snapData.transportLabel}  ")
+                append("Бригада: ${snapData.memberNames.joinToString(", ").ifBlank { "—" }}")
+            }
+            val brigRow = nextRowNum
+            row(txt(brigadeLabel, CellStyle.TITLE))
+            merge("A$brigRow:H$brigRow")
+
+            val groupFirstRow = nextRowNum
+            for (card in groupCards) {
+                val bh = card.first
+                seq++
+                row(
+                    num(seq, CellStyle.BODY_CENTER),
+                    txt(bh.name, CellStyle.BODY_CENTER),
+                    txt(bh.drillDate, CellStyle.BODY_CENTER),
+                    num(bh.manualLat, CellStyle.BODY_CENTER),
+                    num(bh.manualLng, CellStyle.BODY_CENTER),
+                    num(bh.plannedDepthM.takeIf { it > 0 }, CellStyle.BODY_CENTER),
+                    num(bh.casingLengthM.takeIf { it > 0 }, CellStyle.BODY_CENTER),
+                    txt(bh.description, CellStyle.BODY_LEFT)
+                )
+            }
+            val groupLastRow = nextRowNum - 1
+            if (groupCards.isNotEmpty()) depthRanges.add("F$groupFirstRow:F$groupLastRow")
         }
-        // ИТОГО
+
+        // Строка ИТОГО
         if (seq > 0) {
-            val lastDataRow = firstDataRow + seq - 1
+            val totalFormula = depthRanges.joinToString("+") { "SUM($it)" }
             row(
                 txt("ИТОГО:", CellStyle.HEADER),
                 empty(CellStyle.BODY_CENTER), empty(CellStyle.BODY_CENTER),
                 empty(CellStyle.BODY_CENTER), empty(CellStyle.BODY_CENTER),
-                formula("SUM(F$firstDataRow:F$lastDataRow)", CellStyle.HEADER),
-                formula("SUM(G$firstDataRow:G$lastDataRow)", CellStyle.HEADER),
-                empty(CellStyle.BODY_CENTER)
+                formula(totalFormula, CellStyle.HEADER),
+                empty(CellStyle.BODY_CENTER), empty(CellStyle.BODY_CENTER)
             )
+        }
+
+        // Суммарный объём по каждому человеку
+        if (personDepths.isNotEmpty()) {
+            row() // пустая строка перед итогами по людям
+            personDepths.forEach { (name, depth) ->
+                row(
+                    txt(name, CellStyle.BODY_LEFT),
+                    empty(CellStyle.BODY_CENTER), empty(CellStyle.BODY_CENTER),
+                    empty(CellStyle.BODY_CENTER), empty(CellStyle.BODY_CENTER),
+                    txt(fmtNum(depth) + " м", CellStyle.BODY_CENTER),
+                    empty(CellStyle.BODY_CENTER), empty(CellStyle.BODY_CENTER)
+                )
+            }
         }
 
         colWidth(1, 6.0); colWidth(2, 16.0); colWidth(3, 14.0); colWidth(4, 13.0); colWidth(5, 13.0)

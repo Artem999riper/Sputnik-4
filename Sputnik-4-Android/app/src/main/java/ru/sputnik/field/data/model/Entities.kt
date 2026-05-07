@@ -84,7 +84,8 @@ data class Borehole(
     val drillDate: String = "",
     val status: String = "draft",   // draft | done
     val brigadeId: String? = null,
-    val casingLengthM: Double = 0.0
+    val casingLengthM: Double = 0.0,
+    val brigadeSnapshot: String = "" // JSON: {"memberNames":[...],"transportLabel":"..."}
 )
 
 @Entity(

@@ -301,12 +301,29 @@ async function fieldShowSpkPreviewModal(file, volumeId) {
           <span class="field-date-count">${bhs.length} скв.</span>
         </label>
         <div class="spk-bh-list" id="spk-bh-list-${escAttr(date)}">
-          ${bhs.map(b => `
-            <label class="spk-bh-row">
+          ${bhs.map(b => {
+            const isUpdate = b.duplicateStatus === 'update';
+            const statusBadge = isUpdate
+              ? `<span style="color:var(--acc);font-size:10px;font-weight:700">♻️ обновление</span>`
+              : `<span style="color:var(--grn,#15803d);font-size:10px;font-weight:700">🆕</span>`;
+            const updateChk = isUpdate
+              ? `<label style="font-size:11px;color:var(--tx3);margin-left:4px">
+                   <input type="checkbox" class="spk-update-chk" data-uuid="${escAttr(b.uuid)}" checked> данные
+                 </label>`
+              : '';
+            const photoChk = (isUpdate && b.existingPhotoCount > 0)
+              ? `<label style="font-size:11px;color:var(--tx3);margin-left:4px">
+                   <input type="checkbox" class="spk-photo-chk" data-uuid="${escAttr(b.uuid)}"> 📷 заменить ${b.existingPhotoCount} фото
+                 </label>`
+              : '';
+            return `
+            <label class="spk-bh-row" style="flex-wrap:wrap;gap:2px">
               <input type="checkbox" class="spk-bh-chk" data-uuid="${escAttr(b.uuid)}" data-date="${escAttr(date)}" checked>
               <span class="spk-bh-name">${esc(b.name)}</span>
               <span class="spk-bh-meta">${fieldWorkLabel(b.work_type)} · ${b.planned_depth_m} м</span>
-            </label>`).join('')}
+              ${statusBadge}${updateChk}${photoChk}
+            </label>`;
+          }).join('')}
         </div>
       </div>`;
   }).join('');
@@ -350,18 +367,23 @@ async function fieldDoImportFromPreview() {
   const selectedUuids = [...document.querySelectorAll('.spk-bh-chk:checked')].map(cb => cb.dataset.uuid);
   if (!selectedUuids.length) { toast('Не выбрано ни одной скважины', 'err'); return; }
 
+  const updateDataUuids = [...document.querySelectorAll('.spk-update-chk:checked')].map(cb => cb.dataset.uuid);
+  const replacePhotoUuids = [...document.querySelectorAll('.spk-photo-chk:checked')].map(cb => cb.dataset.uuid);
+
   closeModal();
-  await fieldUploadSpkToVolume(file, volumeId, selectedUuids);
+  await fieldUploadSpkToVolume(file, volumeId, selectedUuids, updateDataUuids, replacePhotoUuids);
   fieldPreviewFile = null;
   fieldPreviewVolumeId = null;
 }
 
-async function fieldUploadSpkToVolume(file, volumeId, filterUuids) {
+async function fieldUploadSpkToVolume(file, volumeId, filterUuids, updateDataUuids, replacePhotoUuids) {
   if (!file) return;
   const fd = new FormData();
   fd.append('spk', file);
   fd.append('user_name', un());
   if (filterUuids) fd.append('filter_uuids', JSON.stringify(filterUuids));
+  if (updateDataUuids) fd.append('update_data_uuids', JSON.stringify(updateDataUuids));
+  if (replacePhotoUuids) fd.append('replace_photo_uuids', JSON.stringify(replacePhotoUuids));
   toast(`Импорт ${file.name}…`);
   try {
     const r = await fetch(`${API}/field/import-to-volume?volume_id=${encodeURIComponent(volumeId)}`, {

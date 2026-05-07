@@ -41,7 +41,7 @@ fun BoreholesScreen(
 
     val drafts = boreholes.filter { it.status != "done" }
     val done = boreholes.filter { it.status == "done" }
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val displayList = if (selectedTab == 0) drafts else done
 
     var kmlStatus by remember { mutableStateOf<String?>(null) }

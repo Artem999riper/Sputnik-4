@@ -74,6 +74,7 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
     var lngStr by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("draft") }
     var casingStr by remember { mutableStateOf("") }
+    var brigadeSnapshot by remember { mutableStateOf("") }
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showDoneDialog by remember { mutableStateOf(false) }
@@ -95,6 +96,7 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
                 lngStr = bh.manualLng?.let { toDMS(it, false) } ?: ""
                 status = bh.status
                 casingStr = bh.casingLengthM.takeIf { it > 0 }?.toString() ?: ""
+                brigadeSnapshot = bh.brigadeSnapshot
             }
         } else {
             // Pre-save empty placeholder so FK constraints are satisfied when layers are added.
@@ -107,6 +109,19 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
     fun saveBorehole(then: () -> Unit = {}) {
         scope.launch {
             withContext(NonCancellable) {
+                val snapshotToSave = if (status == "done" && brigadeSnapshot.isBlank()) {
+                    val brigade = db.brigades().current()
+                    if (brigade != null) {
+                        val memberIds = db.brigades().members(brigade.id).map { m -> m.workerId }
+                        val memberNames = db.workers().byIds(memberIds).map { w -> w.name }
+                        val transport = brigade.transportId?.let { db.transport().byId(it) }
+                        val transportLabel = transport?.let {
+                            if (it.plate.isNotBlank()) "${it.name} ${it.plate}" else it.name
+                        } ?: ""
+                        buildBrigadeSnapshotJson(memberNames, transportLabel)
+                    } else ""
+                } else brigadeSnapshot
+                brigadeSnapshot = snapshotToSave
                 // @Upsert = INSERT OR IGNORE + UPDATE — does not delete the row,
                 // so FK-CASCADE on soil_layers/photos is never triggered.
                 db.boreholes().upsert(Borehole(
@@ -116,7 +131,8 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
                     drillDate = drillDate, geomorphDesc = geomorphDesc, description = description,
                     manualLat = parseLatLng(latStr), manualLng = parseLatLng(lngStr),
                     status = status,
-                    casingLengthM = casingStr.toRusDouble() ?: 0.0
+                    casingLengthM = casingStr.toRusDouble() ?: 0.0,
+                    brigadeSnapshot = snapshotToSave
                 ))
             }
             then()
@@ -1036,6 +1052,12 @@ fun FieldInput(
         minLines = if (multiline) 2 else 1,
         keyboardOptions = KeyboardOptions(keyboardType = keyboard)
     )
+}
+
+fun buildBrigadeSnapshotJson(memberNames: List<String>, transportLabel: String): String {
+    val namesJson = memberNames.joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }
+    val labelEscaped = transportLabel.replace("\\", "\\\\").replace("\"", "\\\"")
+    return """{"memberNames":[$namesJson],"transportLabel":"$labelEscaped"}"""
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
