@@ -209,7 +209,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
 
   app.post('/api/dem/export', async (req, res) => {
     if (!demProcessor) return res.status(503).json({ error: 'DEM процессор не доступен' });
-    const { bbox, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite, routePoints, bufferM, routeBearing } = req.body;
+    const { bbox, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite } = req.body;
     if (!bbox || !bbox.minLat) return res.status(400).json({ error: 'Не указана область (bbox)' });
     let tmpDir = null;
     try {
@@ -222,9 +222,6 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
         jitterMin: parseFloat(jitterMin) || 0,
         jitterMax: parseFloat(jitterMax) || 0,
         exportSatellite: exportSatellite !== false,
-        routePoints: routePoints || null,
-        bufferM: bufferM ? parseFloat(bufferM) : null,
-        routeBearing: routeBearing != null ? parseFloat(routeBearing) : null,
         onProgress: (pct, text) => console.log(`[DEM] ${pct}% - ${text}`),
       });
       tmpDir = result.tmpDir;

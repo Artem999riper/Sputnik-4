@@ -383,8 +383,7 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif) {
 
 // ── Главная функция ────────────────────────────────────────
 async function processDEM({bbox,projId,proj4,epsg,projName,format,
-                            interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,
-                            routePoints,bufferM,routeBearing,onProgress}) {
+                            interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,onProgress}) {
   gridStep = (gridStep !== undefined && gridStep !== null && gridStep !== '') ? parseInt(gridStep) : 20;
   if (isNaN(gridStep)) gridStep = 20;
   const jMin = parseFloat(jitterMin)||0;
@@ -512,17 +511,14 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     const pyScript=path.join(__dirname,'dem_export.py');
 
     fs.writeFileSync(paramsFile,JSON.stringify({
-      contours_gpkg:  contoursGpkg,
-      reproj_tif:     reprojTif,
-      output_dxf:     outDxf,
-      interval:       interval,
-      grid_step_m:    gridStep,
-      text_height:    textHeight,
-      jitter_min_m:   jMin,
-      jitter_max_m:   jMax,
-      route_points:   routePoints || null,
-      buffer_m:       bufferM || null,
-      route_bearing:  routeBearing != null ? routeBearing : null,
+      contours_gpkg: contoursGpkg,
+      reproj_tif:    reprojTif,
+      output_dxf:    outDxf,
+      interval:      interval,
+      grid_step_m:   gridStep,
+      text_height:   textHeight,
+      jitter_min_m:  jMin,
+      jitter_max_m:  jMax,
     }));
 
     // Запускаем Python из OSGeo4W

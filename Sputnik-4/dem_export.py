@@ -16,19 +16,6 @@ LAYER_CONTOURS = 'GORIZONTALI'   # горизонтали
 LAYER_LABELS   = 'PODPISI'       # подписи высот
 LAYER_POINTS   = 'TOCHKI_VYSOT'  # точки сетки высот
 
-def _dist_point_to_segment(px, py, ax, ay, bx, by):
-    dx, dy = bx - ax, by - ay
-    if dx == 0 and dy == 0:
-        return math.hypot(px - ax, py - ay)
-    t = ((px - ax) * dx + (py - ay) * dy) / (dx*dx + dy*dy)
-    t = max(0.0, min(1.0, t))
-    return math.hypot(px - (ax + t*dx), py - (ay + t*dy))
-
-def _dist_to_route(px, py, route_pts):
-    return min(_dist_point_to_segment(px, py, route_pts[i][0], route_pts[i][1],
-                                      route_pts[i+1][0], route_pts[i+1][1])
-               for i in range(len(route_pts) - 1))
-
 def run(params_file):
     with open(params_file, 'r', encoding='utf-8') as f:
         p = json.load(f)
@@ -40,11 +27,12 @@ def run(params_file):
     grid_step_m   = float(p.get('grid_step_m', 20))  # шаг в метрах
     label_step    = interval * 2          # каждая вторая горизонталь
     text_height   = float(p.get('text_height', 5))
+    # Разброс положения точек в плане (имитация ручного полевого съёма)
+    # jitter_min_m — минимальное смещение (мёртвая зона: точки не ближе этого к узлу сетки)
+    # jitter_max_m — максимальное смещение (точки не дальше этого от узла сетки)
+    # Если оба = 0 → строгая сетка
     jitter_min_m  = float(p.get('jitter_min_m', 0))
     jitter_max_m  = float(p.get('jitter_max_m', 0))
-    route_points_wgs = p.get('route_points')  # [{lat, lng}, ...] или None
-    buffer_m      = float(p.get('buffer_m') or 50)
-    route_bearing = p.get('route_bearing')  # градусы от севера, может быть None
 
     print(f"[PY] contours: {contours_gpkg}")
     print(f"[PY] raster:   {reproj_tif}")
@@ -165,170 +153,83 @@ def run(params_file):
             band = ds_raster.GetRasterBand(1)
             gt_r = ds_raster.GetGeoTransform()
             nodata = band.GetNoDataValue()
-            pix_w = abs(gt_r[1])
-            pix_h = abs(gt_r[5])
+            pix_w = abs(gt_r[1])   # размер пикселя X в единицах СК
+            pix_h = abs(gt_r[5])   # размер пикселя Y
+
             xsize = ds_raster.RasterXSize
             ysize = ds_raster.RasterYSize
 
+            # Определяем единицы СК: градусы или метры
+            # Получаем WKT проекции растра и проверяем IsGeographic
             srs_wkt = ds_raster.GetProjection()
             srs_obj = osr.SpatialReference()
             srs_obj.ImportFromWkt(srs_wkt)
             is_geographic = bool(srs_obj.IsGeographic())
 
+            if is_geographic:
+                # СК в градусах (WGS84 EPSG:4326, ГСК-2011 EPSG:4326 и т.п.)
+                # Пересчитываем шаг в градусы через масштаб меридиана
+                # 1° широты ≈ 111320 м; 1° долготы = 111320 * cos(lat) м
+                center_lat = ds_raster.GetGeoTransform()[3] + ysize * ds_raster.GetGeoTransform()[5] / 2
+                m_per_deg_lat = 111320.0
+                m_per_deg_lon = 111320.0 * math.cos(math.radians(abs(center_lat)))
+                step_px_x = max(1, int(round(grid_step_m / (pix_w * m_per_deg_lon))))
+                step_px_y = max(1, int(round(grid_step_m / (pix_h * m_per_deg_lat))))
+                print(f"[PY] Geographic SRS: 1deg_lon={m_per_deg_lon:.0f}m, 1deg_lat={m_per_deg_lat:.0f}m")
+            else:
+                # СК в метрах (МСК, СК-42, WGS84/UTM и т.п.)
+                step_px_x = max(1, int(round(grid_step_m / pix_w)))
+                step_px_y = max(1, int(round(grid_step_m / pix_h)))
+
+            print(f"[PY] Grid: {xsize}x{ysize} px, step={step_px_x}x{step_px_y} px, is_geo={is_geographic}")
+            print(f"[PY] Pixel size: {pix_w:.8f} x {pix_h:.8f} units/px")
+
             th_sm = text_height * 0.45
             off   = text_height * 0.4
 
-            def sample_at(x, y):
-                """Вернуть высоту в точке (x,y) в единицах СК, или None."""
-                col = int((x - gt_r[0]) / gt_r[1])
-                row = int((y - gt_r[3]) / gt_r[5])
-                if col < 0 or row < 0 or col >= xsize or row >= ysize:
-                    return None
-                arr = band.ReadAsArray(col, row, 1, 1)
-                if arr is None:
-                    return None
-                z = float(arr[0, 0])
-                if nodata is not None and abs(z - nodata) < 1e-6:
-                    return None
-                if z < -9000:
-                    return None
-                return z
+            for row in range(0, ysize, step_px_y):
+                for col in range(0, xsize, step_px_x):
+                    arr = band.ReadAsArray(col, row, 1, 1)
+                    if arr is None:
+                        continue
+                    z = float(arr[0, 0])
+                    if nodata is not None and abs(z - nodata) < 1e-6:
+                        continue
+                    if z < -9000:
+                        continue
+                    # Координаты центра пикселя
+                    x = gt_r[0] + (col + 0.5) * gt_r[1] + (row + 0.5) * gt_r[2]
+                    y = gt_r[3] + (col + 0.5) * gt_r[4] + (row + 0.5) * gt_r[5]
 
-            def write_point(x, y, z):
-                if jitter_max_m > 0:
-                    radius = random.uniform(min(jitter_min_m, jitter_max_m), jitter_max_m)
-                    angle  = random.uniform(0, 2 * math.pi)
-                    x += radius * math.cos(angle)
-                    y += radius * math.sin(angle)
-                g(0,'POINT')
-                g(8,LAYER_POINTS); g(62,3)
-                g(10,f"{x:.3f}"); g(20,f"{y:.3f}"); g(30,f"{z:.3f}")
-                g(0,'TEXT')
-                g(8,LAYER_POINTS); g(62,3)
-                g(10,f"{x+off:.3f}"); g(20,f"{y+off:.3f}"); g(30,f"{z:.3f}")
-                g(40,f"{th_sm:.3f}"); g(1,f"{z:.2f}"); g(72,0); g(73,1)
-                g(11,f"{x+off:.3f}"); g(21,f"{y+off:.3f}"); g(31,f"{z:.3f}")
+                    # Разброс в плане с мёртвой зоной — имитация ручного полевого съёма
+                    # Точка смещается на расстояние от jitter_min_m до jitter_max_m
+                    # в случайном направлении (равномерно по углу).
+                    # Мёртвая зона: если min > 0, точки никогда не остаются строго на узле сетки.
+                    if jitter_max_m > 0:
+                        j_min = min(jitter_min_m, jitter_max_m)
+                        j_max = jitter_max_m
+                        # Случайный радиус в диапазоне [j_min, j_max]
+                        radius = random.uniform(j_min, j_max)
+                        # Случайный угол — равномерно по всем направлениям
+                        angle  = random.uniform(0, 2 * math.pi)
+                        x += radius * math.cos(angle)
+                        y += radius * math.sin(angle)
 
-            # ── Режим трассы: повёрнутая сетка ────────────────
-            if route_points_wgs and len(route_points_wgs) >= 2:
-                # Трансформация WGS84 → целевая СК
-                src_srs = osr.SpatialReference()
-                src_srs.ImportFromEPSG(4326)
-                src_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-                tgt_srs = osr.SpatialReference()
-                tgt_srs.ImportFromWkt(srs_wkt)
-                tgt_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-                ct = osr.CoordinateTransformation(src_srs, tgt_srs)
+                    g(0,'POINT')
+                    g(8,LAYER_POINTS); g(62,3)
+                    g(10,f"{x:.3f}"); g(20,f"{y:.3f}"); g(30,f"{z:.3f}")
 
-                route_proj = []
-                for pt in route_points_wgs:
-                    lng, lat = float(pt['lng']), float(pt['lat'])
-                    try:
-                        tx, ty, _ = ct.TransformPoint(lng, lat)
-                        route_proj.append((tx, ty))
-                    except Exception:
-                        pass
+                    g(0,'TEXT')
+                    g(8,LAYER_POINTS); g(62,3)
+                    g(10,f"{x+off:.3f}"); g(20,f"{y+off:.3f}"); g(30,f"{z:.3f}")
+                    g(40,f"{th_sm:.3f}")
+                    g(1,f"{z:.2f}")
+                    g(72,0); g(73,1)
+                    g(11,f"{x+off:.3f}"); g(21,f"{y+off:.3f}"); g(31,f"{z:.3f}")
+                    point_count += 1
 
-                if len(route_proj) < 2:
-                    print("[PY] Route transform failed, fallback to normal grid")
-                    route_proj = None
-                else:
-                    # В единицах СК может быть географическая (градусы) — пересчитываем buffer_m
-                    if is_geographic:
-                        center_lat_r = math.radians(abs(sum(pt['lat'] for pt in route_points_wgs) / len(route_points_wgs)))
-                        m_per_unit_x = 111320.0 * math.cos(center_lat_r)
-                        m_per_unit_y = 111320.0
-                        buf_x = buffer_m / m_per_unit_x
-                        buf_y = buffer_m / m_per_unit_y
-                        step_x = grid_step_m / m_per_unit_x
-                        step_y = grid_step_m / m_per_unit_y
-                        eff_buffer = buf_y  # в единицах СК (градусы)
-                        eff_step = step_y
-                    else:
-                        buf_x = buf_y = buffer_m
-                        step_x = step_y = grid_step_m
-                        eff_buffer = buffer_m
-                        eff_step = grid_step_m
-
-                    # Угол поворота из bearing (от севера по часовой → в системе СК)
-                    # bearing 0° = север = +Y; bearing 90° = восток = +X
-                    # В декартовой системе: вектор = (sin(bearing), cos(bearing))
-                    if route_bearing is not None:
-                        theta = math.radians(float(route_bearing))
-                    else:
-                        # bearing по первой и последней точке трассы в проецированных координатах
-                        dx_r = route_proj[-1][0] - route_proj[0][0]
-                        dy_r = route_proj[-1][1] - route_proj[0][1]
-                        theta = math.atan2(dx_r, dy_r)  # угол от +Y (севера)
-
-                    sin_t, cos_t = math.sin(theta), math.cos(theta)
-                    # Вдоль трассы: (sin_t, cos_t); поперёк: (cos_t, -sin_t)
-
-                    # Центр трассы
-                    cx = sum(rp[0] for rp in route_proj) / len(route_proj)
-                    cy = sum(rp[1] for rp in route_proj) / len(route_proj)
-
-                    # Проекции точек трассы на ось «вдоль трассы»
-                    u_vals_route = [(rp[0] - cx)*sin_t + (rp[1] - cy)*cos_t for rp in route_proj]
-                    u_min = min(u_vals_route) - eff_buffer
-                    u_max = max(u_vals_route) + eff_buffer
-
-                    u_range = u_min
-                    while u_range <= u_max:
-                        v_range = -eff_buffer
-                        while v_range <= eff_buffer:
-                            # Повёрнутые координаты → проецированные
-                            x = cx + u_range * sin_t + v_range * cos_t
-                            y = cy + u_range * cos_t - v_range * sin_t
-                            # Проверка: в пределах буфера от трассы
-                            d = _dist_to_route(x, y, route_proj)
-                            if d <= eff_buffer * 1.01:
-                                z = sample_at(x, y)
-                                if z is not None:
-                                    write_point(x, y, z)
-                                    point_count += 1
-                            v_range += eff_step
-                        u_range += eff_step
-
-                    ds_raster = None
-                    print(f"[PY] Route grid points written: {point_count}")
-                    # route_proj not None → skip normal grid below
-                    route_proj = True  # sentinel
-
-            else:
-                route_proj = None
-
-            # ── Обычная сетка (север вверх) ───────────────────
-            if not route_proj:
-                if is_geographic:
-                    center_lat = gt_r[3] + ysize * gt_r[5] / 2
-                    m_per_deg_lat = 111320.0
-                    m_per_deg_lon = 111320.0 * math.cos(math.radians(abs(center_lat)))
-                    step_px_x = max(1, int(round(grid_step_m / (pix_w * m_per_deg_lon))))
-                    step_px_y = max(1, int(round(grid_step_m / (pix_h * m_per_deg_lat))))
-                    print(f"[PY] Geographic SRS: 1deg_lon={m_per_deg_lon:.0f}m, 1deg_lat={m_per_deg_lat:.0f}m")
-                else:
-                    step_px_x = max(1, int(round(grid_step_m / pix_w)))
-                    step_px_y = max(1, int(round(grid_step_m / pix_h)))
-
-                print(f"[PY] Grid: {xsize}x{ysize} px, step={step_px_x}x{step_px_y} px, is_geo={is_geographic}")
-
-                for row in range(0, ysize, step_px_y):
-                    for col in range(0, xsize, step_px_x):
-                        z = sample_at(
-                            gt_r[0] + (col + 0.5) * gt_r[1] + (row + 0.5) * gt_r[2],
-                            gt_r[3] + (col + 0.5) * gt_r[4] + (row + 0.5) * gt_r[5],
-                        )
-                        if z is None:
-                            continue
-                        x = gt_r[0] + (col + 0.5) * gt_r[1] + (row + 0.5) * gt_r[2]
-                        y = gt_r[3] + (col + 0.5) * gt_r[4] + (row + 0.5) * gt_r[5]
-                        write_point(x, y, z)
-                        point_count += 1
-
-                if ds_raster:
-                    ds_raster = None
-                print(f"[PY] Grid points written: {point_count}")
+            ds_raster = None
+        print(f"[PY] Grid points written: {point_count}")
 
     g(0,'ENDSEC')
     g(0,'EOF')

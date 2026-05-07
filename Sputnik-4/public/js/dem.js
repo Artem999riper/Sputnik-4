@@ -9,13 +9,6 @@ let _demStart     = null;    // первая точка bbox
 let _demTmpLayer  = null;    // временный прямоугольник при рисовании
 let _demBbox      = null;    // итоговый bbox {minLat,minLng,maxLat,maxLng}
 
-// ── Режим трассы ───────────────────────────────────────────
-let _demRouteDrawing = false;
-let _demRouteTmp     = [];       // точки при рисовании [{lat,lng}]
-let _demRoutePoints  = null;     // финальные точки трассы [{lat,lng}]
-let _demRouteLayer   = null;     // L.polyline трассы
-let _demRouteBufferLayer = null; // L.polygon примерного буфера
-
 // ── Проекции ───────────────────────────────────────────────
 // WGS-84: метрическая проекция UTM (зоны выбираются по longitude)
 // ГСК-2011: Гаусс-Крюгер по ГОСТ 32453-2017 (эллипсоид ГСК-2011 = GRS80)
@@ -121,22 +114,14 @@ function openDEMPanel() {
     <div class="fgr">
       <div class="fg s2">
         <label>1. Область на карте</label>
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          <button class="btn bp bsm" style="flex:1;min-width:110px" onclick="demStartDraw()">
-            🔲 Прямоугольник
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn bp bsm" style="flex:1" onclick="demStartDraw()">
+            ✏️ Нарисовать прямоугольник
           </button>
-          <button class="btn bp bsm" style="flex:1;min-width:90px" onclick="demStartRoute()">
-            📏 Трасса
-          </button>
-          <button class="btn bs bsm" onclick="demClearAll()">✕</button>
+          <button class="btn bs bsm" onclick="demClearDraw()">✕</button>
         </div>
         <div id="dem-bbox-info" style="margin-top:5px;font-size:10px;color:var(--tx3)">
           Область не выбрана
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
-          <label style="font-size:11px;flex-shrink:0;color:var(--tx2)">Буфер трассы (м):</label>
-          <input id="dem-buffer" type="number" value="50" min="10" max="1000" step="10"
-            style="font-size:12px;padding:4px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);width:70px">
         </div>
       </div>
 
@@ -341,17 +326,6 @@ function _demSecondClick(e) {
 function demClearDraw() {
   if (_demRect) { try { map.removeLayer(_demRect); } catch(e) {} _demRect = null; }
   _demBbox = null;
-}
-
-function demClearRoute() {
-  if (_demRouteLayer)      { try { map.removeLayer(_demRouteLayer); }      catch(e) {} _demRouteLayer = null; }
-  if (_demRouteBufferLayer){ try { map.removeLayer(_demRouteBufferLayer); } catch(e) {} _demRouteBufferLayer = null; }
-  _demRoutePoints = null;
-}
-
-function demClearAll() {
-  demClearDraw();
-  demClearRoute();
   const info = document.getElementById('dem-bbox-info');
   if (info) { info.style.color = 'var(--tx3)'; info.textContent = 'Область не выбрана'; }
   const warn = document.getElementById('dem-size-warn');
@@ -367,176 +341,9 @@ function demCancelDraw() {
   if (bnr) { bnr.className = ''; bnr.style.display = 'none'; }
 }
 
-// ── Рисование трассы ──────────────────────────────────────
-function _demShowRoutePanel(text) {
-  let panel = document.getElementById('dem-route-panel');
-  if (!panel) {
-    panel = document.createElement('div');
-    panel.id = 'dem-route-panel';
-    panel.style.cssText = [
-      'position:fixed', 'bottom:24px', 'left:50%', 'transform:translateX(-50%)',
-      'z-index:2000', 'background:#fff', 'border:2px solid #f59e0b',
-      'border-radius:10px', 'box-shadow:0 4px 18px rgba(0,0,0,.18)',
-      'padding:10px 16px', 'display:flex', 'align-items:center', 'gap:10px',
-      'font-size:13px', 'font-weight:600', 'min-width:260px',
-    ].join(';');
-    document.body.appendChild(panel);
-  }
-  panel.innerHTML = `<span id="dem-route-panel-t" style="flex:1;color:#92400e">${text}</span>
-    <button onclick="demFinishRoute()" style="background:#f59e0b;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer">✓ Завершить</button>
-    <button onclick="demCancelRoute()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer">✕</button>`;
-  panel.style.display = 'flex';
-}
-
-function _demHideRoutePanel() {
-  const panel = document.getElementById('dem-route-panel');
-  if (panel) panel.style.display = 'none';
-}
-
-function demStartRoute() {
-  closeModal();
-  _demRouteDrawing = true;
-  _demRouteTmp = [];
-  if (_demRouteLayer)      { try { map.removeLayer(_demRouteLayer); }      catch(e) {} _demRouteLayer = null; }
-  if (_demRouteBufferLayer){ try { map.removeLayer(_demRouteBufferLayer); } catch(e) {} _demRouteBufferLayer = null; }
-  _demRoutePoints = null;
-
-  map.getContainer().style.cursor = 'crosshair';
-  map.doubleClickZoom.disable();
-
-  const bnr = document.getElementById('bnr');
-  if (bnr) {
-    bnr.className = 'show draw';
-    bnr.style.display = 'flex';
-    document.getElementById('bnr-t').textContent = '📏 Кликайте на карте для добавления точек трассы';
-  }
-
-  _demShowRoutePanel('📏 Кликайте на карте — добавляйте точки трассы');
-  map.on('click', _demRouteClick);
-}
-
-let _demRouteTmpLine = null;
-
-function _demRouteClick(e) {
-  if (!_demRouteDrawing) return;
-  _demRouteTmp.push({ lat: e.latlng.lat, lng: e.latlng.lng });
-
-  if (_demRouteTmpLine) { try { map.removeLayer(_demRouteTmpLine); } catch(err) {} }
-  if (_demRouteTmp.length >= 2) {
-    _demRouteTmpLine = L.polyline(_demRouteTmp.map(p => [p.lat, p.lng]), {
-      color: '#f59e0b', weight: 3, dashArray: '6 4',
-    }).addTo(map);
-  }
-
-  const t = document.getElementById('dem-route-panel-t');
-  if (t) t.textContent = `📏 Точек: ${_demRouteTmp.length} — добавляйте ещё или нажмите «Завершить»`;
-}
-
-function demFinishRoute() {
-  if (_demRouteTmp.length < 2) { toast('Нарисуйте трассу из минимум 2 точек', 'err'); return; }
-  map.off('click', _demRouteClick);
-  map.getContainer().style.cursor = '';
-  map.doubleClickZoom.enable();
-
-  if (_demRouteTmpLine) { try { map.removeLayer(_demRouteTmpLine); } catch(e) {} _demRouteTmpLine = null; }
-
-  _demRoutePoints = [..._demRouteTmp];
-  _demRouteTmp = [];
-  _demRouteDrawing = false;
-
-  // Нарисовать трассу и буфер на карте
-  _demRouteLayer = L.polyline(_demRoutePoints.map(p => [p.lat, p.lng]), {
-    color: '#f59e0b', weight: 3,
-  }).addTo(map);
-
-  // Примерный буфер (bbox расширенный на bufferM)
-  _demUpdateRouteBuffer();
-
-  const bnr = document.getElementById('bnr');
-  if (bnr) { bnr.className = ''; bnr.style.display = 'none'; }
-  _demHideRoutePanel();
-
-  openDEMPanel();
-  setTimeout(() => {
-    const first = _demRoutePoints[0], last = _demRoutePoints[_demRoutePoints.length - 1];
-    const routeLen = _demRoutePoints.reduce((acc, p, i) => {
-      if (i === 0) return 0;
-      const prev = _demRoutePoints[i - 1];
-      return acc + Math.hypot((p.lat - prev.lat) * 111320, (p.lng - prev.lng) * 111320 * Math.cos(p.lat * Math.PI / 180));
-    }, 0);
-    const info = document.getElementById('dem-bbox-info');
-    if (info) {
-      info.style.color = 'var(--grn)';
-      info.textContent = `✅ Трасса: ${_demRoutePoints.length} точек, ~${(routeLen / 1000).toFixed(1)} км`;
-    }
-    const bearingDeg = _demRouteBearing(_demRoutePoints);
-    const projSel = document.getElementById('dem-proj');
-    if (projSel) {
-      const centerLng = (_demRoutePoints.reduce((s, p) => s + p.lng, 0) / _demRoutePoints.length);
-      let suggested = null;
-      if (centerLng >= 66 && centerLng < 72)  suggested = 'gsk2011_z12';
-      else if (centerLng >= 72 && centerLng < 78)  suggested = 'gsk2011_z13';
-      else if (centerLng >= 78 && centerLng < 84)  suggested = 'gsk2011_z14';
-      else if (centerLng >= 84 && centerLng < 90)  suggested = 'gsk2011_z15';
-      if (suggested) {
-        projSel.value = suggested;
-        const hint = document.getElementById('dem-proj-hint');
-        if (hint) hint.textContent = `💡 Авто: ${projSel.options[projSel.selectedIndex]?.text||''}`;
-      }
-    }
-  }, 100);
-}
-
-function demCancelRoute() {
-  map.off('click', _demRouteClick);
-  if (_demRouteTmpLine) { try { map.removeLayer(_demRouteTmpLine); } catch(e) {} _demRouteTmpLine = null; }
-  _demRouteTmp = [];
-  _demRouteDrawing = false;
-  map.getContainer().style.cursor = '';
-  map.doubleClickZoom.enable();
-  const bnr = document.getElementById('bnr');
-  if (bnr) { bnr.className = ''; bnr.style.display = 'none'; }
-  _demHideRoutePanel();
-  openDEMPanel();
-}
-
-function _demUpdateRouteBuffer() {
-  if (!_demRoutePoints || !_demRoutePoints.length) return;
-  const bufInput = document.getElementById('dem-buffer');
-  const bufM = parseFloat(bufInput?.value) || 50;
-  const bbox = _routeToBbox(_demRoutePoints, bufM);
-  if (_demRouteBufferLayer) { try { map.removeLayer(_demRouteBufferLayer); } catch(e) {} }
-  _demRouteBufferLayer = L.rectangle(
-    [[bbox.minLat, bbox.minLng], [bbox.maxLat, bbox.maxLng]],
-    { color: '#f59e0b', weight: 1.5, dashArray: '4 4', fillOpacity: 0.08 }
-  ).addTo(map);
-}
-
-function _routeToBbox(points, bufM) {
-  const lats = points.map(p => p.lat);
-  const lngs = points.map(p => p.lng);
-  const avgLat = (Math.min(...lats) + Math.max(...lats)) / 2;
-  const dLat = bufM / 111320;
-  const dLng = bufM / (111320 * Math.cos(avgLat * Math.PI / 180));
-  return {
-    minLat: Math.min(...lats) - dLat, maxLat: Math.max(...lats) + dLat,
-    minLng: Math.min(...lngs) - dLng, maxLng: Math.max(...lngs) + dLng,
-  };
-}
-
-function _demRouteBearing(points) {
-  const first = points[0], last = points[points.length - 1];
-  const dLng = (last.lng - first.lng) * Math.PI / 180;
-  const lat1 = first.lat * Math.PI / 180, lat2 = last.lat * Math.PI / 180;
-  const y = Math.sin(dLng) * Math.cos(lat2);
-  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
-  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-}
-
 // ── Выгрузка ───────────────────────────────────────────────
 async function demExport() {
-  const isRouteMode = !!_demRoutePoints;
-  if (!isRouteMode && !_demBbox) { toast('Сначала нарисуйте прямоугольник или трассу на карте', 'err'); return; }
+  if (!_demBbox) { toast('Сначала нарисуйте область на карте', 'err'); return; }
 
   const projId   = document.getElementById('dem-proj')?.value;
   const interval = parseFloat(document.getElementById('dem-interval')?.value) || 2;
@@ -568,29 +375,22 @@ async function demExport() {
   try {
     setProgress(10, '⏳ Запрос к ArcticDEM...');
 
-    const bufferM = parseFloat(document.getElementById('dem-buffer')?.value) || 50;
-    const routeBearing = isRouteMode ? _demRouteBearing(_demRoutePoints) : null;
-    const effectiveBbox = isRouteMode ? _routeToBbox(_demRoutePoints, bufferM) : _demBbox;
-
     const res = await fetch(`${API}/dem/export`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        bbox:         effectiveBbox,
-        projId:       proj.id,
-        proj4:        proj.proj4 || null,
-        epsg:         proj.epsg  || null,
-        projName:     proj.name  || null,
-        format:       'dxf',
+        bbox:     _demBbox,
+        projId:   proj.id,
+        proj4:    proj.proj4 || null,
+        epsg:     proj.epsg  || null,
+        projName: proj.name  || null,
+        format:   'dxf',
         interval,
         gridStep,
         jitterMin,
         jitterMax,
         useGeoid,
         exportSatellite,
-        routePoints:  isRouteMode ? _demRoutePoints : null,
-        bufferM:      isRouteMode ? bufferM : null,
-        routeBearing: routeBearing,
       }),
     });
 
@@ -609,9 +409,8 @@ async function demExport() {
     // Формируем имя файла
     const date   = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const projLbl = proj.name || proj.id.toUpperCase();
-    const modeSfx = isRouteMode ? `_trassa${bufferM}m` : '';
     a.href     = url;
-    a.download = `ArcticDEM_${date}_${projLbl}_${interval}m${modeSfx}.zip`;
+    a.download = `ArcticDEM_${date}_${projLbl}_${interval}m.zip`;
     a.click();
     URL.revokeObjectURL(url);
 
