@@ -685,6 +685,17 @@ function renderVpLayers(volProgressList){
         vpLayer.bindTooltip(tipLines.join('<br>'),{permanent:false,className:'mlbl',direction:'top'});
       });
 
+      // Клик ЛКМ по полевой скважине — открыть карточку (как в табе «Полевые материалы»)
+      g.eachLayer(function(vpLayer){
+        var fProps=(vpLayer.feature&&vpLayer.feature.properties)||{};
+        if(fProps.field_borehole_uuid&&typeof openFieldBoreholeCard==='function'){
+          vpLayer.on('click',function(ev){
+            L.DomEvent.stopPropagation(ev);
+            openFieldBoreholeCard(fProps.field_borehole_uuid);
+          });
+        }
+      });
+
       // Регистрируем через eachLayer чтобы знать конкретную точку
       g.eachLayer(function(vpLayer){
         vpLayer.on('contextmenu',function(ev){

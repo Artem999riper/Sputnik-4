@@ -83,6 +83,13 @@ function _addVertexMarker(c, volId, gj, coords, updatePreview, isVP){
 }
 
 async function _saveVpVertex(factId, gj){
+  // Перестроить ring из _veCoords (фрэшевые массивы, замкнутый контур) — иначе gj хранит старые координаты
+  if(_veCoords&&_veGeomRef&&_veCoords.length>=3){
+    const ring=_veCoords.map(function(c){return[c[0],c[1]];});
+    const f=ring[0],l=ring[ring.length-1];
+    if(f[0]!==l[0]||f[1]!==l[1])ring.push([f[0],f[1]]);
+    _veGeomRef.coordinates[0]=ring;
+  }
   const idx=(currentObj&&currentObj.vol_progress||[]).findIndex(x=>x.id===factId);
   await fetch(`${API}/vol_progress/${factId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({geojson:JSON.stringify(gj)})}).catch(()=>{});
@@ -189,7 +196,7 @@ async function startVpVertexEdit(factId){
     if(!geom)return;
     if(geom.type==='Point'){coords.push(geom.coordinates);}
     else if(geom.type==='LineString'){geom.coordinates.forEach(c=>coords.push(c));}
-    else if(geom.type==='Polygon'){if(geom.coordinates[0])geom.coordinates[0].forEach(c=>coords.push(c));}
+    else if(geom.type==='Polygon'){if(geom.coordinates[0]){_veGeomRef=geom;geom.coordinates[0].forEach(c=>coords.push(c));}}
     else if(geom.type==='FeatureCollection'){(geom.features||[]).forEach(f=>extractVpCoords(f.geometry));}
     else if(geom.type==='Feature'){extractVpCoords(geom.geometry);}
   }

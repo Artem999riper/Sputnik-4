@@ -182,7 +182,7 @@ function renderFieldVolumeBoreholesHtml(list, volId) {
       <div class="field-date-group">
         <div class="field-date-header">
           <label class="field-date-check" onclick="event.stopPropagation()">
-            <input type="checkbox" ${allChecked ? 'checked' : ''} onchange="toggleFieldDateGroup('${escAttr(volId)}',${JSON.stringify(dateUuids)},this.checked)">
+            <input type="checkbox" ${allChecked ? 'checked' : ''} onchange="toggleFieldDateGroup('${escAttr(volId)}','${escAttr(date)}',this.checked)">
           </label>
           <span class="field-date-title" onclick="toggleFieldDateCollapse('${escAttr(volId)}','${escAttr(date)}')">
             <span class="field-chev">${collapsed ? '▸' : '▾'}</span>
@@ -217,9 +217,11 @@ function toggleFieldBhSelect(volId, uuid) {
   if (box && fieldVolumeBhCache[volId]) box.innerHTML = renderFieldVolumeBoreholesHtml(fieldVolumeBhCache[volId], volId);
 }
 
-function toggleFieldDateGroup(volId, uuids, checked) {
+function toggleFieldDateGroup(volId, date, checked) {
   if (!fieldSelectedBhs[volId]) fieldSelectedBhs[volId] = new Set();
   const s = fieldSelectedBhs[volId];
+  const list = fieldVolumeBhCache[volId] || [];
+  const uuids = list.filter(b => (b.drill_date || '—') === date).map(b => b.uuid);
   uuids.forEach(u => checked ? s.add(u) : s.delete(u));
   const box = document.getElementById('fld-vol-bh-' + volId);
   if (box && fieldVolumeBhCache[volId]) box.innerHTML = renderFieldVolumeBoreholesHtml(fieldVolumeBhCache[volId], volId);

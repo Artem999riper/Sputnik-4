@@ -132,6 +132,7 @@ function smgEffectivePlan(vol,prog){
 
 // Plan accumulated from plan_start to today across all months
 function smgPlanToDate(vol, prog) {
+  if (!vol.plan_start || !vol.plan_end) return 0;
   const allDates = smgAllPlanDateStrs(vol);
   if (!allDates.length) return 0;
   const todayStr = new Date().toISOString().split('T')[0];
@@ -1226,24 +1227,28 @@ function _smgBuildMonthSheet(site,vols,prog,y,m,today){
       factEntries.forEach(p=>{factMap[p.work_date]=(factMap[p.work_date]||0)+(+p.completed||0);});
       const ep=_smgEffPlanForMonth(vol,prog,y,m);
 
-      // Month-scoped totals
-      let monthPlanTotal=0,monthFactTotal=0,monthPT=0,monthFT=0;
+      // Month-scoped sum for the "Объём на месяц" cell
+      let monthPlanTotal=0;
       for(let d=1;d<=days;d++){
         const ds=_smgDateStr(y,m,d);
         monthPlanTotal+=(ep[ds]||0);
-        monthFactTotal+=(factMap[ds]||0);
-        if(ds<=today){monthPT+=(ep[ds]||0);monthFT+=(factMap[ds]||0);}
       }
-      const monthDelta=Math.round(monthFT-monthPT);
 
-      // All-time fact for % (vs vol.amount)
+      // Cross-period "to date" totals — matches on-screen smgPlanToDate logic
+      const pT_all = (typeof smgPlanToDate==='function') ? smgPlanToDate(vol,prog) : 0;
+      const totalFactToDate = factEntries
+        .filter(p=>p.work_date && p.work_date <= today)
+        .reduce((a,p)=>a+(+p.completed||0),0);
+      const deltaAll = Math.round(totalFactToDate - pT_all);
+
+      // % of total volume by all-time fact (independent of plan_start)
       const totalFact=factEntries.reduce((a,p)=>a+(+p.completed||0),0);
       const pct=vol.amount>0?Math.min(100,Math.round(totalFact/vol.amount*100)):0;
       const actCount=new Set(prog.filter(p=>p.volume_id===vol.id&&p.row_type==='act').map(p=>p.work_date)).size;
 
       const planRow=[seqNo,vol.name,'ПЛАН',vol.unit,monthPlanTotal];
       for(let d=1;d<=days;d++)planRow.push(ep[_smgDateStr(y,m,d)]||'');
-      planRow.push(vol.amount,monthPlanTotal,pct+'%',(monthDelta>0?'+':'')+monthDelta,'');
+      planRow.push(vol.amount,Math.round(pT_all),pct+'%',(deltaAll>0?'+':'')+deltaAll,'');
       aoa.push(planRow);
       const planRowIdx=curRow;
       planRows.push(planRowIdx);
@@ -1251,7 +1256,7 @@ function _smgBuildMonthSheet(site,vols,prog,y,m,today){
 
       const factRow=['','','ФАКТ','',''];
       for(let d=1;d<=days;d++)factRow.push(factMap[_smgDateStr(y,m,d)]||'');
-      factRow.push('',monthFactTotal,'','',actCount||'');
+      factRow.push('',Math.round(totalFactToDate),'','',actCount||'');
       aoa.push(factRow);
       const factRowIdx=curRow;
       factRows.push(factRowIdx);
