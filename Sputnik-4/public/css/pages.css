@@ -308,8 +308,8 @@
 .br-row:last-child{border:none}
 .br-search{margin-bottom:6px;font-size:12px;padding:4px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);width:100%;box-sizing:border-box;outline:none}
 .br-check-list{max-height:200px;overflow-y:auto;border:1px solid var(--bd);border-radius:6px;padding:6px 8px;display:flex;flex-direction:column;gap:4px}
-.br-check{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
-.br-check input{cursor:pointer}
+.br-check{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:3px 2px}
+.br-check input[type=checkbox]{width:auto;padding:0;background:none;border:none;box-shadow:none;flex-shrink:0;cursor:pointer;accent-color:var(--acc)}
 
 /* ── Log ── */
 .lgr{display:flex;gap:6px;padding:5px 0;border-bottom:1px solid var(--bd)}
