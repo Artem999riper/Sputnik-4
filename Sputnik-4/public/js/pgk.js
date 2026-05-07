@@ -225,7 +225,7 @@ function pgkPageWorkers(pb){
       <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkWFBase=this.value;renderPGK()">${baseOpts}</select>
       <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkWFRole=this.value;renderPGK()">${roleOpts}</select>
       <div style="margin-left:auto;display:flex;gap:4px;flex-shrink:0">
-        <button class="btn bs bsm" onclick="pgkImportWorkers()" title="Импорт из Excel">📥 Excel</button>
+        <button class="btn bs bsm" onclick="pgkExcelMenu()" title="Импорт / экспорт Excel">📊 Excel</button>
         <button class="btn bp bsm" onclick="pgkAddWorker()">＋ Добавить</button>
       </div>
     </div>
@@ -722,7 +722,7 @@ async function techExportExcel(){
 
   // ── Лист «Водители» ─────────────────────────────────────────
   function buildDrivers(){
-    const cols=['№','ФИО','Телефон','База','Назначенная техника','Статус'];
+    const cols=['№','ФИО','Должность','База','Назначенная техника','Статус'];
     const aoa=[['Водители'],[],cols];
     const merges=[{s:{r:0,c:0},e:{r:0,c:cols.length-1}}];
     const drivers=(pgkWorkers||[]).filter(w=>{const r=(w.role||'').toLowerCase();return r.includes('водитель')||r.includes('мбу')||r.includes('пмбу');});
@@ -730,9 +730,10 @@ async function techExportExcel(){
     drivers.forEach(w=>{
       seq++;
       const mach=(pgkMachinery||[]).find(m=>m.driver_id===w.id);
-      aoa.push([seq, w.name||'', w.phone||'', baseName(w.base_id),
+      const stRaw=w.start_date?'working':(w.status||'home');
+      aoa.push([seq, w.name||'', w.role||'', baseName(w.base_id),
         mach?`${MICONS[mach.type]||'🔧'} ${mach.name||''} ${mach.plate_number||''}`.trim():'',
-        w.status||'']);
+        WORKER_STATUSES[stRaw]||stRaw]);
       row++;
     });
     const ws=XLSX.utils.aoa_to_sheet(aoa);
@@ -1934,6 +1935,17 @@ function pgkAddWorker(){
     <div class="fg s2"><label>База</label><select id="f-b"><option value="">— не назначен —</option>${bases.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
     <div class="fg s2"><label>Примечания</label><textarea id="f-nt"></textarea></div>
   </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:savePGKWorker}]);
+}
+
+function pgkExcelMenu(){
+  showModal('📊 Excel — Сотрудники',
+    '<div style="font-size:13px;color:var(--tx2);text-align:center;padding:8px 0">Что сделать?</div>',
+    [
+      { cls:'bs', label:'Отмена', fn: closeModal },
+      { cls:'bs', label:'📥 Импорт', fn: ()=>{ closeModal(); pgkImportWorkers(); } },
+      { cls:'bp', label:'📤 Экспорт', fn: ()=>{ closeModal(); if(typeof exportPersonnelExcel==='function') exportPersonnelExcel(pgkWorkers); else toast('exportPersonnelExcel не найден','err'); } }
+    ]
+  );
 }
 
 function pgkImportWorkers(){

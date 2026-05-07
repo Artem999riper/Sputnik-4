@@ -57,25 +57,38 @@ function renderBrigades() {
       ? `<span style="font-size:12px;color:var(--tx2)">🚛 ${esc(br.machine_name)}${br.machine_plate ? ' · <b>' + esc(br.machine_plate) + '</b>' : ''}${br.driver_name ? ' · 👤 ' + esc(br.driver_name) : ''}</span>`
       : `<span style="font-size:12px;color:var(--tx3)">— машина не назначена</span>`;
 
+    const empty = (txt) => `<span style="color:var(--tx3);font-size:12px;padding-left:4px">— ${txt}</span>`;
+
     const members = (br.members || []).length
-      ? `<div class="br-members">` + br.members.map(m =>
-          `<div class="br-member">
-            <span class="br-m-name">${esc(m.name)}</span>
-            ${m.role ? `<span class="br-m-role">${esc(m.role)}</span>` : ''}
+      ? `<div class="br-list">` + br.members.map(m =>
+          `<div class="br-list-item">
+            <span class="br-list-icon">👤</span>
+            <span class="br-list-name">${esc(m.name)}</span>
+            ${m.role ? `<span class="br-list-meta">${esc(m.role)}</span>` : ''}
             ${m.start_date
-              ? `<span class="br-m-days" title="с ${fmt(m.start_date)}">📅 ${m.days} дн.</span>`
-              : `<span class="br-m-days br-m-home">🏠 дома</span>`}
+              ? `<span class="br-list-suffix br-list-days" title="с ${fmt(m.start_date)}">📅 ${m.days} дн.</span>`
+              : `<span class="br-list-suffix br-list-home">🏠 дома</span>`}
           </div>`
         ).join('') + `</div>`
-      : `<span style="color:var(--tx3);font-size:12px">— нет членов</span>`;
+      : empty('нет членов');
 
     const basesHtml = (br.base_names || []).length
-      ? br.base_names.map(n => `<span class="br-chip br-chip-base">🏕 ${esc(n)}</span>`).join('')
-      : `<span style="color:var(--tx3);font-size:12px">— нет баз</span>`;
+      ? `<div class="br-list">` + br.base_names.map(n =>
+          `<div class="br-list-item br-list-base">
+            <span class="br-list-icon">🏕</span>
+            <span class="br-list-name">${esc(n)}</span>
+          </div>`
+        ).join('') + `</div>`
+      : empty('нет баз');
 
     const sitesHtml = (br.site_names || []).length
-      ? br.site_names.map(n => `<span class="br-chip br-chip-site">📍 ${esc(n)}</span>`).join('')
-      : `<span style="color:var(--tx3);font-size:12px">— нет объектов</span>`;
+      ? `<div class="br-list">` + br.site_names.map(n =>
+          `<div class="br-list-item br-list-site">
+            <span class="br-list-icon">📍</span>
+            <span class="br-list-name">${esc(n)}</span>
+          </div>`
+        ).join('') + `</div>`
+      : empty('нет объектов');
 
     const notes = br.notes ? `<div style="font-size:11px;color:var(--tx3);margin-top:6px;border-top:1px solid var(--bd);padding-top:6px">${esc(br.notes)}</div>` : '';
 
@@ -90,10 +103,10 @@ function renderBrigades() {
       <div style="margin:6px 0 4px">${mach}</div>
       <div class="br-section-label">👷 Члены бригады (${(br.members||[]).length})</div>
       ${members}
-      <div class="br-section-label" style="margin-top:8px">🏕 Базы</div>
-      <div class="br-chips">${basesHtml}</div>
-      <div class="br-section-label" style="margin-top:8px">📍 Объекты</div>
-      <div class="br-chips">${sitesHtml}</div>
+      <div class="br-section-label" style="margin-top:8px">🏕 Базы (${(br.base_names||[]).length})</div>
+      ${basesHtml}
+      <div class="br-section-label" style="margin-top:8px">📍 Объекты (${(br.site_names||[]).length})</div>
+      ${sitesHtml}
       ${notes}
     </div>`;
   }).join('');
@@ -232,16 +245,18 @@ async function deleteBrigade(id) {
 .br-card-name { font-weight:800; font-size:15px; }
 .br-card-actions { display:flex; gap:4px; flex-shrink:0; }
 .br-section-label { font-size:11px; font-weight:700; color:var(--tx3); text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px; }
-.br-chips { display:flex; flex-wrap:wrap; gap:4px; }
-.br-chip { background:var(--s2); border:1px solid var(--bd); border-radius:12px; font-size:12px; padding:2px 8px; }
-.br-chip-base { background:#fef3c7; border-color:#d97706; color:#92400e; }
-.br-chip-site { background:#dbeafe; border-color:#3b82f6; color:#1e40af; }
-.br-members { display:flex; flex-direction:column; gap:3px; }
-.br-member { display:flex; align-items:center; gap:6px; font-size:12px; padding:3px 6px; background:var(--s2); border:1px solid var(--bd); border-radius:6px; flex-wrap:wrap; }
-.br-m-name { font-weight:600; }
-.br-m-role { color:var(--tx2); font-size:11px; }
-.br-m-days { margin-left:auto; font-size:11px; color:#15803d; font-weight:600; }
-.br-m-home { color:var(--tx3); font-weight:500; }
+.br-list { display:flex; flex-direction:column; gap:3px; margin-bottom:2px; }
+.br-list-item { display:flex; align-items:center; gap:6px; font-size:12px; padding:4px 8px; background:var(--s2); border:1px solid var(--bd); border-radius:6px; min-height:24px; }
+.br-list-icon { flex-shrink:0; font-size:13px; line-height:1; }
+.br-list-name { font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.br-list-meta { color:var(--tx2); font-size:11px; flex-shrink:0; }
+.br-list-suffix { margin-left:auto; flex-shrink:0; font-size:11px; font-weight:600; }
+.br-list-days { color:#15803d; }
+.br-list-home { color:var(--tx3); font-weight:500; }
+.br-list-base { background:#fef3c7; border-color:#d97706; }
+.br-list-base .br-list-name { color:#92400e; }
+.br-list-site { background:#dbeafe; border-color:#3b82f6; }
+.br-list-site .br-list-name { color:#1e40af; }
 .br-search { margin-bottom:6px; font-size:12px; padding:4px 8px; border:1.5px solid var(--bd); border-radius:var(--rs); background:var(--s2); width:100%; box-sizing:border-box; outline:none; }
 .br-check-list { max-height:200px; overflow-y:auto; border:1px solid var(--bd); border-radius:6px; padding:6px 8px; display:flex; flex-direction:column; gap:4px; }
 .br-check { display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer; }

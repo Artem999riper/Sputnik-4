@@ -151,30 +151,33 @@ private data class BhJson(
     val planned_depth_m: Double, val diameter_mm: Double,
     val work_type: String, val geomorph_desc: String,
     val description: String, val drill_date: String,
-    val status: String, val brigade_id: String?
+    val status: String, val brigade_id: String?,
+    val casing_length_m: Double = 0.0
 )
 
 private fun Borehole.toJson() = BhJson(
     uuid, siteId, kmlPointId, manualLat, manualLng, name,
     plannedDepthM, diameterMm, workType, geomorphDesc,
-    description, drillDate, status, brigadeId
+    description, drillDate, status, brigadeId, casingLengthM
 )
 
 @kotlinx.serialization.Serializable
 private data class LayerJson(
     val uuid: String, val borehole_uuid: String, val order_idx: Int,
-    val soil_type: String, val state: String, val description: String, val depth_m: Double
+    val soil_type: String, val state: String, val description: String, val depth_m: Double,
+    val frozen_state: String = ""
 )
 
-private fun SoilLayer.toJson() = LayerJson(uuid, boreholeUuid, orderIdx, soilType, state, description, depthM)
+private fun SoilLayer.toJson() = LayerJson(uuid, boreholeUuid, orderIdx, soilType, state, description, depthM, frozenState)
 
 @kotlinx.serialization.Serializable
 private data class SampleJson(
     val uuid: String, val layer_uuid: String,
-    val collection_type: String, val packaging: String, val depth_m: Double
+    val collection_type: String, val packaging: String, val depth_m: Double,
+    val depth_top_m: Double = 0.0, val depth_bottom_m: Double = 0.0
 )
 
-private fun Sample.toJson() = SampleJson(uuid, layerUuid, collectionType, packaging, depthM)
+private fun Sample.toJson() = SampleJson(uuid, layerUuid, collectionType, packaging, depthM, depthTopM, depthBottomM)
 
 @kotlinx.serialization.Serializable
 private data class UgvJson(val uuid: String, val borehole_uuid: String, val order_idx: Int, val depth_m: Double)

@@ -669,6 +669,9 @@ function renderVpLayers(volProgressList){
         var semData=sem.data||{};
         var semLabel=semType&&VOL_SEM_TYPES[semType]?VOL_SEM_TYPES[semType].icon+' '+VOL_SEM_TYPES[semType].label:'';
         var tipLines=[];
+        if(fProps.field_borehole_uuid&&fProps.name){
+          tipLines.push('<b>🛰️ '+esc(fProps.name)+'</b>');
+        }
         tipLines.push('<b>'+(p.work_date||'')+'</b>'+(p.completed?' · +'+p.completed+(vol?' '+esc(vol.unit):''):''));
         if(semLabel) tipLines.push('<span style="color:var(--acc)">'+semLabel+'</span>');
         if(semType==='borehole'||semType==='pit'){

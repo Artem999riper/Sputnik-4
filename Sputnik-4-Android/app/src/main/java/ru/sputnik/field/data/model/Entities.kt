@@ -83,7 +83,8 @@ data class Borehole(
     val description: String = "",
     val drillDate: String = "",
     val status: String = "draft",   // draft | done
-    val brigadeId: String? = null
+    val brigadeId: String? = null,
+    val casingLengthM: Double = 0.0
 )
 
 @Entity(
@@ -103,7 +104,8 @@ data class SoilLayer(
     val soilType: String = "",
     val state: String = "",
     val description: String = "",
-    val depthM: Double = 0.0
+    val depthM: Double = 0.0,
+    val frozenState: String = ""   // "Талый" | "Мёрзлый" | ""
 )
 
 @Entity(
@@ -121,7 +123,9 @@ data class Sample(
     val layerUuid: String,
     val collectionType: String = "",
     val packaging: String = "",
-    val depthM: Double = 0.0
+    val depthM: Double = 0.0,           // совместимость: верхняя граница диапазона
+    val depthTopM: Double = 0.0,
+    val depthBottomM: Double = 0.0
 )
 
 @Entity(

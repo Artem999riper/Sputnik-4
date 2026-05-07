@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -41,7 +42,8 @@ private val SOIL_STATES = listOf(
     "Мягкопластичный", "Тугопластичный", "Полутвёрдый", "Твёрдый",
     "Текучий", "Текучепластичный", "Плотный", "Средней плотности", "Рыхлый", "Прочее"
 )
-private val SAMPLE_TYPES = listOf("Монолит", "Нарушенный", "Вода", "Газ")
+private val SAMPLE_TYPES = listOf("Монолит", "Нарушенный")
+private val FROZEN_STATES = listOf("Талый", "Мёрзлый")
 private val PACKAGING_TYPES = listOf(
     "Полиэтилен", "Мешок", "Коробка", "Банка", "Пакет",
     "Труба", "Контейнер", "Пробирка", "Прочее"
@@ -71,6 +73,7 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
     var latStr by remember { mutableStateOf("") }
     var lngStr by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("draft") }
+    var casingStr by remember { mutableStateOf("") }
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showDoneDialog by remember { mutableStateOf(false) }
@@ -91,6 +94,7 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
                 latStr = bh.manualLat?.let { toDMS(it, true) } ?: ""
                 lngStr = bh.manualLng?.let { toDMS(it, false) } ?: ""
                 status = bh.status
+                casingStr = bh.casingLengthM.takeIf { it > 0 }?.toString() ?: ""
             }
         } else {
             // Pre-save empty placeholder so FK constraints are satisfied when layers are added.
@@ -111,7 +115,8 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
                     diameterMm = diameterStr.toRusDouble() ?: 0.0,
                     drillDate = drillDate, geomorphDesc = geomorphDesc, description = description,
                     manualLat = parseLatLng(latStr), manualLng = parseLatLng(lngStr),
-                    status = status
+                    status = status,
+                    casingLengthM = casingStr.toRusDouble() ?: 0.0
                 ))
             }
             then()
@@ -184,6 +189,7 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
                     "Слои (${layers.size})",
                     "УГВ (${ugvList.size})",
                     "ММГ (${mmgList.size})",
+                    "Обсад",
                     "Фото (${photos.size})"
                 ).forEachIndexed { i, title ->
                     Tab(i == selectedTab, onClick = { selectedTab = i },
@@ -204,7 +210,8 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
                 1 -> LayersTab(uuid, db, scope, layers)
                 2 -> UgvTab(uuid, db, scope, ugvList)
                 3 -> MmgTab(uuid, db, scope, mmgList)
-                4 -> PhotosTab(uuid, db, scope, photos, context)
+                4 -> ObsadTab(casingStr) { casingStr = it }
+                5 -> PhotosTab(uuid, db, scope, photos, context)
             }
         }
     }
@@ -384,6 +391,7 @@ private fun LayerEditSheet(
 ) {
     var soilType by remember { mutableStateOf(layer.soilType) }
     var state by remember { mutableStateOf(layer.state) }
+    var frozenState by remember { mutableStateOf(layer.frozenState) }
     var depthStr by remember { mutableStateOf(layer.depthM.takeIf { it > 0 }?.toString() ?: "") }
     var desc by remember { mutableStateOf(layer.description) }
     var showCustomTypeDialog by remember { mutableStateOf(false) }
@@ -464,10 +472,10 @@ private fun LayerEditSheet(
                 verticalAlignment = Alignment.CenterVertically) {
                 Text("Слой ${layer.orderIdx + 1}", fontWeight = FontWeight.Bold)
                 TextButton(onClick = {
-                    onSave(layer.copy(soilType = soilType, state = state,
-                        depthM = depthStr.toRusDouble() ?: 0.0, description = desc))
-                    onSamples(layer.copy(soilType = soilType, state = state,
-                        depthM = depthStr.toRusDouble() ?: 0.0, description = desc))
+                    val updatedLayer = layer.copy(soilType = soilType, state = state, frozenState = frozenState,
+                        depthM = depthStr.toRusDouble() ?: 0.0, description = desc)
+                    onSave(updatedLayer)
+                    onSamples(updatedLayer)
                 }) {
                     Icon(Icons.Default.Science, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
@@ -522,6 +530,24 @@ private fun LayerEditSheet(
             }
         }
         item { Spacer(Modifier.height(8.dp)) }
+        item {
+            var frozenExpanded by remember { mutableStateOf(false) }
+            ExposedDropdownMenuBox(expanded = frozenExpanded, onExpandedChange = { frozenExpanded = it }) {
+                OutlinedTextField(
+                    value = frozenState.ifEmpty { "Выбрать..." }, onValueChange = {},
+                    label = { Text("Талый / Мёрзлый") }, readOnly = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(frozenExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor()
+                )
+                ExposedDropdownMenu(expanded = frozenExpanded, onDismissRequest = { frozenExpanded = false }) {
+                    FROZEN_STATES.forEach { opt ->
+                        DropdownMenuItem(text = { Text(opt) },
+                            onClick = { frozenState = opt; frozenExpanded = false })
+                    }
+                }
+            }
+        }
+        item { Spacer(Modifier.height(8.dp)) }
         item { FieldInput("Глубина подошвы, м", depthStr, { depthStr = it }, KeyboardType.Decimal) }
         item { Spacer(Modifier.height(8.dp)) }
         item { VoiceTextField("Описание слоя", desc, { desc = it }) }
@@ -563,7 +589,8 @@ private fun SamplesSheet(
 ) {
     var collType by remember { mutableStateOf(SAMPLE_TYPES[0]) }
     var packaging by remember { mutableStateOf(PACKAGING_TYPES[0]) }
-    var depthStr by remember { mutableStateOf("") }
+    var topStr by remember { mutableStateOf("") }
+    var botStr by remember { mutableStateOf("") }
     var showAdd by remember { mutableStateOf(false) }
 
     Column {
@@ -593,22 +620,32 @@ private fun SamplesSheet(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         DropdownField("Вид отбора", collType, SAMPLE_TYPES) { collType = it }
                         DropdownField("Упаковка", packaging, PACKAGING_TYPES) { packaging = it }
-                        FieldInput("Глубина отбора, м", depthStr, { depthStr = it }, KeyboardType.Decimal)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(Modifier.weight(1f)) {
+                                FieldInput("Глубина с, м", topStr, { topStr = it }, KeyboardType.Decimal)
+                            }
+                            Box(Modifier.weight(1f)) {
+                                FieldInput("по, м", botStr, { botStr = it }, KeyboardType.Decimal)
+                            }
+                        }
                     }
                 },
                 confirmButton = {
                     Button(onClick = {
-                        val depth = depthStr.toRusDouble() ?: 0.0
+                        val top = topStr.toRusDouble() ?: 0.0
+                        val bot = botStr.toRusDouble() ?: top
                         scope.launch {
                             db.samples().insert(Sample(
                                 uuid = UUID.randomUUID().toString(),
                                 layerUuid = layer.uuid,
                                 collectionType = collType,
                                 packaging = packaging,
-                                depthM = depth
+                                depthM = top,
+                                depthTopM = top,
+                                depthBottomM = bot
                             ))
                         }
-                        depthStr = ""; showAdd = false
+                        topStr = ""; botStr = ""; showAdd = false
                     }) { Text("Добавить") }
                 },
                 dismissButton = {
@@ -629,7 +666,15 @@ private fun SamplesSheet(
                 items(samples, key = { it.uuid }) { s ->
                     ListItem(
                         leadingContent = { Text("🧪", style = MaterialTheme.typography.titleMedium) },
-                        headlineContent = { Text("${s.collectionType} · ${s.depthM} м") },
+                        headlineContent = {
+                            val depthLabel = when {
+                                s.depthBottomM > 0 && s.depthBottomM != s.depthTopM ->
+                                    "${s.depthTopM.takeIf { it > 0 } ?: s.depthM}-${s.depthBottomM} м"
+                                s.depthTopM > 0 -> "${s.depthTopM} м"
+                                else -> "${s.depthM} м"
+                            }
+                            Text("${s.collectionType} · $depthLabel")
+                        },
                         supportingContent = { Text(s.packaging) },
                         trailingContent = {
                             IconButton(onClick = { scope.launch { db.samples().delete(s) } }) {
@@ -756,6 +801,25 @@ private fun MmgTab(
 }
 
 // ── Фото ────────────────────────────────────────────────────
+
+// ── Обсад (длина обсадных труб) ──────────────────────────────
+@Composable
+private fun ObsadTab(casingStr: String, onChange: (String) -> Unit) {
+    Column(Modifier.padding(16.dp)) {
+        Text("Длина обсадных труб", fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.height(4.dp))
+        Text("Введите количество метров обсадных труб для этой скважины. Значение сохранится в шапке скважины.",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .6f))
+        Spacer(Modifier.height(16.dp))
+        FieldInput("Обсад, м", casingStr, onChange, KeyboardType.Decimal)
+        Spacer(Modifier.height(8.dp))
+        Text("Значение сохраняется автоматически при выходе из карточки.",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f))
+    }
+}
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable

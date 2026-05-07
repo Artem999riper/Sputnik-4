@@ -15,7 +15,7 @@ import ru.sputnik.field.data.model.*
         UgvEntry::class, MmgEntry::class, Photo::class,
         CustomSoilType::class, CustomSoilState::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -42,12 +42,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE soil_layers ADD COLUMN frozenState TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE samples ADD COLUMN depthTopM REAL NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE samples ADD COLUMN depthBottomM REAL NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE samples SET depthTopM = depthM WHERE depthTopM = 0 AND depthM > 0")
+                db.execSQL("ALTER TABLE boreholes ADD COLUMN casingLengthM REAL NOT NULL DEFAULT 0")
+            }
+        }
+
         fun get(context: Context): AppDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "sputnik_field.db"
-            ).addMigrations(MIGRATION_1_2).build().also { INSTANCE = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { INSTANCE = it }
         }
     }
 }

@@ -227,7 +227,7 @@ module.exports = (app, getDb, L) => {
     }
 
     res.json({
-      filename: (req.file.originalname || 'unknown.spk').slice(0, 200),
+      filename: (Buffer.from(req.file.originalname || 'unknown.spk', 'latin1').toString('utf8')).slice(0, 200),
       exported_at: manifest.exported_at,
       total_boreholes: boreholes.length,
       total_photos: photoEntries,
@@ -315,7 +315,7 @@ module.exports = (app, getDb, L) => {
     const workerIdsCsv = memberIds.join(',');
 
     const importId = uuid();
-    const importedFromSpk = (req.file.originalname || 'unknown.spk').slice(0, 200);
+    const importedFromSpk = (Buffer.from(req.file.originalname || 'unknown.spk', 'latin1').toString('utf8')).slice(0, 200);
     const counts = { added: 0, skipped: 0, errors: 0, photos_added: 0, vol_progress_added: 0 };
 
     // ── Скважины + создание vol_progress в выбранном объёме ───
