@@ -291,6 +291,28 @@
 .pbh{display:flex;justify-content:space-between;font-size:10px;font-weight:600;margin-bottom:3px}
 .pbh .pp{color:var(--acc)}
 
+/* ── Brigades ── */
+#brigades-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;overflow-y:auto}
+#brigades-page.show{display:block}
+.br-outer{padding:14px 18px;width:100%;box-sizing:border-box}
+.br-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.br-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.br-card{background:var(--s1);border:1.5px solid var(--bd);border-radius:10px;padding:14px 16px}
+.br-card-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.br-card-name{font-weight:800;font-size:15px}
+.br-card-actions{display:flex;gap:4px;flex-shrink:0}
+.br-section-label{font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin:8px 0 3px}
+.br-section-label:first-of-type{margin-top:4px}
+.br-items{background:var(--s2);border-radius:5px;padding:4px 8px;margin-bottom:2px;font-size:12px}
+.br-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid var(--bd)}
+.br-row:last-child{border:none}
+.br-row-left{display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.br-row-right{flex-shrink:0;font-size:11px;margin-left:8px;white-space:nowrap}
+.br-search{margin-bottom:6px;font-size:12px;padding:4px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);width:100%;box-sizing:border-box;outline:none}
+.br-check-list{max-height:200px;overflow-y:auto;border:1px solid var(--bd);border-radius:6px;padding:6px 8px;display:flex;flex-direction:column;gap:4px}
+.br-check{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
+.br-check input{cursor:pointer}
+
 /* ── Log ── */
 .lgr{display:flex;gap:6px;padding:5px 0;border-bottom:1px solid var(--bd)}
 .lgr:last-child{border-bottom:none}

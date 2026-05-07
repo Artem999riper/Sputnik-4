@@ -57,30 +57,24 @@ function renderBrigades() {
       ? `<span style="font-size:12px;color:var(--tx2)">🚛 ${esc(br.machine_name)}${br.machine_plate ? ' · <b>' + esc(br.machine_plate) + '</b>' : ''}${br.driver_name ? ' · 👤 ' + esc(br.driver_name) : ''}</span>`
       : `<span style="font-size:12px;color:var(--tx3)">— машина не назначена</span>`;
 
-    const empty = (txt) => `<span style="color:var(--tx3);font-size:12px;padding-left:4px">— ${txt}</span>`;
+    const empty = (txt) => `<span style="color:var(--tx3);font-size:11px">— ${txt}</span>`;
 
     const members = (br.members || []).length
-      ? `<div class="br-list">` + br.members.map(m =>
-          `<div class="br-list-item"><span class="br-list-icon">👤</span><span class="br-list-main">${esc(m.name)}${m.role ? ` <span class="br-list-meta">${esc(m.role)}</span>` : ''}</span>${m.start_date ? `<span class="br-list-days" title="с ${fmt(m.start_date)}">📅 ${m.days} дн.</span>` : `<span class="br-list-home">🏠 дома</span>`}</div>`
-        ).join('') + `</div>`
+      ? `<div class="br-items">${br.members.map(m =>
+          `<div class="br-row">
+            <span class="br-row-left">👤 <b>${esc(m.name)}</b>${m.role ? `<span style="color:var(--tx3);font-size:11px"> · ${esc(m.role)}</span>` : ''}</span>
+            <span class="br-row-right" style="color:${m.start_date?'#15803d':'var(--tx3)'}">${m.start_date ? `📅 ${m.days} дн.` : '🏠 дома'}</span>
+          </div>`).join('')}</div>`
       : empty('нет членов');
 
     const basesHtml = (br.base_names || []).length
-      ? `<div class="br-list">` + br.base_names.map(n =>
-          `<div class="br-list-item br-list-base">
-            <span class="br-list-icon">🏕</span>
-            <span class="br-list-name">${esc(n)}</span>
-          </div>`
-        ).join('') + `</div>`
+      ? `<div class="br-items">${br.base_names.map(n =>
+          `<div class="br-row"><span class="br-row-left">🏕 ${esc(n)}</span></div>`).join('')}</div>`
       : empty('нет баз');
 
     const sitesHtml = (br.site_names || []).length
-      ? `<div class="br-list">` + br.site_names.map(n =>
-          `<div class="br-list-item br-list-site">
-            <span class="br-list-icon">📍</span>
-            <span class="br-list-name">${esc(n)}</span>
-          </div>`
-        ).join('') + `</div>`
+      ? `<div class="br-items">${br.site_names.map(n =>
+          `<div class="br-row"><span class="br-row-left">📍 ${esc(n)}</span></div>`).join('')}</div>`
       : empty('нет объектов');
 
     const notes = br.notes ? `<div style="font-size:11px;color:var(--tx3);margin-top:6px;border-top:1px solid var(--bd);padding-top:6px">${esc(br.notes)}</div>` : '';
@@ -93,12 +87,12 @@ function renderBrigades() {
           <button class="btn bs bsm" onclick="deleteBrigade('${bid}')" title="Удалить" style="color:var(--err)">🗑</button>
         </div>
       </div>
-      <div style="margin:6px 0 4px">${mach}</div>
+      <div style="margin:4px 0 6px">${mach}</div>
       <div class="br-section-label">👷 Члены бригады (${(br.members||[]).length})</div>
       ${members}
-      <div class="br-section-label" style="margin-top:8px">🏕 Базы (${(br.base_names||[]).length})</div>
+      <div class="br-section-label">🏕 Базы (${(br.base_names||[]).length})</div>
       ${basesHtml}
-      <div class="br-section-label" style="margin-top:8px">📍 Объекты (${(br.site_names||[]).length})</div>
+      <div class="br-section-label">📍 Объекты (${(br.site_names||[]).length})</div>
       ${sitesHtml}
       ${notes}
     </div>`;
@@ -225,35 +219,3 @@ async function deleteBrigade(id) {
 }
 
 // ── Styles injected once ──────────────────────────────────
-(function injectBrigadeStyles() {
-  if (document.getElementById('brigade-styles')) return;
-  const s = document.createElement('style');
-  s.id = 'brigade-styles';
-  s.textContent = `
-.br-outer { padding:14px 18px; width:100%; box-sizing:border-box; }
-.br-toolbar { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
-.br-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; }
-.br-card { background:var(--s1); border:1.5px solid var(--bd); border-radius:10px; padding:14px 16px; }
-.br-card-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:4px; }
-.br-card-name { font-weight:800; font-size:15px; }
-.br-card-actions { display:flex; gap:4px; flex-shrink:0; }
-.br-section-label { font-size:11px; font-weight:700; color:var(--tx3); text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px; }
-.br-list { display:flex; flex-direction:column; gap:3px; margin-bottom:2px; }
-.br-list-item { display:flex; align-items:center; gap:6px; font-size:12px; padding:4px 8px; background:var(--s2); border:1px solid var(--bd); border-radius:6px; min-height:24px; }
-.br-list-icon { flex-shrink:0; font-size:13px; line-height:1; }
-.br-list-name { font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.br-list-main { font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.br-list-meta { color:var(--tx2); font-size:11px; font-weight:400; }
-.br-list-days { flex-shrink:0; color:#15803d; font-size:11px; font-weight:600; white-space:nowrap; }
-.br-list-home { flex-shrink:0; color:var(--tx3); font-size:11px; font-weight:500; white-space:nowrap; }
-.br-list-base { background:#fef3c7; border-color:#d97706; }
-.br-list-base .br-list-name { color:#92400e; }
-.br-list-site { background:#dbeafe; border-color:#3b82f6; }
-.br-list-site .br-list-name { color:#1e40af; }
-.br-search { margin-bottom:6px; font-size:12px; padding:4px 8px; border:1.5px solid var(--bd); border-radius:var(--rs); background:var(--s2); width:100%; box-sizing:border-box; outline:none; }
-.br-check-list { max-height:200px; overflow-y:auto; border:1px solid var(--bd); border-radius:6px; padding:6px 8px; display:flex; flex-direction:column; gap:4px; }
-.br-check { display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer; }
-.br-check input { cursor:pointer; }
-`;
-  document.head.appendChild(s);
-})();

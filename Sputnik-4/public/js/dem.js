@@ -368,6 +368,31 @@ function demCancelDraw() {
 }
 
 // ── Рисование трассы ──────────────────────────────────────
+function _demShowRoutePanel(text) {
+  let panel = document.getElementById('dem-route-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'dem-route-panel';
+    panel.style.cssText = [
+      'position:fixed', 'bottom:24px', 'left:50%', 'transform:translateX(-50%)',
+      'z-index:2000', 'background:#fff', 'border:2px solid #f59e0b',
+      'border-radius:10px', 'box-shadow:0 4px 18px rgba(0,0,0,.18)',
+      'padding:10px 16px', 'display:flex', 'align-items:center', 'gap:10px',
+      'font-size:13px', 'font-weight:600', 'min-width:260px',
+    ].join(';');
+    document.body.appendChild(panel);
+  }
+  panel.innerHTML = `<span id="dem-route-panel-t" style="flex:1;color:#92400e">${text}</span>
+    <button onclick="demFinishRoute()" style="background:#f59e0b;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer">✓ Завершить</button>
+    <button onclick="demCancelRoute()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer">✕</button>`;
+  panel.style.display = 'flex';
+}
+
+function _demHideRoutePanel() {
+  const panel = document.getElementById('dem-route-panel');
+  if (panel) panel.style.display = 'none';
+}
+
 function demStartRoute() {
   closeModal();
   _demRouteDrawing = true;
@@ -383,11 +408,10 @@ function demStartRoute() {
   if (bnr) {
     bnr.className = 'show draw';
     bnr.style.display = 'flex';
-    bnr.innerHTML = `<span id="bnr-t">📏 Кликайте для добавления точек трассы</span>
-      <button class="btn bp bsm" style="margin-left:10px" onclick="demFinishRoute()">✓ Завершить</button>
-      <button class="btn bs bsm" style="margin-left:4px" onclick="demCancelRoute()">✕ Отмена</button>`;
+    document.getElementById('bnr-t').textContent = '📏 Кликайте на карте для добавления точек трассы';
   }
 
+  _demShowRoutePanel('📏 Кликайте на карте — добавляйте точки трассы');
   map.on('click', _demRouteClick);
 }
 
@@ -404,8 +428,8 @@ function _demRouteClick(e) {
     }).addTo(map);
   }
 
-  const bnrT = document.getElementById('bnr-t');
-  if (bnrT) bnrT.textContent = `📏 Точек: ${_demRouteTmp.length}. Добавляйте или нажмите «Завершить»`;
+  const t = document.getElementById('dem-route-panel-t');
+  if (t) t.textContent = `📏 Точек: ${_demRouteTmp.length} — добавляйте ещё или нажмите «Завершить»`;
 }
 
 function demFinishRoute() {
@@ -430,6 +454,7 @@ function demFinishRoute() {
 
   const bnr = document.getElementById('bnr');
   if (bnr) { bnr.className = ''; bnr.style.display = 'none'; }
+  _demHideRoutePanel();
 
   openDEMPanel();
   setTimeout(() => {
@@ -471,6 +496,7 @@ function demCancelRoute() {
   map.doubleClickZoom.enable();
   const bnr = document.getElementById('bnr');
   if (bnr) { bnr.className = ''; bnr.style.display = 'none'; }
+  _demHideRoutePanel();
   openDEMPanel();
 }
 
