@@ -7,6 +7,7 @@ import android.content.Context
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,6 +23,8 @@ import ru.sputnik.field.data.model.Site
 import ru.sputnik.field.data.spk.ExportResult
 import ru.sputnik.field.data.spk.buildShareIntent
 import ru.sputnik.field.data.spk.exportSpk
+import ru.sputnik.field.data.spk.saveSpkToDownloads
+import java.io.File
 import java.time.LocalDate
 import java.time.ZoneOffset
 
@@ -269,6 +272,22 @@ fun ExportScreen(onBack: () -> Unit) {
                         Icon(Icons.Default.Share, null)
                         Spacer(Modifier.width(8.dp))
                         Text("Отправить оператору")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            val srcFile = File(context.getExternalFilesDir(null), "exports/${s.result.fileName}")
+                            val ok = saveSpkToDownloads(context, srcFile, s.result.fileName)
+                            android.widget.Toast.makeText(
+                                context,
+                                if (ok) "Сохранено в Загрузки" else "Ошибка сохранения",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Download, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Сохранить в Загрузки")
                     }
                     OutlinedButton(onClick = { exportState = ExportState.Idle },
                         modifier = Modifier.fillMaxWidth()) { Text("Новый экспорт") }

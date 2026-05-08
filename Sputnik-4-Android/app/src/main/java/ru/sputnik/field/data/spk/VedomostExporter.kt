@@ -203,11 +203,12 @@ suspend fun exportVolumesVedomost(
     val cards = gatherCards(db, fromDate, toDate, siteId)
     val today = java.time.LocalDate.now().toString()
 
-    // Разбиваем скважины на группы по снимку бригады, сохраняя порядок по дате
+    // Разбиваем скважины на группы по снимку бригады, сохраняя порядок по дате внутри группы
+    val sortedCards = cards.sortedWith(compareBy({ it.first.brigadeSnapshot }, { it.first.drillDate }))
     val groups = mutableListOf<Pair<SnapshotData, List<Triple<Borehole, List<SoilLayer>, List<Sample>>>>>()
     var lastSnapshot: String? = null
     var currentGroup = mutableListOf<Triple<Borehole, List<SoilLayer>, List<Sample>>>()
-    for (card in cards) {
+    for (card in sortedCards) {
         val snap = card.first.brigadeSnapshot
         if (snap != lastSnapshot) {
             if (currentGroup.isNotEmpty()) {
@@ -268,7 +269,8 @@ suspend fun exportVolumesVedomost(
         merge("A3:H3")
 
         val firstDepthCol = 6  // колонка F (1-based)
-        val depthRanges = mutableListOf<String>() // для суммы ИТОГО
+        val depthRanges = mutableListOf<String>()   // для суммы ИТОГО по глубине
+        val casingRanges = mutableListOf<String>()  // для суммы ИТОГО по обсаду
         var seq = 0
 
         for ((snapData, groupCards) in groups) {
@@ -298,18 +300,23 @@ suspend fun exportVolumesVedomost(
                 )
             }
             val groupLastRow = nextRowNum - 1
-            if (groupCards.isNotEmpty()) depthRanges.add("F$groupFirstRow:F$groupLastRow")
+            if (groupCards.isNotEmpty()) {
+                depthRanges.add("F$groupFirstRow:F$groupLastRow")
+                casingRanges.add("G$groupFirstRow:G$groupLastRow")
+            }
         }
 
         // Строка ИТОГО
         if (seq > 0) {
             val totalFormula = depthRanges.joinToString("+") { "SUM($it)" }
+            val casingFormula = casingRanges.joinToString("+") { "SUM($it)" }
             row(
                 txt("ИТОГО:", CellStyle.HEADER),
                 empty(CellStyle.BODY_CENTER), empty(CellStyle.BODY_CENTER),
                 empty(CellStyle.BODY_CENTER), empty(CellStyle.BODY_CENTER),
                 formula(totalFormula, CellStyle.HEADER),
-                empty(CellStyle.BODY_CENTER), empty(CellStyle.BODY_CENTER)
+                formula(casingFormula, CellStyle.HEADER),
+                empty(CellStyle.BODY_CENTER)
             )
         }
 

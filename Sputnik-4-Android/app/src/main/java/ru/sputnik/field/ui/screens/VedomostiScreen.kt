@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarToday
@@ -140,6 +142,12 @@ fun VedomostiScreen(onBack: () -> Unit) {
         ) {
             when (val s = state) {
                 VedoState.Idle -> {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                     Icon(Icons.Default.Description, null, Modifier.size(56.dp).align(Alignment.CenterHorizontally),
                         tint = MaterialTheme.colorScheme.primary)
 
@@ -195,6 +203,7 @@ fun VedomostiScreen(onBack: () -> Unit) {
                                 modifier = Modifier.fillMaxWidth()) { Text("Сформировать") }
                         }
                     }
+                    } // end scrollable Column
                 }
 
                 is VedoState.Loading -> {

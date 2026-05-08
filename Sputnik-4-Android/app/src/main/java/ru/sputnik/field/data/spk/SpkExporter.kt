@@ -12,6 +12,7 @@ import ru.sputnik.field.data.db.AppDatabase
 import ru.sputnik.field.data.model.*
 import java.io.File
 import java.io.FileOutputStream
+import java.util.zip.Deflater
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -59,6 +60,7 @@ suspend fun exportSpk(
         val outFile = File(exportDir, fileName)
 
         ZipOutputStream(FileOutputStream(outFile).buffered()).use { zos ->
+            zos.setLevel(Deflater.BEST_COMPRESSION)
             zos.putEntry("boreholes.json", json.encodeToString(boreholes.map { it.toJson() }))
             val allLayers = cards.flatMap { it.layers }
             zos.putEntry("soil_layers.json", json.encodeToString(allLayers.map { it.toJson() }))
@@ -106,6 +108,38 @@ suspend fun exportSpk(
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", outFile)
         ExportResult(uri, fileName, boreholes.size, cards.sumOf { it.photos.size })
     }
+
+fun saveSpkToDownloads(context: android.content.Context, srcFile: File, fileName: String): Boolean {
+    return try {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+                put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val col = android.provider.MediaStore.Downloads
+                .getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val uri = context.contentResolver.insert(col, values) ?: return false
+            context.contentResolver.openOutputStream(uri)?.use { out ->
+                srcFile.inputStream().use { it.copyTo(out) }
+            }
+            values.clear()
+            values.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
+            context.contentResolver.update(uri, values, null, null)
+            true
+        } else {
+            val dest = File(
+                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                fileName
+            )
+            srcFile.copyTo(dest, overwrite = true)
+            true
+        }
+    } catch (e: Exception) {
+        android.util.Log.e("SpkExporter", "saveSpkToDownloads failed: ${e.message}")
+        false
+    }
+}
 
 fun buildShareIntent(uri: Uri, fileName: String): Intent = Intent(Intent.ACTION_SEND).apply {
     type = "application/octet-stream"
