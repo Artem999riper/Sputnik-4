@@ -54,6 +54,14 @@ function renderSiteStatsOverlay(site){
   }).join('');
   el.innerHTML=`<div style="font-weight:600;margin-bottom:5px;font-size:12px">📊 Объёмы</div><table style="border-collapse:collapse;font-size:12px;width:100%"><thead><tr style="color:#888;font-size:11px"><th style="text-align:left;padding:0 6px 3px 0;font-weight:500">Вид работ</th><th style="padding:0 4px 3px;font-weight:500">Факт</th><th></th><th style="padding:0 4px 3px;font-weight:500">План</th><th style="padding:0 4px 3px;font-weight:500;text-align:left">Ед.</th><th style="padding:0 0 3px 6px;font-weight:500">Остаток</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
   el.style.display='block';
+  // Delay so mini-panel CSS transition (220ms) finishes before reading bounds
+  setTimeout(function(){
+    const mp=document.getElementById('mini-panel');
+    if(mp&&mp.classList.contains('open')){
+      const r=mp.getBoundingClientRect();
+      el.style.top=(r.bottom+2)+'px';
+    }
+  },240);
 }
 
 function fmtN(v){
@@ -259,6 +267,7 @@ function openVolPointSemantics(volId){
   function _renderDataFields(type){
     if(type==='borehole'||type==='pit'){
       return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">'
+        +'<div class="fg s2"><label>Название / Номер</label><input id="sd-label" value="'+(curData.label||'')+'" placeholder="СКВ-1, ПТ-2/23..."></div>'
         +'<div class="fg"><label>Глубина (м)</label><input id="sd-depth" type="number" step="0.1" value="'+(curData.depth||'')+'" placeholder="0.0"></div>'
         +'<div class="fg"><label>Диаметр (мм)</label><input id="sd-diam" type="number" step="1" value="'+(curData.diam||'')+'" placeholder=""></div>'
         +'<div class="fg"><label>УГВ (м)</label><input id="sd-ugv" type="number" step="0.1" value="'+(curData.ugv||'')+'" placeholder="не встречен"></div>'
@@ -294,6 +303,7 @@ function openVolPointSemantics(volId){
       var data={};
       if(selType==='borehole'||selType==='pit'){
         data={
+          label:document.getElementById('sd-label')?.value||'',
           depth:document.getElementById('sd-depth')?.value||'',
           diam:document.getElementById('sd-diam')?.value||'',
           ugv:document.getElementById('sd-ugv')?.value||'',
@@ -722,7 +732,7 @@ function renderVpLayers(volProgressList){
           tipLines.push('<b>🛰️ '+esc(fProps.name)+'</b>');
         }
         tipLines.push('<b>'+(p.work_date||'')+'</b>'+(p.completed?' · +'+p.completed+(vol?' '+esc(vol.unit):''):''));
-        if(semLabel) tipLines.push('<span style="color:var(--acc)">'+semLabel+'</span>');
+        if(semLabel) tipLines.push('<span style="color:var(--acc)">'+semLabel+(semData.label?' <b>'+esc(semData.label)+'</b>':'')+'</span>');
         if(semType==='borehole'||semType==='pit'){
           if(semData.depth) tipLines.push('⬇ Глубина: <b>'+semData.depth+' м</b>');
           if(semData.diam)  tipLines.push('⌀ Диаметр: <b>'+semData.diam+' мм</b>');
