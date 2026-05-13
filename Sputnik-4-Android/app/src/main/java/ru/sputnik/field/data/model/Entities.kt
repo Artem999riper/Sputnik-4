@@ -60,7 +60,7 @@ data class BrigadeMember(
 
 // ── Полевые данные ───────────────────────────────────────────
 
-/** Виды работ */
+/** Виды работ (тип бурения скважины) */
 enum class WorkType(val label: String) {
     SEARCH("Поисковая"),
     EXPLORATION("Разведочная"),
@@ -68,10 +68,75 @@ enum class WorkType(val label: String) {
     GEOLOGICAL("Геологическая")
 }
 
+/** Тип объёма работ — Бурение / Зондирование / Термометрия */
+object VolumeKind {
+    const val DRILLING = "DRILLING"
+    const val STATIC_PROBE = "STATIC_PROBE"
+    const val THERMOMETRY = "THERMOMETRY"
+
+    fun label(kind: String): String = when (kind) {
+        DRILLING -> "Бурение"
+        STATIC_PROBE -> "Статическое зондирование"
+        THERMOMETRY -> "Термометрия"
+        else -> kind
+    }
+
+    fun unitLabel(kind: String): String = when (kind) {
+        DRILLING -> "п.м."
+        else -> "шт"
+    }
+}
+
+/** Вид работ — промежуточный уровень между Site и точками работ. */
+@Entity(
+    tableName = "volumes",
+    foreignKeys = [ForeignKey(
+        entity = Site::class,
+        parentColumns = ["id"],
+        childColumns = ["siteId"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index("siteId")]
+)
+data class Volume(
+    @PrimaryKey val id: String,
+    val siteId: String,
+    val kind: String,                        // VolumeKind.*
+    val name: String,
+    val totalVolume: Double = 0.0,
+    val createdAt: String = ""
+)
+
+/** Точка работ для зондирования и термометрии (упрощённый аналог Borehole). */
+@Entity(
+    tableName = "task_points",
+    foreignKeys = [ForeignKey(
+        entity = Volume::class,
+        parentColumns = ["id"],
+        childColumns = ["volumeId"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index("volumeId")]
+)
+data class TaskPoint(
+    @PrimaryKey val uuid: String,
+    val volumeId: String,
+    val siteId: String,
+    val name: String,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val kmlPointId: String? = null,
+    val completedDate: String = "",          // "" = не выполнено, иначе ISO date
+    val plannedDepthM: Double = 0.0,
+    val notes: String = "",                  // "термотруба 16 м" и пр.
+    val brigadeSnapshot: String = ""
+)
+
 @Entity(tableName = "boreholes")
 data class Borehole(
     @PrimaryKey val uuid: String,
     val siteId: String = "",
+    val volumeId: String = "",               // FK на volumes (для группировки по виду работ)
     val kmlPointId: String? = null,
     val manualLat: Double? = null,
     val manualLng: Double? = null,

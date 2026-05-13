@@ -53,7 +53,7 @@ private val PACKAGING_TYPES = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit) {
+fun BoreholeEditScreen(boreholeUuid: String?, volumeId: String, onBack: () -> Unit) {
     val context = LocalContext.current
     val db = remember { AppDatabase.get(context) }
     val scope = rememberCoroutineScope()
@@ -61,6 +61,10 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
 
     val isNew = boreholeUuid == null
     val uuid = remember { boreholeUuid ?: UUID.randomUUID().toString() }
+    var siteId by remember { mutableStateOf("") }
+    LaunchedEffect(volumeId) {
+        siteId = db.volumes().byId(volumeId)?.siteId ?: ""
+    }
 
     // Шапка
     var name by remember { mutableStateOf("") }
@@ -102,7 +106,8 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
             // Pre-save empty placeholder so FK constraints are satisfied when layers are added.
             val today = java.time.LocalDate.now().toString()
             drillDate = today
-            db.boreholes().upsert(Borehole(uuid = uuid, siteId = siteId, drillDate = today))
+            val sId = db.volumes().byId(volumeId)?.siteId ?: ""
+            db.boreholes().upsert(Borehole(uuid = uuid, siteId = sId, volumeId = volumeId, drillDate = today))
         }
     }
 
@@ -125,7 +130,8 @@ fun BoreholeEditScreen(boreholeUuid: String?, siteId: String, onBack: () -> Unit
                 // @Upsert = INSERT OR IGNORE + UPDATE — does not delete the row,
                 // so FK-CASCADE on soil_layers/photos is never triggered.
                 db.boreholes().upsert(Borehole(
-                    uuid = uuid, siteId = siteId, name = name, workType = workType,
+                    uuid = uuid, siteId = siteId, volumeId = volumeId,
+                    name = name, workType = workType,
                     plannedDepthM = depthStr.toRusDouble() ?: 0.0,
                     diameterMm = diameterStr.toRusDouble() ?: 0.0,
                     drillDate = drillDate, geomorphDesc = geomorphDesc, description = description,

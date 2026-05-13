@@ -52,9 +52,61 @@ interface BrigadeDao {
 }
 
 @Dao
+interface VolumeDao {
+    @Query("SELECT * FROM volumes WHERE siteId = :siteId ORDER BY createdAt")
+    fun bySite(siteId: String): Flow<List<Volume>>
+
+    @Query("SELECT * FROM volumes WHERE siteId = :siteId ORDER BY createdAt")
+    suspend fun bySiteOnce(siteId: String): List<Volume>
+
+    @Query("SELECT * FROM volumes WHERE id = :id")
+    suspend fun byId(id: String): Volume?
+
+    @Query("SELECT * FROM volumes ORDER BY siteId, createdAt")
+    suspend fun all(): List<Volume>
+
+    @Upsert suspend fun upsert(v: Volume)
+
+    @Query("DELETE FROM volumes WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+@Dao
+interface TaskPointDao {
+    @Query("SELECT * FROM task_points WHERE volumeId = :volumeId ORDER BY name")
+    fun byVolume(volumeId: String): Flow<List<TaskPoint>>
+
+    @Query("SELECT * FROM task_points WHERE volumeId = :volumeId ORDER BY name")
+    suspend fun byVolumeOnce(volumeId: String): List<TaskPoint>
+
+    @Query("SELECT * FROM task_points WHERE uuid = :uuid")
+    suspend fun byUuid(uuid: String): TaskPoint?
+
+    @Query("SELECT * FROM task_points WHERE volumeId = :volumeId AND completedDate = :date")
+    suspend fun completedOn(volumeId: String, date: String): List<TaskPoint>
+
+    @Query("SELECT * FROM task_points WHERE volumeId = :volumeId AND completedDate BETWEEN :from AND :to AND completedDate != ''")
+    suspend fun completedInRange(volumeId: String, from: String, to: String): List<TaskPoint>
+
+    @Query("SELECT * FROM task_points WHERE volumeId = :volumeId AND completedDate != ''")
+    suspend fun allCompleted(volumeId: String): List<TaskPoint>
+
+    @Upsert suspend fun upsert(p: TaskPoint)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAllIgnore(points: List<TaskPoint>)
+
+    @Query("DELETE FROM task_points WHERE uuid = :uuid")
+    suspend fun delete(uuid: String)
+}
+
+@Dao
 interface BoreholeDao {
     @Query("SELECT * FROM boreholes WHERE siteId = :siteId ORDER BY drillDate DESC")
     fun bySite(siteId: String): Flow<List<Borehole>>
+
+    @Query("SELECT * FROM boreholes WHERE volumeId = :volumeId ORDER BY drillDate DESC")
+    fun byVolume(volumeId: String): Flow<List<Borehole>>
 
     @Query("SELECT * FROM boreholes WHERE uuid = :uuid")
     suspend fun byUuid(uuid: String): Borehole?
@@ -76,6 +128,15 @@ interface BoreholeDao {
 
     @Query("SELECT * FROM boreholes WHERE siteId = :siteId AND drillDate BETWEEN :from AND :to AND status='done'")
     suspend fun forExportBySite(siteId: String, from: String, to: String): List<Borehole>
+
+    @Query("SELECT * FROM boreholes WHERE volumeId = :volumeId AND drillDate = :date AND status='done'")
+    suspend fun completedOn(volumeId: String, date: String): List<Borehole>
+
+    @Query("SELECT * FROM boreholes WHERE volumeId = :volumeId AND drillDate BETWEEN :from AND :to AND status='done'")
+    suspend fun completedInRange(volumeId: String, from: String, to: String): List<Borehole>
+
+    @Query("SELECT * FROM boreholes WHERE volumeId = :volumeId AND status='done'")
+    suspend fun allCompleted(volumeId: String): List<Borehole>
 
     @Query("DELETE FROM boreholes WHERE siteId = :siteId AND status != 'done'")
     suspend fun deleteDraftsBySite(siteId: String)

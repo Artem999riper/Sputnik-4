@@ -11,11 +11,12 @@ import ru.sputnik.field.data.model.*
     entities = [
         Worker::class, Transport::class, Site::class, KmlPoint::class,
         Brigade::class, BrigadeMember::class,
+        Volume::class, TaskPoint::class,
         Borehole::class, SoilLayer::class, Sample::class,
         UgvEntry::class, MmgEntry::class, Photo::class,
         CustomSoilType::class, CustomSoilState::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -24,6 +25,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun sites(): SiteDao
     abstract fun kmlPoints(): KmlPointDao
     abstract fun brigades(): BrigadeDao
+    abstract fun volumes(): VolumeDao
+    abstract fun taskPoints(): TaskPointDao
     abstract fun boreholes(): BoreholeDao
     abstract fun soilLayers(): SoilLayerDao
     abstract fun samples(): SampleDao
@@ -63,7 +66,13 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext,
                 AppDatabase::class.java,
                 "sputnik_field.db"
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { INSTANCE = it }
+            )
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                // Миграция 4→5: добавление volumes/task_points + поля volumeId на boreholes.
+                // По решению пользователя — destructive (старая полевая БД сбрасывается).
+                .fallbackToDestructiveMigration()
+                .build()
+                .also { INSTANCE = it }
         }
     }
 }

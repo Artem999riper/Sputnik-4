@@ -21,14 +21,15 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.sputnik.field.data.db.AppDatabase
-import ru.sputnik.field.data.kml.importKmlForSite
+import ru.sputnik.field.data.kml.importKmlAsBoreholes
 import ru.sputnik.field.data.model.Borehole
 import ru.sputnik.field.data.model.Brigade
+import ru.sputnik.field.data.model.Volume
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BoreholesScreen(
-    siteId: String,
+    volumeId: String,
     onBack: () -> Unit,
     onBorehole: (String) -> Unit,
     onAdd: () -> Unit,
@@ -38,9 +39,12 @@ fun BoreholesScreen(
     val db = remember { AppDatabase.get(context) }
     val scope = rememberCoroutineScope()
 
-    val sites by db.sites().all().collectAsState(initial = emptyList())
-    val boreholes by db.boreholes().bySite(siteId).collectAsState(initial = emptyList())
-    val siteName = sites.find { it.id == siteId }?.name ?: siteId
+    var volume by remember { mutableStateOf<Volume?>(null) }
+    LaunchedEffect(volumeId) { volume = db.volumes().byId(volumeId) }
+    val siteId = volume?.siteId ?: ""
+
+    val boreholes by db.boreholes().byVolume(volumeId).collectAsState(initial = emptyList())
+    val title = volume?.name ?: "Скважины"
 
     val drafts = boreholes.filter { it.status != "done" }
     val done = boreholes.filter { it.status == "done" }
@@ -70,11 +74,15 @@ fun BoreholesScreen(
         AlertDialog(
             onDismissRequest = { showClearDraftsDialog = false },
             title = { Text("Удалить все черновики?") },
-            text = { Text("Все ${drafts.size} черновиков по этому объекту будут удалены безвозвратно.") },
+            text = { Text("Все ${drafts.size} черновиков по этому виду работ будут удалены безвозвратно.") },
             confirmButton = {
                 TextButton(onClick = {
                     showClearDraftsDialog = false
-                    scope.launch { withContext(kotlinx.coroutines.NonCancellable) { db.boreholes().deleteDraftsBySite(siteId) } }
+                    scope.launch {
+                        withContext(kotlinx.coroutines.NonCancellable) {
+                            drafts.forEach { db.boreholes().delete(it) }
+                        }
+                    }
                 }) { Text("Удалить все", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { showClearDraftsDialog = false }) { Text("Отмена") } }
@@ -85,10 +93,11 @@ fun BoreholesScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
+        if (siteId.isBlank()) return@rememberLauncherForActivityResult
         kmlLoading = true
         scope.launch {
             try {
-                val result = importKmlForSite(context, uri, siteId)
+                val result = importKmlAsBoreholes(context, uri, siteId, volumeId)
                 kmlStatus = "✓ Добавлено ${result.added} скважин, пропущено ${result.skipped}"
             } catch (e: Exception) {
                 kmlStatus = "Ошибка: ${e.message}"
@@ -100,7 +109,7 @@ fun BoreholesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(siteName, maxLines = 1) },
+                title = { Text(title, maxLines = 1) },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) }
                 },

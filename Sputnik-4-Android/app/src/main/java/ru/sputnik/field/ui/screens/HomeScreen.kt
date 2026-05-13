@@ -22,7 +22,8 @@ fun HomeScreen(
     onBrigade: () -> Unit,
     onSites: () -> Unit,
     onExport: () -> Unit,
-    onVedomosti: () -> Unit = {}
+    onVedomosti: () -> Unit = {},
+    onSummary: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.get(context) }
@@ -78,6 +79,8 @@ fun HomeScreen(
             MenuCard("Экспорт .spk", "Сформировать архив для оператора", Icons.Default.Share, onExport)
             Spacer(Modifier.height(12.dp))
             MenuCard("Ведомости в Excel", "Образцы и объёмы", Icons.Default.Description, onVedomosti)
+            Spacer(Modifier.height(12.dp))
+            MenuCard("Сводка", "Объёмы и текстовый отчёт за период", Icons.Default.Assessment, onSummary)
             Spacer(Modifier.height(24.dp))
             OutlinedButton(
                 onClick = { showResetDialog = true },

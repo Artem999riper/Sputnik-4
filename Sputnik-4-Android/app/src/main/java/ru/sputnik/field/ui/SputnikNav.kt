@@ -13,15 +13,22 @@ sealed class Screen(val route: String) {
     object ImportRefs : Screen("import_refs")
     object Brigade : Screen("brigade")
     object Sites : Screen("sites")
-    object Boreholes : Screen("boreholes/{siteId}") {
-        fun go(siteId: String) = "boreholes/$siteId"
+    object Volumes : Screen("volumes/{siteId}") {
+        fun go(siteId: String) = "volumes/$siteId"
     }
-    object BoreholeEdit : Screen("borehole_edit/{boreholeUuid}/{siteId}") {
-        fun go(uuid: String, siteId: String) = "borehole_edit/$uuid/$siteId"
+    object Boreholes : Screen("boreholes/{volumeId}") {
+        fun go(volumeId: String) = "boreholes/$volumeId"
+    }
+    object TaskPoints : Screen("task_points/{volumeId}") {
+        fun go(volumeId: String) = "task_points/$volumeId"
+    }
+    object BoreholeEdit : Screen("borehole_edit/{boreholeUuid}/{volumeId}") {
+        fun go(uuid: String, volumeId: String) = "borehole_edit/$uuid/$volumeId"
         const val NEW = "new"
     }
     object Export : Screen("export")
     object Vedomosti : Screen("vedomosti")
+    object Summary : Screen("summary")
 }
 
 @Composable
@@ -35,7 +42,8 @@ fun SputnikNav() {
                 onBrigade = { nav.navigate(Screen.Brigade.route) },
                 onSites = { nav.navigate(Screen.Sites.route) },
                 onExport = { nav.navigate(Screen.Export.route) },
-                onVedomosti = { nav.navigate(Screen.Vedomosti.route) }
+                onVedomosti = { nav.navigate(Screen.Vedomosti.route) },
+                onSummary = { nav.navigate(Screen.Summary.route) }
             )
         }
 
@@ -50,20 +58,45 @@ fun SputnikNav() {
         composable(Screen.Sites.route) {
             SitesScreen(
                 onBack = { nav.popBackStack() },
-                onSiteClick = { siteId -> nav.navigate(Screen.Boreholes.go(siteId)) }
+                onSiteClick = { siteId -> nav.navigate(Screen.Volumes.go(siteId)) }
+            )
+        }
+
+        composable(
+            Screen.Volumes.route,
+            arguments = listOf(navArgument("siteId") { type = NavType.StringType })
+        ) { back ->
+            val siteId = back.arguments!!.getString("siteId")!!
+            VolumesScreen(
+                siteId = siteId,
+                onBack = { nav.popBackStack() },
+                onOpenDrilling = { volumeId -> nav.navigate(Screen.Boreholes.go(volumeId)) },
+                onOpenTaskPoints = { volumeId -> nav.navigate(Screen.TaskPoints.go(volumeId)) }
             )
         }
 
         composable(
             Screen.Boreholes.route,
-            arguments = listOf(navArgument("siteId") { type = NavType.StringType })
+            arguments = listOf(navArgument("volumeId") { type = NavType.StringType })
         ) { back ->
-            val siteId = back.arguments!!.getString("siteId")!!
+            val volumeId = back.arguments!!.getString("volumeId")!!
             BoreholesScreen(
-                siteId = siteId,
+                volumeId = volumeId,
                 onBack = { nav.popBackStack() },
-                onBorehole = { uuid -> nav.navigate(Screen.BoreholeEdit.go(uuid, siteId)) },
-                onAdd = { nav.navigate(Screen.BoreholeEdit.go(Screen.BoreholeEdit.NEW, siteId)) },
+                onBorehole = { uuid -> nav.navigate(Screen.BoreholeEdit.go(uuid, volumeId)) },
+                onAdd = { nav.navigate(Screen.BoreholeEdit.go(Screen.BoreholeEdit.NEW, volumeId)) },
+                onNavigateToBrigade = { nav.navigate(Screen.Brigade.route) }
+            )
+        }
+
+        composable(
+            Screen.TaskPoints.route,
+            arguments = listOf(navArgument("volumeId") { type = NavType.StringType })
+        ) { back ->
+            val volumeId = back.arguments!!.getString("volumeId")!!
+            TaskPointsScreen(
+                volumeId = volumeId,
+                onBack = { nav.popBackStack() },
                 onNavigateToBrigade = { nav.navigate(Screen.Brigade.route) }
             )
         }
@@ -72,14 +105,14 @@ fun SputnikNav() {
             Screen.BoreholeEdit.route,
             arguments = listOf(
                 navArgument("boreholeUuid") { type = NavType.StringType },
-                navArgument("siteId") { type = NavType.StringType }
+                navArgument("volumeId") { type = NavType.StringType }
             )
         ) { back ->
             val uuid = back.arguments!!.getString("boreholeUuid")!!
-            val siteId = back.arguments!!.getString("siteId")!!
+            val volumeId = back.arguments!!.getString("volumeId")!!
             BoreholeEditScreen(
                 boreholeUuid = uuid.takeIf { it != Screen.BoreholeEdit.NEW },
-                siteId = siteId,
+                volumeId = volumeId,
                 onBack = { nav.popBackStack() }
             )
         }
@@ -90,6 +123,10 @@ fun SputnikNav() {
 
         composable(Screen.Vedomosti.route) {
             VedomostiScreen(onBack = { nav.popBackStack() })
+        }
+
+        composable(Screen.Summary.route) {
+            SummaryScreen(onBack = { nav.popBackStack() })
         }
     }
 }
