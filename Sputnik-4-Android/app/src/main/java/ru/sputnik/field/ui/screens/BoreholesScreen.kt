@@ -25,6 +25,7 @@ import ru.sputnik.field.data.kml.importKmlAsBoreholes
 import ru.sputnik.field.data.model.Borehole
 import ru.sputnik.field.data.model.Brigade
 import ru.sputnik.field.data.model.Volume
+import ru.sputnik.field.ui.components.ConfirmDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,33 +60,30 @@ fun BoreholesScreen(
     LaunchedEffect(Unit) { hasBrigade = db.brigades().current() != null }
 
     if (showNoBrigadeDialog) {
-        AlertDialog(
-            onDismissRequest = { showNoBrigadeDialog = false },
-            title = { Text("Сначала задайте бригаду") },
-            text = { Text("Нельзя начать заполнение скважины пока не выбраны участники бригады и техника. Это нужно чтобы при завершении скважина зафиксировала состав исполнителей.") },
-            confirmButton = {
-                TextButton(onClick = { showNoBrigadeDialog = false; onNavigateToBrigade() }) { Text("Перейти к бригаде") }
-            },
-            dismissButton = { TextButton(onClick = { showNoBrigadeDialog = false }) { Text("Отмена") } }
+        ConfirmDialog(
+            title = "Сначала задайте бригаду",
+            message = "Нельзя начать заполнение скважины пока не выбраны участники бригады и техника. Это нужно чтобы при завершении скважина зафиксировала состав исполнителей.",
+            confirmLabel = "Перейти к бригаде",
+            destructive = false,
+            onDismiss = { showNoBrigadeDialog = false },
+            onConfirm = { showNoBrigadeDialog = false; onNavigateToBrigade() }
         )
     }
 
     if (showClearDraftsDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearDraftsDialog = false },
-            title = { Text("Удалить все черновики?") },
-            text = { Text("Все ${drafts.size} черновиков по этому виду работ будут удалены безвозвратно.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showClearDraftsDialog = false
-                    scope.launch {
-                        withContext(kotlinx.coroutines.NonCancellable) {
-                            drafts.forEach { db.boreholes().delete(it) }
-                        }
+        ConfirmDialog(
+            title = "Удалить все черновики?",
+            message = "Все ${drafts.size} черновиков по этому виду работ будут удалены безвозвратно.",
+            confirmLabel = "Удалить все",
+            onDismiss = { showClearDraftsDialog = false },
+            onConfirm = {
+                showClearDraftsDialog = false
+                scope.launch {
+                    withContext(kotlinx.coroutines.NonCancellable) {
+                        drafts.forEach { db.boreholes().delete(it) }
                     }
-                }) { Text("Удалить все", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = { TextButton(onClick = { showClearDraftsDialog = false }) { Text("Отмена") } }
+                }
+            }
         )
     }
 
@@ -203,19 +201,15 @@ fun BoreholesScreen(
                 }
             } else {
                 var deleteConfirmBh by remember { mutableStateOf<Borehole?>(null) }
-                if (deleteConfirmBh != null) {
-                    AlertDialog(
-                        onDismissRequest = { deleteConfirmBh = null },
-                        title = { Text("Удалить скважину?") },
-                        text = { Text("«${deleteConfirmBh!!.name.ifEmpty { "Скв-${deleteConfirmBh!!.uuid.take(6)}" }}» будет удалена безвозвратно.") },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                val bh = deleteConfirmBh!!
-                                deleteConfirmBh = null
-                                scope.launch { withContext(kotlinx.coroutines.NonCancellable) { db.boreholes().delete(bh) } }
-                            }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
-                        },
-                        dismissButton = { TextButton(onClick = { deleteConfirmBh = null }) { Text("Отмена") } }
+                deleteConfirmBh?.let { bh ->
+                    ConfirmDialog(
+                        title = "Удалить скважину?",
+                        message = "«${bh.name.ifEmpty { "Скв-${bh.uuid.take(6)}" }}» будет удалена безвозвратно.",
+                        onDismiss = { deleteConfirmBh = null },
+                        onConfirm = {
+                            deleteConfirmBh = null
+                            scope.launch { withContext(kotlinx.coroutines.NonCancellable) { db.boreholes().delete(bh) } }
+                        }
                     )
                 }
                 LazyColumn {

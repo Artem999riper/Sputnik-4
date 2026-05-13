@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import ru.sputnik.field.data.db.AppDatabase
 import ru.sputnik.field.data.model.Site
+import ru.sputnik.field.ui.components.ConfirmDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,22 +31,17 @@ fun SitesScreen(onBack: () -> Unit, onSiteClick: (String) -> Unit) {
     var deleteConfirm by remember { mutableStateOf<Site?>(null) }
 
     deleteConfirm?.let { site ->
-        AlertDialog(
-            onDismissRequest = { deleteConfirm = null },
-            title = { Text("Удалить объект?") },
-            text = { Text("«${site.name}» и все связанные виды работ, скважины и КМЛ-точки будут удалены безвозвратно.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    val s = site
-                    deleteConfirm = null
-                    scope.launch {
-                        db.kmlPoints().deleteBySite(s.id)
-                        db.sites().delete(s)
-                    }
-                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteConfirm = null }) { Text("Отмена") }
+        ConfirmDialog(
+            title = "Удалить объект?",
+            message = "«${site.name}» и все связанные виды работ, скважины и КМЛ-точки будут удалены безвозвратно.",
+            onDismiss = { deleteConfirm = null },
+            onConfirm = {
+                val s = site
+                deleteConfirm = null
+                scope.launch {
+                    db.kmlPoints().deleteBySite(s.id)
+                    db.sites().delete(s)
+                }
             }
         )
     }

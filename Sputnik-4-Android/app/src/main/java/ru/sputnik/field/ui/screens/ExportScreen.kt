@@ -24,6 +24,7 @@ import ru.sputnik.field.data.spk.ExportResult
 import ru.sputnik.field.data.spk.buildShareIntent
 import ru.sputnik.field.data.spk.exportSpk
 import ru.sputnik.field.data.spk.saveSpkToDownloads
+import ru.sputnik.field.ui.components.ConfirmDialog
 import java.io.File
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -56,27 +57,27 @@ fun ExportScreen(onBack: () -> Unit) {
 
     // ── Предупреждение: бригада не назначена ─────────────────
     if (showNoBrigadeWarning) {
-        AlertDialog(
-            onDismissRequest = { showNoBrigadeWarning = false },
-            title = { Text("Бригада не назначена") },
-            text = { Text("Перед экспортом назначьте бригаду в разделе «Бригада». Без бригады архив не будет содержать информацию об исполнителях.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showNoBrigadeWarning = false
-                    exportState = ExportState.Loading
-                    scope.launch {
-                        exportState = try {
-                            ExportState.Done(
-                                exportSpk(context, fromDate.toString(), toDate.toString(),
-                                    selectedSite?.id, selectedSite?.name, geologistName)
-                            )
-                        } catch (e: Exception) {
-                            ExportState.Error(e.message ?: "Ошибка")
-                        }
+        ConfirmDialog(
+            title = "Бригада не назначена",
+            message = "Перед экспортом назначьте бригаду в разделе «Бригада». Без бригады архив не будет содержать информацию об исполнителях.",
+            confirmLabel = "Экспортировать всё равно",
+            dismissLabel = "Назначить бригаду",
+            destructive = false,
+            onDismiss = { showNoBrigadeWarning = false },
+            onConfirm = {
+                showNoBrigadeWarning = false
+                exportState = ExportState.Loading
+                scope.launch {
+                    exportState = try {
+                        ExportState.Done(
+                            exportSpk(context, fromDate.toString(), toDate.toString(),
+                                selectedSite?.id, selectedSite?.name, geologistName)
+                        )
+                    } catch (e: Exception) {
+                        ExportState.Error(e.message ?: "Ошибка")
                     }
-                }) { Text("Экспортировать всё равно") }
-            },
-            dismissButton = { TextButton(onClick = { showNoBrigadeWarning = false }) { Text("Назначить бригаду") } }
+                }
+            }
         )
     }
 

@@ -21,6 +21,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import ru.sputnik.field.data.db.AppDatabase
 import ru.sputnik.field.data.model.*
+import ru.sputnik.field.ui.components.TextInputDialog
+import ru.sputnik.field.ui.components.WarningsDialog
 import ru.sputnik.field.ui.voice.VoiceTextField
 import ru.sputnik.field.ui.voice.rememberSpeechHelper
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -152,34 +154,15 @@ fun BoreholeEditScreen(boreholeUuid: String?, volumeId: String, onBack: () -> Un
             if (photos.isEmpty()) add("Нет ни одной фотографии")
             if (name.isBlank()) add("Не указано название скважины")
         }
-        AlertDialog(
-            onDismissRequest = { showDoneDialog = false },
-            title = { Text(if (warnings.isEmpty()) "Завершить скважину?" else "Есть незаполненные поля") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (warnings.isNotEmpty()) {
-                        warnings.forEach { w ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("⚠️"); Text(w)
-                            }
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text("Завершить всё равно?",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .6f))
-                    } else {
-                        Text("Скважина будет отмечена как готова к экспорту.")
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    status = "done"
-                    saveBorehole { showDoneDialog = false; onBack() }
-                }) { Text("Завершить") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDoneDialog = false }) { Text("Отмена") }
+        WarningsDialog(
+            title = if (warnings.isEmpty()) "Завершить скважину?" else "Есть незаполненные поля",
+            warnings = warnings,
+            successText = "Скважина будет отмечена как готова к экспорту.",
+            confirmLabel = "Завершить",
+            onDismiss = { showDoneDialog = false },
+            onConfirm = {
+                status = "done"
+                saveBorehole { showDoneDialog = false; onBack() }
             }
         )
     }
@@ -417,9 +400,7 @@ private fun LayerEditSheet(
     var depthStr by remember { mutableStateOf(layer.depthM.takeIf { it > 0 }?.toString() ?: "") }
     var desc by remember { mutableStateOf(layer.description) }
     var showCustomTypeDialog by remember { mutableStateOf(false) }
-    var customTypeInput by remember { mutableStateOf("") }
     var showCustomStateDialog by remember { mutableStateOf(false) }
-    var customStateInput by remember { mutableStateOf("") }
 
     val customSoilTypes by db.customRefs().soilTypes().collectAsState(initial = emptyList())
     val customSoilStates by db.customRefs().soilStates().collectAsState(initial = emptyList())
@@ -427,63 +408,29 @@ private fun LayerEditSheet(
     val allSoilStates = remember(customSoilStates) { (SOIL_STATES + customSoilStates).distinct() }
 
     if (showCustomTypeDialog) {
-        AlertDialog(
-            onDismissRequest = { showCustomTypeDialog = false; customTypeInput = "" },
-            title = { Text("Свой тип грунта") },
-            text = {
-                OutlinedTextField(
-                    value = customTypeInput,
-                    onValueChange = { customTypeInput = it },
-                    placeholder = { Text("Введите тип грунта") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-            },
-            confirmButton = {
-                Button(onClick = {
-                    val v = customTypeInput.trim()
-                    if (v.isNotBlank()) {
-                        soilType = v
-                        scope.launch { db.customRefs().addSoilType(CustomSoilType(v)) }
-                    }
-                    showCustomTypeDialog = false; customTypeInput = ""
-                }) { Text("Применить") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCustomTypeDialog = false; customTypeInput = "" }) {
-                    Text("Отмена")
-                }
+        TextInputDialog(
+            title = "Свой тип грунта",
+            label = "Введите тип грунта",
+            confirmLabel = "Применить",
+            onDismiss = { showCustomTypeDialog = false },
+            onConfirm = { v ->
+                soilType = v
+                scope.launch { db.customRefs().addSoilType(CustomSoilType(v)) }
+                showCustomTypeDialog = false
             }
         )
     }
 
     if (showCustomStateDialog) {
-        AlertDialog(
-            onDismissRequest = { showCustomStateDialog = false; customStateInput = "" },
-            title = { Text("Своё состояние") },
-            text = {
-                OutlinedTextField(
-                    value = customStateInput,
-                    onValueChange = { customStateInput = it },
-                    placeholder = { Text("Введите состояние") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-            },
-            confirmButton = {
-                Button(onClick = {
-                    val v = customStateInput.trim()
-                    if (v.isNotBlank()) {
-                        state = v
-                        scope.launch { db.customRefs().addSoilState(CustomSoilState(v)) }
-                    }
-                    showCustomStateDialog = false; customStateInput = ""
-                }) { Text("Применить") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCustomStateDialog = false; customStateInput = "" }) {
-                    Text("Отмена")
-                }
+        TextInputDialog(
+            title = "Своё состояние",
+            label = "Введите состояние",
+            confirmLabel = "Применить",
+            onDismiss = { showCustomStateDialog = false },
+            onConfirm = { v ->
+                state = v
+                scope.launch { db.customRefs().addSoilState(CustomSoilState(v)) }
+                showCustomStateDialog = false
             }
         )
     }
@@ -523,7 +470,7 @@ private fun LayerEditSheet(
                     HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("➕ Свой тип…") },
-                        onClick = { soilExpanded = false; customTypeInput = ""; showCustomTypeDialog = true }
+                        onClick = { soilExpanded = false; showCustomTypeDialog = true }
                     )
                 }
             }
@@ -546,7 +493,7 @@ private fun LayerEditSheet(
                     HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("➕ Своё состояние…") },
-                        onClick = { stateExpanded = false; customStateInput = ""; showCustomStateDialog = true }
+                        onClick = { stateExpanded = false; showCustomStateDialog = true }
                     )
                 }
             }

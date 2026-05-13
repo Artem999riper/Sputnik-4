@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import ru.sputnik.field.data.repo.Repositories
+import ru.sputnik.field.ui.components.ConfirmDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,25 +49,23 @@ fun HomeScreen(
     }
 
     if (showResetDialog) {
-        AlertDialog(
-            onDismissRequest = { showResetDialog = false },
-            title = { Text("Сбросить все данные?") },
-            text = { Text("Будут удалены все скважины, справочники, бригада и настройки. Это действие нельзя отменить.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showResetDialog = false
-                    scope.launch {
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                            refsRepo.clearWorkers()
-                            refsRepo.clearTransport()
-                            sitesRepo.clearSites()
-                            sitesRepo.clearKml()
-                            boreholeRepo.deleteAll()
-                        }
+        ConfirmDialog(
+            title = "Сбросить все данные?",
+            message = "Будут удалены все скважины, справочники, бригада и настройки. Это действие нельзя отменить.",
+            confirmLabel = "Сбросить",
+            onDismiss = { showResetDialog = false },
+            onConfirm = {
+                showResetDialog = false
+                scope.launch {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                        refsRepo.clearWorkers()
+                        refsRepo.clearTransport()
+                        sitesRepo.clearSites()
+                        sitesRepo.clearKml()
+                        boreholeRepo.deleteAll()
                     }
-                }) { Text("Сбросить", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = { TextButton(onClick = { showResetDialog = false }) { Text("Отмена") } }
+                }
+            }
         )
     }
 
