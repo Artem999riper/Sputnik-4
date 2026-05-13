@@ -21,6 +21,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import ru.sputnik.field.data.db.AppDatabase
 import ru.sputnik.field.data.model.*
+import ru.sputnik.field.data.repo.safeDb
+import ru.sputnik.field.ui.components.LocalSnackbar
 import ru.sputnik.field.ui.components.TextInputDialog
 import ru.sputnik.field.ui.components.WarningsDialog
 import ru.sputnik.field.ui.voice.VoiceTextField
@@ -60,6 +62,7 @@ fun BoreholeEditScreen(boreholeUuid: String?, volumeId: String, onBack: () -> Un
     val db = remember { AppDatabase.get(context) }
     val scope = rememberCoroutineScope()
     val speech = rememberSpeechHelper()
+    val snackbar = LocalSnackbar.current
 
     val isNew = boreholeUuid == null
     val uuid = remember { boreholeUuid ?: UUID.randomUUID().toString() }
@@ -115,35 +118,38 @@ fun BoreholeEditScreen(boreholeUuid: String?, volumeId: String, onBack: () -> Un
 
     fun saveBorehole(then: () -> Unit = {}) {
         scope.launch {
-            withContext(NonCancellable) {
-                val snapshotToSave = if (status == "done" && brigadeSnapshot.isBlank()) {
-                    val brigade = db.brigades().current()
-                    if (brigade != null) {
-                        val memberIds = db.brigades().members(brigade.id).map { m -> m.workerId }
-                        val memberNames = db.workers().byIds(memberIds).map { w -> w.name }
-                        val transport = brigade.transportId?.let { db.transport().byId(it) }
-                        val transportLabel = transport?.let {
-                            if (it.plate.isNotBlank()) "${it.name} ${it.plate}" else it.name
-                        } ?: ""
-                        buildBrigadeSnapshotJson(memberIds, memberNames, brigade.transportId, transportLabel)
-                    } else ""
-                } else brigadeSnapshot
-                brigadeSnapshot = snapshotToSave
-                // @Upsert = INSERT OR IGNORE + UPDATE — does not delete the row,
-                // so FK-CASCADE on soil_layers/photos is never triggered.
-                db.boreholes().upsert(Borehole(
-                    uuid = uuid, siteId = siteId, volumeId = volumeId,
-                    name = name, workType = workType,
-                    plannedDepthM = depthStr.toRusDouble() ?: 0.0,
-                    diameterMm = diameterStr.toRusDouble() ?: 0.0,
-                    drillDate = drillDate, geomorphDesc = geomorphDesc, description = description,
-                    manualLat = parseLatLng(latStr), manualLng = parseLatLng(lngStr),
-                    status = status,
-                    casingLengthM = casingStr.toRusDouble() ?: 0.0,
+            val ok = withContext(NonCancellable) {
+                safeDb(snackbar) {
+                    val snapshotToSave = if (status == "done" && brigadeSnapshot.isBlank()) {
+                        val brigade = db.brigades().current()
+                        if (brigade != null) {
+                            val memberIds = db.brigades().members(brigade.id).map { m -> m.workerId }
+                            val memberNames = db.workers().byIds(memberIds).map { w -> w.name }
+                            val transport = brigade.transportId?.let { db.transport().byId(it) }
+                            val transportLabel = transport?.let {
+                                if (it.plate.isNotBlank()) "${it.name} ${it.plate}" else it.name
+                            } ?: ""
+                            buildBrigadeSnapshotJson(memberIds, memberNames, brigade.transportId, transportLabel)
+                        } else ""
+                    } else brigadeSnapshot
                     brigadeSnapshot = snapshotToSave
-                ))
+                    // @Upsert = INSERT OR IGNORE + UPDATE — does not delete the row,
+                    // so FK-CASCADE on soil_layers/photos is never triggered.
+                    db.boreholes().upsert(Borehole(
+                        uuid = uuid, siteId = siteId, volumeId = volumeId,
+                        name = name, workType = workType,
+                        plannedDepthM = depthStr.toRusDouble() ?: 0.0,
+                        diameterMm = diameterStr.toRusDouble() ?: 0.0,
+                        drillDate = drillDate, geomorphDesc = geomorphDesc, description = description,
+                        manualLat = parseLatLng(latStr), manualLng = parseLatLng(lngStr),
+                        status = status,
+                        casingLengthM = casingStr.toRusDouble() ?: 0.0,
+                        brigadeSnapshot = snapshotToSave
+                    ))
+                    true
+                } != null
             }
-            then()
+            if (ok) then()
         }
     }
 
