@@ -37,13 +37,22 @@ function renderSiteStatsOverlay(site){
     const d=done[v.id]||0;
     const plan=parseFloat(v.amount)||0;
     const remain=Math.max(0,plan-d);
-    const unit=v.unit||'';
+    const unit=esc(v.unit||'');
     const cat=v.category==='geology'?'🛠':(v.category==='geodesy'?'📐':'•');
     const pct=plan>0?Math.round(d/plan*100):0;
-    const remainTxt=plan>0?` <span style="color:#888">(ост. ${fmtN(remain)})</span>`:'';
-    return `<div style="margin:2px 0">${cat} <b>${esc(v.name||'')}</b>: ${fmtN(d)}${plan>0?' / '+fmtN(plan):''} ${esc(unit)}${remainTxt}${plan>0?` <span style="color:#666">${pct}%</span>`:''}</div>`;
+    const pctTxt=plan>0?`<span style="color:#888;font-size:11px">${pct}%</span>`:'';
+    const remainTxt=plan>0?`<span style="color:#888">${fmtN(remain)}</span>`:'-';
+    return `<tr>
+      <td style="padding:1px 6px 1px 0;white-space:nowrap">${cat} ${esc(v.name||'')}</td>
+      <td style="padding:1px 4px;text-align:right;font-weight:600">${fmtN(d)}</td>
+      <td style="padding:1px 2px;color:#aaa">/</td>
+      <td style="padding:1px 4px;text-align:right">${plan>0?fmtN(plan):'-'}</td>
+      <td style="padding:1px 4px;color:#666">${unit}</td>
+      <td style="padding:1px 0 1px 6px;text-align:right">${remainTxt}</td>
+      <td style="padding:1px 0 1px 4px">${pctTxt}</td>
+    </tr>`;
   }).join('');
-  el.innerHTML=`<div style="font-weight:600;margin-bottom:4px">📊 Объёмы</div>${rows}`;
+  el.innerHTML=`<div style="font-weight:600;margin-bottom:5px;font-size:12px">📊 Объёмы</div><table style="border-collapse:collapse;font-size:12px;width:100%"><thead><tr style="color:#888;font-size:11px"><th style="text-align:left;padding:0 6px 3px 0;font-weight:500">Вид работ</th><th style="padding:0 4px 3px;font-weight:500">Факт</th><th></th><th style="padding:0 4px 3px;font-weight:500">План</th><th style="padding:0 4px 3px;font-weight:500;text-align:left">Ед.</th><th style="padding:0 0 3px 6px;font-weight:500">Остаток</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
   el.style.display='block';
 }
 

@@ -608,7 +608,7 @@ module.exports = (app, getDb, L) => {
       const m = baseName.match(/^([0-9a-f-]{36})_([a-z_]+)_([0-9a-f]+)\.(jpg|jpeg|png)$/i);
       if (!m) continue;
       const [, bhUuid, category] = m;
-      const bhRow = get(d, 'SELECT uuid, name, site_id FROM field_boreholes WHERE uuid=?', [bhUuid]);
+      const bhRow = get(d, 'SELECT uuid, name, site_id, drill_date FROM field_boreholes WHERE uuid=?', [bhUuid]);
       if (!bhRow) continue;
       const siteRow = get(d, 'SELECT name FROM sites WHERE id=?', [bhRow.site_id]);
       const siteFolderName = safeFolderName(siteRow && siteRow.name ? siteRow.name : (bhRow.site_id || bhUuid));
