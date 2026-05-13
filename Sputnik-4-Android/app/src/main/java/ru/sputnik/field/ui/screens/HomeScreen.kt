@@ -18,9 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
-import ru.sputnik.field.data.db.AppDatabase
-
-private data class ValidationIssue(val boreholeName: String, val issues: List<String>)
+import ru.sputnik.field.data.repo.Repositories
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,29 +30,21 @@ fun HomeScreen(
     onVedomosti: () -> Unit = {},
     onSummary: () -> Unit = {}
 ) {
-    val context = LocalContext.current
-    val db = remember { AppDatabase.get(context) }
+    val boreholeRepo = remember { Repositories.borehole }
+    val sitesRepo = remember { Repositories.sites }
+    val refsRepo = remember { Repositories.refs }
     val scope = rememberCoroutineScope()
     var showResetDialog by remember { mutableStateOf(false) }
     var showValidation by remember { mutableStateOf(false) }
-    var validationIssues by remember { mutableStateOf<List<ValidationIssue>>(emptyList()) }
+    var validationIssues by remember {
+        mutableStateOf<List<ru.sputnik.field.data.repo.ValidationIssue>>(emptyList())
+    }
 
     val activity = LocalContext.current as? Activity
     BackHandler { activity?.finish() }
 
     LaunchedEffect(Unit) {
-        val done = db.boreholes().allDone()
-        val issues = mutableListOf<ValidationIssue>()
-        for (bh in done) {
-            val issueList = mutableListOf<String>()
-            if (db.photos().byBoreholeOnce(bh.uuid).isEmpty()) issueList += "нет фотографий"
-            if (bh.plannedDepthM <= 0.0) issueList += "плановая глубина не указана"
-            if (db.soilLayers().byBoreholeOnce(bh.uuid).any { it.depthM <= 0.0 })
-                issueList += "слой без глубины подошвы"
-            if (issueList.isNotEmpty())
-                issues += ValidationIssue(bh.name.ifBlank { bh.uuid.take(6) }, issueList)
-        }
-        validationIssues = issues
+        validationIssues = boreholeRepo.loadValidationIssues()
     }
 
     if (showResetDialog) {
@@ -67,11 +57,11 @@ fun HomeScreen(
                     showResetDialog = false
                     scope.launch {
                         kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                            db.workers().clear()
-                            db.transport().clear()
-                            db.sites().clear()
-                            db.kmlPoints().clear()
-                            db.boreholes().deleteAll()
+                            refsRepo.clearWorkers()
+                            refsRepo.clearTransport()
+                            sitesRepo.clearSites()
+                            sitesRepo.clearKml()
+                            boreholeRepo.deleteAll()
                         }
                     }
                 }) { Text("Сбросить", color = MaterialTheme.colorScheme.error) }
