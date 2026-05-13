@@ -48,16 +48,16 @@ fun SputnikNav() {
         }
 
         composable(Screen.ImportRefs.route) {
-            ImportRefsScreen(onBack = { nav.popBackStack() })
+            ImportRefsScreen(onBack = { nav.navigateUp() })
         }
 
         composable(Screen.Brigade.route) {
-            BrigadeScreen(onBack = { nav.popBackStack() })
+            BrigadeScreen(onBack = { nav.navigateUp() })
         }
 
         composable(Screen.Sites.route) {
             SitesScreen(
-                onBack = { nav.popBackStack() },
+                onBack = { nav.navigateUp() },
                 onSiteClick = { siteId -> nav.navigate(Screen.Volumes.go(siteId)) }
             )
         }
@@ -69,7 +69,7 @@ fun SputnikNav() {
             val siteId = back.arguments!!.getString("siteId")!!
             VolumesScreen(
                 siteId = siteId,
-                onBack = { nav.popBackStack() },
+                onBack = { nav.navigateUp() },
                 onOpenDrilling = { volumeId -> nav.navigate(Screen.Boreholes.go(volumeId)) },
                 onOpenTaskPoints = { volumeId -> nav.navigate(Screen.TaskPoints.go(volumeId)) }
             )
@@ -82,7 +82,7 @@ fun SputnikNav() {
             val volumeId = back.arguments!!.getString("volumeId")!!
             BoreholesScreen(
                 volumeId = volumeId,
-                onBack = { nav.popBackStack() },
+                onBack = { nav.navigateUp() },
                 onBorehole = { uuid -> nav.navigate(Screen.BoreholeEdit.go(uuid, volumeId)) },
                 onAdd = { nav.navigate(Screen.BoreholeEdit.go(Screen.BoreholeEdit.NEW, volumeId)) },
                 onNavigateToBrigade = { nav.navigate(Screen.Brigade.route) }
@@ -96,7 +96,7 @@ fun SputnikNav() {
             val volumeId = back.arguments!!.getString("volumeId")!!
             TaskPointsScreen(
                 volumeId = volumeId,
-                onBack = { nav.popBackStack() },
+                onBack = { nav.navigateUp() },
                 onNavigateToBrigade = { nav.navigate(Screen.Brigade.route) }
             )
         }
@@ -113,20 +113,20 @@ fun SputnikNav() {
             BoreholeEditScreen(
                 boreholeUuid = uuid.takeIf { it != Screen.BoreholeEdit.NEW },
                 volumeId = volumeId,
-                onBack = { nav.popBackStack() }
+                onBack = { nav.navigateUp() }
             )
         }
 
         composable(Screen.Export.route) {
-            ExportScreen(onBack = { nav.popBackStack() })
+            ExportScreen(onBack = { nav.navigateUp() })
         }
 
         composable(Screen.Vedomosti.route) {
-            VedomostiScreen(onBack = { nav.popBackStack() })
+            VedomostiScreen(onBack = { nav.navigateUp() })
         }
 
         composable(Screen.Summary.route) {
-            SummaryScreen(onBack = { nav.popBackStack() })
+            SummaryScreen(onBack = { nav.navigateUp() })
         }
     }
 }
