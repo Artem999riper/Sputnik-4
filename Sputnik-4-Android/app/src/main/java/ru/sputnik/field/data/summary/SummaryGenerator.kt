@@ -41,17 +41,17 @@ private fun fmtNum(v: Double): String =
 
 private fun formatLayerHints(layers: List<SoilLayer>): String {
     val out = mutableListOf<String>()
+    var runningTop = 0.0
     layers.forEach { l ->
         val isIce = l.soilType.contains("лед", ignoreCase = true) || l.soilType.contains("лёд", ignoreCase = true)
         val isThaw = l.frozenState.equals("Талый", ignoreCase = true) || l.frozenState.equals("талый", ignoreCase = true)
-        if (isIce || isThaw) {
-            val top = l.depthTopM.takeIf { it > 0 } ?: 0.0
-            val bot = l.depthBottomM.takeIf { it > 0 } ?: l.depthM
-            if (bot > 0) {
-                val tag = if (isIce) "лёд" else "талый грунт"
-                out += "${fmtNum(top)}-${fmtNum(bot)} $tag"
-            }
+        val top = runningTop
+        val bot = l.depthM
+        if ((isIce || isThaw) && bot > 0) {
+            val tag = if (isIce) "лёд" else "талый грунт"
+            out += "${fmtNum(top)}-${fmtNum(bot)} $tag"
         }
+        if (bot > 0) runningTop = bot
     }
     return out.joinToString(", ")
 }
