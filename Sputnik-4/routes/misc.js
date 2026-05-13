@@ -309,6 +309,8 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
       res.setHeader('Content-Type', result.mime || 'application/octet-stream');
       res.setHeader('Content-Length', stat.size);
       res.setHeader('Content-Disposition', `attachment; filename="${path.basename(result.file)}"`);
+      run(db(), `INSERT INTO app_settings(key,value) VALUES('dem_export_count',1)
+        ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT)`, []);
       const stream = fs.createReadStream(result.file);
       stream.pipe(res);
       stream.on('end', () => demProcessor.cleanupTmp(tmpDir));

@@ -129,7 +129,7 @@ function _showMiniPanel(){
 function openFullSitePanel(){
   if(!currentObj||currentType!=='site')return;
   document.getElementById('mini-panel').classList.remove('open');
-  collapseSiteStatsOverlay();
+  hideSiteStatsOverlay();
   openPanel(false);setupSiteTabs();renderTab();
   loadPhotos('site',currentObj.id,'photos-site');
 }
@@ -175,6 +175,7 @@ function closePanel(){
   setTimeout(()=>map.invalidateSize({animate:false,pan:false}),260);
   // For sites: go back to mini panel instead of closing entirely
   if(currentType==='site'&&currentObj){
+    window._ssoCollapsed=false;
     _showMiniPanel();
     renderSiteStatsOverlay(currentObj);
     return;

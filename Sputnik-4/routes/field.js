@@ -273,6 +273,63 @@ module.exports = (app, getDb, L) => {
     res.json({ deleted: { borehole: bh, layers, samples, ugv, mmg, photos } });
   }));
 
+  // ── Открыть папку с фото в проводнике ────────────────────────
+  app.post('/api/field/boreholes/:uuid/open-folder', wrap((req, res) => {
+    const d = db();
+    const u = req.params.uuid;
+    const bh = get(d, 'SELECT uuid, name, site_id, drill_date FROM field_boreholes WHERE uuid=?', [u]);
+    if (!bh) return res.status(404).json({ error: 'Not found' });
+    const siteRow = get(d, 'SELECT name FROM sites WHERE id=?', [bh.site_id]);
+    const siteFolderName = safeFolderName(siteRow && siteRow.name ? siteRow.name : (bh.site_id || u));
+    const bhFolderName = buildBhFolderName(bh);
+    const folderPath = path.join(FIELD_UPLOADS, siteFolderName, bhFolderName);
+    if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
+    const { exec } = require('child_process');
+    const cmd = process.platform === 'win32'
+      ? `explorer "${folderPath.replace(/\//g, '\\')}"`
+      : `xdg-open "${folderPath}"`;
+    exec(cmd, (err) => { if (err) console.warn('[open-folder]', err.message); });
+    res.json({ ok: true, path: folderPath });
+  }));
+
+  // ── Редактирование карточки скважины ──────────────────────────
+  app.put('/api/field/boreholes/:uuid', wrap((req, res) => {
+    const d = db();
+    const u = req.params.uuid;
+    const bh = get(d, 'SELECT uuid FROM field_boreholes WHERE uuid=?', [u]);
+    if (!bh) return res.status(404).json({ error: 'Not found' });
+    const { name, drill_date, planned_depth_m, diameter_mm, geomorph_desc, description, layers, ugv, mmg } = req.body || {};
+    run(d, `UPDATE field_boreholes SET
+      name=COALESCE(?,name), drill_date=COALESCE(?,drill_date),
+      planned_depth_m=COALESCE(?,planned_depth_m), diameter_mm=COALESCE(?,diameter_mm),
+      geomorph_desc=COALESCE(?,geomorph_desc), description=COALESCE(?,description)
+      WHERE uuid=?`,
+      [name||null, drill_date||null, planned_depth_m!=null?planned_depth_m:null,
+       diameter_mm!=null?diameter_mm:null, geomorph_desc||null, description||null, u]);
+    if (Array.isArray(layers)) {
+      run(d, 'DELETE FROM field_samples WHERE layer_uuid IN (SELECT uuid FROM field_soil_layers WHERE borehole_uuid=?)', [u]);
+      run(d, 'DELETE FROM field_soil_layers WHERE borehole_uuid=?', [u]);
+      layers.forEach((l, i) => {
+        const lid = l.uuid || require('uuid').v4();
+        run(d, `INSERT INTO field_soil_layers(uuid,borehole_uuid,order_idx,depth_m,soil_type,state,description,frozenness,color,ice_content)
+          VALUES(?,?,?,?,?,?,?,?,?,?)`,
+          [lid, u, i, l.depth_m||0, l.soil_type||'', l.state||'', l.description||'', l.frozenness||'', l.color||'', l.ice_content||'']);
+      });
+    }
+    if (Array.isArray(ugv)) {
+      run(d, 'DELETE FROM field_ugv WHERE borehole_uuid=?', [u]);
+      ugv.forEach((v, i) => run(d, 'INSERT INTO field_ugv(uuid,borehole_uuid,order_idx,depth_m,description) VALUES(?,?,?,?,?)',
+        [v.uuid||require('uuid').v4(), u, i, v.depth_m||0, v.description||'']));
+    }
+    if (Array.isArray(mmg)) {
+      run(d, 'DELETE FROM field_mmg WHERE borehole_uuid=?', [u]);
+      mmg.forEach((m, i) => run(d, 'INSERT INTO field_mmg(uuid,borehole_uuid,order_idx,top_m,bottom_m,description) VALUES(?,?,?,?,?,?)',
+        [m.uuid||require('uuid').v4(), u, i, m.top_m||0, m.bottom_m||0, m.description||'']));
+    }
+    broadcast({ type: 'change', url: `/api/field/boreholes/${u}`, method: 'PUT', t: Date.now() });
+    res.json({ ok: true });
+  }));
+
   // ── Предпросмотр .spk (без импорта) ─────────────────────────
   // POST /api/field/preview-spk (multipart, file=spk)
   app.post('/api/field/preview-spk', spkUpload.single('spk'), wrap((req, res) => {

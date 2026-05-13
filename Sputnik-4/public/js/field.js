@@ -579,6 +579,8 @@ function showFieldBoreholeModal(b) {
     tabsHtml + headHtml + layersHtml + ugvHtml + mmgHtml + photosHtml,
     [
       { label: 'Удалить', cls: 'bd', fn: () => fbhDelete(b.uuid) },
+      { label: '📁 Проводник', cls: 'bs', fn: () => fbhOpenFolder(b.uuid) },
+      { label: '✏️ Редактировать', cls: 'bs', fn: () => fbhEditCard(b) },
       { label: 'Закрыть', cls: 'bs', fn: closeModal },
     ]);
 }
@@ -628,6 +630,88 @@ async function fbhDelete(uuid) {
     if (typeof refreshCurrent === 'function') refreshCurrent();
     if (typeof repaintMap === 'function') repaintMap();
   } catch (e) { toast('Ошибка', 'err'); }
+}
+
+async function fbhOpenFolder(uuid) {
+  try {
+    const r = await fetch(`${API}/field/boreholes/${uuid}/open-folder`, { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok) { toast('Не удалось открыть папку: ' + (j.error || ''), 'err'); return; }
+    toast('Папка открыта: ' + (j.path || ''), 'ok');
+  } catch (e) { toast('Ошибка открытия папки', 'err'); }
+}
+
+function fbhEditCard(b) {
+  const fld = (id, lbl, val, type='text') =>
+    `<div class="fg"><label>${lbl}</label><input id="${id}" type="${type}" value="${escAttr(val == null ? '' : val)}"></div>`;
+  const ta = (id, lbl, val) =>
+    `<div class="fg s2"><label>${lbl}</label><textarea id="${id}" rows="2">${esc(val == null ? '' : val)}</textarea></div>`;
+  const layersHtml = (b.layers || []).map((l, i) => `
+    <div class="field-layer-card" style="margin-bottom:6px;padding:6px;background:var(--s2);border-radius:6px">
+      <div style="font-size:11px;font-weight:700;margin-bottom:4px">Слой ${i + 1}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+        <div class="fg"><label>Тип грунта</label><input id="fl-type-${i}" value="${escAttr(l.soil_type||'')}"></div>
+        <div class="fg"><label>Состояние</label><input id="fl-state-${i}" value="${escAttr(l.state||'')}"></div>
+        <div class="fg"><label>До (м)</label><input id="fl-depth-${i}" type="number" step="0.01" value="${l.depth_m||''}"></div>
+        <div class="fg"><label>Описание</label><input id="fl-desc-${i}" value="${escAttr(l.description||'')}"></div>
+      </div>
+    </div>`).join('');
+  const ugvHtml = (b.ugv || []).map((u, i) => `
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+      <span style="font-size:11px;min-width:40px">УГВ ${i + 1}</span>
+      <div class="fg" style="margin:0;flex:1"><label>Глубина (м)</label><input id="fu-depth-${i}" type="number" step="0.01" value="${u.depth_m||''}"></div>
+      <div class="fg" style="margin:0;flex:2"><label>Описание</label><input id="fu-desc-${i}" value="${escAttr(u.description||'')}"></div>
+    </div>`).join('');
+
+  showModal(`✏️ Редактировать: ${esc(b.name || 'Скважина')}`,
+    `<div class="fgr fone" style="max-height:65vh;overflow-y:auto">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        ${fld('fe-name','Название',b.name)}
+        ${fld('fe-date','Дата бурения',b.drill_date||'','date')}
+        ${fld('fe-depth','Плановая глубина (м)',b.planned_depth_m||'','number')}
+        ${fld('fe-diam','Диаметр (мм)',b.diameter_mm||'','number')}
+      </div>
+      ${ta('fe-geomorph','Геоморфология',b.geomorph_desc)}
+      ${ta('fe-desc','Описание',b.description)}
+      ${b.layers && b.layers.length ? `<h5 style="margin:10px 0 5px">Слои (${b.layers.length})</h5>${layersHtml}` : ''}
+      ${b.ugv && b.ugv.length ? `<h5 style="margin:10px 0 5px">УГВ (${b.ugv.length})</h5>${ugvHtml}` : ''}
+    </div>`,
+    [
+      { label: 'Отмена', cls: 'bs', fn: closeModal },
+      { label: '💾 Сохранить', cls: 'bp', fn: async () => {
+        const layers = (b.layers || []).map((l, i) => ({
+          uuid: l.uuid,
+          soil_type: document.getElementById(`fl-type-${i}`)?.value || '',
+          state: document.getElementById(`fl-state-${i}`)?.value || '',
+          depth_m: parseFloat(document.getElementById(`fl-depth-${i}`)?.value) || 0,
+          description: document.getElementById(`fl-desc-${i}`)?.value || '',
+          frozenness: l.frozenness || '', color: l.color || '', ice_content: l.ice_content || '',
+        }));
+        const ugv = (b.ugv || []).map((u, i) => ({
+          uuid: u.uuid,
+          depth_m: parseFloat(document.getElementById(`fu-depth-${i}`)?.value) || 0,
+          description: document.getElementById(`fu-desc-${i}`)?.value || '',
+        }));
+        const body = {
+          name: document.getElementById('fe-name')?.value || b.name,
+          drill_date: document.getElementById('fe-date')?.value || b.drill_date,
+          planned_depth_m: parseFloat(document.getElementById('fe-depth')?.value) || b.planned_depth_m,
+          diameter_mm: parseFloat(document.getElementById('fe-diam')?.value) || b.diameter_mm,
+          geomorph_desc: document.getElementById('fe-geomorph')?.value,
+          description: document.getElementById('fe-desc')?.value,
+          layers, ugv,
+        };
+        try {
+          const r = await fetch(`${API}/field/boreholes/${b.uuid}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+          });
+          if (!r.ok) { toast('Ошибка сохранения', 'err'); return; }
+          toast('Сохранено', 'ok');
+          closeModal();
+          openFieldBoreholeCard(b.uuid);
+        } catch (e) { toast('Ошибка', 'err'); }
+      }},
+    ]);
 }
 
 // ── Excel-экспорт всех полевых материалов ──────────────────
