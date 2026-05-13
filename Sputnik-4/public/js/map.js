@@ -3,7 +3,7 @@ function initMap(){
   const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OSM',maxZoom:19});
   const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:19});
   const topo=L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{attribution:'© OpenTopoMap (CC-BY-SA)',maxZoom:17,subdomains:['a','b','c']});
-  osm.addTo(map);
+  sat.addTo(map);
   window._mapBaseLayers={'🗺 Карта':osm,'🛰 Спутник':sat,'🗻 Топо':topo};
   window._mapLayerCtrl=L.control.layers(window._mapBaseLayers,{},{position:'topright'}).addTo(map);
   L.control.zoom({position:'bottomright'}).addTo(map);
