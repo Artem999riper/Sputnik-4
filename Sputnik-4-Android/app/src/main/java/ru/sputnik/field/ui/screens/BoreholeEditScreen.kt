@@ -864,6 +864,29 @@ private fun PhotosTab(
 
     val cameraPerm = rememberPermissionState(android.Manifest.permission.CAMERA)
 
+    // Выбор фото из галереи
+    val galleryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            // Берём постоянное разрешение на чтение, чтобы URI оставался доступным
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
+            scope.launch {
+                db.photos().insert(Photo(
+                    uuid = UUID.randomUUID().toString(),
+                    boreholeUuid = boreholeUuid,
+                    category = activeCategory,
+                    filePath = uri.toString(),
+                    takenAt = java.time.Instant.now().toString()
+                ))
+            }
+        }
+    }
+
     val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.TakePicture()
     ) { saved ->
@@ -962,6 +985,16 @@ private fun PhotosTab(
                         if (cameraPerm.status.isGranted && pendingUri == null) {
                             // разрешение получено
                         }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { galleryLauncher.launch("image/*") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Image, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Загрузить из галереи")
                     }
 
                     Spacer(Modifier.height(80.dp))

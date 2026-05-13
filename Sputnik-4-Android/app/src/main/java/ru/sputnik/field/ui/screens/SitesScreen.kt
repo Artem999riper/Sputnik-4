@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import ru.sputnik.field.data.db.AppDatabase
 import ru.sputnik.field.data.model.Site
 
@@ -23,6 +25,30 @@ fun SitesScreen(onBack: () -> Unit, onSiteClick: (String) -> Unit) {
     val context = LocalContext.current
     val db = remember { AppDatabase.get(context) }
     val sites by db.sites().all().collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
+
+    var deleteConfirm by remember { mutableStateOf<Site?>(null) }
+
+    deleteConfirm?.let { site ->
+        AlertDialog(
+            onDismissRequest = { deleteConfirm = null },
+            title = { Text("Удалить объект?") },
+            text = { Text("«${site.name}» и все связанные виды работ, скважины и КМЛ-точки будут удалены безвозвратно.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val s = site
+                    deleteConfirm = null
+                    scope.launch {
+                        db.kmlPoints().deleteBySite(s.id)
+                        db.sites().delete(s)
+                    }
+                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteConfirm = null }) { Text("Отмена") }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -46,16 +72,25 @@ fun SitesScreen(onBack: () -> Unit, onSiteClick: (String) -> Unit) {
         } else {
             LazyColumn(Modifier.padding(pad)) {
                 items(sites, key = { it.id }) { site ->
-                    Surface(onClick = { onSiteClick(site.id) }, modifier = Modifier.fillMaxWidth()) {
-                        ListItem(
-                            headlineContent = { Text(site.name, fontWeight = FontWeight.SemiBold) },
-                            supportingContent = {
-                                if (site.lat != null && site.lng != null)
-                                    Text("%.5f, %.5f".format(site.lat, site.lng))
-                            },
-                            trailingContent = { Icon(Icons.Default.ChevronRight, null) }
-                        )
-                    }
+                    ListItem(
+                        modifier = Modifier.fillMaxWidth(),
+                        headlineContent = { Text(site.name, fontWeight = FontWeight.SemiBold) },
+                        supportingContent = {
+                            if (site.lat != null && site.lng != null)
+                                Text("%.5f, %.5f".format(site.lat, site.lng))
+                        },
+                        trailingContent = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { deleteConfirm = site }) {
+                                    Icon(Icons.Default.Delete, "Удалить",
+                                        tint = MaterialTheme.colorScheme.error)
+                                }
+                                IconButton(onClick = { onSiteClick(site.id) }) {
+                                    Icon(Icons.Default.ChevronRight, null)
+                                }
+                            }
+                        }
+                    )
                     HorizontalDivider()
                 }
             }

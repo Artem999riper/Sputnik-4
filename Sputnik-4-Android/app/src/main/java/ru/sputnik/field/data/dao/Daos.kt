@@ -30,6 +30,7 @@ interface SiteDao {
     fun all(): Flow<List<Site>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(items: List<Site>)
     @Query("DELETE FROM sites") suspend fun clear()
+    @Delete suspend fun delete(site: Site)
 }
 
 @Dao
@@ -38,6 +39,7 @@ interface KmlPointDao {
     fun bySite(siteId: String): Flow<List<KmlPoint>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(items: List<KmlPoint>)
     @Query("DELETE FROM kml_points") suspend fun clear()
+    @Query("DELETE FROM kml_points WHERE siteId = :siteId") suspend fun deleteBySite(siteId: String)
 }
 
 @Dao
