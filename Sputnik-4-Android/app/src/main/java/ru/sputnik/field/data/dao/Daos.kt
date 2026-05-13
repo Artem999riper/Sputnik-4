@@ -140,6 +140,9 @@ interface BoreholeDao {
     @Query("SELECT * FROM boreholes WHERE volumeId = :volumeId AND status='done'")
     suspend fun allCompleted(volumeId: String): List<Borehole>
 
+    @Query("SELECT * FROM boreholes WHERE status='done'")
+    suspend fun allDone(): List<Borehole>
+
     @Query("DELETE FROM boreholes WHERE siteId = :siteId AND status != 'done'")
     suspend fun deleteDraftsBySite(siteId: String)
 

@@ -1,7 +1,11 @@
 package ru.sputnik.field.ui.screens
 
+import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -16,6 +20,9 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import ru.sputnik.field.data.db.AppDatabase
 
+private data class ValidationIssue(val boreholeName: String, val issues: List<String>)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onImportRefs: () -> Unit,
@@ -29,6 +36,26 @@ fun HomeScreen(
     val db = remember { AppDatabase.get(context) }
     val scope = rememberCoroutineScope()
     var showResetDialog by remember { mutableStateOf(false) }
+    var showValidation by remember { mutableStateOf(false) }
+    var validationIssues by remember { mutableStateOf<List<ValidationIssue>>(emptyList()) }
+
+    val activity = LocalContext.current as? Activity
+    BackHandler { activity?.finish() }
+
+    LaunchedEffect(Unit) {
+        val done = db.boreholes().allDone()
+        val issues = mutableListOf<ValidationIssue>()
+        for (bh in done) {
+            val issueList = mutableListOf<String>()
+            if (db.photos().byBoreholeOnce(bh.uuid).isEmpty()) issueList += "нет фотографий"
+            if (bh.plannedDepthM <= 0.0) issueList += "плановая глубина не указана"
+            if (db.soilLayers().byBoreholeOnce(bh.uuid).any { it.depthM <= 0.0 })
+                issueList += "слой без глубины подошвы"
+            if (issueList.isNotEmpty())
+                issues += ValidationIssue(bh.name.ifBlank { bh.uuid.take(6) }, issueList)
+        }
+        validationIssues = issues
+    }
 
     if (showResetDialog) {
         AlertDialog(
@@ -53,7 +80,47 @@ fun HomeScreen(
         )
     }
 
-    Scaffold { pad ->
+    if (showValidation && validationIssues.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showValidation = false },
+            title = { Text("Незаполненные данные") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    validationIssues.forEach { vi ->
+                        Text(
+                            "• ${vi.boreholeName}: ${vi.issues.joinToString(", ")}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showValidation = false }) { Text("OK") }
+            }
+        )
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {},
+                actions = {
+                    if (validationIssues.isNotEmpty()) {
+                        IconButton(onClick = { showValidation = true }) {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = "Предупреждения",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            )
+        }
+    ) { pad ->
         Column(
             Modifier
                 .fillMaxSize()

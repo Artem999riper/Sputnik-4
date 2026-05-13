@@ -1,11 +1,11 @@
 package ru.sputnik.field.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material3.*
@@ -73,21 +73,16 @@ fun SitesScreen(onBack: () -> Unit, onSiteClick: (String) -> Unit) {
             LazyColumn(Modifier.padding(pad)) {
                 items(sites, key = { it.id }) { site ->
                     ListItem(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().clickable { onSiteClick(site.id) },
                         headlineContent = { Text(site.name, fontWeight = FontWeight.SemiBold) },
                         supportingContent = {
                             if (site.lat != null && site.lng != null)
                                 Text("%.5f, %.5f".format(site.lat, site.lng))
                         },
                         trailingContent = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { deleteConfirm = site }) {
-                                    Icon(Icons.Default.Delete, "Удалить",
-                                        tint = MaterialTheme.colorScheme.error)
-                                }
-                                IconButton(onClick = { onSiteClick(site.id) }) {
-                                    Icon(Icons.Default.ChevronRight, null)
-                                }
+                            IconButton(onClick = { deleteConfirm = site }) {
+                                Icon(Icons.Default.Delete, "Удалить",
+                                    tint = MaterialTheme.colorScheme.error)
                             }
                         }
                     )
