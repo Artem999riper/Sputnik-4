@@ -10,6 +10,7 @@ async function selectSite(id){
     const r=await fetch(`${API}/sites/${id}`);
     if(!r.ok)throw new Error('not found');
     currentObj=await r.json();currentType='site';activeSiteId=id;
+    window._ssoCollapsed=false;
     _showMiniPanel();
     renderSiteStatsOverlay(currentObj);
     renderSidebar();
@@ -21,6 +22,36 @@ async function selectSite(id){
 function hideSiteStatsOverlay(){
   const el=document.getElementById('site-stats-overlay');
   if(el){el.style.display='none';el.innerHTML='';}
+}
+
+function collapseSiteStatsOverlay(){
+  window._ssoCollapsed=true;
+  const body=document.getElementById('sso-body');
+  const arrow=document.getElementById('sso-arrow');
+  if(body)body.style.display='none';
+  if(arrow)arrow.textContent='◀';
+}
+
+function toggleSiteStatsOverlay(){
+  if(window._ssoCollapsed){
+    window._ssoCollapsed=false;
+    const body=document.getElementById('sso-body');
+    const arrow=document.getElementById('sso-arrow');
+    if(body)body.style.display='';
+    if(arrow)arrow.textContent='▶';
+  } else {
+    collapseSiteStatsOverlay();
+  }
+}
+
+function _ssoReposition(){
+  const el=document.getElementById('site-stats-overlay');
+  if(!el)return;
+  const mp=document.getElementById('mini-panel');
+  if(mp&&mp.classList.contains('open')){
+    const r=mp.getBoundingClientRect();
+    el.style.top=(r.bottom+2)+'px';
+  }
 }
 
 function renderSiteStatsOverlay(site){
@@ -52,16 +83,25 @@ function renderSiteStatsOverlay(site){
       <td style="padding:1px 0 1px 4px">${pctTxt}</td>
     </tr>`;
   }).join('');
-  el.innerHTML=`<div style="font-weight:600;margin-bottom:5px;font-size:12px">📊 Объёмы</div><table style="border-collapse:collapse;font-size:12px;width:100%"><thead><tr style="color:#888;font-size:11px"><th style="text-align:left;padding:0 6px 3px 0;font-weight:500">Вид работ</th><th style="padding:0 4px 3px;font-weight:500">Факт</th><th></th><th style="padding:0 4px 3px;font-weight:500">План</th><th style="padding:0 4px 3px;font-weight:500;text-align:left">Ед.</th><th style="padding:0 0 3px 6px;font-weight:500">Остаток</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  const collapsed=window._ssoCollapsed;
+  el.innerHTML=
+    `<div id="sso-tab" onclick="toggleSiteStatsOverlay()" style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;white-space:nowrap;font-weight:600;font-size:12px">
+       <span id="sso-arrow" style="font-size:10px;color:var(--tx3)">${collapsed?'◀':'▶'}</span>📊 Объёмы
+     </div>
+     <div id="sso-body" style="margin-top:6px;${collapsed?'display:none':''}">
+       <table style="border-collapse:collapse;font-size:12px;width:100%">
+         <thead><tr style="color:#888;font-size:11px">
+           <th style="text-align:left;padding:0 6px 3px 0;font-weight:500">Вид работ</th>
+           <th style="padding:0 4px 3px;font-weight:500">Факт</th><th></th>
+           <th style="padding:0 4px 3px;font-weight:500">План</th>
+           <th style="padding:0 4px 3px;font-weight:500;text-align:left">Ед.</th>
+           <th style="padding:0 0 3px 6px;font-weight:500">Остаток</th><th></th>
+         </tr></thead>
+         <tbody>${rows}</tbody>
+       </table>
+     </div>`;
   el.style.display='block';
-  // Delay so mini-panel CSS transition (220ms) finishes before reading bounds
-  setTimeout(function(){
-    const mp=document.getElementById('mini-panel');
-    if(mp&&mp.classList.contains('open')){
-      const r=mp.getBoundingClientRect();
-      el.style.top=(r.bottom+2)+'px';
-    }
-  },240);
+  setTimeout(_ssoReposition, 240);
 }
 
 function fmtN(v){
@@ -89,6 +129,7 @@ function _showMiniPanel(){
 function openFullSitePanel(){
   if(!currentObj||currentType!=='site')return;
   document.getElementById('mini-panel').classList.remove('open');
+  collapseSiteStatsOverlay();
   openPanel(false);setupSiteTabs();renderTab();
   loadPhotos('site',currentObj.id,'photos-site');
 }
