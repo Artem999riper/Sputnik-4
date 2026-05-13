@@ -87,6 +87,7 @@ fun BoreholeEditScreen(boreholeUuid: String?, volumeId: String, onBack: () -> Un
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showDoneDialog by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
 
     val layers by db.soilLayers().byBorehole(uuid).collectAsState(initial = emptyList())
     val ugvList by db.ugv().byBorehole(uuid).collectAsState(initial = emptyList())
@@ -117,6 +118,8 @@ fun BoreholeEditScreen(boreholeUuid: String?, volumeId: String, onBack: () -> Un
     }
 
     fun saveBorehole(then: () -> Unit = {}) {
+        if (saving) return
+        saving = true
         scope.launch {
             val ok = withContext(NonCancellable) {
                 safeDb(snackbar) {
@@ -149,6 +152,7 @@ fun BoreholeEditScreen(boreholeUuid: String?, volumeId: String, onBack: () -> Un
                     true
                 } != null
             }
+            saving = false
             if (ok) then()
         }
     }
@@ -178,17 +182,29 @@ fun BoreholeEditScreen(boreholeUuid: String?, volumeId: String, onBack: () -> Un
             TopAppBar(
                 title = { Text(if (isNew) "Новая скважина" else name.ifEmpty { "Скважина" }) },
                 navigationIcon = {
-                    IconButton(onClick = { saveBorehole(onBack) }) {
+                    IconButton(onClick = { saveBorehole(onBack) }, enabled = !saving) {
                         Icon(Icons.Default.ArrowBack, null)
                     }
                 },
                 actions = {
+                    if (saving) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp).padding(end = 8.dp),
+                            strokeWidth = 2.dp
+                        )
+                    }
                     if (status != "done") {
-                        TextButton(onClick = { saveBorehole { showDoneDialog = true } }) {
+                        TextButton(
+                            onClick = { saveBorehole { showDoneDialog = true } },
+                            enabled = !saving
+                        ) {
                             Text("✓ Завершить")
                         }
                     }
-                    TextButton(onClick = { saveBorehole(onBack) }) { Text("Сохранить") }
+                    TextButton(
+                        onClick = { saveBorehole(onBack) },
+                        enabled = !saving
+                    ) { Text("Сохранить") }
                 }
             )
         }
