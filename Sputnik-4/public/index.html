@@ -235,8 +235,8 @@
 <div id="site-stats-overlay" style="position:fixed;right:0;top:auto;z-index:1050;display:none;
   background:rgba(255,255,255,.94);border:1.5px solid var(--bd);border-right:none;
   border-radius:var(--rs) 0 0 var(--rs);box-shadow:var(--shm);
-  padding:10px 12px;width:240px;box-sizing:border-box;
-  max-height:40vh;overflow-y:auto;overflow-x:hidden;pointer-events:auto;font-size:12px"></div>
+  padding:10px 12px;min-width:240px;max-width:calc(100vw - 20px);box-sizing:border-box;
+  max-height:40vh;overflow-y:auto;overflow-x:visible;pointer-events:auto;font-size:12px"></div>
 
 <div id="mtb">
   <button class="mt on" id="tool-view" onclick="setTool('view')">👁 Просмотр</button>
