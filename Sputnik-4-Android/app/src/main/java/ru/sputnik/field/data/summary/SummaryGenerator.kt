@@ -9,6 +9,7 @@ import ru.sputnik.field.data.model.SoilLayer
 import ru.sputnik.field.data.model.TaskPoint
 import ru.sputnik.field.data.model.Volume
 import ru.sputnik.field.data.model.VolumeKind
+import java.time.LocalDate
 
 private data class SnapInfo(val transportLabel: String, val memberNames: List<String>) {
     val key: String get() = "$transportLabel|${memberNames.joinToString("|")}"
@@ -40,20 +41,94 @@ private fun fmtNum(v: Double): String =
     else "%.1f".format(v).replace('.', ',')
 
 private fun formatLayerHints(layers: List<SoilLayer>): String {
+    if (layers.isEmpty()) return ""
     val out = mutableListOf<String>()
     var runningTop = 0.0
     layers.forEach { l ->
-        val isIce = l.soilType.contains("лед", ignoreCase = true) || l.soilType.contains("лёд", ignoreCase = true)
-        val isThaw = l.frozenState.equals("Талый", ignoreCase = true) || l.frozenState.equals("талый", ignoreCase = true)
-        val top = runningTop
         val bot = l.depthM
-        if ((isIce || isThaw) && bot > 0) {
-            val tag = if (isIce) "лёд" else "талый грунт"
-            out += "${fmtNum(top)}-${fmtNum(bot)} $tag"
+        if (bot <= 0) return@forEach
+        val typePart = l.soilType.lowercase().ifBlank { "грунт" }
+        val statePart = when {
+            l.frozenState.equals("Талый", true) -> " талый"
+            l.frozenState.equals("Мёрзлый", true) || l.frozenState.equals("Мерзлый", true) -> " мёрзлый"
+            else -> ""
         }
-        if (bot > 0) runningTop = bot
+        out += "${fmtNum(runningTop)}-${fmtNum(bot)} $typePart$statePart"
+        runningTop = bot
     }
     return out.joinToString(", ")
+}
+
+private suspend fun collectBuckets(
+    db: AppDatabase,
+    volumes: List<Volume>,
+    day: String
+): LinkedHashMap<String, BrigadeBucket> {
+    val buckets = linkedMapOf<String, BrigadeBucket>()
+
+    volumes.filter { it.kind == VolumeKind.DRILLING }.forEach { vol ->
+        db.boreholes().completedOn(vol.id, day).forEach { bh ->
+            val info = parseSnap(bh.brigadeSnapshot)
+            val bucket = buckets.getOrPut(info.key) { BrigadeBucket(info) }
+            val layers = db.soilLayers().byBoreholeOnce(bh.uuid)
+            bucket.boreholes += DrillEntry(
+                name = bh.name.ifEmpty { "Скв-${bh.uuid.take(6)}" },
+                depthM = bh.plannedDepthM,
+                layerHints = formatLayerHints(layers)
+            )
+        }
+    }
+
+    volumes.filter { it.kind != VolumeKind.DRILLING }.forEach { vol ->
+        db.taskPoints().completedOn(vol.id, day).forEach { tp ->
+            val info = parseSnap(tp.brigadeSnapshot)
+            val bucket = buckets.getOrPut(info.key) { BrigadeBucket(info) }
+            val entry = TaskEntry(tp.name.ifEmpty { tp.uuid.take(6) }, tp.notes)
+            when (vol.kind) {
+                VolumeKind.THERMOMETRY -> bucket.thermometry += entry
+                VolumeKind.STATIC_PROBE -> bucket.probe += entry
+            }
+        }
+    }
+
+    return buckets
+}
+
+private fun appendDaySection(sb: StringBuilder, day: String, buckets: Map<String, BrigadeBucket>) {
+    sb.appendLine("Выполнение за $day")
+    sb.appendLine()
+    if (buckets.isEmpty()) {
+        sb.appendLine("Нет выполненных работ за $day.")
+        sb.appendLine()
+        return
+    }
+    buckets.values.forEachIndexed { idx, b ->
+        if (idx > 0) sb.appendLine("─".repeat(30))
+        val bortPart = b.snap.transportLabel.takeIf { it.isNotBlank() }?.let { "Борт $it " } ?: ""
+        val membersPart = b.snap.memberNames.joinToString(", ").ifBlank { "—" }
+        sb.appendLine("$bortPart$membersPart выполнили:")
+        b.boreholes.forEach { bs ->
+            val hints = if (bs.layerHints.isNotBlank()) " ( ${bs.layerHints} )" else ""
+            sb.appendLine("Скв: ${bs.name}$hints")
+        }
+        if (b.boreholes.isNotEmpty()) {
+            val sumDepth = b.boreholes.sumOf { it.depthM }
+            sb.appendLine("Итого - ${b.boreholes.size} скв - ${fmtNum(sumDepth)} п.м")
+        }
+        if (b.thermometry.isNotEmpty()) {
+            sb.appendLine("Термометрия ${b.thermometry.size} скв: " +
+                b.thermometry.joinToString(", ") { tp ->
+                    if (tp.notes.isNotBlank()) "${tp.name} (${tp.notes})" else tp.name
+                })
+        }
+        if (b.probe.isNotEmpty()) {
+            sb.appendLine("Зондирование ${b.probe.size} точек: " +
+                b.probe.joinToString(", ") { tp ->
+                    if (tp.notes.isNotBlank()) "${tp.name} (${tp.notes})" else tp.name
+                })
+        }
+        sb.appendLine()
+    }
 }
 
 suspend fun generateSummary(
@@ -67,79 +142,37 @@ suspend fun generateSummary(
         else db.volumes().all()
 
     val sb = StringBuilder()
-    sb.appendLine("Выполнение за $toDate")
-    sb.appendLine()
 
-    // ── По бригадам за toDate ────────────────────────────────
-    val buckets = linkedMapOf<String, BrigadeBucket>()
-
-    volumes.filter { it.kind == VolumeKind.DRILLING }.forEach { vol ->
-        val drilledToday = db.boreholes().completedOn(vol.id, toDate)
-        drilledToday.forEach { bh ->
-            val info = parseSnap(bh.brigadeSnapshot)
-            val bucket = buckets.getOrPut(info.key) { BrigadeBucket(info) }
-            val layers = db.soilLayers().byBoreholeOnce(bh.uuid)
-            bucket.boreholes += DrillEntry(
-                name = bh.name.ifEmpty { "Скв-${bh.uuid.take(6)}" },
-                depthM = bh.plannedDepthM,
-                layerHints = formatLayerHints(layers)
-            )
-        }
-    }
-
-    volumes.filter { it.kind != VolumeKind.DRILLING }.forEach { vol ->
-        val tps = db.taskPoints().completedOn(vol.id, toDate)
-        tps.forEach { tp ->
-            val info = parseSnap(tp.brigadeSnapshot)
-            val bucket = buckets.getOrPut(info.key) { BrigadeBucket(info) }
-            val entry = TaskEntry(tp.name.ifEmpty { tp.uuid.take(6) }, tp.notes)
-            when (vol.kind) {
-                VolumeKind.THERMOMETRY -> bucket.thermometry += entry
-                VolumeKind.STATIC_PROBE -> bucket.probe += entry
-            }
-        }
-    }
-
-    if (buckets.isEmpty()) {
-        sb.appendLine("Нет выполненных работ за $toDate.")
-        sb.appendLine()
+    // ── Раздел за каждый день диапазона ──────────────────────
+    val from = runCatching { LocalDate.parse(fromDate) }.getOrNull()
+    val to = runCatching { LocalDate.parse(toDate) }.getOrNull()
+    val days: List<LocalDate> = if (from != null && to != null && !from.isAfter(to)) {
+        generateSequence(from) { it.plusDays(1) }.takeWhile { !it.isAfter(to) }.toList()
     } else {
-        buckets.values.forEachIndexed { idx, b ->
-            if (idx > 0) sb.appendLine("─".repeat(30))
-            val bortPart = b.snap.transportLabel.takeIf { it.isNotBlank() }?.let { "Борт $it " } ?: ""
-            val membersPart = b.snap.memberNames.joinToString(", ").ifBlank { "—" }
-            sb.appendLine("$bortPart$membersPart выполнили:")
-            b.boreholes.forEach { bs ->
-                val hints = if (bs.layerHints.isNotBlank()) " ( ${bs.layerHints} )" else ""
-                sb.appendLine("Скв: ${bs.name}$hints")
-            }
-            if (b.boreholes.isNotEmpty()) {
-                val sumDepth = b.boreholes.sumOf { it.depthM }
-                sb.appendLine("Итого - ${b.boreholes.size} скв - ${fmtNum(sumDepth)} п.м")
-            }
-            if (b.thermometry.isNotEmpty()) {
-                sb.appendLine("Термометрия ${b.thermometry.size} скв: " +
-                    b.thermometry.joinToString(", ") { tp ->
-                        if (tp.notes.isNotBlank()) "${tp.name} (${tp.notes})" else tp.name
-                    })
-            }
-            if (b.probe.isNotEmpty()) {
-                sb.appendLine("Зондирование ${b.probe.size} точек: " +
-                    b.probe.joinToString(", ") { tp ->
-                        if (tp.notes.isNotBlank()) "${tp.name} (${tp.notes})" else tp.name
-                    })
-            }
+        listOfNotNull(to ?: from)
+    }
+
+    var lastDayBuckets: Map<String, BrigadeBucket> = emptyMap()
+    days.forEachIndexed { idx, day ->
+        if (idx > 0) {
+            sb.appendLine("═".repeat(32))
             sb.appendLine()
         }
+        val buckets = collectBuckets(db, volumes, day.toString())
+        appendDaySection(sb, day.toString(), buckets)
+        if (idx == days.lastIndex) lastDayBuckets = buckets
     }
 
-    // ── Пройдено за день ────────────────────────────────────
-    val dayDrillCount = buckets.values.sumOf { it.boreholes.size }
-    val dayDrillDepth = buckets.values.sumOf { b -> b.boreholes.sumOf { it.depthM } }
-    val dayThermoCount = buckets.values.sumOf { it.thermometry.size }
-    val dayProbeCount = buckets.values.sumOf { it.probe.size }
+    sb.appendLine("═".repeat(32))
+    sb.appendLine()
+
+    // ── Пройдено за день (последний день) ───────────────────
+    val dayDrillCount = lastDayBuckets.values.sumOf { it.boreholes.size }
+    val dayDrillDepth = lastDayBuckets.values.sumOf { b -> b.boreholes.sumOf { it.depthM } }
+    val dayThermoCount = lastDayBuckets.values.sumOf { it.thermometry.size }
+    val dayProbeCount = lastDayBuckets.values.sumOf { it.probe.size }
     if (dayDrillCount + dayThermoCount + dayProbeCount > 0) {
-        sb.appendLine("Пройдено за день:")
+        sb.appendLine("Пройдено за день ($toDate):")
         if (dayThermoCount > 0) sb.appendLine("$dayThermoCount скв термометрия")
         if (dayProbeCount > 0) sb.appendLine("$dayProbeCount точек зондирования")
         if (dayDrillCount > 0) sb.appendLine("$dayDrillCount скв бурения - ${fmtNum(dayDrillDepth)} п.м.")

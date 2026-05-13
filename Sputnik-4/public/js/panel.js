@@ -11,10 +11,46 @@ async function selectSite(id){
     if(!r.ok)throw new Error('not found');
     currentObj=await r.json();currentType='site';activeSiteId=id;
     _showMiniPanel();
+    renderSiteStatsOverlay(currentObj);
     renderSidebar();
     await repaintMap();
     renderVpLayers(currentObj.vol_progress||[]);
   }catch(e){toast('Ошибка загрузки объекта','err');}
+}
+
+function hideSiteStatsOverlay(){
+  const el=document.getElementById('site-stats-overlay');
+  if(el){el.style.display='none';el.innerHTML='';}
+}
+
+function renderSiteStatsOverlay(site){
+  const el=document.getElementById('site-stats-overlay');
+  if(!el||!site)return;
+  const vols=site.volumes||[];
+  if(!vols.length){hideSiteStatsOverlay();return;}
+  const done={};
+  (site.vol_progress||[]).forEach(p=>{
+    if(p.row_type&&p.row_type!=='fact')return;
+    done[p.volume_id]=(done[p.volume_id]||0)+(parseFloat(p.completed)||0);
+  });
+  const rows=vols.map(v=>{
+    const d=done[v.id]||0;
+    const plan=parseFloat(v.amount)||0;
+    const remain=Math.max(0,plan-d);
+    const unit=v.unit||'';
+    const cat=v.category==='geology'?'🛠':(v.category==='geodesy'?'📐':'•');
+    const pct=plan>0?Math.round(d/plan*100):0;
+    const remainTxt=plan>0?` <span style="color:#888">(ост. ${fmtN(remain)})</span>`:'';
+    return `<div style="margin:2px 0">${cat} <b>${esc(v.name||'')}</b>: ${fmtN(d)}${plan>0?' / '+fmtN(plan):''} ${esc(unit)}${remainTxt}${plan>0?` <span style="color:#666">${pct}%</span>`:''}</div>`;
+  }).join('');
+  el.innerHTML=`<div style="font-weight:600;margin-bottom:4px">📊 Объёмы</div>${rows}`;
+  el.style.display='block';
+}
+
+function fmtN(v){
+  if(!isFinite(v))return '0';
+  if(Math.abs(v-Math.round(v))<1e-9)return String(Math.round(v));
+  return v.toFixed(1).replace('.',',');
 }
 
 function _showMiniPanel(){
@@ -42,6 +78,7 @@ function openFullSitePanel(){
 
 function closeMiniPanel(){
   document.getElementById('mini-panel').classList.remove('open');
+  hideSiteStatsOverlay();
   currentObj=null;currentType=null;activeSiteId=null;
   clearVolumesFromMap();
   renderSidebar();
@@ -50,6 +87,7 @@ function closeMiniPanel(){
 async function selectBase(id){
   try{
     document.getElementById('mini-panel').classList.remove('open');
+    hideSiteStatsOverlay();
     const r=await fetch(`${API}/bases/${id}`);
     if(!r.ok)throw new Error('not found');
     currentObj=await r.json();currentType='base';activeSiteId=null;
@@ -80,9 +118,11 @@ function closePanel(){
   // For sites: go back to mini panel instead of closing entirely
   if(currentType==='site'&&currentObj){
     _showMiniPanel();
+    renderSiteStatsOverlay(currentObj);
     return;
   }
   document.getElementById('mini-panel').classList.remove('open');
+  hideSiteStatsOverlay();
   currentObj=null;currentType=null;activeSiteId=null;
   clearVolumesFromMap();
   renderSidebar();

@@ -556,6 +556,18 @@ function showFieldBoreholeModal(b) {
   const catTitle = { vyrabotka: 'Выработка', drilling: 'Бурение', core_box: 'Керн', journal: 'Журнал' };
   const photosHtml = `
     <div class="wdc-panel" data-panel="photos" style="display:none">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <select id="fbh-photo-cat" style="padding:4px 6px">
+          <option value="vyrabotka">Выработка</option>
+          <option value="drilling">Бурение</option>
+          <option value="core_box">Керн</option>
+          <option value="journal">Журнал</option>
+        </select>
+        <input id="fbh-photo-input" type="file" accept="image/jpeg,image/png" multiple style="display:none"
+               onchange="fbhUploadPhotos('${escAttr(b.uuid)}')">
+        <button class="bp" onclick="document.getElementById('fbh-photo-input').click()">➕ Добавить фото</button>
+        <span id="fbh-photo-status" style="font-size:12px;color:#666"></span>
+      </div>
       ${Object.keys(photosByCat).map(cat => photosByCat[cat].length ? `
         <h5 style="margin-top:10px">📷 ${catTitle[cat]} (${photosByCat[cat].length})</h5>
         <div class="photo-grid">
@@ -575,6 +587,30 @@ function fbhTab(btnEl, tab) {
   document.querySelectorAll('.wdc-tab').forEach(t => t.classList.remove('on'));
   btnEl.classList.add('on');
   document.querySelectorAll('.wdc-panel').forEach(p => p.style.display = p.dataset.panel === tab ? '' : 'none');
+}
+
+async function fbhUploadPhotos(bhUuid) {
+  const input = document.getElementById('fbh-photo-input');
+  const status = document.getElementById('fbh-photo-status');
+  const catSel = document.getElementById('fbh-photo-cat');
+  if (!input || !input.files || !input.files.length) return;
+  const fd = new FormData();
+  for (const f of input.files) fd.append('photos', f);
+  fd.append('category', catSel ? catSel.value : 'vyrabotka');
+  fd.append('user_name', un());
+  if (status) status.textContent = 'Загрузка…';
+  try {
+    const r = await fetch(`${API}/field/boreholes/${bhUuid}/photos`, { method: 'POST', body: fd });
+    if (!r.ok) { toast('Ошибка загрузки', 'err'); if (status) status.textContent = ''; return; }
+    const data = await r.json();
+    toast(`Добавлено фото: ${(data.added || []).length}`, 'ok');
+    input.value = '';
+    closeModal();
+    openFieldBoreholeCard(bhUuid);
+  } catch (e) {
+    toast('Ошибка загрузки', 'err');
+    if (status) status.textContent = '';
+  }
 }
 
 async function fbhDelete(uuid) {

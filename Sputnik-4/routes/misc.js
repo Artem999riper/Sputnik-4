@@ -201,6 +201,86 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json({ ok: true, message: 'Восстановлено. Перезапустите сервер.' });
   }));
 
+  // ── LAYER EXPORT (DXF) ─────────────────────────────────────
+  const { buildLayersDXF, saveDXF } = require('../dxf-writer');
+  const { makeTransform, pickMsk86Zone, pickGsk2011Zone } = require('../coord-transform');
+
+  function geojsonBboxCenter(layers) {
+    let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity, found = false;
+    function visit(coord) {
+      if (!Array.isArray(coord)) return;
+      if (typeof coord[0] === 'number' && typeof coord[1] === 'number') {
+        const [lng, lat] = coord;
+        if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
+        if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+        found = true;
+      } else { coord.forEach(visit); }
+    }
+    for (const l of layers) {
+      let gj = l.geojson;
+      if (typeof gj === 'string') { try { gj = JSON.parse(gj); } catch (e) { continue; } }
+      if (!gj) continue;
+      const feats = gj.type === 'FeatureCollection' ? (gj.features || [])
+        : gj.type === 'Feature' ? [gj] : [];
+      feats.forEach(f => f && f.geometry && visit(f.geometry.coordinates));
+    }
+    if (!found) return { centerLng: 72, centerLat: 65 };
+    return { centerLng: (minLng + maxLng) / 2, centerLat: (minLat + maxLat) / 2 };
+  }
+
+  function hexToDxfColor(hex) {
+    if (!hex || typeof hex !== 'string') return 7;
+    const h = hex.replace('#', '');
+    if (h.length < 3) return 7;
+    const r = parseInt(h.slice(0, 2), 16), g_ = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    if (r > 200 && g_ < 100 && b < 100) return 1;
+    if (r < 100 && g_ > 150 && b < 100) return 3;
+    if (r < 100 && g_ < 100 && b > 150) return 5;
+    if (r > 200 && g_ > 200 && b < 100) return 2;
+    if (r < 100 && g_ > 150 && b > 150) return 4;
+    if (r > 200 && g_ < 100 && b > 150) return 6;
+    return 7;
+  }
+
+  app.post('/api/layers/export-dxf', wrap((req, res) => {
+    const { layerIds, crs, filename } = req.body || {};
+    if (!Array.isArray(layerIds) || !layerIds.length) {
+      return res.status(400).json({ error: 'layerIds required' });
+    }
+    const d = db();
+    const placeholders = layerIds.map(() => '?').join(',');
+    const rows = all(d, `SELECT id, name, geojson, color FROM kml_layers WHERE id IN (${placeholders})`, layerIds);
+    if (!rows.length) return res.status(404).json({ error: 'Слои не найдены' });
+
+    const { centerLng } = geojsonBboxCenter(rows);
+    const crsKey = crs || 'wgs84';
+    const transform = makeTransform(crsKey, centerLng);
+
+    let zoneInfo = '';
+    if (crsKey === 'msk86') zoneInfo = `_z${pickMsk86Zone(centerLng)}`;
+    else if (crsKey === 'gsk2011') zoneInfo = `_z${pickGsk2011Zone(centerLng)}`;
+
+    const layers = rows.map(r => ({
+      name: r.name,
+      color: hexToDxfColor(r.color),
+      geojson: r.geojson,
+    }));
+    const dxfStr = buildLayersDXF({ layers, transform });
+
+    const safeName = (filename || `layers_${crsKey}${zoneInfo}.dxf`)
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+    const tmpPath = path.join(__dirname, '..', 'public', 'uploads', `_dxf_${Date.now()}_${Math.random().toString(36).slice(2)}.dxf`);
+    saveDXF(tmpPath, dxfStr);
+    const stat = fs.statSync(tmpPath);
+    res.setHeader('Content-Type', 'application/dxf');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    const stream = fs.createReadStream(tmpPath);
+    stream.pipe(res);
+    stream.on('end', () => { try { fs.unlinkSync(tmpPath); } catch (e) {} });
+    stream.on('error', () => { try { fs.unlinkSync(tmpPath); } catch (e) {} });
+  }));
+
   // ── DEM EXPORT ─────────────────────────────────────────────
   app.get('/api/dem/status', async (req, res) => {
     if (!demProcessor) return res.json({ available: false, reason: 'dem-processor не загружен' });

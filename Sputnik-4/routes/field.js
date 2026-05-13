@@ -51,6 +51,12 @@ function safeFolderName(name) {
     || 'без_имени';
 }
 
+function buildBhFolderName(bhRow) {
+  const namePart = bhRow && (bhRow.name || (bhRow.uuid ? String(bhRow.uuid).slice(0, 6) : ''));
+  const datePart = bhRow && bhRow.drill_date ? String(bhRow.drill_date).replace(/-/g, '') : '';
+  return safeFolderName([namePart, datePart].filter(Boolean).join('_'));
+}
+
 function isSafeZipPath(name) {
   if (!name) return false;
   if (name.includes('..')) return false;
@@ -190,6 +196,50 @@ module.exports = (app, getDb, L) => {
     // Связанный vol_progress (если есть)
     const vp = bh.vol_progress_id ? get(d, 'SELECT * FROM vol_progress WHERE id=?', [bh.vol_progress_id]) : null;
     res.json({ ...bh, layers, samples, ugv, mmg, photos, vol_progress: vp });
+  }));
+
+  // ── Загрузка фото в существующую скважину ─────────────────
+  const photoUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024, files: 20 },
+  });
+  app.post('/api/field/boreholes/:uuid/photos', photoUpload.array('photos', 20), wrap((req, res) => {
+    const d = db();
+    const u = req.params.uuid;
+    const bh = get(d, 'SELECT uuid, name, site_id, drill_date FROM field_boreholes WHERE uuid=?', [u]);
+    if (!bh) return res.status(404).json({ error: 'Not found' });
+    if (!req.files || !req.files.length) return res.status(400).json({ error: 'Файлы не переданы' });
+
+    const category = clipStr((req.body && req.body.category) || 'vyrabotka', 32);
+    const siteRow = get(d, 'SELECT name FROM sites WHERE id=?', [bh.site_id]);
+    const siteFolderName = safeFolderName(siteRow && siteRow.name ? siteRow.name : (bh.site_id || u));
+    const bhFolderName = buildBhFolderName(bh);
+    const targetDir = path.join(FIELD_UPLOADS, siteFolderName, bhFolderName);
+    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+    const added = [];
+    for (const f of req.files) {
+      const ext = path.extname(f.originalname || '').toLowerCase();
+      if (!ALLOWED_IMG_EXT.has(ext)) continue;
+      const photoUuid = uuid();
+      const fname = `${u}_${category}_${photoUuid.replace(/-/g, '').slice(0, 12)}${ext}`;
+      const targetPath = path.join(targetDir, fname);
+      try {
+        fs.writeFileSync(targetPath, f.buffer);
+      } catch (e) {
+        continue;
+      }
+      const filePathRel = `uploads/field/${siteFolderName}/${bhFolderName}/${fname}`;
+      run(d, `INSERT INTO field_photos (uuid, borehole_uuid, category, file_path, taken_at)
+              VALUES (?,?,?,?,datetime('now'))`,
+        [photoUuid, u, category, filePathRel]);
+      added.push({ uuid: photoUuid, category, file_path: filePathRel });
+    }
+
+    L(bh.site_id, null, 'Добавлены фото',
+      `${bh.name || u}: +${added.length}`, req.body && req.body.user_name);
+    broadcast({ type: 'change', url: `/api/field/boreholes/${u}/photos`, method: 'POST', t: Date.now() });
+    res.json({ added });
   }));
 
   // ── Удаление скважины (+ связанный vol_progress) ──────────
@@ -562,7 +612,7 @@ module.exports = (app, getDb, L) => {
       if (!bhRow) continue;
       const siteRow = get(d, 'SELECT name FROM sites WHERE id=?', [bhRow.site_id]);
       const siteFolderName = safeFolderName(siteRow && siteRow.name ? siteRow.name : (bhRow.site_id || bhUuid));
-      const bhFolderName = safeFolderName(bhRow.name || bhUuid);
+      const bhFolderName = buildBhFolderName(bhRow);
       const targetDir = path.join(FIELD_UPLOADS, siteFolderName, bhFolderName);
       if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
       const targetPath = path.join(targetDir, baseName);
