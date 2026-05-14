@@ -1730,6 +1730,7 @@ async function pgkPageMaterials(pb){
           style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:130px;flex:1"
           oninput="matSearchFilter(this.value)"/>
         <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFBaseM=this.value;renderPGK()">${baseOpts}</select>
+        <button class="btn bs bsm" onclick="exportMaterialsExcel()" title="Экспорт в Excel">📤 Excel</button>
         <button class="btn bp bsm" onclick="pgkAddMatGlobal()">＋ Добавить</button>
       </div>
       <div class="wt-summary" style="padding:4px 12px">
@@ -2394,6 +2395,99 @@ async function savePGKEquip(id){
   closeModal();await loadPGK();toast(id?'Обновлено':'Добавлено','ok');
 }
 async function pgkDelEquip(id){if(!confirm('Удалить?'))return;await apiDelUndo(`/pgk/equipment/${id}`,'Оборудование удалено',loadPGK);}
+
+function exportMaterialsExcel(){
+  const allMats=(bases||[]).flatMap(b=>(b.materials||[]).map(m=>({...m,base_name:b.name})));
+  if(!allMats.length){toast('Нет материалов для экспорта','warn');return;}
+  const wb=XLSX.utils.book_new();
+  const todayDate=new Date();
+  const todayStr=todayDate.toISOString().split('T')[0];
+  const todayFmt=todayDate.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
+
+  const COLS=9;
+  const hdrFill='C3D69B';
+  const rowFill='B9CCE4';
+  const titleFill='D9E1F2';
+  const grpFill='EBF1DE';
+  const lowFill='FFE0E0';
+  const border={top:{style:'medium',color:{rgb:'000000'}},bottom:{style:'medium',color:{rgb:'000000'}},left:{style:'medium',color:{rgb:'000000'}},right:{style:'medium',color:{rgb:'000000'}}};
+  const thinBorder={top:{style:'thin',color:{rgb:'000000'}},bottom:{style:'thin',color:{rgb:'000000'}},left:{style:'thin',color:{rgb:'000000'}},right:{style:'thin',color:{rgb:'000000'}}};
+  const baseAlign={horizontal:'center',vertical:'center',wrapText:true};
+  const leftAlign={horizontal:'left',vertical:'center',wrapText:true};
+
+  function colLetter(c){let s='',n=c;do{s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26)-1;}while(n>=0);return s;}
+  function ref(r,c){return colLetter(c)+(r+1);}
+  function setStyle(cr,st){if(!ws[cr])ws[cr]={t:'s',v:''};ws[cr].s=st;}
+
+  const hdr=['№','Название','Группа','База','Кол-во','Ед.','Минимум','Запас (%)','Примечания'];
+
+  // Build rows grouped by pgkMatGroups then ungrouped
+  const groups=(pgkMatGroups||[]).map(g=>g.name);
+  const allGroups=[...groups,''];
+  const aoa=[['Реестр материалов — '+todayFmt],hdr];
+  const groupRowIdxs=[];
+  const lowRowIdxs=[];
+  let rowNum=0;
+  allGroups.forEach(grpName=>{
+    const mats=allMats.filter(m=>(m.category||'')===(grpName));
+    if(!mats.length)return;
+    const grpLabel=grpName||'Без группы';
+    const grpRowIdx=aoa.length;
+    aoa.push([grpLabel,'','','','','','','','']);
+    groupRowIdxs.push(grpRowIdx);
+    mats.forEach((m,i)=>{
+      const pct=m.min_amount>0?Math.round((m.amount/m.min_amount)*100):null;
+      const pctStr=pct!==null?pct+'%':'—';
+      const dataRowIdx=aoa.length;
+      aoa.push([++rowNum,m.name,m.category||'',m.base_name,m.amount??'',m.unit||'',m.min_amount??'',pctStr,m.notes||'']);
+      if(m.min_amount>0&&m.amount<m.min_amount)lowRowIdxs.push(dataRowIdx);
+    });
+  });
+
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:5},{wch:32},{wch:20},{wch:20},{wch:10},{wch:8},{wch:10},{wch:10},{wch:30}];
+  ws['!rows']=[{hpx:32},{hpx:40}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:COLS-1}}];
+  ws['!views']=[{state:'frozen',xSplit:0,ySplit:2}];
+
+  setStyle(ref(0,0),{font:{name:'Times New Roman',bold:true,sz:14},alignment:{horizontal:'center',vertical:'center'},fill:{patternType:'solid',fgColor:{rgb:titleFill}},border});
+  for(let c=0;c<COLS;c++)setStyle(ref(1,c),{font:{name:'Times New Roman',bold:true,sz:11},alignment:baseAlign,fill:{patternType:'solid',fgColor:{rgb:hdrFill}},border});
+
+  // Style group header rows
+  groupRowIdxs.forEach(gr=>{
+    ws['!merges'].push({s:{r:gr,c:0},e:{r:gr,c:COLS-1}});
+    for(let c=0;c<COLS;c++)setStyle(ref(gr,c),{font:{name:'Times New Roman',bold:true,sz:11},alignment:leftAlign,fill:{patternType:'solid',fgColor:{rgb:grpFill}},border:thinBorder});
+  });
+
+  // Style data rows
+  for(let ri=2;ri<aoa.length;ri++){
+    if(groupRowIdxs.includes(ri))continue;
+    const isLow=lowRowIdxs.includes(ri);
+    const alt=(ri%2===0);
+    const fill=isLow?{patternType:'solid',fgColor:{rgb:lowFill}}:alt?{patternType:'solid',fgColor:{rgb:rowFill}}:{patternType:'solid',fgColor:{rgb:'FFFFFF'}};
+    for(let c=0;c<COLS;c++){
+      const align=(c===1||c===2||c===3||c===8)?leftAlign:baseAlign;
+      setStyle(ref(ri,c),{font:{name:'Times New Roman',sz:11},alignment:align,fill,border:thinBorder});
+    }
+  }
+
+  // Сводный лист по базам
+  const byBase={};
+  allMats.forEach(m=>{const b=m.base_name||'— нет базы —';if(!byBase[b])byBase[b]={total:0,low:0};byBase[b].total++;if(m.min_amount>0&&m.amount<m.min_amount)byBase[b].low++;});
+  const sumAoa=[
+    ['Сводка по базам'],
+    ['База','Позиций','Ниже минимума'],
+    ...Object.entries(byBase).map(([b,s])=>[b,s.total,s.low])
+  ];
+  const sumWs=XLSX.utils.aoa_to_sheet(sumAoa);
+  sumWs['!cols']=[{wch:28},{wch:12},{wch:16}];
+  sumWs['!merges']=[{s:{r:0,c:0},e:{r:0,c:2}}];
+
+  XLSX.utils.book_append_sheet(wb,ws,'Материалы');
+  XLSX.utils.book_append_sheet(wb,sumWs,'По базам');
+  XLSX.writeFile(wb,'Материалы_'+todayStr.replace(/-/g,'_')+'.xlsx');
+  toast('Excel сохранён','ok');
+}
 
 function exportEquipmentExcel(){
   if(!pgkEquipment||!pgkEquipment.length){toast('Нет оборудования для экспорта','warn');return;}
