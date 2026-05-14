@@ -63,6 +63,16 @@ main#screen { flex: 1; padding: 20px; overflow-y: auto; }
 .row-item.clickable { cursor: pointer; }
 .row-item.clickable:hover { background: var(--surface2); }
 
+/* Бригада */
+.brg-row { display: flex; align-items: center; gap: 10px; padding: 7px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 5px; cursor: pointer; }
+.brg-row:hover { background: var(--surface2); }
+.brg-row.selected { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, var(--surface)); }
+.brg-radio, .brg-check { font-size: 16px; color: var(--text3); flex-shrink: 0; width: 18px; }
+.brg-row.selected .brg-radio, .brg-row.selected .brg-check { color: var(--primary); }
+.brg-main { flex: 1; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.brg-name { font-weight: 600; font-size: 13px; }
+.brg-meta { font-size: 11px; color: var(--text3); }
+
 /* Бейджи */
 .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; background: var(--surface2); color: var(--text2); }
 .badge.draft { background: #fff3e0; color: var(--warning); }

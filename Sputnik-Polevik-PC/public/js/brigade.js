@@ -1,4 +1,7 @@
-// Бригада: multi-select работников + транспорт
+// Бригада: multi-select работников + транспорт (оба с поиском)
+
+let _brWorkers = [], _brTransport = [];
+let _selWorkerIds = new Set(), _selTransportId = '';
 
 async function renderBrigade() {
   const screen = document.getElementById('screen');
@@ -12,65 +15,87 @@ async function renderBrigade() {
     return;
   }
 
-  const selectedWorkerIds = new Set(current?.members?.map(m => m.id) || []);
-  let selectedTransportId = current?.transport_id || '';
+  _brWorkers = workers;
+  _brTransport = transport;
+  _selWorkerIds = new Set(current?.members?.map(m => m.id) || []);
+  _selTransportId = current?.transport_id || '';
+
+  setPageActions(`<button class="btn primary" onclick="saveBrigade()">Сохранить</button>`);
 
   screen.innerHTML = `
-    <div style="margin-bottom:16px;color:var(--text2)">
-      Выберите состав бригады, работающей сегодня. Этот выбор сохраняется в каждую завершённую скважину как «снимок».
+    <div style="max-width:560px">
+      <p style="color:var(--text2);margin-bottom:16px">Выберите состав бригады на сегодня. Сохраняется в каждую завершённую скважину.</p>
+      <h3 style="margin-bottom:8px">🚚 Транспорт</h3>
+      <input id="brg-t-search" class="search-input" placeholder="Поиск транспорта…" oninput="renderBrTransport()" style="margin-bottom:8px;width:100%">
+      <div id="brg-transport" style="margin-bottom:20px"></div>
+      <h3 style="margin-bottom:8px">👤 Работники</h3>
+      <input id="brg-w-search" class="search-input" placeholder="Поиск работника…" oninput="renderBrWorkers()" style="margin-bottom:8px;width:100%">
+      <div id="brg-workers"></div>
     </div>
-    <h3 style="margin-top:8px">👤 Работники</h3>
-    <div id="brg-workers" style="margin-bottom:20px"></div>
-    <h3>🚚 Транспорт</h3>
-    <div id="brg-transport" style="margin-bottom:20px"></div>
-    <button class="btn primary" id="brg-save" style="width:100%;padding:12px">Сохранить бригаду</button>
   `;
 
-  const wEl = document.getElementById('brg-workers');
-  workers.forEach(w => {
-    const sel = selectedWorkerIds.has(w.id);
-    const div = document.createElement('div');
-    div.className = 'row-item clickable';
-    div.style.userSelect = 'none';
-    div.innerHTML = `
-      <input type="checkbox" ${sel ? 'checked' : ''} style="width:18px;height:18px">
-      <div class="main"><div class="name">${esc(w.name)}</div>
-      <div class="meta">${esc(w.role || '')} ${w.phone ? '· ' + esc(w.phone) : ''}</div></div>`;
-    div.onclick = (e) => {
-      const cb = div.querySelector('input');
-      if (e.target !== cb) cb.checked = !cb.checked;
-      if (cb.checked) selectedWorkerIds.add(w.id);
-      else selectedWorkerIds.delete(w.id);
-    };
-    wEl.appendChild(div);
-  });
+  renderBrTransport();
+  renderBrWorkers();
+}
 
-  const tEl = document.getElementById('brg-transport');
-  if (!transport.length) tEl.innerHTML = '<div class="empty">Транспорт не импортирован.</div>';
-  transport.forEach(t => {
-    const sel = selectedTransportId === t.id;
-    const div = document.createElement('div');
-    div.className = 'row-item clickable';
-    div.style.borderColor = sel ? 'var(--primary)' : 'var(--border)';
-    div.innerHTML = `
-      <div class="main"><div class="name">${esc(t.name)} ${t.plate ? '<span class="badge">' + esc(t.plate) + '</span>' : ''}</div>
-        <div class="meta">${esc(t.type || '')}</div></div>
-      <div class="badge" style="background:var(--primary);color:#fff;display:${sel ? 'inline-block' : 'none'}">✓</div>`;
-    div.onclick = () => {
-      selectedTransportId = sel ? '' : t.id;
-      renderBrigade(); // перерисовать
-    };
-    tEl.appendChild(div);
-  });
+function renderBrTransport() {
+  const q = (document.getElementById('brg-t-search')?.value || '').toLowerCase();
+  const el = document.getElementById('brg-transport');
+  if (!el) return;
+  const filtered = _brTransport.filter(t =>
+    !q || (t.name + ' ' + t.plate + ' ' + t.type).toLowerCase().includes(q)
+  );
+  if (!filtered.length) { el.innerHTML = '<div class="empty" style="padding:8px">Ничего не найдено.</div>'; return; }
+  el.innerHTML = filtered.map(t => {
+    const sel = _selTransportId === t.id;
+    return `<div class="brg-row${sel ? ' selected' : ''}" onclick="toggleTransport('${t.id}')">
+      <span class="brg-radio">${sel ? '●' : '○'}</span>
+      <div class="brg-main">
+        <span class="brg-name">${esc(t.name)}${t.plate ? ' <span class="badge">' + esc(t.plate) + '</span>' : ''}</span>
+        <span class="brg-meta">${esc(t.type || '')}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
 
-  document.getElementById('brg-save').onclick = async () => {
-    try {
-      await api('/brigade', { method: 'POST', body: JSON.stringify({
-        worker_ids: [...selectedWorkerIds],
-        transport_id: selectedTransportId || null,
-      }) });
-      toast('Бригада сохранена', 'ok');
-      navBack();
-    } catch (e) { toast('Ошибка: ' + e.message, 'err'); }
-  };
+function renderBrWorkers() {
+  const q = (document.getElementById('brg-w-search')?.value || '').toLowerCase();
+  const el = document.getElementById('brg-workers');
+  if (!el) return;
+  const filtered = _brWorkers.filter(w =>
+    !q || (w.name + ' ' + w.role + ' ' + (w.phone || '')).toLowerCase().includes(q)
+  );
+  if (!filtered.length) { el.innerHTML = '<div class="empty" style="padding:8px">Ничего не найдено.</div>'; return; }
+  el.innerHTML = filtered.map(w => {
+    const sel = _selWorkerIds.has(w.id);
+    return `<div class="brg-row${sel ? ' selected' : ''}" onclick="toggleWorker('${w.id}')">
+      <span class="brg-check">${sel ? '☑' : '☐'}</span>
+      <div class="brg-main">
+        <span class="brg-name">${esc(w.name)}</span>
+        <span class="brg-meta">${esc(w.role || '')}${w.phone ? ' · ' + esc(w.phone) : ''}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleTransport(id) {
+  _selTransportId = _selTransportId === id ? '' : id;
+  renderBrTransport();
+}
+
+function toggleWorker(id) {
+  if (_selWorkerIds.has(id)) _selWorkerIds.delete(id);
+  else _selWorkerIds.add(id);
+  renderBrWorkers();
+}
+
+async function saveBrigade() {
+  try {
+    await api('/brigade', { method: 'POST', body: JSON.stringify({
+      worker_ids: [..._selWorkerIds],
+      transport_id: _selTransportId || null,
+    }) });
+    toast('Бригада сохранена', 'ok');
+    navBack();
+  } catch (e) { toast('Ошибка: ' + e.message, 'err'); }
 }

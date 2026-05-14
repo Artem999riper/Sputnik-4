@@ -38,8 +38,182 @@ function cell(text, opts = {}) {
   });
 }
 
+// ── Генерация текстовой сводки (как в Android) ───────────────
+
+function fmtNum(v) {
+  const n = Number(v) || 0;
+  if (n === Math.floor(n)) return String(Math.floor(n));
+  return n.toFixed(1).replace('.', ',');
+}
+
+function parseSnap(json) {
+  if (!json) return { transportLabel: '', memberNames: [] };
+  try { const o = JSON.parse(json); return { transportLabel: o.transportLabel || '', memberNames: o.memberNames || [] }; }
+  catch { return { transportLabel: '', memberNames: [] }; }
+}
+
+function formatLayerHints(layers) {
+  const out = [];
+  let top = 0;
+  for (const l of layers) {
+    const bot = Number(l.depth_m) || 0;
+    if (!bot) continue;
+    const type = (l.soil_type || 'грунт').toLowerCase();
+    const fr = l.frozen_state;
+    const frozen = (fr === 'Мёрзлый' || fr === 'Мерзлый') ? ' мёрзлый' : fr === 'Талый' ? ' талый' : '';
+    out.push(`${fmtNum(top)}-${fmtNum(bot)} ${type}${frozen}`);
+    top = bot;
+  }
+  return out.join(', ');
+}
+
+function collectBuckets(d, volumes, day) {
+  const buckets = new Map();
+  const getOrAdd = (snap) => {
+    if (!buckets.has(snap.key)) buckets.set(snap.key, { snap, boreholes: [], thermometry: [], probe: [] });
+    return buckets.get(snap.key);
+  };
+  volumes.filter(v => v.kind === 'DRILLING').forEach(vol => {
+    const bhs = all(d, "SELECT * FROM boreholes WHERE volume_id=? AND status='done' AND drill_date=?", [vol.id, day]);
+    bhs.forEach(bh => {
+      const snap = parseSnap(bh.brigade_snapshot);
+      snap.key = snap.transportLabel + '|' + snap.memberNames.join('|');
+      const layers = all(d, 'SELECT * FROM soil_layers WHERE borehole_uuid=? ORDER BY order_idx', [bh.uuid]);
+      getOrAdd(snap).boreholes.push({ name: bh.name || bh.uuid.slice(0,6), depthM: Number(bh.planned_depth_m) || 0, hints: formatLayerHints(layers) });
+    });
+  });
+  volumes.filter(v => v.kind !== 'DRILLING').forEach(vol => {
+    const tps = all(d, "SELECT * FROM task_points WHERE volume_id=? AND completed_date=?", [vol.id, day]);
+    tps.forEach(tp => {
+      const snap = parseSnap(tp.brigade_snapshot);
+      snap.key = snap.transportLabel + '|' + snap.memberNames.join('|');
+      const entry = { name: tp.name || tp.uuid.slice(0,6), notes: tp.notes || '' };
+      if (vol.kind === 'THERMOMETRY') getOrAdd(snap).thermometry.push(entry);
+      else getOrAdd(snap).probe.push(entry);
+    });
+  });
+  return buckets;
+}
+
+function appendDaySection(lines, day, buckets) {
+  lines.push(`Выполнение за ${day}`);
+  lines.push('');
+  if (!buckets.size) { lines.push(`Нет выполненных работ за ${day}.`); lines.push(''); return; }
+  let first = true;
+  for (const { snap, boreholes, thermometry, probe } of buckets.values()) {
+    if (!first) lines.push('─'.repeat(30));
+    first = false;
+    const bort = snap.transportLabel ? `Борт ${snap.transportLabel} ` : '';
+    const members = snap.memberNames.join(', ') || '—';
+    lines.push(`${bort}${members} выполнили:`);
+    boreholes.forEach(bs => {
+      const hints = bs.hints ? ` ( ${bs.hints} )` : '';
+      lines.push(`Скв: ${bs.name}${hints}`);
+    });
+    if (boreholes.length) {
+      const sum = boreholes.reduce((s, b) => s + b.depthM, 0);
+      lines.push(`Итого - ${boreholes.length} скв - ${fmtNum(sum)} п.м`);
+    }
+    if (thermometry.length) lines.push(`Термометрия ${thermometry.length} скв: ` + thermometry.map(t => t.notes ? `${t.name} (${t.notes})` : t.name).join(', '));
+    if (probe.length) lines.push(`Зондирование ${probe.length} точек: ` + probe.map(t => t.notes ? `${t.name} (${t.notes})` : t.name).join(', '));
+    lines.push('');
+  }
+}
+
+function generateSummaryText(d, siteId, from, to) {
+  const volumes = siteId
+    ? all(d, 'SELECT * FROM volumes WHERE site_id=?', [siteId])
+    : all(d, 'SELECT * FROM volumes');
+
+  const fromD = from ? new Date(from) : (to ? new Date(to) : new Date());
+  const toD = to ? new Date(to) : (from ? new Date(from) : new Date());
+  const days = [];
+  for (let cur = new Date(fromD); cur <= toD; cur.setDate(cur.getDate() + 1))
+    days.push(cur.toISOString().slice(0, 10));
+  if (!days.length) days.push(new Date().toISOString().slice(0, 10));
+
+  const lines = [];
+  let lastBuckets = new Map();
+  days.forEach((day, idx) => {
+    if (idx > 0) { lines.push('═'.repeat(32)); lines.push(''); }
+    const buckets = collectBuckets(d, volumes, day);
+    appendDaySection(lines, day, buckets);
+    if (idx === days.length - 1) lastBuckets = buckets;
+  });
+  lines.push('═'.repeat(32));
+  lines.push('');
+
+  // Пройдено за последний день
+  const dayDrill = [...lastBuckets.values()].flatMap(b => b.boreholes);
+  const dayThermo = [...lastBuckets.values()].flatMap(b => b.thermometry).length;
+  const dayProbe  = [...lastBuckets.values()].flatMap(b => b.probe).length;
+  if (dayDrill.length + dayThermo + dayProbe > 0) {
+    lines.push(`Пройдено за день (${days[days.length-1]}):`);
+    if (dayThermo) lines.push(`${dayThermo} скв термометрия`);
+    if (dayProbe)  lines.push(`${dayProbe} точек зондирования`);
+    if (dayDrill.length) lines.push(`${dayDrill.length} скв бурения - ${fmtNum(dayDrill.reduce((s,b) => s+b.depthM, 0))} п.м.`);
+    lines.push('');
+  }
+
+  // Всего за период
+  const periodDrill = volumes.filter(v => v.kind === 'DRILLING')
+    .flatMap(v => all(d, "SELECT * FROM boreholes WHERE volume_id=? AND status='done' AND drill_date>=? AND drill_date<=?", [v.id, from || days[0], to || days[days.length-1]]));
+  const periodThermo = volumes.filter(v => v.kind === 'THERMOMETRY')
+    .flatMap(v => all(d, "SELECT * FROM task_points WHERE volume_id=? AND completed_date>=? AND completed_date<=?", [v.id, from || days[0], to || days[days.length-1]]));
+  const periodProbe = volumes.filter(v => v.kind === 'STATIC_PROBE')
+    .flatMap(v => all(d, "SELECT * FROM task_points WHERE volume_id=? AND completed_date>=? AND completed_date<=?", [v.id, from || days[0], to || days[days.length-1]]));
+
+  lines.push(`Всего пройдено за период ${from || days[0]} — ${to || days[days.length-1]}:`);
+  if (periodThermo.length) lines.push(`${periodThermo.length} скв термометрия`);
+  if (periodProbe.length)  lines.push(`${periodProbe.length} точек зондирования`);
+  if (periodDrill.length) {
+    const depth = periodDrill.reduce((s, bh) => s + (Number(bh.planned_depth_m) || 0), 0);
+    lines.push(`${periodDrill.length} скв бурения - ${fmtNum(depth)} п.м`);
+  }
+  lines.push('');
+
+  // Общий объём (план)
+  const byKind = {};
+  volumes.forEach(v => { byKind[v.kind] = (byKind[v.kind] || 0) + (Number(v.total_volume) || 0); });
+  if (Object.values(byKind).some(x => x > 0)) {
+    lines.push('Общий объём выданный в работу:');
+    if (byKind.STATIC_PROBE > 0) lines.push(`${fmtNum(byKind.STATIC_PROBE)} точек статического зондирования`);
+    if (byKind.THERMOMETRY > 0)  lines.push(`${fmtNum(byKind.THERMOMETRY)} скв термометрия`);
+    if (byKind.DRILLING > 0)     lines.push(`${fmtNum(byKind.DRILLING)} п.м бурения (план)`);
+    lines.push('');
+  }
+
+  // Остаток
+  const allDoneDrill = volumes.filter(v => v.kind === 'DRILLING')
+    .flatMap(v => all(d, "SELECT * FROM boreholes WHERE volume_id=? AND status='done'", [v.id]));
+  const allDoneThermo = volumes.filter(v => v.kind === 'THERMOMETRY')
+    .flatMap(v => all(d, "SELECT * FROM task_points WHERE volume_id=? AND completed_date IS NOT NULL", [v.id]));
+  const allDoneProbe = volumes.filter(v => v.kind === 'STATIC_PROBE')
+    .flatMap(v => all(d, "SELECT * FROM task_points WHERE volume_id=? AND completed_date IS NOT NULL", [v.id]));
+
+  const remProbe = (byKind.STATIC_PROBE || 0) - allDoneProbe.length;
+  const remThermo = (byKind.THERMOMETRY || 0) - allDoneThermo.length;
+  const remDrill = (byKind.DRILLING || 0) - allDoneDrill.reduce((s, bh) => s + (Number(bh.planned_depth_m) || 0), 0);
+  if (remProbe > 0 || remThermo > 0 || remDrill > 0) {
+    lines.push('Остаток:');
+    if (remProbe > 0)  lines.push(`${fmtNum(remProbe)} точек статического зондирования`);
+    if (remThermo > 0) lines.push(`${fmtNum(remThermo)} скв термометрия`);
+    if (remDrill > 0)  lines.push(`${fmtNum(remDrill)} п.м бурения`);
+  }
+
+  return lines.join('\n').trimEnd();
+}
+
 module.exports = (app, ctx) => {
   const { db, wrap } = ctx;
+
+  // Текстовая сводка (отображается прямо в приложении)
+  app.get('/api/summary/text', wrap((req, res) => {
+    const d = db();
+    const { from, to, site_id } = req.query;
+    const text = generateSummaryText(d, site_id || null, from || '', to || '');
+    res.json({ text });
+  }));
 
   app.get('/api/export/summary.docx', wrap(async (req, res) => {
     const d = db();
