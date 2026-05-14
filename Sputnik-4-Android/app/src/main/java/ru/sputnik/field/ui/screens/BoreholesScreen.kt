@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -14,16 +15,20 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.sputnik.field.data.db.AppDatabase
 import ru.sputnik.field.data.kml.importKmlAsBoreholes
 import ru.sputnik.field.data.model.Borehole
-import ru.sputnik.field.data.model.Brigade
 import ru.sputnik.field.data.model.Volume
 import ru.sputnik.field.ui.components.ConfirmDialog
 
@@ -47,8 +52,16 @@ fun BoreholesScreen(
     val boreholes by db.boreholes().byVolume(volumeId).collectAsState(initial = emptyList())
     val title = volume?.name ?: "Скважины"
 
-    val drafts = boreholes.filter { it.status != "done" }
-    val done = boreholes.filter { it.status == "done" }
+    var searchActive by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val searchFocusRequester = remember { FocusRequester() }
+
+    val filtered = if (searchQuery.isBlank()) boreholes
+        else boreholes.filter { it.name.contains(searchQuery, ignoreCase = true) }
+
+    val drafts = filtered.filter { it.status != "done" }
+    val done = filtered.filter { it.status == "done" }
+    val allDrafts = boreholes.filter { it.status != "done" }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val displayList = if (selectedTab == 0) drafts else done
 
@@ -73,14 +86,14 @@ fun BoreholesScreen(
     if (showClearDraftsDialog) {
         ConfirmDialog(
             title = "Удалить все черновики?",
-            message = "Все ${drafts.size} черновиков по этому виду работ будут удалены безвозвратно.",
+            message = "Все ${allDrafts.size} черновиков по этому виду работ будут удалены безвозвратно.",
             confirmLabel = "Удалить все",
             onDismiss = { showClearDraftsDialog = false },
             onConfirm = {
                 showClearDraftsDialog = false
                 scope.launch {
                     withContext(kotlinx.coroutines.NonCancellable) {
-                        drafts.forEach { db.boreholes().delete(it) }
+                        allDrafts.forEach { db.boreholes().delete(it) }
                     }
                 }
             }
@@ -107,23 +120,66 @@ fun BoreholesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(title, maxLines = 1) },
+                title = {
+                    if (searchActive) {
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            singleLine = true,
+                            textStyle = TextStyle(
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 18.sp
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(searchFocusRequester),
+                            decorationBox = { inner ->
+                                if (searchQuery.isEmpty()) {
+                                    Text("Поиск скважин…",
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f),
+                                        fontSize = 18.sp)
+                                }
+                                inner()
+                            }
+                        )
+                        LaunchedEffect(Unit) { searchFocusRequester.requestFocus() }
+                    } else {
+                        Text(title, maxLines = 1)
+                    }
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) }
+                    IconButton(onClick = {
+                        if (searchActive) {
+                            searchActive = false
+                            searchQuery = ""
+                        } else {
+                            onBack()
+                        }
+                    }) { Icon(Icons.Default.ArrowBack, null) }
                 },
                 actions = {
                     if (kmlLoading) {
                         CircularProgressIndicator(Modifier.size(24.dp).padding(end = 8.dp),
                             strokeWidth = 2.dp)
                     } else {
-                        if (selectedTab == 0 && drafts.isNotEmpty()) {
-                            IconButton(onClick = { showClearDraftsDialog = true }) {
-                                Icon(Icons.Default.DeleteSweep, "Очистить черновики",
-                                    tint = MaterialTheme.colorScheme.error)
+                        if (!searchActive) {
+                            IconButton(onClick = { searchActive = true }) {
+                                Icon(Icons.Default.Search, "Поиск")
                             }
-                        }
-                        IconButton(onClick = { kmlPicker.launch(arrayOf("application/vnd.google-earth.kml+xml", "*/*")) }) {
-                            Icon(Icons.Default.Map, "Импорт KML")
+                            if (selectedTab == 0 && allDrafts.isNotEmpty()) {
+                                IconButton(onClick = { showClearDraftsDialog = true }) {
+                                    Icon(Icons.Default.DeleteSweep, "Очистить черновики",
+                                        tint = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                            IconButton(onClick = { kmlPicker.launch(arrayOf("application/vnd.google-earth.kml+xml", "*/*")) }) {
+                                Icon(Icons.Default.Map, "Импорт KML")
+                            }
+                        } else if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Close, "Очистить поиск")
+                            }
                         }
                     }
                 }
@@ -169,12 +225,12 @@ fun BoreholesScreen(
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("Черновики (${drafts.size})") }
+                    text = { Text("Черновики (${boreholes.count { it.status != "done" }})") }
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("Выполненные (${done.size})") }
+                    text = { Text("Выполненные (${boreholes.count { it.status == "done" }})") }
                 )
             }
 
@@ -195,7 +251,11 @@ fun BoreholesScreen(
             } else if (displayList.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        if (selectedTab == 0) "Все скважины выполнены" else "Нет выполненных скважин",
+                        when {
+                            searchQuery.isNotBlank() -> "Ничего не найдено"
+                            selectedTab == 0 -> "Все скважины выполнены"
+                            else -> "Нет выполненных скважин"
+                        },
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f)
                     )
                 }
