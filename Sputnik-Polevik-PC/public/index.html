@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🛰️ Спутник-Полевик ПК</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <button class="back-btn" onclick="navBack()" title="Назад">←</button>
+    <div class="title">
+      <span id="page-title">🛰️ Спутник-Полевик</span>
+      <span id="page-subtitle"></span>
+    </div>
+    <div class="actions" id="page-actions"></div>
+  </header>
+  <main id="screen"></main>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+
+<input type="file" id="hidden-file" style="display:none">
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="js/globals.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/refs.js"></script>
+<script src="js/brigade.js"></script>
+<script src="js/sites.js"></script>
+<script src="js/volumes.js"></script>
+<script src="js/boreholes.js"></script>
+<script src="js/task_points.js"></script>
+<script src="js/borehole_edit.js"></script>
+<script src="js/photos.js"></script>
+<script src="js/export.js"></script>
+<script src="js/vedomost.js"></script>
+<script src="js/summary.js"></script>
+<script src="js/home.js"></script>
+<script src="js/nav.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    nav('home');
+  });
+</script>
+</body>
+</html>
