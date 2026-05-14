@@ -134,20 +134,16 @@ function importKmlForBh(siteId, volumeId) {
     try {
       const r = await upload('/kml/parse', fd);
       if (!r.points?.length) return toast('Точки не найдены', 'warn');
+      const mode = (state.currentVolume?.kind === 'DRILLING') ? 'boreholes' : 'task_points';
+      const modeLabel = mode === 'boreholes' ? 'скважин' : 'точек задач';
       const list = r.points.map((p, i) => `<label style="display:block"><input type="checkbox" data-i="${i}" checked> ${esc(p.name)} (${p.lat.toFixed(5)}, ${p.lng.toFixed(5)})</label>`).join('');
       showModal(`Точки из KML (${r.points.length})`,
-        `<div style="max-height:300px;overflow-y:auto">${list}</div>
-         <div class="field" style="margin-top:10px">
-           <label>Создать как</label>
-           <select id="kml-mode">
-             <option value="boreholes">Скважины</option>
-             <option value="task_points">Точки задач</option>
-           </select></div>`,
+        `<div style="margin-bottom:8px;font-size:13px;color:var(--text2)">Будет создано: <b>${modeLabel}</b></div>
+         <div style="max-height:300px;overflow-y:auto">${list}</div>`,
         [
           { label: 'Отмена', fn: closeModal },
           { label: 'Создать', cls: 'primary', fn: async () => {
             const checked = [...document.querySelectorAll('.modal input[type=checkbox]:checked')].map(cb => r.points[cb.dataset.i]);
-            const mode = document.getElementById('kml-mode').value;
             closeModal();
             try {
               if (mode === 'boreholes') {

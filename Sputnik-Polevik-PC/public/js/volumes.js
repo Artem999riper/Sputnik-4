@@ -37,7 +37,6 @@ function addVolume(siteId) {
       </select>
     </div>
     <div class="field"><label>Название</label><input id="vol-name" placeholder="Бурение 100 м"></div>
-    <div class="field"><label>Плановый объём (м или точки)</label><input id="vol-total" type="number" step="0.1" value="0"></div>
   `, [
     { label: 'Отмена', fn: closeModal },
     { label: 'Создать', cls: 'primary', fn: async () => {
@@ -45,7 +44,7 @@ function addVolume(siteId) {
         site_id: siteId,
         kind: document.getElementById('vol-kind').value,
         name: document.getElementById('vol-name').value.trim(),
-        total_volume: parseFloat(document.getElementById('vol-total').value) || 0,
+        total_volume: 0,
       };
       if (!body.name) return toast('Укажите название', 'warn');
       closeModal();

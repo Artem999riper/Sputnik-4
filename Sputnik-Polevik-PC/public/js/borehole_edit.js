@@ -14,6 +14,8 @@ function scheduleSave() {
 
 async function renderBoreholeEdit(uuid, volumeId) {
   _bhVolumeId = volumeId;
+  // Всегда открываем шапку при переходе к новой скважине
+  if (_bh?.uuid !== uuid) _activeTab = 'header';
   const [bh, customTypes, customStates, brigade] = await Promise.all([
     api('/boreholes/' + uuid),
     api('/custom-soil-types').catch(() => []),
@@ -56,8 +58,6 @@ async function renderBoreholeEdit(uuid, volumeId) {
       <div class="tabs">
         <button class="tab-btn ${_activeTab === 'header' ? 'active' : ''}" onclick="switchBhTab('header')">Шапка</button>
         <button class="tab-btn ${_activeTab === 'layers' ? 'active' : ''}" onclick="switchBhTab('layers')">Слои + пробы (${bh.soil_layers.length})</button>
-        <button class="tab-btn ${_activeTab === 'ugv' ? 'active' : ''}" onclick="switchBhTab('ugv')">УГВ (${bh.ugv.length})</button>
-        <button class="tab-btn ${_activeTab === 'mmg' ? 'active' : ''}" onclick="switchBhTab('mmg')">ММГ (${bh.mmg.length})</button>
         <button class="tab-btn ${_activeTab === 'photos' ? 'active' : ''}" onclick="switchBhTab('photos')">Фото (${bh.photos.length})</button>
       </div>
       <div id="tab-pane"></div>
@@ -73,8 +73,6 @@ async function renderBoreholeEdit(uuid, volumeId) {
       <div class="tabs">
         <button class="tab-btn ${_activeTab === 'header' ? 'active' : ''}" onclick="switchBhTab('header')">Шапка</button>
         <button class="tab-btn ${_activeTab === 'layers' ? 'active' : ''}" onclick="switchBhTab('layers')">Слои + пробы (${bh.soil_layers.length})</button>
-        <button class="tab-btn ${_activeTab === 'ugv' ? 'active' : ''}" onclick="switchBhTab('ugv')">УГВ (${bh.ugv.length})</button>
-        <button class="tab-btn ${_activeTab === 'mmg' ? 'active' : ''}" onclick="switchBhTab('mmg')">ММГ (${bh.mmg.length})</button>
         <button class="tab-btn ${_activeTab === 'photos' ? 'active' : ''}" onclick="switchBhTab('photos')">Фото (${bh.photos.length})</button>
       </div>
       <div id="tab-pane"></div>
@@ -98,8 +96,6 @@ async function renderActiveTab() {
   const pane = document.getElementById('tab-pane');
   if (_activeTab === 'header')  renderHeaderTab(pane);
   if (_activeTab === 'layers')  renderLayersTab(pane);
-  if (_activeTab === 'ugv')     renderUgvTab(pane);
-  if (_activeTab === 'mmg')     renderMmgTab(pane);
   if (_activeTab === 'photos')  renderPhotosTab(pane);
 }
 
@@ -116,16 +112,11 @@ function renderHeaderTab(pane) {
       <div class="field"><label>Дата бурения</label><input id="hd-date" type="date" value="${esc(b.drill_date || '')}" onchange="scheduleSave()"></div>
       <div class="field"><label>Тип работ</label><select id="hd-work" onchange="scheduleSave()">${wOpts}</select></div>
     </div>
-    <div class="field-row">
-      <div class="field"><label>Плановая глубина, м</label><input id="hd-depth" type="number" step="0.1" value="${b.planned_depth_m || 0}" oninput="scheduleSave()"></div>
-      <div class="field"><label>Диаметр, мм</label><input id="hd-diam" type="number" step="1" value="${b.diameter_mm || 0}" oninput="scheduleSave()"></div>
-    </div>
+    <div class="field"><label>Плановая глубина, м</label><input id="hd-depth" type="number" step="0.1" value="${b.planned_depth_m || 0}" oninput="scheduleSave()"></div>
     <div class="field-row">
       <div class="field"><label>Широта</label><input id="hd-lat" type="number" step="0.000001" value="${b.manual_lat ?? ''}" oninput="scheduleSave()"></div>
       <div class="field"><label>Долгота</label><input id="hd-lng" type="number" step="0.000001" value="${b.manual_lng ?? ''}" oninput="scheduleSave()"></div>
     </div>
-    <div class="field"><label>Геоморфология</label><textarea id="hd-geo" oninput="scheduleSave()">${esc(b.geomorph_desc || '')}</textarea></div>
-    <div class="field"><label>Описание / примечания</label><textarea id="hd-desc" oninput="scheduleSave()">${esc(b.description || '')}</textarea></div>
     <div class="field"><label>Длина обсадной колонны, м</label><input id="hd-cas" type="number" step="0.1" value="${b.casing_length_m || 0}" oninput="scheduleSave()"></div>
     ${snap ? `<div class="field" style="background:var(--surface2);padding:8px;border-radius:6px">
       <label>Бригада-снимок</label>
@@ -140,12 +131,9 @@ function readHeader() {
     drill_date:      document.getElementById('hd-date')?.value || null,
     work_type:       document.getElementById('hd-work')?.value,
     planned_depth_m: parseFloat(document.getElementById('hd-depth')?.value) || 0,
-    diameter_mm:     parseFloat(document.getElementById('hd-diam')?.value) || 0,
     kml_point_id:    null,
     manual_lat:      document.getElementById('hd-lat')?.value ? parseFloat(document.getElementById('hd-lat').value) : null,
     manual_lng:      document.getElementById('hd-lng')?.value ? parseFloat(document.getElementById('hd-lng').value) : null,
-    geomorph_desc:   document.getElementById('hd-geo')?.value,
-    description:     document.getElementById('hd-desc')?.value,
     casing_length_m: parseFloat(document.getElementById('hd-cas')?.value) || 0,
   };
 }
@@ -200,8 +188,6 @@ function layerCardHtml(l, i) {
       <div class="field-s"><label>Мерзлота</label>
         <select onchange="layerFieldChange(${i},'frozen_state',this.value)">${frozenOptions(l.frozen_state || '')}</select></div>
     </div>
-    <div class="field" style="margin-top:4px"><label>Описание</label>
-      <textarea rows="2" onchange="layerFieldChange(${i},'description',this.value)">${esc(l.description || '')}</textarea></div>
     <div class="samples-list">${(l.samples || []).map((s, si) => sampleCardHtml(s, i, si)).join('')}</div>
   </div>`;
 }

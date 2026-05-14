@@ -50,7 +50,7 @@ async function suLoadVolumes() {
       <div style="font-weight:600;margin-bottom:8px;font-size:13px">📐 Плановые объёмы</div>
       ${_suVolumes.map(v => `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <span style="flex:1;font-size:13px">${esc(v.name)} <span class="badge">${esc(v.kind)}</span></span>
+          <span style="flex:1;font-size:13px">${esc(v.name)} <span class="badge">${esc(VOLUME_KINDS[v.kind] || v.kind)}</span></span>
           <input type="number" min="0" step="0.1" value="${v.total_volume || 0}"
             style="width:90px;padding:4px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:13px"
             onchange="suSaveVolume('${v.id}', this.value)" title="Плановый объём">

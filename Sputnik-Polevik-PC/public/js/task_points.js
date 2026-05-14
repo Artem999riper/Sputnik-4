@@ -35,7 +35,8 @@ async function reloadTaskPoints(volumeId) {
           <div class="meta">${p.lat != null ? `${(+p.lat).toFixed(5)}, ${(+p.lng).toFixed(5)}` : 'без координат'} · план ${p.planned_depth_m || 0} м</div>
         </div>
         ${p.completed_date
-          ? `<button class="btn small" onclick="markTpUndone('${p.uuid}','${volumeId}')">↩</button>`
+          ? `<button class="btn small" onclick="changeTpDate('${p.uuid}','${volumeId}')">📅</button>
+             <button class="btn small" onclick="markTpUndone('${p.uuid}','${volumeId}')">↩</button>`
           : `<button class="btn small success" onclick="markTpDone('${p.uuid}','${volumeId}')">✓</button>`}
         <button class="btn small danger" onclick="delTp('${p.uuid}','${esc(p.name || '')}','${volumeId}')">🗑</button>
       </div>`).join('') : '<div class="empty">Точек нет.</div>'}
@@ -75,6 +76,22 @@ function markTpDone(uuid, vid) {
   const date = todayStr();
   api('/task-points/' + uuid + '/complete', { method: 'PATCH', body: JSON.stringify({ completed_date: date }) })
     .then(() => reloadTaskPoints(vid)).catch(e => toast('Ошибка: ' + e.message, 'err'));
+}
+function changeTpDate(uuid, vid) {
+  showModal('Сменить дату выполнения', `
+    <div class="field"><label>Дата</label><input id="tp-new-date" type="date" value="${todayStr()}"></div>
+  `, [
+    { label: 'Отмена', fn: closeModal },
+    { label: 'Сохранить', cls: 'primary', fn: async () => {
+      const d = document.getElementById('tp-new-date').value;
+      if (!d) return toast('Укажите дату', 'warn');
+      closeModal();
+      try {
+        await api('/task-points/' + uuid + '/complete', { method: 'PATCH', body: JSON.stringify({ completed_date: d }) });
+        reloadTaskPoints(vid);
+      } catch (e) { toast('Ошибка: ' + e.message, 'err'); }
+    } },
+  ]);
 }
 function markTpUndone(uuid, vid) {
   api('/task-points/' + uuid + '/complete', { method: 'PATCH', body: JSON.stringify({ completed_date: null }) })
