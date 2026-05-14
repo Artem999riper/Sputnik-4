@@ -252,16 +252,21 @@ function _dxfDownload(dxfStr, filename){
   URL.revokeObjectURL(a.href);
 }
 
-function _collectDxfFeatures(site, sys){
+function _collectDxfFeatures(site, sys, selectedIds){
   const points = [], polylines = [], polygons = [];
-  const vols = site.volumes || [];
+  const vols = (site.volumes || []).filter(v => !selectedIds || selectedIds.has(v.id));
   let idx = 0;
 
   const processGJ = (gjRaw, volName, isFact) => {
     let fc;
     try{ fc = typeof gjRaw==='string'? JSON.parse(gjRaw) : gjRaw; }catch(e){ return; }
-    if(!fc || fc.type!=='FeatureCollection') return;
-    for(const feat of (fc.features||[])){
+    if(!fc) return;
+    // Normalise: accept FeatureCollection, Feature, or bare geometry
+    let features;
+    if(fc.type==='FeatureCollection') features = fc.features||[];
+    else if(fc.type==='Feature')      features = [fc];
+    else                               features = [{type:'Feature',geometry:fc,properties:{}}];
+    for(const feat of features){
       if(!feat.geometry) continue;
       const geomType = feat.geometry.type;
       const sem = feat.properties?.sem || {};
@@ -327,14 +332,29 @@ function _convertCoords(lat, lng, sys){
   return {x: lat, y: lng};
 }
 
-function _askDxfCoordSys(){
+function _askDxfOptions(volumes){
   return new Promise(resolve=>{
-    const overlay = document.createElement('div');
+    const overlay=document.createElement('div');
     overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+    const volRows=volumes.map(v=>`
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:3px 0">
+        <input type="checkbox" class="dxf-vol-chk" value="${v.id}" checked>
+        <span style="font-size:12px">${v.name||'—'}</span>
+        <span style="font-size:10px;color:var(--tx3)">${v.category||''}</span>
+      </label>`).join('');
     overlay.innerHTML=`
-      <div style="background:var(--s);border-radius:var(--r);padding:24px 28px;min-width:280px;box-shadow:var(--shl)">
-        <div style="font-size:14px;font-weight:700;margin-bottom:14px">📐 Экспорт DXF — выбор СК</div>
-        <div style="display:flex;flex-direction:column;gap:10px;font-size:13px">
+      <div style="background:var(--s);border-radius:var(--r);padding:24px 28px;min-width:320px;max-width:480px;max-height:85vh;overflow-y:auto;box-shadow:var(--shl)">
+        <div style="font-size:14px;font-weight:700;margin-bottom:14px">📐 Экспорт DXF</div>
+        <div style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:6px">Объёмы для экспорта</div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:3px 0;border-bottom:1px solid var(--bd);margin-bottom:6px">
+          <input type="checkbox" id="dxf-all" checked>
+          <span style="font-size:12px;font-weight:600">Все объёмы</span>
+        </label>
+        <div id="dxf-vol-list" style="display:flex;flex-direction:column;max-height:220px;overflow-y:auto;margin-bottom:14px">
+          ${volRows}
+        </div>
+        <div style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:8px">Система координат</div>
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;margin-bottom:18px">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
             <input type="radio" name="dxf_cs" value="wgs" checked> WGS-84 (широта / долгота)
           </label>
@@ -345,29 +365,39 @@ function _askDxfCoordSys(){
             <input type="radio" name="dxf_cs" value="gsk"> ГСК-2011 (X northing / Y easting)
           </label>
         </div>
-        <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">
+        <div style="display:flex;gap:8px;justify-content:flex-end">
           <button class="btn bs bsm" id="_dxf_cancel">Отмена</button>
           <button class="btn bp bsm" id="_dxf_ok">Экспорт</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
+
+    // "Все объёмы" toggle
+    const allChk=overlay.querySelector('#dxf-all');
+    allChk.addEventListener('change',()=>{
+      overlay.querySelectorAll('.dxf-vol-chk').forEach(c=>{c.checked=allChk.checked;});
+    });
+    overlay.querySelectorAll('.dxf-vol-chk').forEach(c=>{
+      c.addEventListener('change',()=>{
+        const all=[...overlay.querySelectorAll('.dxf-vol-chk')];
+        allChk.checked=all.every(x=>x.checked);
+        allChk.indeterminate=!allChk.checked&&all.some(x=>x.checked);
+      });
+    });
+
     overlay.querySelector('#_dxf_ok').onclick=()=>{
-      const val=overlay.querySelector('input[name=dxf_cs]:checked')?.value||'wgs';
+      const sys=overlay.querySelector('input[name=dxf_cs]:checked')?.value||'wgs';
+      const selectedIds=new Set([...overlay.querySelectorAll('.dxf-vol-chk:checked')].map(c=>c.value));
       document.body.removeChild(overlay);
-      resolve(val);
+      if(!selectedIds.size){toast('Не выбрано ни одного объёма','warn');resolve(null);return;}
+      resolve({sys,selectedIds});
     };
-    overlay.querySelector('#_dxf_cancel').onclick=()=>{
-      document.body.removeChild(overlay);
-      resolve(null);
-    };
+    overlay.querySelector('#_dxf_cancel').onclick=()=>{document.body.removeChild(overlay);resolve(null);};
     overlay.addEventListener('click',e=>{if(e.target===overlay){document.body.removeChild(overlay);resolve(null);}});
   });
 }
 
 async function exportVolumesDXF(siteId){
-  const sys = await _askDxfCoordSys();
-  if(!sys) return;
-
   let site;
   try{
     const r = await fetch(`${API}/sites/${siteId}`);
@@ -378,9 +408,16 @@ async function exportVolumesDXF(siteId){
     return;
   }
 
-  const {points, polylines, polygons} = _collectDxfFeatures(site, sys);
+  const vols = site.volumes || [];
+  if(!vols.length){ toast('У объекта нет объёмов','warn'); return; }
+
+  const opts = await _askDxfOptions(vols);
+  if(!opts) return;
+  const {sys, selectedIds} = opts;
+
+  const {points, polylines, polygons} = _collectDxfFeatures(site, sys, selectedIds);
   if(!points.length && !polylines.length && !polygons.length){
-    toast('Нет геометрии объёмов для экспорта','err');
+    toast('В выбранных объёмах нет геометрии для экспорта','err');
     return;
   }
 
