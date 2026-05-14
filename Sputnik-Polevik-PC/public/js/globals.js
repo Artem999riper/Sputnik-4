@@ -61,12 +61,10 @@ window.VOLUME_KINDS = {
   THERMOMETRY: 'Термометрия',
 };
 window.PHOTO_CATEGORIES = {
-  vyrabotka: 'Выработка',
-  drilling:  'Бурение',
+  vyrabotka: 'Участок бурения',
   core_box:  'Керн',
   journal:   'Журнал',
 };
-window.PHOTO_LIMITS = { vyrabotka: 2, drilling: 5, core_box: 5, journal: 4 };
 
 window.SOIL_TYPES_DEFAULT = [
   'Суглинок', 'Супесь', 'Глина', 'Песок', 'Гравий', 'Галечник',
@@ -76,5 +74,6 @@ window.SOIL_STATES_DEFAULT = [
   'Твердый', 'Полутвёрдый', 'Тугопластичный', 'Мягкопластичный', 'Текучепластичный',
   'Текучий', 'Плотный', 'Средней плотности', 'Рыхлый',
 ];
-window.FROZEN_STATES = ['Талый', 'Мёрзлый', 'Сыпучемёрзлый', 'Льдистый'];
+window.FROZEN_STATES = ['Талый', 'Мёрзлый'];
 window.COLLECTION_TYPES = ['Монолит', 'Нарушенный'];
+window.PACKAGING_TYPES = ['Контейнер', 'Полиэтилен', 'Мешок', 'Коробка', 'Банка', 'Пакет', 'Труба', 'Пробирка', 'Прочее'];

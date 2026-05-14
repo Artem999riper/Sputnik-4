@@ -1,16 +1,21 @@
 // Редактор скважины: 5 табов
 
-window._bh = null;             // текущая скважина (черновик в памяти)
+window._bh = null;
 window._bhVolumeId = null;
 window._activeTab = 'header';
 window._customSoilTypes = [];
 window._customSoilStates = [];
 
+let _saveTimer = null;
+function scheduleSave() {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => saveBh(true), 1200);
+}
+
 async function renderBoreholeEdit(uuid, volumeId) {
   _bhVolumeId = volumeId;
-  const [bh, kmlPoints, customTypes, customStates] = await Promise.all([
+  const [bh, customTypes, customStates] = await Promise.all([
     api('/boreholes/' + uuid),
-    api('/kml-points').catch(() => []),
     api('/custom-soil-types').catch(() => []),
     api('/custom-soil-states').catch(() => []),
   ]);
@@ -20,10 +25,9 @@ async function renderBoreholeEdit(uuid, volumeId) {
 
   setSubtitle(bh.name || '(без имени)');
   setPageActions(`
-    <button class="btn" id="bh-save">💾 Сохранить</button>
     ${bh.status === 'draft'
       ? '<button class="btn success" id="bh-finalize">✓ Завершить</button>'
-      : '<button class="btn warn" id="bh-reopen">↻ Вернуть в черновик</button>'}
+      : '<button class="btn warn" id="bh-reopen">↻ Черновик</button>'}
   `);
 
   const screen = document.getElementById('screen');
@@ -37,24 +41,23 @@ async function renderBoreholeEdit(uuid, volumeId) {
     </div>
     <div id="tab-pane"></div>
   `;
-  renderActiveTab(kmlPoints);
+  renderActiveTab();
 
-  document.getElementById('bh-save').onclick = saveBh;
   if (bh.status === 'draft') document.getElementById('bh-finalize').onclick = finalizeBh;
   else document.getElementById('bh-reopen').onclick = reopenBh;
 }
 
 function switchBhTab(tab) {
+  if (_activeTab === 'header') { const h = readHeader(); Object.assign(_bh, h); }
   _activeTab = tab;
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   event.target.classList.add('active');
   renderActiveTab();
 }
 
-async function renderActiveTab(kmlPoints) {
+async function renderActiveTab() {
   const pane = document.getElementById('tab-pane');
-  if (!kmlPoints) kmlPoints = await api('/kml-points').catch(() => []);
-  if (_activeTab === 'header')  renderHeaderTab(pane, kmlPoints);
+  if (_activeTab === 'header')  renderHeaderTab(pane);
   if (_activeTab === 'layers')  renderLayersTab(pane);
   if (_activeTab === 'ugv')     renderUgvTab(pane);
   if (_activeTab === 'mmg')     renderMmgTab(pane);
@@ -62,66 +65,49 @@ async function renderActiveTab(kmlPoints) {
 }
 
 // ── HEADER ──
-function renderHeaderTab(pane, kmlPoints) {
+function renderHeaderTab(pane) {
   const b = _bh;
-  const kmlOpts = kmlPoints
-    .filter(k => !state.currentVolume || !k.site_id || k.site_id === state.currentVolume.site_id)
-    .map(k => `<option value="${k.id}" ${k.id === b.kml_point_id ? 'selected' : ''}>${esc(k.name)}</option>`).join('');
   const wOpts = Object.entries(WORK_TYPES).map(([k, v]) => `<option value="${k}" ${k === b.work_type ? 'selected' : ''}>${esc(v)}</option>`).join('');
   const snap = b.brigade_snapshot ? (typeof b.brigade_snapshot === 'string' ? JSON.parse(b.brigade_snapshot || '{}') : b.brigade_snapshot) : null;
 
   pane.innerHTML = `
     <div class="field"><label>Название скважины</label>
-      <input id="hd-name" value="${esc(b.name || '')}"></div>
+      <input id="hd-name" value="${esc(b.name || '')}" oninput="scheduleSave()"></div>
     <div class="field-row">
-      <div class="field"><label>Дата бурения</label><input id="hd-date" type="date" value="${esc(b.drill_date || '')}"></div>
-      <div class="field"><label>Тип работ</label><select id="hd-work">${wOpts}</select></div>
+      <div class="field"><label>Дата бурения</label><input id="hd-date" type="date" value="${esc(b.drill_date || '')}" onchange="scheduleSave()"></div>
+      <div class="field"><label>Тип работ</label><select id="hd-work" onchange="scheduleSave()">${wOpts}</select></div>
     </div>
     <div class="field-row">
-      <div class="field"><label>Плановая глубина, м</label><input id="hd-depth" type="number" step="0.1" value="${b.planned_depth_m || 0}"></div>
-      <div class="field"><label>Диаметр, мм</label><input id="hd-diam" type="number" step="1" value="${b.diameter_mm || 0}"></div>
+      <div class="field"><label>Плановая глубина, м</label><input id="hd-depth" type="number" step="0.1" value="${b.planned_depth_m || 0}" oninput="scheduleSave()"></div>
+      <div class="field"><label>Диаметр, мм</label><input id="hd-diam" type="number" step="1" value="${b.diameter_mm || 0}" oninput="scheduleSave()"></div>
     </div>
-    <div class="field"><label>KML-точка (или вручную координаты)</label>
-      <select id="hd-kml" onchange="bhKmlChanged()"><option value="">— нет —</option>${kmlOpts}</select></div>
     <div class="field-row">
-      <div class="field"><label>Широта (manual)</label><input id="hd-lat" type="number" step="0.000001" value="${b.manual_lat ?? ''}"></div>
-      <div class="field"><label>Долгота (manual)</label><input id="hd-lng" type="number" step="0.000001" value="${b.manual_lng ?? ''}"></div>
+      <div class="field"><label>Широта</label><input id="hd-lat" type="number" step="0.000001" value="${b.manual_lat ?? ''}" oninput="scheduleSave()"></div>
+      <div class="field"><label>Долгота</label><input id="hd-lng" type="number" step="0.000001" value="${b.manual_lng ?? ''}" oninput="scheduleSave()"></div>
     </div>
-    <div class="field"><label>Геоморфология</label><textarea id="hd-geo">${esc(b.geomorph_desc || '')}</textarea></div>
-    <div class="field"><label>Описание / примечания</label><textarea id="hd-desc">${esc(b.description || '')}</textarea></div>
-    <div class="field"><label>Длина обсадной колонны, м</label><input id="hd-cas" type="number" step="0.1" value="${b.casing_length_m || 0}"></div>
-    ${snap ? `<div class="field" style="background:var(--surface2);padding:10px;border-radius:6px">
+    <div class="field"><label>Геоморфология</label><textarea id="hd-geo" oninput="scheduleSave()">${esc(b.geomorph_desc || '')}</textarea></div>
+    <div class="field"><label>Описание / примечания</label><textarea id="hd-desc" oninput="scheduleSave()">${esc(b.description || '')}</textarea></div>
+    <div class="field"><label>Длина обсадной колонны, м</label><input id="hd-cas" type="number" step="0.1" value="${b.casing_length_m || 0}" oninput="scheduleSave()"></div>
+    ${snap ? `<div class="field" style="background:var(--surface2);padding:8px;border-radius:6px">
       <label>Бригада-снимок</label>
       <div style="font-size:12px;color:var(--text2)">${esc((snap.memberNames || []).join(', '))} — ${esc(snap.transportLabel || '')}</div>
     </div>` : ''}
   `;
 }
 
-function bhKmlChanged() {
-  const id = document.getElementById('hd-kml').value;
-  if (!id) return;
-  api('/kml-points').then(pts => {
-    const p = pts.find(x => x.id === id);
-    if (p) {
-      document.getElementById('hd-lat').value = p.lat;
-      document.getElementById('hd-lng').value = p.lng;
-    }
-  });
-}
-
 function readHeader() {
   return {
-    name:            document.getElementById('hd-name').value.trim(),
-    drill_date:      document.getElementById('hd-date').value || null,
-    work_type:       document.getElementById('hd-work').value,
-    planned_depth_m: parseFloat(document.getElementById('hd-depth').value) || 0,
-    diameter_mm:     parseFloat(document.getElementById('hd-diam').value) || 0,
-    kml_point_id:    document.getElementById('hd-kml').value || null,
-    manual_lat:      document.getElementById('hd-lat').value ? parseFloat(document.getElementById('hd-lat').value) : null,
-    manual_lng:      document.getElementById('hd-lng').value ? parseFloat(document.getElementById('hd-lng').value) : null,
-    geomorph_desc:   document.getElementById('hd-geo').value,
-    description:     document.getElementById('hd-desc').value,
-    casing_length_m: parseFloat(document.getElementById('hd-cas').value) || 0,
+    name:            document.getElementById('hd-name')?.value.trim() || _bh.name,
+    drill_date:      document.getElementById('hd-date')?.value || null,
+    work_type:       document.getElementById('hd-work')?.value,
+    planned_depth_m: parseFloat(document.getElementById('hd-depth')?.value) || 0,
+    diameter_mm:     parseFloat(document.getElementById('hd-diam')?.value) || 0,
+    kml_point_id:    null,
+    manual_lat:      document.getElementById('hd-lat')?.value ? parseFloat(document.getElementById('hd-lat').value) : null,
+    manual_lng:      document.getElementById('hd-lng')?.value ? parseFloat(document.getElementById('hd-lng').value) : null,
+    geomorph_desc:   document.getElementById('hd-geo')?.value,
+    description:     document.getElementById('hd-desc')?.value,
+    casing_length_m: parseFloat(document.getElementById('hd-cas')?.value) || 0,
   };
 }
 
@@ -129,7 +115,7 @@ function readHeader() {
 function renderLayersTab(pane) {
   const layers = _bh.soil_layers;
   pane.innerHTML = `
-    <div style="display:flex;gap:8px;margin-bottom:12px">
+    <div style="display:flex;gap:8px;margin-bottom:10px">
       <button class="btn primary small" onclick="addLayer()">＋ Слой</button>
     </div>
     <div id="layers-list">${layers.length ? layers.map((l, i) => layerCardHtml(l, i)).join('')
@@ -150,56 +136,54 @@ function soilStateOptions(current) {
 function frozenOptions(current) {
   return ['', ...FROZEN_STATES].map(t => `<option ${t === current ? 'selected' : ''}>${esc(t)}</option>`).join('');
 }
+function packagingOptions(current) {
+  const cur = current || PACKAGING_TYPES[0];
+  return PACKAGING_TYPES.map(t => `<option ${t === cur ? 'selected' : ''}>${esc(t)}</option>`).join('');
+}
 
 function layerCardHtml(l, i) {
   return `
   <div class="layer-card" data-li="${i}">
     <div class="layer-hdr">
-      <div class="ord">Слой ${i + 1}</div>
-      <div>
+      <span class="layer-ord">Слой ${i + 1}</span>
+      <div style="display:flex;gap:4px">
         <button class="btn small" onclick="addSample(${i})">＋ Проба</button>
-        <button class="btn small danger" onclick="delLayer(${i})">🗑 Слой</button>
+        <button class="btn small danger" onclick="delLayer(${i})">🗑</button>
       </div>
     </div>
-    <div class="field-row">
-      <div class="field"><label>Тип грунта</label>
+    <div class="layer-fields">
+      <div class="field-s"><label>Тип грунта</label>
         <select onchange="layerFieldChange(${i},'soil_type',this.value)">${soilTypeOptions(l.soil_type)}</select></div>
-      <div class="field"><label>Состояние</label>
+      <div class="field-s"><label>Состояние</label>
         <select onchange="layerFieldChange(${i},'state',this.value)">${soilStateOptions(l.state)}</select></div>
-    </div>
-    <div class="field-row">
-      <div class="field"><label>Глубина подошвы, м</label>
-        <input type="number" step="0.01" value="${l.depth_m || 0}" onchange="layerFieldChange(${i},'depth_m',this.value)"></div>
-      <div class="field"><label>Мерзлота</label>
+      <div class="field-s"><label>Подошва, м</label>
+        <input type="number" step="0.01" value="${l.depth_m || 0}" style="width:80px" onchange="layerFieldChange(${i},'depth_m',this.value)"></div>
+      <div class="field-s"><label>Мерзлота</label>
         <select onchange="layerFieldChange(${i},'frozen_state',this.value)">${frozenOptions(l.frozen_state || '')}</select></div>
     </div>
-    <div class="field"><label>Описание</label>
-      <textarea onchange="layerFieldChange(${i},'description',this.value)">${esc(l.description || '')}</textarea></div>
-    <div>${(l.samples || []).map((s, si) => sampleCardHtml(s, i, si)).join('')}</div>
+    <div class="field" style="margin-top:4px"><label>Описание</label>
+      <textarea rows="2" onchange="layerFieldChange(${i},'description',this.value)">${esc(l.description || '')}</textarea></div>
+    <div class="samples-list">${(l.samples || []).map((s, si) => sampleCardHtml(s, i, si)).join('')}</div>
   </div>`;
 }
 
 function sampleCardHtml(s, li, si) {
   const ctOpts = COLLECTION_TYPES.map(t => `<option ${t === s.collection_type ? 'selected' : ''}>${esc(t)}</option>`).join('');
   return `
-  <div class="sample-card" data-si="${si}">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <b>Проба ${si + 1}</b>
-      <button class="btn small danger" style="padding:2px 6px;font-size:11px" onclick="delSample(${li},${si})">🗑</button>
+  <div class="sample-card">
+    <div class="sample-hdr">
+      <span>Проба ${si + 1}</span>
+      <button class="btn small danger" onclick="delSample(${li},${si})">🗑</button>
     </div>
-    <div class="field-row">
-      <div class="field"><label>Тип отбора</label>
+    <div class="layer-fields">
+      <div class="field-s"><label>Тип отбора</label>
         <select onchange="sampleFieldChange(${li},${si},'collection_type',this.value)"><option value="">—</option>${ctOpts}</select></div>
-      <div class="field"><label>Упаковка</label>
-        <input value="${esc(s.packaging || '')}" onchange="sampleFieldChange(${li},${si},'packaging',this.value)"></div>
-    </div>
-    <div class="field-row">
-      <div class="field"><label>Глубина, м</label>
-        <input type="number" step="0.01" value="${s.depth_m ?? ''}" onchange="sampleFieldChange(${li},${si},'depth_m',this.value)"></div>
-      <div class="field"><label>от</label>
-        <input type="number" step="0.01" value="${s.depth_top_m ?? ''}" onchange="sampleFieldChange(${li},${si},'depth_top_m',this.value)"></div>
-      <div class="field"><label>до</label>
-        <input type="number" step="0.01" value="${s.depth_bottom_m ?? ''}" onchange="sampleFieldChange(${li},${si},'depth_bottom_m',this.value)"></div>
+      <div class="field-s"><label>Упаковка</label>
+        <select onchange="sampleFieldChange(${li},${si},'packaging',this.value)">${packagingOptions(s.packaging)}</select></div>
+      <div class="field-s"><label>От, м</label>
+        <input type="number" step="0.01" value="${s.depth_top_m ?? ''}" style="width:70px" onchange="sampleFieldChange(${li},${si},'depth_top_m',this.value)"></div>
+      <div class="field-s"><label>До, м</label>
+        <input type="number" step="0.01" value="${s.depth_bottom_m ?? ''}" style="width:70px" onchange="sampleFieldChange(${li},${si},'depth_bottom_m',this.value)"></div>
     </div>
   </div>`;
 }
@@ -209,10 +193,12 @@ function addLayer() {
     soil_type: SOIL_TYPES_DEFAULT[0], state: '', description: '', depth_m: 0,
     frozen_state: '', samples: [] });
   renderLayersTab(document.getElementById('tab-pane'));
+  scheduleSave();
 }
 function delLayer(i) {
   _bh.soil_layers.splice(i, 1);
   renderLayersTab(document.getElementById('tab-pane'));
+  scheduleSave();
 }
 function layerFieldChange(i, field, val) {
   if (val === '__custom__') {
@@ -224,20 +210,24 @@ function layerFieldChange(i, field, val) {
     return;
   }
   _bh.soil_layers[i][field] = (field === 'depth_m') ? parseFloat(val) || 0 : val;
+  scheduleSave();
 }
 function addSample(li) {
   _bh.soil_layers[li].samples = _bh.soil_layers[li].samples || [];
-  _bh.soil_layers[li].samples.push({ uuid: crypto.randomUUID(), collection_type: 'Монолит', packaging: '', depth_m: null });
+  _bh.soil_layers[li].samples.push({ uuid: crypto.randomUUID(), collection_type: 'Монолит', packaging: PACKAGING_TYPES[0], depth_m: null, depth_top_m: null, depth_bottom_m: null });
   renderLayersTab(document.getElementById('tab-pane'));
+  scheduleSave();
 }
 function delSample(li, si) {
   _bh.soil_layers[li].samples.splice(si, 1);
   renderLayersTab(document.getElementById('tab-pane'));
+  scheduleSave();
 }
 function sampleFieldChange(li, si, field, val) {
   const s = _bh.soil_layers[li].samples[si];
   s[field] = ['depth_m', 'depth_top_m', 'depth_bottom_m'].includes(field)
     ? (val === '' ? null : parseFloat(val)) : val;
+  scheduleSave();
 }
 
 // ── UGV ──
@@ -249,16 +239,17 @@ function renderUgvTab(pane) {
       <div class="row-item">
         <div class="main">
           <div class="field" style="margin:0"><label>Глубина УГВ ${i + 1}, м</label>
-            <input type="number" step="0.01" value="${u.depth_m || 0}" onchange="_bh.ugv[${i}].depth_m=parseFloat(this.value)||0">
+            <input type="number" step="0.01" value="${u.depth_m || 0}" onchange="_bh.ugv[${i}].depth_m=parseFloat(this.value)||0;scheduleSave()">
           </div>
         </div>
-        <button class="btn small danger" onclick="_bh.ugv.splice(${i},1);renderUgvTab(document.getElementById('tab-pane'))">🗑</button>
+        <button class="btn small danger" onclick="_bh.ugv.splice(${i},1);renderUgvTab(document.getElementById('tab-pane'));scheduleSave()">🗑</button>
       </div>`).join('') : '<div class="empty">Отметок УГВ нет</div>'}
   `;
 }
 function addUgv() {
   _bh.ugv.push({ uuid: crypto.randomUUID(), order_idx: _bh.ugv.length, depth_m: 0 });
   renderUgvTab(document.getElementById('tab-pane'));
+  scheduleSave();
 }
 
 // ── MMG ──
@@ -268,44 +259,45 @@ function renderMmgTab(pane) {
     <button class="btn primary small" onclick="addMmg()" style="margin-bottom:12px">＋ ММГ</button>
     ${list.length ? list.map((m, i) => `
       <div class="layer-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <b>ММГ ${i + 1}</b>
-          <button class="btn small danger" onclick="_bh.mmg.splice(${i},1);renderMmgTab(document.getElementById('tab-pane'))">🗑</button>
+        <div class="layer-hdr">
+          <span class="layer-ord">ММГ ${i + 1}</span>
+          <button class="btn small danger" onclick="_bh.mmg.splice(${i},1);renderMmgTab(document.getElementById('tab-pane'));scheduleSave()">🗑</button>
         </div>
-        <div class="field-row">
-          <div class="field"><label>От, м</label><input type="number" step="0.01" value="${m.top_m || 0}" onchange="_bh.mmg[${i}].top_m=parseFloat(this.value)||0"></div>
-          <div class="field"><label>До, м</label><input type="number" step="0.01" value="${m.bottom_m || 0}" onchange="_bh.mmg[${i}].bottom_m=parseFloat(this.value)||0"></div>
+        <div class="layer-fields">
+          <div class="field-s"><label>От, м</label><input type="number" step="0.01" value="${m.top_m || 0}" style="width:80px" onchange="_bh.mmg[${i}].top_m=parseFloat(this.value)||0;scheduleSave()"></div>
+          <div class="field-s"><label>До, м</label><input type="number" step="0.01" value="${m.bottom_m || 0}" style="width:80px" onchange="_bh.mmg[${i}].bottom_m=parseFloat(this.value)||0;scheduleSave()"></div>
         </div>
-        <div class="field"><label>Описание</label><textarea onchange="_bh.mmg[${i}].description=this.value">${esc(m.description || '')}</textarea></div>
+        <div class="field"><label>Описание</label><textarea rows="2" onchange="_bh.mmg[${i}].description=this.value;scheduleSave()">${esc(m.description || '')}</textarea></div>
       </div>`).join('') : '<div class="empty">ММГ-отметок нет</div>'}
   `;
 }
 function addMmg() {
   _bh.mmg.push({ uuid: crypto.randomUUID(), order_idx: _bh.mmg.length, top_m: 0, bottom_m: 0, description: '' });
   renderMmgTab(document.getElementById('tab-pane'));
+  scheduleSave();
 }
 
 // ── SAVE / FINALIZE ──
-async function saveBh() {
+async function saveBh(silent = false) {
   if (!_bh) return;
   const headerData = (_activeTab === 'header') ? readHeader() : {};
   const body = { ..._bh, ...headerData };
   try {
     const r = await api('/boreholes/' + _bh.uuid, { method: 'PUT', body: JSON.stringify(body) });
     _bh = r.borehole;
-    toast('Сохранено', 'ok');
-  } catch (e) { toast('Ошибка: ' + e.message, 'err'); }
+    if (!silent) toast('Сохранено', 'ok');
+  } catch (e) { if (!silent) toast('Ошибка: ' + e.message, 'err'); }
 }
 
 async function finalizeBh() {
-  await saveBh();
+  clearTimeout(_saveTimer);
+  await saveBh(true);
   try {
     await api('/boreholes/' + _bh.uuid + '/finalize', { method: 'POST', body: JSON.stringify({}) });
     toast('Скважина завершена', 'ok');
     navBack();
   } catch (e) {
-    if (e.message === 'validation' || /validation/i.test(e.message)) {
-      // получили issues
+    if (/validation/i.test(e.message)) {
       try {
         const r = await fetch(API + '/boreholes/' + _bh.uuid + '/finalize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
         const j = await r.json();
