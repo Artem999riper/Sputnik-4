@@ -4,7 +4,8 @@
   "description": "Спутник-Полевик ПК — настольная версия Android-приложения для геологических полевых работ",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "postinstall": "node -e \"const fs=require('fs'),src='node_modules/xlsx-js-style/dist/xlsx.bundle.js',dst='public/lib/xlsx.bundle.js';fs.mkdirSync('public/lib',{recursive:true});fs.copyFileSync(src,dst);console.log('xlsx bundle copied to public/lib/');\""
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
@@ -14,6 +15,7 @@
     "express": "^5.2.1",
     "multer": "^2.1.1",
     "proj4": "^2.20.8",
-    "uuid": "^14.0.0"
+    "uuid": "^14.0.0",
+    "xlsx-js-style": "^1.2.0"
   }
 }
