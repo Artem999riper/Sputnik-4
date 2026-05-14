@@ -14,11 +14,24 @@ function scheduleSave() {
 
 async function renderBoreholeEdit(uuid, volumeId) {
   _bhVolumeId = volumeId;
-  const [bh, customTypes, customStates] = await Promise.all([
+  const [bh, customTypes, customStates, brigade] = await Promise.all([
     api('/boreholes/' + uuid),
     api('/custom-soil-types').catch(() => []),
     api('/custom-soil-states').catch(() => []),
+    api('/brigade/current').catch(() => null),
   ]);
+  // Если снимок бригады не сохранён, но бригада существует — подставляем
+  if (!bh.brigade_snapshot && brigade) {
+    bh.brigade_snapshot = {
+      transportLabel: brigade.transport
+        ? `${brigade.transport.name}${brigade.transport.plate ? ' (' + brigade.transport.plate + ')' : ''}`
+        : '',
+      memberNames: (brigade.members || []).map(m => m.name),
+      transportId: brigade.transport_id || null,
+      memberIds: (brigade.members || []).map(m => m.id),
+    };
+    bh.brigade_id = brigade.id;
+  }
   _bh = bh;
   _customSoilTypes = customTypes;
   _customSoilStates = customStates;

@@ -14,11 +14,22 @@ module.exports = (app, ctx) => {
     return { lat: (+lat).toFixed(6), lng: (+lng).toFixed(6) };
   }
 
-  // Ведомость проб — возвращает строки + данные для шапки
+  // Общий запрос: koordinаты = manual если заданы, иначе из KML-точки
+  function bhCoordSql(extra = '') {
+    return `SELECT b.*,
+      COALESCE(b.manual_lat, k.lat) AS lat,
+      COALESCE(b.manual_lng, k.lng) AS lng
+      ${extra}
+      FROM boreholes b
+      LEFT JOIN kml_points k ON k.id = b.kml_point_id`;
+  }
+
+  // Ведомость проб
   app.get('/api/vedomost/samples', wrap((req, res) => {
     const d = db();
     const { from, to, site_id, coord = 'dd' } = req.query;
-    let sql = "SELECT b.*, s.name AS site_name FROM boreholes b LEFT JOIN sites s ON s.id=b.site_id WHERE b.status='done'";
+    let sql = bhCoordSql(', s.name AS site_name') +
+      " LEFT JOIN sites s ON s.id=b.site_id WHERE b.status='done'";
     const p = [];
     if (from) { sql += ' AND b.drill_date>=?'; p.push(from); }
     if (to)   { sql += ' AND b.drill_date<=?'; p.push(to); }
@@ -31,7 +42,7 @@ module.exports = (app, ctx) => {
       layers.forEach(l => {
         const samples = all(d, 'SELECT * FROM samples WHERE layer_uuid=? ORDER BY depth_m', [l.uuid]);
         samples.forEach(s => {
-          const c = fmtCoord(bh.manual_lat, bh.manual_lng, coord);
+          const c = fmtCoord(bh.lat, bh.lng, coord);
           const depth = (s.depth_top_m != null && s.depth_bottom_m != null)
             ? `${s.depth_top_m}-${s.depth_bottom_m}`
             : (s.depth_m != null ? String(s.depth_m) : '');
@@ -54,15 +65,14 @@ module.exports = (app, ctx) => {
     res.json({ rows, coord_mode: coord, site_name: siteName });
   }));
 
-  // Ведомость объёмов — возвращает строки сгруппированные по brigade_snapshot
+  // Ведомость объёмов
   app.get('/api/vedomost/volumes', wrap((req, res) => {
     const d = db();
     const { from, to, site_id, coord = 'dd' } = req.query;
-    let sql = `SELECT b.*, v.kind AS vol_kind, v.name AS vol_name, s.name AS site_name
-               FROM boreholes b
-               JOIN volumes v ON v.id=b.volume_id
-               LEFT JOIN sites s ON s.id=b.site_id
-               WHERE b.status='done'`;
+    let sql = bhCoordSql(', v.kind AS vol_kind, v.name AS vol_name, s.name AS site_name') +
+      ` JOIN volumes v ON v.id=b.volume_id
+         LEFT JOIN sites s ON s.id=b.site_id
+         WHERE b.status='done'`;
     const p = [];
     if (from) { sql += ' AND b.drill_date>=?'; p.push(from); }
     if (to)   { sql += ' AND b.drill_date<=?'; p.push(to); }
@@ -70,7 +80,7 @@ module.exports = (app, ctx) => {
     sql += ' ORDER BY b.brigade_snapshot, b.drill_date, b.name';
     const boreholes = all(d, sql, p);
     const rows = boreholes.map(bh => {
-      const c = fmtCoord(bh.manual_lat, bh.manual_lng, coord);
+      const c = fmtCoord(bh.lat, bh.lng, coord);
       return {
         brigade_snapshot: bh.brigade_snapshot || '',
         date: bh.drill_date || '',

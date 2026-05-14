@@ -14,14 +14,24 @@ module.exports = (app, ctx) => {
   app.get('/api/export/spk', wrap((req, res) => {
     const d = db();
     const { from, to, site_id, brigade_id, geologist } = req.query;
-    let sql = "SELECT * FROM boreholes WHERE status='done'";
+    // Координаты: manual_lat/lng если заданы, иначе из связанной KML-точки
+    let sql = `SELECT b.*,
+      COALESCE(b.manual_lat, k.lat) AS resolved_lat,
+      COALESCE(b.manual_lng, k.lng) AS resolved_lng
+      FROM boreholes b
+      LEFT JOIN kml_points k ON k.id = b.kml_point_id
+      WHERE b.status='done'`;
     const p = [];
-    if (from) { sql += ' AND drill_date>=?'; p.push(from); }
-    if (to)   { sql += ' AND drill_date<=?'; p.push(to); }
-    if (site_id) { sql += ' AND site_id=?'; p.push(site_id); }
-    if (brigade_id) { sql += ' AND brigade_id=?'; p.push(brigade_id); }
-    sql += ' ORDER BY drill_date, name';
-    const boreholes = all(d, sql, p);
+    if (from) { sql += ' AND b.drill_date>=?'; p.push(from); }
+    if (to)   { sql += ' AND b.drill_date<=?'; p.push(to); }
+    if (site_id) { sql += ' AND b.site_id=?'; p.push(site_id); }
+    if (brigade_id) { sql += ' AND b.brigade_id=?'; p.push(brigade_id); }
+    sql += ' ORDER BY b.drill_date, b.name';
+    const boreholes = all(d, sql, p).map(b => ({
+      ...b,
+      manual_lat: b.resolved_lat,
+      manual_lng: b.resolved_lng,
+    }));
     if (!boreholes.length) return res.status(404).json({ error: 'Нет скважин для выгрузки' });
 
     const uuids = boreholes.map(b => b.uuid);

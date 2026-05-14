@@ -142,6 +142,29 @@ module.exports = (app, ctx) => {
     if (!bh.photos.length) issues.push('нет фотографий');
     if (bh.soil_layers.some(l => !l.depth_m || l.depth_m <= 0)) issues.push('слой без глубины подошвы');
     if (issues.length && !req.body?.force) return res.status(400).json({ error: 'validation', issues });
+
+    // Если снимок бригады ещё не сохранён — берём текущую бригаду
+    let snap = bh.brigade_snapshot;
+    if (!snap) {
+      const br = get(d, 'SELECT * FROM brigades ORDER BY created_at DESC LIMIT 1');
+      if (br) {
+        const transport = br.transport_id
+          ? get(d, 'SELECT * FROM transport WHERE id=?', [br.transport_id])
+          : null;
+        const members = all(d, `SELECT w.* FROM brigade_members m JOIN workers w ON w.id=m.worker_id WHERE m.brigade_id=?`, [br.id]);
+        const transportLabel = transport
+          ? `${transport.name}${transport.plate ? ' (' + transport.plate + ')' : ''}`
+          : '';
+        snap = JSON.stringify({
+          transportLabel,
+          memberNames: members.map(m => m.name),
+          transportId: br.transport_id || null,
+          memberIds: members.map(m => m.id),
+        });
+        run(d, 'UPDATE boreholes SET brigade_id=?, brigade_snapshot=? WHERE uuid=?', [br.id, snap, u]);
+      }
+    }
+
     run(d, "UPDATE boreholes SET status='done' WHERE uuid=?", [u]);
     res.json({ ok: true, issues });
   }));
