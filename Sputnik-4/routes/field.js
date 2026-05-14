@@ -57,6 +57,12 @@ function buildBhFolderName(bhRow) {
   return safeFolderName([namePart, datePart].filter(Boolean).join('_'));
 }
 
+function getCategorySubfolder(category) {
+  if (category === 'kern') return '02_Фотофиксация_керна_в_ящиках';
+  if (category === 'journal') return '03_Журнал_документации';
+  return '01_Фотофиксация_участка_бурения';
+}
+
 function isSafeZipPath(name) {
   if (!name) return false;
   if (name.includes('..')) return false;
@@ -214,7 +220,8 @@ module.exports = (app, getDb, L) => {
     const siteRow = get(d, 'SELECT name FROM sites WHERE id=?', [bh.site_id]);
     const siteFolderName = safeFolderName(siteRow && siteRow.name ? siteRow.name : (bh.site_id || u));
     const bhFolderName = buildBhFolderName(bh);
-    const targetDir = path.join(FIELD_UPLOADS, siteFolderName, bhFolderName);
+    const subFolder = getCategorySubfolder(category);
+    const targetDir = path.join(FIELD_UPLOADS, siteFolderName, bhFolderName, subFolder);
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
 
     const added = [];
@@ -229,7 +236,7 @@ module.exports = (app, getDb, L) => {
       } catch (e) {
         continue;
       }
-      const filePathRel = `uploads/field/${siteFolderName}/${bhFolderName}/${fname}`;
+      const filePathRel = `uploads/field/${siteFolderName}/${bhFolderName}/${subFolder}/${fname}`;
       run(d, `INSERT INTO field_photos (uuid, borehole_uuid, category, file_path, taken_at)
               VALUES (?,?,?,?,datetime('now'))`,
         [photoUuid, u, category, filePathRel]);
@@ -670,10 +677,11 @@ module.exports = (app, getDb, L) => {
       const siteRow = get(d, 'SELECT name FROM sites WHERE id=?', [bhRow.site_id]);
       const siteFolderName = safeFolderName(siteRow && siteRow.name ? siteRow.name : (bhRow.site_id || bhUuid));
       const bhFolderName = buildBhFolderName(bhRow);
-      const targetDir = path.join(FIELD_UPLOADS, siteFolderName, bhFolderName);
+      const subFolder = getCategorySubfolder(category);
+      const targetDir = path.join(FIELD_UPLOADS, siteFolderName, bhFolderName, subFolder);
       if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
       const targetPath = path.join(targetDir, baseName);
-      const filePathRel = `uploads/field/${siteFolderName}/${bhFolderName}/${baseName}`;
+      const filePathRel = `uploads/field/${siteFolderName}/${bhFolderName}/${subFolder}/${baseName}`;
       try {
         if (!fs.existsSync(targetPath) || replacePhotoUuids.has(bhUuid)) {
           fs.writeFileSync(targetPath, pe.getData());

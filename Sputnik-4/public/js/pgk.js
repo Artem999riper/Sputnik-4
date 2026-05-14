@@ -1314,6 +1314,8 @@ function pgkPageEquipment(pb){
         <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFBase=this.value;renderPGK()">${baseOpts}</select>
         <div style="display:flex;gap:4px;flex-shrink:0">
           <button class="btn bs bsm" onclick="pgkImportEquip()" title="Импорт из Excel">📥</button>
+          <button class="btn bs bsm" onclick="exportEquipmentExcel()" title="Экспорт в Excel">📤</button>
+          <button class="btn bs bsm" onclick="openEquipActModal()" title="Акт приёма-передачи">📄 Акт</button>
           <button class="btn bp bsm" onclick="pgkAddEquip()">＋ Добавить</button>
         </div>
       </div>
@@ -1741,17 +1743,12 @@ async function matMoveSelected(){
   const allGroups=pgkMatGroups.map(g=>g.name);
   const grpOpts=allGroups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');
   showModal('→ Переместить в группу',`<div class="fgr">
-    <div class="fg s2"><label>Группа (существующая или новая)</label>
-      <div style="display:flex;gap:5px">
-        <select id="f-mg" style="flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
-          <option value="">— без группы —</option>${grpOpts}
-        </select>
-        <input id="f-mg-new" placeholder="или новая…" style="flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none">
-      </div>
+    <div class="fg s2"><label>Группа</label>
+      <select id="f-mg" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+        <option value="">— без группы —</option>${grpOpts}
+      </select>
     </div></div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Переместить',cls:'bp',fn:async()=>{
-    const newG=(document.getElementById('f-mg-new').value||'').trim();
-    const selG=v('f-mg')||'';
-    const grp=newG||selG;
+    const grp=v('f-mg')||'';
     await Promise.all(ids.map(id=>{
       const b=bases.find(b=>(b.materials||[]).some(m=>m.id===id));
       const m=b&&(b.materials||[]).find(m=>m.id===id);
@@ -1837,10 +1834,7 @@ function openEditMatModalGlobal(matId){
   showModal('✏️ '+esc(m.name),`<div class="fgr">
     <div class="fg s2"><label>Название *</label><input id="f-mn" value="${esc(m.name)}"></div>
     <div class="fg"><label>Группа</label>
-      <div style="display:flex;gap:5px">
-        <select id="f-mcat" style="flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">${groupOpts}</select>
-        <input id="f-mcat-new" placeholder="или новая…" style="flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none">
-      </div>
+      <select id="f-mcat" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">${groupOpts}</select>
     </div>
     <div class="fg"><label>Кол-во</label><input id="f-mamt" type="number" value="${m.amount}" step="0.01"></div>
     <div class="fg"><label>Единица</label><input id="f-munit" value="${esc(m.unit||'шт')}"></div>
@@ -1850,9 +1844,7 @@ function openEditMatModalGlobal(matId){
   [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
     const name=(document.getElementById('f-mn').value||'').trim();
     if(!name){toast('Введите название','err');return;}
-    const catSel=(document.getElementById('f-mcat').value||'').trim();
-    const catNew=(document.getElementById('f-mcat-new').value||'').trim();
-    const category=catNew||catSel||'';
+    const category=(document.getElementById('f-mcat').value||'').trim();
     const amount=parseFloat(document.getElementById('f-mamt').value)||0;
     const unit=(document.getElementById('f-munit').value||'шт').trim();
     const min_amount=parseFloat(document.getElementById('f-mmin').value)||0;
@@ -1878,10 +1870,7 @@ function pgkAddMatGlobal(){
     <div class="fg s2"><label>Название *</label><input id="f-mn" placeholder="Дизельное топливо"></div>
     <div class="fg"><label>База *</label><select id="f-mbase">${baseOpts}</select></div>
     <div class="fg"><label>Группа</label>
-      <div style="display:flex;gap:5px">
-        <select id="f-mcat" style="flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">${groupOpts}</select>
-        <input id="f-mcat-new" placeholder="или новая…" style="flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none">
-      </div>
+      <select id="f-mcat" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">${groupOpts}</select>
     </div>
     <div class="fg"><label>Кол-во</label><input id="f-mamt" type="number" value="0" step="0.01"></div>
     <div class="fg"><label>Единица</label><input id="f-munit" value="шт"></div>
@@ -1893,9 +1882,7 @@ function pgkAddMatGlobal(){
     const baseId=(document.getElementById('f-mbase').value||'').trim();
     if(!name){toast('Введите название','err');return;}
     if(!baseId){toast('Выберите базу','err');return;}
-    const catSel=(document.getElementById('f-mcat').value||'').trim();
-    const catNew=(document.getElementById('f-mcat-new').value||'').trim();
-    const category=catNew||catSel||'';
+    const category=(document.getElementById('f-mcat').value||'').trim();
     const amount=parseFloat(document.getElementById('f-mamt').value)||0;
     const unit=(document.getElementById('f-munit').value||'шт').trim();
     const min_amount=parseFloat(document.getElementById('f-mmin').value)||0;
@@ -2356,6 +2343,118 @@ async function savePGKEquip(id){
   closeModal();await loadPGK();toast(id?'Обновлено':'Добавлено','ok');
 }
 async function pgkDelEquip(id){if(!confirm('Удалить?'))return;await apiDelUndo(`/pgk/equipment/${id}`,'Оборудование удалено',loadPGK);}
+
+function exportEquipmentExcel(){
+  if(!pgkEquipment||!pgkEquipment.length){toast('Нет оборудования для экспорта','warn');return;}
+  const wb=XLSX.utils.book_new();
+  const todayDate=new Date();
+  const todayStr=todayDate.toISOString().split('T')[0];
+  const todayFmt=todayDate.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
+
+  const COLS=8;
+  const hdrFill='C3D69B';
+  const rowFill='B9CCE4';
+  const titleFill='D9E1F2';
+  const border={top:{style:'medium',color:{rgb:'000000'}},bottom:{style:'medium',color:{rgb:'000000'}},left:{style:'medium',color:{rgb:'000000'}},right:{style:'medium',color:{rgb:'000000'}}};
+  const thinBorder={top:{style:'thin',color:{rgb:'000000'}},bottom:{style:'thin',color:{rgb:'000000'}},left:{style:'thin',color:{rgb:'000000'}},right:{style:'thin',color:{rgb:'000000'}}};
+  const baseAlign={horizontal:'center',vertical:'center',wrapText:true};
+  const leftAlign={horizontal:'left',vertical:'center',wrapText:true};
+
+  const statLbl={working:'В работе',idle:'Не используется',broken:'Неисправно'};
+  const hdr=['№','Название','Тип','Серийный №','Статус','База','Ответственный','Примечания'];
+
+  const aoa=[
+    ['Реестр оборудования — '+todayFmt],
+    hdr,
+    ...pgkEquipment.map((e,i)=>{
+      const b=(bases||[]).find(x=>x.id===e.base_id);
+      const grp=(pgkEquipGroups||[]).find(g=>g.id===e.group_id);
+      return[
+        i+1,
+        (grp?'['+grp.name+'] ':'')+e.name,
+        e.type||'',
+        e.serial_number||'',
+        statLbl[e.status||'working']||e.status||'',
+        b?b.name:'',
+        e.responsible||'',
+        e.notes||''
+      ];
+    })
+  ];
+
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:5},{wch:32},{wch:18},{wch:16},{wch:16},{wch:20},{wch:24},{wch:30}];
+  ws['!rows']=[{hpx:32},{hpx:40}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:COLS-1}}];
+  ws['!views']=[{state:'frozen',xSplit:0,ySplit:2}];
+
+  function colLetter(c){let s='',n=c;do{s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26)-1;}while(n>=0);return s;}
+  function ref(r,c){return colLetter(c)+(r+1);}
+  function setStyle(cr,st){if(!ws[cr])ws[cr]={t:'s',v:''};ws[cr].s=st;}
+
+  setStyle(ref(0,0),{font:{name:'Times New Roman',bold:true,sz:14},alignment:{horizontal:'center',vertical:'center'},fill:{patternType:'solid',fgColor:{rgb:titleFill}},border});
+  for(let c=0;c<COLS;c++)setStyle(ref(1,c),{font:{name:'Times New Roman',bold:true,sz:11},alignment:baseAlign,fill:{patternType:'solid',fgColor:{rgb:hdrFill}},border});
+  pgkEquipment.forEach((_,i)=>{
+    const r=i+2;
+    const fill=i%2===0?{patternType:'solid',fgColor:{rgb:rowFill}}:{patternType:'solid',fgColor:{rgb:'FFFFFF'}};
+    for(let c=0;c<COLS;c++){
+      const align=(c===1||c===2||c===5||c===6||c===7)?leftAlign:baseAlign;
+      setStyle(ref(r,c),{font:{name:'Times New Roman',sz:11},alignment:align,fill,border:thinBorder});
+    }
+  });
+
+  // Сводный лист по ответственным
+  const byResp={};
+  pgkEquipment.forEach(e=>{const r=e.responsible||'— не назначен —';if(!byResp[r])byResp[r]=[];byResp[r].push(e);});
+  const sumAoa=[
+    ['Сводка по ответственным'],
+    ['Ответственный','Кол-во','В работе','Неисправно'],
+    ...Object.entries(byResp).map(([resp,items])=>[
+      resp,items.length,
+      items.filter(e=>(e.status||'working')==='working').length,
+      items.filter(e=>e.status==='broken').length
+    ])
+  ];
+  const sumWs=XLSX.utils.aoa_to_sheet(sumAoa);
+  sumWs['!cols']=[{wch:28},{wch:10},{wch:10},{wch:12}];
+  sumWs['!merges']=[{s:{r:0,c:0},e:{r:0,c:3}}];
+
+  XLSX.utils.book_append_sheet(wb,ws,'Оборудование');
+  XLSX.utils.book_append_sheet(wb,sumWs,'По ответственным');
+  XLSX.writeFile(wb,'Оборудование_'+todayStr.replace(/-/g,'_')+'.xlsx');
+  toast('Excel сохранён','ok');
+}
+
+function openEquipActModal(){
+  const withResp=[...new Set(pgkEquipment.filter(e=>e.responsible).map(e=>e.responsible))].sort();
+  if(!withResp.length){toast('Ни за кем не закреплено оборудование','warn');return;}
+  const opts=withResp.map(r=>`<option value="${esc(r)}">${esc(r)} (${pgkEquipment.filter(e=>e.responsible===r).length} ед.)</option>`).join('');
+  showModal('📄 Акт приёма-передачи',`<div class="fgr">
+    <div class="fg s2"><label>Выберите ответственного</label>
+      <select id="f-act-resp" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">${opts}</select>
+    </div>
+    <div class="fg s2" style="font-size:11px;color:var(--tx3)">Будет сформирован Word-документ со списком оборудования, закреплённого за выбранным сотрудником.</div>
+  </div>`,[
+    {label:'Отмена',cls:'bs',fn:closeModal},
+    {label:'📄 Сформировать',cls:'bp',fn:async()=>{
+      const resp=(document.getElementById('f-act-resp').value||'').trim();
+      if(!resp)return;
+      closeModal();
+      try{
+        const url=`${API}/pgk/equipment/act?responsible=${encodeURIComponent(resp)}`;
+        const r=await fetch(url);
+        if(!r.ok){const e=await r.json().catch(()=>({}));toast(e.error||'Ошибка формирования акта','err');return;}
+        const blob=await r.blob();
+        const a=document.createElement('a');
+        a.href=URL.createObjectURL(blob);
+        a.download=`Акт_${resp.replace(/\s+/g,'_')}_${new Date().toISOString().split('T')[0]}.docx`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        toast('Акт сформирован','ok');
+      }catch(e){toast('Ошибка: '+e.message,'err');}
+    }}
+  ]);
+}
 
 function pgkAssignEquipResponsible(eid){
   const e=pgkEquipment.find(x=>x.id===eid);if(!e)return;

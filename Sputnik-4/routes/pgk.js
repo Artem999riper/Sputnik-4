@@ -2,6 +2,7 @@ const { v4: uuid } = require('uuid');
 const { all, get, run } = require('../database');
 const { required, wrap } = require('./validate');
 const { trashAndDelete } = require('./realtime');
+const { generateEquipActDocx } = require('./equip_act');
 
 module.exports = (app, getDb, L) => {
   const db = () => getDb();
@@ -456,5 +457,19 @@ module.exports = (app, getDb, L) => {
     });
     tx();
     res.json({ success: true });
+  }));
+
+  // ── АКТ ПРИЁМА-ПЕРЕДАЧИ ОБОРУДОВАНИЯ ──────────────────────
+  app.get('/api/pgk/equipment/act', wrap(async (req, res) => {
+    const responsible = req.query.responsible;
+    if (!responsible) return res.status(400).json({ error: 'responsible обязателен' });
+    const d = db();
+    const items = all(d, "SELECT * FROM pgk_equipment WHERE responsible=? ORDER BY name", [responsible]);
+    if (!items.length) return res.status(404).json({ error: 'У этого сотрудника нет закреплённого оборудования' });
+    const buf = await generateEquipActDocx(responsible, items);
+    const fname = `Акт_${responsible.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.docx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fname)}`);
+    res.send(buf);
   }));
 };
