@@ -113,9 +113,9 @@ fun HomeScreen(
         Column(
             Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(pad)
-                .padding(24.dp),
-            verticalArrangement = Arrangement.Center,
+                .padding(horizontal = 24.dp, vertical = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text("🛰️", fontSize = 56.sp)
