@@ -58,7 +58,7 @@ function buildBhFolderName(bhRow) {
 }
 
 function getCategorySubfolder(category) {
-  if (category === 'kern') return '02_Фотофиксация_керна_в_ящиках';
+  if (category === 'kern' || category === 'core_box') return '02_Фотофиксация_керна_в_ящиках';
   if (category === 'journal') return '03_Журнал_документации';
   return '01_Фотофиксация_участка_бурения';
 }
@@ -536,8 +536,8 @@ module.exports = (app, getDb, L) => {
           bhBrigadeInfo = JSON.stringify({ members: memberIds, transport_id: transportId }).slice(0, 5000);
         }
 
-        const lat = safeNum(bh.lat, -90, 90);
-        const lng = safeNum(bh.lng, -180, 180);
+        const lat = safeNum(bh.lat ?? bh.manual_lat, -90, 90);
+        const lng = safeNum(bh.lng ?? bh.manual_lng, -180, 180);
         const depth = safeNum(bh.planned_depth_m, 0, 10000);
         const drillDate = clipStr(bh.drill_date, 30) || new Date().toISOString().slice(0, 10);
         const name = clipStr(bh.name, 200) || `Скв-${bh.uuid.slice(0, 6)}`;

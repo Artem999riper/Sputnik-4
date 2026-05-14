@@ -38,9 +38,14 @@ module.exports = (app, ctx) => {
     }
 
     const subFolder = getCategorySubfolder(category);
-    const targetDir = path.join(UPLOADS_DIR, safeFolderName(bh.site_name || ''),
-                                buildBhFolderName(bh), subFolder);
+    const bhDir = path.join(UPLOADS_DIR, safeFolderName(bh.site_name || ''), buildBhFolderName(bh));
+    const targetDir = path.join(bhDir, subFolder);
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+    // Создаём пустые сопутствующие папки при первом фото
+    ['04_Видеофиксация', 'Термометрия'].forEach(extra => {
+      const d = path.join(bhDir, extra);
+      if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+    });
 
     const saved = [];
     (req.files || []).forEach(f => {

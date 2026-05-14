@@ -36,24 +36,50 @@ async function renderBoreholeEdit(uuid, volumeId) {
   _customSoilTypes = customTypes;
   _customSoilStates = customStates;
 
-  setSubtitle(bh.name || '(без имени)');
-  setPageActions(`
-    ${bh.status === 'draft'
-      ? '<button class="btn success" id="bh-finalize">✓ Завершить</button>'
-      : '<button class="btn warn" id="bh-reopen">↻ Черновик</button>'}
-  `);
+  // Определяем контейнер: split-editor (если есть) или #screen
+  const splitPane = document.getElementById('split-editor');
+  const container = splitPane || document.getElementById('screen');
+  const inSplit = !!splitPane;
 
-  const screen = document.getElementById('screen');
-  screen.innerHTML = `
-    <div class="tabs">
-      <button class="tab-btn ${_activeTab === 'header' ? 'active' : ''}" onclick="switchBhTab('header')">Шапка</button>
-      <button class="tab-btn ${_activeTab === 'layers' ? 'active' : ''}" onclick="switchBhTab('layers')">Слои + пробы (${bh.soil_layers.length})</button>
-      <button class="tab-btn ${_activeTab === 'ugv' ? 'active' : ''}" onclick="switchBhTab('ugv')">УГВ (${bh.ugv.length})</button>
-      <button class="tab-btn ${_activeTab === 'mmg' ? 'active' : ''}" onclick="switchBhTab('mmg')">ММГ (${bh.mmg.length})</button>
-      <button class="tab-btn ${_activeTab === 'photos' ? 'active' : ''}" onclick="switchBhTab('photos')">Фото (${bh.photos.length})</button>
-    </div>
-    <div id="tab-pane"></div>
-  `;
+  if (inSplit) {
+    setSubtitle(bh.name || '(без имени)');
+    // В split-режиме кнопки рендерим inline внутри панели
+    container.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px;flex-wrap:wrap">
+        <div style="font-weight:700;font-size:15px">${esc(bh.name || '(без имени)')}</div>
+        <div style="display:flex;gap:8px">
+          ${bh.status === 'draft'
+            ? '<button class="btn success" id="bh-finalize">✓ Завершить</button>'
+            : '<button class="btn warn" id="bh-reopen">↻ Черновик</button>'}
+        </div>
+      </div>
+      <div class="tabs">
+        <button class="tab-btn ${_activeTab === 'header' ? 'active' : ''}" onclick="switchBhTab('header')">Шапка</button>
+        <button class="tab-btn ${_activeTab === 'layers' ? 'active' : ''}" onclick="switchBhTab('layers')">Слои + пробы (${bh.soil_layers.length})</button>
+        <button class="tab-btn ${_activeTab === 'ugv' ? 'active' : ''}" onclick="switchBhTab('ugv')">УГВ (${bh.ugv.length})</button>
+        <button class="tab-btn ${_activeTab === 'mmg' ? 'active' : ''}" onclick="switchBhTab('mmg')">ММГ (${bh.mmg.length})</button>
+        <button class="tab-btn ${_activeTab === 'photos' ? 'active' : ''}" onclick="switchBhTab('photos')">Фото (${bh.photos.length})</button>
+      </div>
+      <div id="tab-pane"></div>
+    `;
+  } else {
+    setSubtitle(bh.name || '(без имени)');
+    setPageActions(`
+      ${bh.status === 'draft'
+        ? '<button class="btn success" id="bh-finalize">✓ Завершить</button>'
+        : '<button class="btn warn" id="bh-reopen">↻ Черновик</button>'}
+    `);
+    container.innerHTML = `
+      <div class="tabs">
+        <button class="tab-btn ${_activeTab === 'header' ? 'active' : ''}" onclick="switchBhTab('header')">Шапка</button>
+        <button class="tab-btn ${_activeTab === 'layers' ? 'active' : ''}" onclick="switchBhTab('layers')">Слои + пробы (${bh.soil_layers.length})</button>
+        <button class="tab-btn ${_activeTab === 'ugv' ? 'active' : ''}" onclick="switchBhTab('ugv')">УГВ (${bh.ugv.length})</button>
+        <button class="tab-btn ${_activeTab === 'mmg' ? 'active' : ''}" onclick="switchBhTab('mmg')">ММГ (${bh.mmg.length})</button>
+        <button class="tab-btn ${_activeTab === 'photos' ? 'active' : ''}" onclick="switchBhTab('photos')">Фото (${bh.photos.length})</button>
+      </div>
+      <div id="tab-pane"></div>
+    `;
+  }
   renderActiveTab();
 
   if (bh.status === 'draft') document.getElementById('bh-finalize').onclick = finalizeBh;
@@ -302,13 +328,23 @@ async function saveBh(silent = false) {
   } catch (e) { if (!silent) toast('Ошибка: ' + e.message, 'err'); }
 }
 
+function _afterBhAction() {
+  if (document.getElementById('split-editor')) {
+    // Обновляем список и редактор в split-режиме
+    if (typeof reloadBhList === 'function') reloadBhList();
+    renderBoreholeEdit(_bh.uuid, _bhVolumeId);
+  } else {
+    navBack();
+  }
+}
+
 async function finalizeBh() {
   clearTimeout(_saveTimer);
   await saveBh(true);
   try {
     await api('/boreholes/' + _bh.uuid + '/finalize', { method: 'POST', body: JSON.stringify({}) });
     toast('Скважина завершена', 'ok');
-    navBack();
+    _afterBhAction();
   } catch (e) {
     if (/validation/i.test(e.message)) {
       try {
@@ -317,7 +353,7 @@ async function finalizeBh() {
         confirm2('Есть незаполненные данные', (j.issues || []).join('\n• '), async () => {
           await api('/boreholes/' + _bh.uuid + '/finalize', { method: 'POST', body: JSON.stringify({ force: true }) });
           toast('Скважина завершена с предупреждениями', 'warn');
-          navBack();
+          _afterBhAction();
         }, { confirmLabel: 'Всё равно завершить', danger: false });
       } catch (_) { toast('Ошибка: ' + e.message, 'err'); }
     } else toast('Ошибка: ' + e.message, 'err');
@@ -327,5 +363,6 @@ async function finalizeBh() {
 async function reopenBh() {
   await api('/boreholes/' + _bh.uuid + '/reopen', { method: 'POST' });
   toast('Возвращено в черновик', 'ok');
+  if (typeof reloadBhList === 'function') reloadBhList();
   renderBoreholeEdit(_bh.uuid, _bhVolumeId);
 }

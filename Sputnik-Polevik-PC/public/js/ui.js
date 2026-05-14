@@ -54,6 +54,15 @@ window.confirm2 = function (title, message, onConfirm, opts = {}) {
   ]);
 };
 
+window.confirm2Async = function (title, message, opts = {}) {
+  return new Promise(resolve => {
+    showModal(title, `<div>${esc(message)}</div>`, [
+      { label: opts.cancelLabel || 'Отмена', cls: '', fn: () => { closeModal(); resolve(false); } },
+      { label: opts.confirmLabel || 'OK', cls: opts.danger ? 'danger' : 'primary', fn: () => { closeModal(); resolve(true); } },
+    ]);
+  });
+};
+
 // Простой prompt-modal для строкового ввода
 window.prompt2 = function (title, label, initial, onSubmit) {
   showModal(title, `

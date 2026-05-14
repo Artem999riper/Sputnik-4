@@ -1,9 +1,14 @@
-// Список скважин в объёме
+// Список скважин в объёме (split-view: список слева, редактор справа)
 
 let _bhFilter = 'all';
 let _bhSearch = '';
+let _bhSelectedUuid = null;
+let _bhSplitVolumeId = null;
+let _bhAllList = [];
 
 async function renderBoreholes(volumeId) {
+  _bhSplitVolumeId = volumeId;
+  _bhSelectedUuid = null;
   if (!state.currentVolume || state.currentVolume.id !== volumeId) {
     state.currentVolume = await api('/volumes/' + volumeId);
   }
@@ -12,53 +17,82 @@ async function renderBoreholes(volumeId) {
     <button class="btn small" onclick="importKmlForBh('${state.currentVolume.site_id}','${volumeId}')" title="Импорт KML">📍 KML</button>
     <button class="btn primary" onclick="addBorehole('${volumeId}')">＋ Скважина</button>
   `);
-  await reloadBoreholes(volumeId);
-}
 
-async function reloadBoreholes(volumeId) {
   const screen = document.getElementById('screen');
-  const params = new URLSearchParams({ volume_id: volumeId });
-  if (_bhFilter !== 'all') params.set('status', _bhFilter);
-  if (_bhSearch) params.set('q', _bhSearch);
-  const list = await api('/boreholes?' + params);
-  // Загружаем общие counts для фильтра
-  const all_ = await api('/boreholes?volume_id=' + volumeId);
-  const draftCount = all_.filter(b => b.status === 'draft').length;
-  const doneCount  = all_.filter(b => b.status === 'done').length;
-
   screen.innerHTML = `
-    <div class="search-bar">
-      <input type="search" placeholder="🔍 Поиск по названию…" value="${esc(_bhSearch)}" id="bh-search">
-    </div>
-    <div class="filter-pills">
-      <button class="btn small ${_bhFilter === 'all' ? 'active' : ''}" onclick="setBhFilter('all','${state.currentVolume.id}')">Все (${all_.length})</button>
-      <button class="btn small ${_bhFilter === 'draft' ? 'active' : ''}" onclick="setBhFilter('draft','${state.currentVolume.id}')">Черновики (${draftCount})</button>
-      <button class="btn small ${_bhFilter === 'done' ? 'active' : ''}" onclick="setBhFilter('done','${state.currentVolume.id}')">Готовы (${doneCount})</button>
-    </div>
-    <div id="bh-list">${list.length ? list.map(bh => `
-      <div class="row-item clickable" onclick="nav('borehole_edit',{uuid:'${bh.uuid}',volumeId:'${state.currentVolume.id}'})">
-        <div class="main">
-          <div class="name">${esc(bh.name || '(без имени)')} <span class="badge ${bh.status}">${bh.status === 'done' ? '✓ готов' : 'черновик'}</span></div>
-          <div class="meta">${bh.drill_date ? esc(bh.drill_date) + ' · ' : ''}глубина ${bh.planned_depth_m || 0} м · слоёв ${bh.layers_count}, фото ${bh.photos_count}</div>
+    <div class="split-view">
+      <div class="split-left">
+        <div class="split-left-header">
+          <div style="display:flex;gap:6px;margin-bottom:8px">
+            <input type="search" id="bh-search" placeholder="🔍 Поиск…" value="${esc(_bhSearch)}"
+              style="flex:1;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px">
+          </div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            <button class="btn small ${_bhFilter === 'all' ? 'active' : ''}" onclick="setBhFilter('all')" style="border-radius:12px">Все</button>
+            <button class="btn small ${_bhFilter === 'draft' ? 'active' : ''}" onclick="setBhFilter('draft')" style="border-radius:12px">Черновики</button>
+            <button class="btn small ${_bhFilter === 'done' ? 'active' : ''}" onclick="setBhFilter('done')" style="border-radius:12px">Готовы</button>
+          </div>
         </div>
-        <button class="btn small danger" onclick="event.stopPropagation();delBh('${bh.uuid}','${esc(bh.name || '')}')">🗑</button>
-      </div>`).join('') : '<div class="empty">Скважин нет.</div>'}</div>
-  `;
+        <div class="split-left-body" id="bh-split-list"></div>
+      </div>
+      <div class="split-right" id="split-editor">
+        <div class="empty" style="margin-top:80px">← Выберите скважину из списка</div>
+      </div>
+    </div>`;
 
   document.getElementById('bh-search').oninput = (e) => {
     _bhSearch = e.target.value.trim();
     clearTimeout(window._bhSrch);
-    window._bhSrch = setTimeout(() => reloadBoreholes(volumeId), 200);
+    window._bhSrch = setTimeout(() => reloadBhList(), 200);
   };
+
+  await reloadBhList();
 }
 
-function setBhFilter(f, vid) { _bhFilter = f; reloadBoreholes(vid); }
+async function reloadBhList() {
+  const volumeId = _bhSplitVolumeId;
+  const params = new URLSearchParams({ volume_id: volumeId });
+  if (_bhFilter !== 'all') params.set('status', _bhFilter);
+  if (_bhSearch) params.set('q', _bhSearch);
+  const list = await api('/boreholes?' + params);
+  _bhAllList = await api('/boreholes?volume_id=' + volumeId);
+
+  const el = document.getElementById('bh-split-list');
+  if (!el) return;
+  if (!list.length) { el.innerHTML = '<div class="empty" style="padding:20px">Скважин нет.</div>'; return; }
+  el.innerHTML = list.map(bh => `
+    <div class="split-bh-item${_bhSelectedUuid === bh.uuid ? ' selected' : ''}" onclick="openBhInSplit('${bh.uuid}')">
+      <div style="flex:1;min-width:0">
+        <div class="bh-name">${esc(bh.name || '(без имени)')} <span class="badge ${bh.status}">${bh.status === 'done' ? '✓' : '…'}</span></div>
+        <div class="bh-meta">${bh.drill_date ? esc(bh.drill_date) + ' · ' : ''}${bh.planned_depth_m || 0} м · 📷${bh.photos_count}</div>
+      </div>
+      <button class="btn small" style="color:var(--error);border-color:transparent;padding:3px 6px;flex-shrink:0"
+        onclick="event.stopPropagation();delBh('${bh.uuid}','${esc(bh.name || '')}')">🗑</button>
+    </div>`).join('');
+}
+
+async function openBhInSplit(uuid) {
+  _bhSelectedUuid = uuid;
+  // Подсветим выбранный
+  document.querySelectorAll('.split-bh-item').forEach(el => {
+    el.classList.toggle('selected', el.onclick?.toString().includes(`'${uuid}'`));
+  });
+  // Очистить и показать loader
+  const editor = document.getElementById('split-editor');
+  if (editor) editor.innerHTML = '<div class="empty">Загрузка…</div>';
+  // renderBoreholeEdit сам найдёт #split-editor и отрендерится туда
+  try {
+    await renderBoreholeEdit(uuid, _bhSplitVolumeId);
+  } catch (e) {
+    if (editor) editor.innerHTML = `<div class="empty" style="color:var(--error)">Ошибка: ${esc(e.message)}</div>`;
+  }
+}
+
+function setBhFilter(f) { _bhFilter = f; reloadBhList(); }
 
 async function addBorehole(volumeId) {
-  // Создаём «пустую» скважину и сразу открываем редактор
   const uuid = crypto.randomUUID();
   const v = state.currentVolume;
-  // Подгружаем текущую бригаду
   let brigade = null;
   try { brigade = await api('/brigade/current'); } catch (e) {}
   await api('/boreholes/' + uuid, { method: 'PUT', body: JSON.stringify({
@@ -70,15 +104,26 @@ async function addBorehole(volumeId) {
     brigade_snapshot: brigade ? {
       transportLabel: brigade.transport ? `${brigade.transport.name}${brigade.transport.plate ? ' (' + brigade.transport.plate + ')' : ''}` : '',
       memberNames: (brigade.members || []).map(m => m.name),
+      transportId: brigade.transport_id || null,
+      memberIds: (brigade.members || []).map(m => m.id),
     } : null,
   }) });
-  nav('borehole_edit', { uuid, volumeId });
+  await reloadBhList();
+  openBhInSplit(uuid);
 }
 
 function delBh(uuid, name) {
   confirm2('Удалить скважину?', `Скважина «${name}» и её слои/пробы/фото будут удалены.`, async () => {
-    try { await api('/boreholes/' + uuid, { method: 'DELETE' }); toast('Удалено', 'ok'); reloadBoreholes(state.currentVolume.id); }
-    catch (e) { toast('Ошибка: ' + e.message, 'err'); }
+    try {
+      await api('/boreholes/' + uuid, { method: 'DELETE' });
+      toast('Удалено', 'ok');
+      if (_bhSelectedUuid === uuid) {
+        _bhSelectedUuid = null;
+        const editor = document.getElementById('split-editor');
+        if (editor) editor.innerHTML = '<div class="empty" style="margin-top:80px">← Выберите скважину из списка</div>';
+      }
+      reloadBhList();
+    } catch (e) { toast('Ошибка: ' + e.message, 'err'); }
   }, { confirmLabel: 'Удалить', danger: true });
 }
 
@@ -87,7 +132,6 @@ function importKmlForBh(siteId, volumeId) {
     const fd = new FormData();
     fd.append('kml', file);
     try {
-      // Парсим KML, спрашиваем что создать
       const r = await upload('/kml/parse', fd);
       if (!r.points?.length) return toast('Точки не найдены', 'warn');
       const list = r.points.map((p, i) => `<label style="display:block"><input type="checkbox" data-i="${i}" checked> ${esc(p.name)} (${p.lat.toFixed(5)}, ${p.lng.toFixed(5)})</label>`).join('');
@@ -123,7 +167,7 @@ function importKmlForBh(siteId, volumeId) {
                 }) });
                 toast('Создано точек: ' + checked.length, 'ok');
               }
-              reloadBoreholes(volumeId);
+              reloadBhList();
             } catch (e) { toast('Ошибка: ' + e.message, 'err'); }
           } },
         ]);

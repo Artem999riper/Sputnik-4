@@ -31,6 +31,8 @@ module.exports = (app, ctx) => {
       ...b,
       manual_lat: b.resolved_lat,
       manual_lng: b.resolved_lng,
+      lat: b.resolved_lat,
+      lng: b.resolved_lng,
     }));
     if (!boreholes.length) return res.status(404).json({ error: 'Нет скважин для выгрузки' });
 

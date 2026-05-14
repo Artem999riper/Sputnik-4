@@ -8,15 +8,59 @@
 </head>
 <body>
 <div id="app">
-  <header id="topbar">
-    <button class="back-btn" onclick="navBack()" title="Назад">←</button>
-    <div class="title">
-      <span id="page-title">🛰️ Спутник-Полевик</span>
-      <span id="page-subtitle"></span>
+  <!-- Боковая навигация -->
+  <nav id="sidebar">
+    <div id="sidebar-logo">
+      <span>🛰️</span>
+      <div>
+        <div>Полевик</div>
+        <div class="logo-sub">ПК версия</div>
+      </div>
     </div>
-    <div class="actions" id="page-actions"></div>
-  </header>
-  <main id="screen"></main>
+    <div class="sidebar-nav">
+      <div class="nav-item" data-screen="home" onclick="nav('home')">
+        <span class="nav-icon">🏠</span> Главная
+      </div>
+      <div class="nav-sep"></div>
+      <div class="nav-item" data-screen="refs" onclick="nav('refs')">
+        <span class="nav-icon">📥</span> Справочники
+      </div>
+      <div class="nav-item" data-screen="brigade" onclick="nav('brigade')">
+        <span class="nav-icon">👥</span> Бригада
+      </div>
+      <div class="nav-sep"></div>
+      <div class="nav-item" data-screen="sites" onclick="nav('sites')">
+        <span class="nav-icon">🏗️</span> Объекты
+      </div>
+      <div class="nav-sep"></div>
+      <div class="nav-item" data-screen="export" onclick="nav('export')">
+        <span class="nav-icon">📦</span> Экспорт .spk
+      </div>
+      <div class="nav-item" data-screen="vedomost" onclick="nav('vedomost')">
+        <span class="nav-icon">📊</span> Ведомости
+      </div>
+      <div class="nav-item" data-screen="summary" onclick="nav('summary')">
+        <span class="nav-icon">📄</span> Сводка
+      </div>
+    </div>
+    <div id="sidebar-brigade">
+      <div class="brg-label">Бригада</div>
+      <div id="sidebar-brigade-info" style="color:var(--text3);font-size:11px">не задана</div>
+    </div>
+  </nav>
+
+  <!-- Основная область -->
+  <div id="main-area">
+    <header id="topbar">
+      <button class="back-btn" onclick="navBack()" title="Назад">←</button>
+      <div class="title">
+        <span id="page-title">🛰️ Спутник-Полевик</span>
+        <span id="page-subtitle"></span>
+      </div>
+      <div class="actions" id="page-actions"></div>
+    </header>
+    <main id="screen"></main>
+  </div>
 </div>
 
 <div id="modal-root"></div>

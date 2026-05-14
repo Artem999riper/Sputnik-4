@@ -149,6 +149,11 @@ async function getDb() {
     CREATE INDEX IF NOT EXISTS idx_kml_site ON kml_points(site_id);
   `);
 
+  // Миграции для уже существующих БД
+  ['ALTER TABLE brigades ADD COLUMN is_active INTEGER DEFAULT 0',
+   'ALTER TABLE brigades ADD COLUMN label TEXT',
+  ].forEach(sql => { try { _db.exec(sql); } catch (_) {} });
+
   return _db;
 }
 

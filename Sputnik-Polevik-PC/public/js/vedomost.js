@@ -230,6 +230,15 @@ async function vedomostVolumes() {
 
   for (let c = 0; c < 8; c++) _setCell(ws, totalRowIdx, c, aoa[totalRowIdx][c], _hdrSt('C3D69B'));
 
+  // Перезаписываем глубину и обсадку как Excel-формулы SUM
+  if (dataRanges.length) {
+    const hst = _hdrSt('C3D69B');
+    const depthF = dataRanges.map(([f, t]) => `F${f+1}:F${t+1}`).join(',');
+    const casingF = dataRanges.map(([f, t]) => `G${f+1}:G${t+1}`).join(',');
+    ws[`F${totalRowIdx+1}`] = { t: 'f', f: `SUM(${depthF})`, v: totalDepth || 0, s: hst };
+    ws[`G${totalRowIdx+1}`] = { t: 'f', f: `SUM(${casingF})`, v: totalCasing || 0, s: hst };
+  }
+
   for (let i = totalRowIdx + 2; i < aoa.length; i++) {
     if (!aoa[i]?.length) continue;
     for (let c = 0; c < 8; c++) _setCell(ws, i, c, aoa[i][c] ?? '', _bodySt('FFFFFF', c !== 5));
