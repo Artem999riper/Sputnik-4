@@ -519,7 +519,7 @@ async function openEndShiftModal(wid){
 // ── MACHINERY PAGE (4 tabs) ────────────────────────────────
 function pgkPageMachinery(pb){
   const tab=window._mchTab||'park';
-  const view=window._mchView||'cards';
+  const view=window._mchView||'table';
   pb.innerHTML=`<div class="mch-outer">
   <div class="mch-topbar">
     <div class="mch-page-tabs">
@@ -806,31 +806,61 @@ function _mchBuildPark(view){
     }).join('');
     return toolbar+`<div class="mch-grid" id="mch-park-grid">${filtered.length?cards:'<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--tx3)">Нет техники</div>'}</div>`;
   }
+  // ── Sortable table view ────────────────────────────────────
+  const _ms=window._mchSort||'name', _ma=window._mchAsc!==false;
+  const getBase=m=>(bases.find(x=>x.id===m.base_id)||{}).name||'';
+  const getDriver=m=>{const w=pgkWorkers.find(x=>x.id===m.driver_id);return w?w.name:'';};
+  const getStatus=m=>statLbl[m.status||'working']||m.status||'';
+  filtered.sort((a,b)=>{
+    let va,vb;
+    if(_ms==='base'){va=getBase(a);vb=getBase(b);}
+    else if(_ms==='driver'){va=getDriver(a);vb=getDriver(b);}
+    else if(_ms==='status'){va=getStatus(a);vb=getStatus(b);}
+    else{va=a[_ms]||'';vb=b[_ms]||'';}
+    return String(va).localeCompare(String(vb),'ru')*(_ma?1:-1);
+  });
+  const thCls=col=>`class="${_ms===col?(_ma?'wt-asc':'wt-desc'):''}"`;
+  const thS=(col,lbl)=>`<th ${thCls(col)} onclick="if(window._mchSort==='${col}'){window._mchAsc=!(window._mchAsc!==false);}else{window._mchSort='${col}';window._mchAsc=true;}const pb2=document.getElementById('machinery-page');if(pb2)pgkPageMachinery(pb2);">${lbl}</th>`;
   const rows=filtered.map((m,i)=>{
     const b=bases.find(x=>x.id===m.base_id);
     const driver=pgkWorkers.find(x=>x.id===m.driver_id);
     const st=m.status||'working';const _id=escAttr(m.id);
     return `<tr data-search="${esc((m.name+' '+(m.type||'')+' '+(m.plate_number||'')+' '+(b?b.name:'')+' '+(driver?driver.name:'')).toLowerCase())}"
       oncontextmenu="event.preventDefault();machCtxMenu(event,'${_id}')">
-      <td style="text-align:center;color:var(--tx3);font-size:10px">${i+1}</td>
+      <td style="text-align:center;color:var(--tx3);font-size:10px;width:32px">${i+1}</td>
       <td class="td-link" onclick="openMachDetail('${_id}')"><span style="font-size:14px">${MICONS[m.type]||'🔧'}</span> <b>${esc(m.name)}</b></td>
-      <td>${esc(m.type||'—')}</td>
+      <td style="color:var(--tx2)">${esc(m.type||'—')}</td>
       <td>${m.plate_number?`<code style="font-size:11px;background:var(--s2);padding:1px 5px;border-radius:3px">${esc(m.plate_number)}</code>`:'<span style="color:var(--tx3)">—</span>'}</td>
-      <td><span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span></td>
+      <td><span class="wt-badge ${statCls[st]||'wbs-idle'}" style="cursor:pointer" title="Фильтр по статусу"
+        onclick="window._pgkMFStatus=(window._pgkMFStatus===('${st}')?'':'${st}');_setMchTab('park')">${statLbl[st]||st}</span></td>
       <td>${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
       <td>${driver?`👤 ${esc(driver.name)}`:'<span style="color:var(--tx3)">—</span>'}</td>
+      <td class="td-notes" title="${esc(m.notes||'')}">${esc((m.notes||'').slice(0,60))}</td>
     </tr>`;
   }).join('');
-  return toolbar+`<div class="wt-scroll"><table class="wt-tbl" style="min-width:680px">
-    <thead><tr><th class="no-sort" style="width:36px;text-align:center">#</th>
-      <th>Название</th><th>Тип</th><th>Номер</th><th>Статус</th><th>База</th><th>Водитель</th></tr></thead>
-    <tbody>${rows||`<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--tx3)">Нет техники</td></tr>`}</tbody>
+  return toolbar+`<div class="wt-scroll"><table class="wt-tbl" id="mch-park-tbl" style="min-width:720px">
+    <thead><tr>
+      <th class="no-sort" style="width:32px;text-align:center">#</th>
+      ${thS('name','Название')}
+      ${thS('type','Тип')}
+      ${thS('plate_number','Номер')}
+      ${thS('status','Статус')}
+      ${thS('base','База')}
+      ${thS('driver','Водитель')}
+      <th class="no-sort" style="min-width:100px">Примечания</th>
+    </tr></thead>
+    <tbody id="mch-park-tbl-body">${rows||`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx3)">Нет техники</td></tr>`}</tbody>
   </table></div>`;
 }
 function _mchParkSearch(val){
   window._pgkMSearchVal=val;const q=val.toLowerCase().trim();
   document.querySelectorAll('.mch-card[data-search]').forEach(c=>{c.style.display=!q||c.dataset.search.includes(q)?'':'none';});
-  document.querySelectorAll('#mch-park-tbl tbody tr[data-search]').forEach(r=>{r.style.display=!q||r.dataset.search.includes(q)?'':'none';});
+  let n=0;
+  document.querySelectorAll('#mch-park-tbl tbody tr[data-search]').forEach(r=>{
+    const show=!q||r.dataset.search.includes(q);
+    r.style.display=show?'':'none';
+    if(show){const c=r.querySelector('td:first-child');if(c)c.textContent=++n;}
+  });
 }
 function _mchBuildFuel(){
   const byBase={};
