@@ -825,17 +825,17 @@ function _mchBuildPark(view){
     const b=bases.find(x=>x.id===m.base_id);
     const driver=pgkWorkers.find(x=>x.id===m.driver_id);
     const st=m.status||'working';const _id=escAttr(m.id);
-    return `<tr data-search="${esc((m.name+' '+(m.type||'')+' '+(m.plate_number||'')+' '+(b?b.name:'')+' '+(driver?driver.name:'')).toLowerCase())}"
+    const notesPreview=esc((m.notes||'').replace(/\n/g,' ').slice(0,80));
+    return `<tr data-search="${esc((m.name+' '+(m.type||'')+' '+(m.plate_number||'')+' '+(b?b.name:'')+' '+(driver?driver.name:'')+' '+(m.notes||'')).toLowerCase())}"
       oncontextmenu="event.preventDefault();machCtxMenu(event,'${_id}')">
       <td style="text-align:center;color:var(--tx3);font-size:10px;width:32px">${i+1}</td>
       <td class="td-link" onclick="openMachDetail('${_id}')"><span style="font-size:14px">${MICONS[m.type]||'🔧'}</span> <b>${esc(m.name)}</b></td>
-      <td style="color:var(--tx2)">${esc(m.type||'—')}</td>
+      <td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','type')">${esc(m.type||'—')}</td>
       <td>${m.plate_number?`<code style="font-size:11px;background:var(--s2);padding:1px 5px;border-radius:3px">${esc(m.plate_number)}</code>`:'<span style="color:var(--tx3)">—</span>'}</td>
-      <td><span class="wt-badge ${statCls[st]||'wbs-idle'}" style="cursor:pointer" title="Фильтр по статусу"
-        onclick="window._pgkMFStatus=(window._pgkMFStatus===('${st}')?'':'${st}');_setMchTab('park')">${statLbl[st]||st}</span></td>
-      <td>${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
+      <td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','status')"><span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span></td>
+      <td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','base_id')">${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
       <td>${driver?`👤 ${esc(driver.name)}`:'<span style="color:var(--tx3)">—</span>'}</td>
-      <td class="td-notes" title="${esc(m.notes||'')}">${esc((m.notes||'').slice(0,60))}</td>
+      <td class="td-notes td-link" style="color:var(--tx)" title="${notesPreview}" onclick="machNotesModal('${_id}')">${notesPreview||'<span style="color:var(--tx3)">—</span>'}</td>
     </tr>`;
   }).join('');
   return toolbar+`<div class="wt-scroll"><table class="wt-tbl" id="mch-park-tbl" style="min-width:720px">
@@ -862,6 +862,27 @@ function _mchParkSearch(val){
     if(show){const c=r.querySelector('td:first-child');if(c)c.textContent=++n;}
   });
 }
+
+function machNotesModal(mid){
+  const m=pgkMachinery.find(x=>x.id===mid);if(!m)return;
+  showModal('Примечания — '+esc(m.name),`
+    <div class="fg s2" style="margin:0">
+      <textarea id="mch-notes-ta" rows="6"
+        style="width:100%;font-size:13px;padding:8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);color:var(--tx);resize:vertical;box-sizing:border-box"
+        placeholder="Введите примечание...">${esc(m.notes||'')}</textarea>
+    </div>
+  `,[
+    {label:'Закрыть',cls:'bs',fn:closeModal},
+    {label:'Сохранить',cls:'bp',fn:async()=>{
+      const notes=document.getElementById('mch-notes-ta').value;
+      await fetch(`${API}/pgk/machinery/${mid}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({...m,notes,user_name:un()})});
+      closeModal();await loadPGK();toast('Примечание сохранено','ok');
+    }}
+  ]);
+  setTimeout(()=>{const ta=document.getElementById('mch-notes-ta');if(ta){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);}},50);
+}
+
 function _mchBuildFuel(){
   const byBase={};
   pgkFuelReserves.forEach(r=>(byBase[r.base_id]=byBase[r.base_id]||[]).push(r));
