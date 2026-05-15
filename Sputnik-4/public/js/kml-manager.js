@@ -74,7 +74,7 @@ function kmlSvgIcon(symbolKey, color, size) {
 function kmlFeatureDivIcon(layerObj, featureProps) {
   const sym   = (featureProps && featureProps._sym)   || layerObj.symbol || 'point';
   const color = (featureProps && featureProps._color) || layerObj.color  || '#1a56db';
-  const scale = layerObj.size != null ? layerObj.size : 1;
+  const scale = featureProps?._size != null ? featureProps._size : (layerObj.size != null ? layerObj.size : 1);
   const size  = Math.round(28 * scale);
   return L.divIcon({
     className: '',
@@ -161,6 +161,7 @@ function kmlLayerRow(l) {
     <button class="kml-icon-btn ${lblOn?'on':''}" onclick="toggleLayerLabels('${l.id}')" title="Подписи">🏷</button>
     <button class="kml-icon-btn" onclick="kmlZoomTo('${l.id}')" title="Приблизить">🔍</button>
     <button class="kml-icon-btn" onclick="kmlOpenFeatureList('${l.id}')" title="Объекты слоя">📋</button>
+    <button class="kml-icon-btn ${_kmlPlacingLayerId===l.id?'on':''}" onclick="kmlStartPlacement('${l.id}')" title="Разместить иконку на карте">📌</button>
     <button class="kml-icon-btn menu" onclick="kmlLayerCtx(event,'${l.id}')" title="Меню">⋯</button>
   </div>`;
 }
@@ -522,6 +523,7 @@ function kmlEditFeature(layerId, fIdx) {
   const isPoint  = geomType === 'Point';
   const fSym     = props._sym   || l.symbol  || 'point';
   const fColor   = props._color || l.color   || '#1a56db';
+  const fSize    = props._size  != null ? props._size : (l.size != null ? l.size : 1);
 
   // Строим сетку символов для выбора
   const symGroups = {};
@@ -548,10 +550,14 @@ function kmlEditFeature(layerId, fIdx) {
     <div class="fgr">
       <div class="fg"><label>Название</label><input id="kfl-nm" value="${esc(nm)}"></div>
       <div class="fg"><label>Описание</label><textarea id="kfl-desc" rows="2" style="width:100%;resize:vertical">${esc(desc)}</textarea></div>
-      ${isPoint ? `<div class="fg"><label>Цвет объекта</label>
+      <div class="fg"><label>Цвет объекта</label>
         <input type="color" id="kfl-color" value="${fColor}" style="width:50px;height:32px;border:1.5px solid var(--bd);border-radius:5px;cursor:pointer;padding:2px"
           oninput="document.querySelectorAll('[id^=kfl-sp-]').forEach(el=>{const k=el.id.replace('kfl-sp-','');el.innerHTML=kmlSvgIcon(k,this.value,20);})">
         <span style="font-size:10px;color:var(--tx3);margin-left:6px">Переопределяет цвет слоя для этого объекта</span>
+      </div>
+      ${isPoint ? `<div class="fg"><label>Размер знака: <b id="kfl-szv">${fSize.toFixed(1)}×</b></label>
+        <input type="range" id="kfl-size" min="0.3" max="4" step="0.1" value="${fSize}"
+          oninput="document.getElementById('kfl-szv').textContent=parseFloat(this.value).toFixed(1)+'×'">
       </div>` : ''}
       ${symGrid}
     </div>`;
@@ -561,18 +567,21 @@ function kmlEditFeature(layerId, fIdx) {
     {label:'💾 Сохранить',cls:'bp',fn:async()=>{
       const newNm   = document.getElementById('kfl-nm').value.trim() || nm;
       const newDesc = document.getElementById('kfl-desc').value.trim();
-      const newColor= isPoint ? document.getElementById('kfl-color').value : null;
+      const newColor= document.getElementById('kfl-color').value;
       const symEl   = isPoint ? document.querySelector('.kfl-sym-sel.on') : null;
       const newSym  = symEl ? symEl.dataset.sym : (isPoint ? fSym : null);
+      const newSize = isPoint ? parseFloat(document.getElementById('kfl-size').value) : null;
 
       // Обновляем properties в GeoJSON
       if (!f.properties) f.properties = {};
       f.properties.name = newNm;
       if (newDesc) f.properties.description = newDesc; else delete f.properties.description;
-      if (isPoint && newColor && newColor !== l.color) f.properties._color = newColor;
+      if (newColor && newColor !== l.color) f.properties._color = newColor;
       else delete f.properties._color;
       if (isPoint && newSym && newSym !== l.symbol) f.properties._sym = newSym;
       else delete f.properties._sym;
+      if (isPoint && newSize != null && Math.abs(newSize - (l.size ?? 1)) > 0.05) f.properties._size = newSize;
+      else delete f.properties._size;
 
       // Сохраняем весь слой обратно
       const newGeojson = JSON.stringify(gj);
@@ -616,6 +625,139 @@ function kmlPanelImport(evt) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// ИКОНКИ — создание слоя и размещение на карте
+// ══════════════════════════════════════════════════════════════
+
+// Глобальный ID слоя, в который сейчас размещаем иконки
+let _kmlPlacingLayerId = null;
+let _kmlPlacementHandler = null;
+let _kmlPlacementEscHandler = null;
+
+async function kmlCreateIconLayer() {
+  showModal('Новый слой иконок',
+    `<div class="fg"><label>Название</label><input id="kml-icon-nm" placeholder="КПП, Посты охраны…"></div>
+     <div class="fg"><label>Цвет по умолчанию</label>
+       <input type="color" id="kml-icon-col" value="#e53935" style="width:50px;height:32px;border:1.5px solid var(--bd);border-radius:5px;cursor:pointer;padding:2px">
+     </div>`,
+    [
+      {label:'Отмена',cls:'bs',fn:closeModal},
+      {label:'Создать',cls:'bp',fn:async()=>{
+        const nm = document.getElementById('kml-icon-nm').value.trim();
+        if (!nm) return toast('Укажите название','warn');
+        const col = document.getElementById('kml-icon-col').value;
+        closeModal();
+        const emptyGJ = JSON.stringify({type:'FeatureCollection',features:[]});
+        const r = await fetch(`${API}/layers`,{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({name:nm,geojson:emptyGJ,color:col,symbol:'star',visible:1,
+            group_id:'',line_dash:'solid',min_zoom:null,max_zoom:null,size:1})});
+        const {id} = await r.json();
+        layers.unshift({id,name:nm,geojson:emptyGJ,color:col,symbol:'star',visible:1,
+          group_id:'',line_dash:'solid',min_zoom:null,max_zoom:null,size:1});
+        renderKmlPanel();
+        renderLayerGroups();
+        toast('Слой создан. Нажмите 📌 на слое для размещения иконок.','ok');
+      }}
+    ]);
+}
+
+function kmlStartPlacement(layerId) {
+  if (_kmlPlacingLayerId === layerId) { kmlCancelPlacement(); return; }
+  kmlCancelPlacement();
+  _kmlPlacingLayerId = layerId;
+  const l = layers.find(x=>x.id===layerId);
+  map.getContainer().style.cursor = 'crosshair';
+  toast(`📌 Кликните на карту для размещения иконки в «${l?.name||'слой'}». ESC — отмена`,'ok');
+  renderKmlPanel();
+
+  _kmlPlacementHandler = async function(e) {
+    const {lat,lng} = e.latlng;
+    kmlCancelPlacement();
+    // Открыть модалку для настройки иконки
+    const ll = layers.find(x=>x.id===layerId);
+    if (!ll) return;
+    let gj;
+    try { gj = JSON.parse(ll.geojson); } catch(err) { gj={type:'FeatureCollection',features:[]}; }
+    if (gj.type !== 'FeatureCollection') gj = {type:'FeatureCollection',features:gj.type==='Feature'?[gj]:[]};
+
+    const defColor = ll.color || '#e53935';
+    const defSym   = ll.symbol || 'star';
+    const symGroups = {};
+    Object.entries(KML_SYMBOLS).forEach(([k,s])=>{
+      if(!symGroups[s.group])symGroups[s.group]=[];
+      symGroups[s.group].push({key:k,...s});
+    });
+    const symGrid = Object.entries(symGroups).map(([grpNm,syms])=>`
+      <div style="margin-bottom:8px">
+        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--tx3);margin-bottom:4px">${grpNm}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${syms.map(s=>`<div class="kml-sym-btn kfl-sym-sel ${s.key===defSym?'on':''}" data-sym="${s.key}" onclick="kflSelectSym(this)" title="${s.label}">
+            <div id="kfl-sp-${s.key}">${kmlSvgIcon(s.key,defColor,20)}</div></div>`).join('')}
+        </div>
+      </div>`).join('');
+
+    showModal('📌 Разместить иконку',`
+      <div class="fgr">
+        <div class="fg"><label>Название</label><input id="kpl-nm" placeholder="КПП №1…"></div>
+        <div class="fg"><label>Цвет</label>
+          <input type="color" id="kpl-color" value="${defColor}" style="width:50px;height:32px;border:1.5px solid var(--bd);border-radius:5px;cursor:pointer;padding:2px"
+            oninput="document.querySelectorAll('[id^=kfl-sp-]').forEach(el=>{const k=el.id.replace('kfl-sp-','');el.innerHTML=kmlSvgIcon(k,this.value,20);})">
+        </div>
+        <div class="fg"><label>Размер: <b id="kpl-szv">1.0×</b></label>
+          <input type="range" id="kpl-size" min="0.3" max="4" step="0.1" value="1"
+            oninput="document.getElementById('kpl-szv').textContent=parseFloat(this.value).toFixed(1)+'×'">
+        </div>
+        <div style="margin-top:8px">
+          <label style="font-size:11px;font-weight:600;display:block;margin-bottom:6px">Условный знак</label>
+          <div id="kpl-sym-grid" style="max-height:220px;overflow-y:auto">${symGrid}</div>
+        </div>
+      </div>`,
+      [
+        {label:'Отмена',cls:'bs',fn:()=>{closeModal();kmlStartPlacement(layerId);}},
+        {label:'💾 Разместить',cls:'bp',fn:async()=>{
+          const nm   = document.getElementById('kpl-nm').value.trim();
+          const col  = document.getElementById('kpl-color').value;
+          const sz   = parseFloat(document.getElementById('kpl-size').value);
+          const symEl= document.querySelector('.kfl-sym-sel.on');
+          const sym  = symEl ? symEl.dataset.sym : defSym;
+
+          const props = {name: nm || 'Иконка'};
+          if (col !== ll.color) props._color = col;
+          if (sym !== ll.symbol) props._sym = sym;
+          if (Math.abs(sz - (ll.size ?? 1)) > 0.05) props._size = sz;
+
+          gj.features.push({
+            type:'Feature',
+            geometry:{type:'Point',coordinates:[lng,lat]},
+            properties:props,
+          });
+          const newGeojson = JSON.stringify(gj);
+          await fetch(`${API}/layers/${layerId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({name:ll.name,color:ll.color,visible:ll.visible?1:0,
+              symbol:ll.symbol||'',group_id:ll.group_id||'',line_dash:ll.line_dash||'solid',
+              min_zoom:ll.min_zoom||null,max_zoom:ll.max_zoom||null,size:ll.size||1,geojson:newGeojson})});
+          ll.geojson = newGeojson;
+          renderLayerGroups();
+          toast('Иконка размещена','ok');
+          closeModal();
+        }}
+      ]);
+  };
+  map.once('click', _kmlPlacementHandler);
+
+  _kmlPlacementEscHandler = (e)=>{ if(e.key==='Escape') kmlCancelPlacement(); };
+  document.addEventListener('keydown', _kmlPlacementEscHandler);
+}
+
+function kmlCancelPlacement() {
+  if (!_kmlPlacingLayerId) return;
+  _kmlPlacingLayerId = null;
+  map.getContainer().style.cursor = '';
+  if (_kmlPlacementHandler) { map.off('click', _kmlPlacementHandler); _kmlPlacementHandler = null; }
+  if (_kmlPlacementEscHandler) { document.removeEventListener('keydown', _kmlPlacementEscHandler); _kmlPlacementEscHandler = null; }
+  renderKmlPanel();
+}
+
+// ══════════════════════════════════════════════════════════════
 // renderLayerGroups — KML всегда ПОД объёмами (pane kmlPane)
 // ══════════════════════════════════════════════════════════════
 function renderLayerGroupsWithSymbols() {
@@ -652,7 +794,7 @@ function renderLayerGroupsWithSymbols() {
 
       const g = L.geoJSON(gj, {
         pane: 'kmlPane',
-        style: () => ({ color, weight:2.5, opacity:.85, fillOpacity:.2, dashArray:dashArr }),
+        style: (f) => ({ color: f?.properties?._color || color, weight:2.5, opacity:.85, fillOpacity:.2, dashArray:dashArr }),
         pointToLayer: (f, ll) => {
           // feature-level переопределение символа/цвета
           const icon = kmlFeatureDivIcon(l, f.properties);

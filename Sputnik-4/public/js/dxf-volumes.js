@@ -23,14 +23,14 @@ function _dxfG(code, val){
   return code.toString().padStart(3,' ') + '\n' + val + '\n';
 }
 
-function _buildDxfLabel(sem, idx){
+function _buildDxfLabel(sem, featureName, idx){
   const type = sem.type || '';
   const data = sem.data || {};
   const PREFIX = {borehole:'СКВ', pit:'Ш', ggs:'ГГС', ogs:'ОГС', repere:'Рп', benchmark:'Мк', steel_angle:'Уг', other:'Т'};
   const hasData = type==='borehole' || type==='pit';
   if(hasData){
     const desc = (data.desc||'').trim();
-    const name = (data.label||'').trim() || desc || ((PREFIX[type]||'Т')+'-'+idx);
+    const name = (data.label||'').trim() || (featureName||'').trim() || desc || ((PREFIX[type]||'Т')+'-'+idx);
     const attrs = [
       'H=' + (data.depth||''),
       'd=' + (data.diam||''),
@@ -40,7 +40,7 @@ function _buildDxfLabel(sem, idx){
     return name + ' (' + attrs.join(', ') + ')';
   } else {
     const note = (data.note||'').trim();
-    const name = (data.label||'').trim() || ((PREFIX[type]||'Т')+'-'+idx);
+    const name = (data.label||'').trim() || (featureName||'').trim() || ((PREFIX[type]||'Т')+'-'+idx);
     return note ? name + ' (' + note + ')' : name;
   }
 }
@@ -274,7 +274,8 @@ function _collectDxfFeatures(site, sys, selectedIds){
 
       if(geomType === 'Point'){
         const [lng, lat] = feat.geometry.coordinates;
-        const label = _buildDxfLabel(sem, ++idx) + suffix;
+        const featName = feat.properties?.name || feat.properties?.Name || '';
+        const label = _buildDxfLabel(sem, featName, ++idx) + suffix;
         const c = _convertCoords(lat, lng, sys);
         points.push({x:c.x, y:c.y, label});
 
