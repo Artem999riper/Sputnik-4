@@ -852,7 +852,7 @@ async function fieldExportExcel() {
 }
 
 async function fieldExportRefs() {
-  const sitesList = (window.sites || []).filter(s => s.name);
+  const sitesList = (typeof sites !== 'undefined' ? sites : []).filter(s => s.name);
   const sitesHtml = sitesList.length
     ? sitesList.map(s =>
         `<label style="display:flex;align-items:center;gap:8px;padding:2px 0;cursor:pointer">
