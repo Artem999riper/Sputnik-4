@@ -31,7 +31,7 @@ async function reloadTaskPoints(volumeId) {
     ${filtered.length ? filtered.map(p => `
       <div class="row-item">
         <div class="main">
-          <div class="name">${esc(p.name || '(без имени)')} ${p.completed_date ? `<span class="badge done">✓ ${esc(p.completed_date)}</span>` : '<span class="badge draft">не выполнено</span>'}</div>
+          <div class="name">${esc(p.name || '(без имени)')} ${p.completed_date ? `<span class="badge done">✓ ${esc(fmtDate(p.completed_date))}</span>` : '<span class="badge draft">не выполнено</span>'}</div>
           <div class="meta">${p.lat != null ? `${(+p.lat).toFixed(5)}, ${(+p.lng).toFixed(5)}` : 'без координат'} · план ${p.planned_depth_m || 0} м</div>
         </div>
         ${p.completed_date

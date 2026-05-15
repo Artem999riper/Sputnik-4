@@ -253,6 +253,8 @@ async function getDb() {
   ta("CREATE TABLE IF NOT EXISTS pgk_brigade_members (brigade_id TEXT NOT NULL, worker_id TEXT NOT NULL, PRIMARY KEY (brigade_id, worker_id))");
   ta("CREATE TABLE IF NOT EXISTS pgk_brigade_bases (brigade_id TEXT NOT NULL, base_id TEXT NOT NULL, PRIMARY KEY (brigade_id, base_id))");
   ta("CREATE TABLE IF NOT EXISTS pgk_brigade_sites (brigade_id TEXT NOT NULL, site_id TEXT NOT NULL, PRIMARY KEY (brigade_id, site_id))");
+  ta("ALTER TABLE field_samples ADD COLUMN depth_top_m REAL");
+  ta("ALTER TABLE field_samples ADD COLUMN depth_bottom_m REAL");
 
   return _db;
 }

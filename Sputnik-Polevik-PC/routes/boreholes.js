@@ -29,7 +29,7 @@ module.exports = (app, ctx) => {
     if (volume_id) { sql += ' AND volume_id=?'; p.push(volume_id); }
     if (status)    { sql += ' AND status=?';    p.push(status); }
     if (q) { sql += ' AND LOWER(name) LIKE ?'; p.push('%' + String(q).toLowerCase() + '%'); }
-    sql += ' ORDER BY drill_date DESC, created_at DESC';
+    sql += ' ORDER BY CASE WHEN status=\'done\' THEN 0 ELSE 1 END, drill_date DESC, created_at DESC';
     const rows = all(d, sql, p);
     rows.forEach(bh => {
       bh.photos_count = get(d, 'SELECT COUNT(*) c FROM photos WHERE borehole_uuid=?', [bh.uuid]).c;

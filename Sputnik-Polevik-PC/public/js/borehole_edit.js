@@ -157,7 +157,8 @@ function soilTypeOptions(current) {
 }
 function soilStateOptions(current) {
   const all = [...SOIL_STATES_DEFAULT, ..._customSoilStates.filter(t => !SOIL_STATES_DEFAULT.includes(t))];
-  return all.map(t => `<option ${t === current ? 'selected' : ''}>${esc(t)}</option>`).join('') +
+  return `<option value="" ${!current ? 'selected' : ''}>—</option>` +
+    all.map(t => `<option ${t === current ? 'selected' : ''}>${esc(t)}</option>`).join('') +
     `<option value="__custom__">+ своё…</option>`;
 }
 function frozenOptions(current) {

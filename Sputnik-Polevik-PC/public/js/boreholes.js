@@ -64,7 +64,7 @@ async function reloadBhList() {
     <div class="split-bh-item${_bhSelectedUuid === bh.uuid ? ' selected' : ''}" onclick="openBhInSplit('${bh.uuid}')">
       <div style="flex:1;min-width:0">
         <div class="bh-name">${esc(bh.name || '(без имени)')} <span class="badge ${bh.status}">${bh.status === 'done' ? '✓' : '…'}</span></div>
-        <div class="bh-meta">${bh.drill_date ? esc(bh.drill_date) + ' · ' : ''}${bh.planned_depth_m || 0} м · 📷${bh.photos_count}</div>
+        <div class="bh-meta">${bh.drill_date ? fmtDate(bh.drill_date) + ' · ' : ''}${bh.planned_depth_m || 0} м · 📷${bh.photos_count}</div>
       </div>
       <button class="btn small" style="color:var(--error);border-color:transparent;padding:3px 6px;flex-shrink:0"
         onclick="event.stopPropagation();delBh('${bh.uuid}','${esc(bh.name || '')}')">🗑</button>

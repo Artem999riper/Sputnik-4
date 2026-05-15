@@ -532,7 +532,12 @@ function showFieldBoreholeModal(b) {
           <div class="field-layer-desc">${esc(fmt(l.description))}</div>
           ${(samplesByLayer[l.uuid] || []).length ? `
             <div class="field-samples-list">
-              ${(samplesByLayer[l.uuid]).map(s => `<div class="field-sample-row">🧪 ${esc(s.collection_type || '—')} · ${esc(s.packaging || '—')} · ${fmt(s.depth_m)} м</div>`).join('')}
+              ${(samplesByLayer[l.uuid]).map(s => {
+                const depthStr = s.depth_top_m != null && s.depth_bottom_m != null
+                  ? `${fmt(s.depth_top_m)}–${fmt(s.depth_bottom_m)} м`
+                  : s.depth_m != null ? `${fmt(s.depth_m)} м` : '—';
+                return `<div class="field-sample-row">🧪 ${esc(s.collection_type || '—')} · ${esc(s.packaging || '—')} · ${depthStr}</div>`;
+              }).join('')}
             </div>` : ''}
         </div>`).join('') || '<div class="empty">Слоёв нет</div>'}
     </div>`;

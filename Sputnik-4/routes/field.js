@@ -637,10 +637,10 @@ module.exports = (app, getDb, L) => {
       if (!s || !s.uuid || !s.layer_uuid) continue;
       if (get(d, 'SELECT uuid FROM field_samples WHERE uuid=?', [s.uuid])) continue;
       try {
-        run(d, `INSERT INTO field_samples (uuid, layer_uuid, collection_type, packaging, depth_m)
-                VALUES (?,?,?,?,?)`,
-          [s.uuid, s.layer_uuid, clipStr(s.collection_type, 50),
-           clipStr(s.packaging, 50), safeNum(s.depth_m, 0, 1000)]);
+        run(d, `INSERT INTO field_samples (uuid, layer_uuid, collection_type, packaging, depth_m, depth_top_m, depth_bottom_m)
+                VALUES (?,?,?,?,?,?,?)`,
+          [s.uuid, s.layer_uuid, clipStr(s.collection_type, 50), clipStr(s.packaging, 50),
+           safeNum(s.depth_m, 0, 1000), safeNum(s.depth_top_m, 0, 1000), safeNum(s.depth_bottom_m, 0, 1000)]);
       } catch(e) {}
     }
     for (const u of ugv) {

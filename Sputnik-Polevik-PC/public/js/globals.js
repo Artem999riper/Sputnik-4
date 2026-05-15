@@ -41,7 +41,7 @@ window.fmtDate = function (s) {
   if (!s) return '';
   const d = new Date(s);
   if (isNaN(d.getTime())) return s;
-  return d.toLocaleDateString('ru-RU');
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
 };
 
 window.todayStr = function () {
