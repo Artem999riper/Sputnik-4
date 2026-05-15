@@ -118,10 +118,15 @@ function renderHeaderTab(pane) {
       <div class="field"><label>Долгота</label><input id="hd-lng" type="number" step="0.000001" value="${b.manual_lng ?? ''}" oninput="scheduleSave()"></div>
     </div>
     <div class="field"><label>Длина обсадной колонны, м</label><input id="hd-cas" type="number" step="0.1" value="${b.casing_length_m || 0}" oninput="scheduleSave()"></div>
-    ${snap ? `<div class="field" style="background:var(--surface2);padding:8px;border-radius:6px">
-      <label>Бригада-снимок</label>
-      <div style="font-size:12px;color:var(--text2)">${esc((snap.memberNames || []).join(', '))} — ${esc(snap.transportLabel || '')}</div>
-    </div>` : ''}
+    <div class="field" style="background:var(--surface2);padding:8px;border-radius:6px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <label style="margin:0">Бригада</label>
+        <button class="btn small" onclick="changeBrigade()">✏️ Сменить</button>
+      </div>
+      ${snap
+        ? `<div style="font-size:12px;color:var(--text2)">${esc((snap.memberNames || []).join(', '))}${snap.transportLabel ? ' — ' + esc(snap.transportLabel) : ''}</div>`
+        : `<div style="font-size:12px;color:var(--text2)">Не указана</div>`}
+    </div>
   `;
 }
 
@@ -136,6 +141,34 @@ function readHeader() {
     manual_lng:      document.getElementById('hd-lng')?.value ? parseFloat(document.getElementById('hd-lng').value) : null,
     casing_length_m: parseFloat(document.getElementById('hd-cas')?.value) || 0,
   };
+}
+
+async function changeBrigade() {
+  const brigades = await api('/brigades').catch(() => []);
+  if (!brigades.length) return toast('Нет сохранённых карточек бригады', 'warn');
+
+  showModal('Выбрать бригаду', `
+    <div style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto">
+      ${brigades.map(b => {
+        const snap = { transportLabel: b.transport ? `${b.transport.name}${b.transport.plate ? ' (' + b.transport.plate + ')' : ''}` : '', memberNames: (b.members || []).map(m => m.name), transportId: b.transport_id || null, memberIds: (b.members || []).map(m => m.id) };
+        const isActive = b.id === _bh.brigade_id;
+        return `<button class="btn${isActive ? ' primary' : ''}" style="text-align:left;padding:8px 12px" onclick="applyBrigade('${esc(b.id)}',${JSON.stringify(JSON.stringify(snap))})">
+          <div style="font-weight:600">${esc(b.label || '(бригада)')}</div>
+          <div style="font-size:11px;opacity:.7">${esc((snap.memberNames).join(', '))}${snap.transportLabel ? ' — ' + esc(snap.transportLabel) : ''}</div>
+        </button>`;
+      }).join('')}
+    </div>
+  `, [{ label: 'Отмена', fn: closeModal }]);
+}
+
+async function applyBrigade(brigadeId, snapJson) {
+  closeModal();
+  const snap = JSON.parse(snapJson);
+  _bh.brigade_id = brigadeId;
+  _bh.brigade_snapshot = snap;
+  await saveBh(false);
+  renderHeaderTab(document.getElementById('tab-pane'));
+  toast('Бригада обновлена', 'ok');
 }
 
 // ── LAYERS ──

@@ -2,7 +2,7 @@
 
 async function renderVedomost() {
   const screen = document.getElementById('screen');
-  const sites = await api('/sites');
+  const [sites, brigades] = await Promise.all([api('/sites'), api('/brigades').catch(() => [])]);
   const today = todayStr();
   const monthAgo = new Date(); monthAgo.setMonth(monthAgo.getMonth() - 1);
   const fromDef = monthAgo.toISOString().slice(0, 10);
@@ -17,6 +17,10 @@ async function renderVedomost() {
       <div class="field"><label>Объект</label>
         <select id="vd-site"><option value="">— все —</option>
           ${sites.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
+        </select></div>
+      <div class="field"><label>Бригада</label>
+        <select id="vd-brigade"><option value="">— все —</option>
+          ${brigades.map(b => `<option value="${b.id}">${esc(b.label || '(бригада ' + b.id + ')')}</option>`).join('')}
         </select></div>
       <div class="field"><label>Формат координат</label>
         <select id="vd-coord">
@@ -36,14 +40,16 @@ async function renderVedomost() {
 
 function _vdQuery() {
   const p = new URLSearchParams();
-  const from  = document.getElementById('vd-from').value;
-  const to    = document.getElementById('vd-to').value;
-  const site  = document.getElementById('vd-site').value;
-  const coord = document.getElementById('vd-coord').value;
-  if (from)  p.set('from', from);
-  if (to)    p.set('to', to);
-  if (site)  p.set('site_id', site);
-  if (coord) p.set('coord', coord);
+  const from    = document.getElementById('vd-from').value;
+  const to      = document.getElementById('vd-to').value;
+  const site    = document.getElementById('vd-site').value;
+  const brigade = document.getElementById('vd-brigade')?.value || '';
+  const coord   = document.getElementById('vd-coord').value;
+  if (from)    p.set('from', from);
+  if (to)      p.set('to', to);
+  if (site)    p.set('site_id', site);
+  if (brigade) p.set('brigade_id', brigade);
+  if (coord)   p.set('coord', coord);
   return { qs: p.toString(), coord, from, to, geo: document.getElementById('vd-geo')?.value || '' };
 }
 
@@ -70,12 +76,13 @@ async function vedomostSamples() {
   if (!r.rows.length) return toast('Нет проб за период', 'warn');
 
   const siteName = r.site_name || '—';
+  const brigadeName = r.brigade_name || '';
   const geoName = geo || '—';
 
   const aoa = [];
   aoa.push(['Ведомость образцов грунтов, отобранных при бурении инженерно-геологических выработок', '', '', '', '', '', '', '', '']);
   aoa.push(['', '', '', '', '', '', '', '', '']);
-  aoa.push([`На объекте (участке) ${siteName}`, '', '', '', '', '', '', '', '']);
+  aoa.push([`На объекте (участке) ${siteName}${brigadeName ? '  |  Бригада: ' + brigadeName : ''}`, '', '', '', '', '', '', '', '']);
   aoa.push(['направляемых в лабораторию ________________________________', '', '', '', '', '', '', '', '']);
   aoa.push(['(наименование лаборатории)', '', '', '', '', '', '', '', '']);
   aoa.push(['организация-исполнитель: ________________________________', '', '', '', '', '', '', '', '']);
@@ -156,7 +163,8 @@ async function vedomostVolumes() {
   // Строки 0,1: шапка таблицы; строка 2: объект
   aoa.push(['п/п', 'Имя скважины', 'Дата бурения', coordsTitle, '', 'Общая глубина, м', 'Обсад, м', 'Описание из шапки']);
   aoa.push(['', '', '', coordSubA, coordSubB, '', '', '']);
-  aoa.push([`Объект: ${r.site_name || '—'}`, '', '', '', '', '', '', '']);
+  const volBrigadeName = r.brigade_name || '';
+  aoa.push([`Объект: ${r.site_name || '—'}${volBrigadeName ? '  |  Бригада: ' + volBrigadeName : ''}`, '', '', '', '', '', '', '']);
 
   const groupRowIdxs = [];
   const dataRanges = [];
