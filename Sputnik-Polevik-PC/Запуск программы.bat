@@ -7,9 +7,11 @@ where node >nul 2>&1
 if errorlevel 1 (
     echo.
     echo ================================================
-    echo  ОШИБКА: Node.js не найден!
-    echo  Скачайте и установите Node.js: https://nodejs.org
-    echo  После установки перезапустите программу.
+    echo   ОШИБКА: Node.js не найден!
+    echo.
+    echo   Установите Node.js с флешки или скачайте с:
+    echo   https://nodejs.org
+    echo   После установки запустите эту программу снова.
     echo ================================================
     echo.
     pause
@@ -17,29 +19,19 @@ if errorlevel 1 (
 )
 
 if not exist "node_modules" (
-    echo Первый запуск: установка компонентов, подождите...
     echo.
-    npm install
-    if errorlevel 1 (
-        echo.
-        echo ================================================
-        echo  ОШИБКА: установка компонентов не удалась.
-        echo  Проверьте подключение к интернету и повторите.
-        echo ================================================
-        echo.
-        pause
-        exit /b 1
-    )
+    echo ================================================
+    echo   ОШИБКА: Компоненты программы не установлены!
     echo.
-    echo Компоненты установлены успешно.
+    echo   Запустите один раз на компьютере с интернетом:
+    echo   "Подготовка (один раз с интернетом).bat"
     echo.
-)
-
-if not exist "public\lib\xlsx.bundle.js" (
-    if exist "node_modules\xlsx-js-style\dist\xlsx.bundle.js" (
-        if not exist "public\lib" mkdir "public\lib"
-        copy /y "node_modules\xlsx-js-style\dist\xlsx.bundle.js" "public\lib\xlsx.bundle.js" >nul
-    )
+    echo   Затем скопируйте всю папку сюда целиком
+    echo   (папка system\node_modules должна присутствовать).
+    echo ================================================
+    echo.
+    pause
+    exit /b 1
 )
 
 echo Запуск программы на http://localhost:3100 ...
