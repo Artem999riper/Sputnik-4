@@ -155,7 +155,9 @@ function renderKmlPanel() {
     grouped[l.group_id].push(l);
   });
 
-  let html = '';
+  let html = `<div style="padding:4px 8px 2px">
+    <button class="btn bs bxs" style="width:100%;justify-content:center" onclick="kmlCreateIconLayer()" title="Создать пустой слой для ручного размещения иконок на карте">📌 Создать слой иконок</button>
+  </div>`;
   kmGroupOrder.forEach(gid => {
     const g = kmGroups[gid];
     if (!g) return;
