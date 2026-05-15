@@ -30,12 +30,10 @@ async function renderBrigade() {
   screen.innerHTML = `
     <div style="max-width:620px">
 
-      ${_brCards.length ? `
-      <h3 style="margin-bottom:10px">💾 Сохранённые бригады</h3>
+      <h3 style="margin-bottom:10px;display:none" id="brg-cards-hd">💾 Сохранённые бригады</h3>
       <div id="brg-cards" style="margin-bottom:20px"></div>
-      ` : ''}
 
-      <h3 style="margin-bottom:8px">➕ ${_brCards.length ? 'Новая карточка бригады' : 'Создать бригаду'}</h3>
+      <h3 id="brg-form-hd" style="margin-bottom:8px">➕ ${_brCards.length ? 'Новая карточка бригады' : 'Создать бригаду'}</h3>
       <p style="color:var(--text2);margin-bottom:12px;font-size:13px">Выберите состав и сохраните карточку. Можно создать несколько для разных смен.</p>
 
       <h4 style="margin:0 0 6px;font-size:13px">🚚 Транспорт</h4>
@@ -58,6 +56,10 @@ async function renderBrigade() {
 function renderBrCards() {
   const el = document.getElementById('brg-cards');
   if (!el) return;
+  const hd = document.getElementById('brg-cards-hd');
+  const fhd = document.getElementById('brg-form-hd');
+  if (hd)  hd.style.display  = _brCards.length ? '' : 'none';
+  if (fhd) fhd.textContent   = _brCards.length ? '➕ Новая карточка бригады' : '➕ Создать бригаду';
   el.innerHTML = _brCards.map(c => {
     const memberNames = c.members?.map(m => m.name).join(', ') || '—';
     const tName = c.transport?.name || '';

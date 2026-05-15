@@ -4,8 +4,9 @@ const path    = require('path');
 const fs      = require('fs');
 const { getDb } = require('./database');
 
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-const TMP_DIR     = path.join(__dirname, 'uploads', '_tmp');
+const ROOT_DIR    = path.join(__dirname, '..');
+const UPLOADS_DIR = path.join(ROOT_DIR, 'Загруженные материалы');
+const TMP_DIR     = path.join(UPLOADS_DIR, '_tmp');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 if (!fs.existsSync(TMP_DIR))     fs.mkdirSync(TMP_DIR,     { recursive: true });
 
@@ -43,7 +44,7 @@ const routeSummary     = require('./routes/summary');
 
 getDb().then(database => {
   db = database;
-  const ctx = { db: getDbInstance, wrap, UPLOADS_DIR, TMP_DIR };
+  const ctx = { db: getDbInstance, wrap, ROOT_DIR, UPLOADS_DIR, TMP_DIR };
 
   routeRefs(app, ctx);
   routeSites(app, ctx);

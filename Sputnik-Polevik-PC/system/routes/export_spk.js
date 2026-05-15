@@ -8,7 +8,7 @@ const { all, get, run } = require('../database');
 const { safeFolderName, buildBhFolderName, getCategorySubfolder } = require('../lib/safe_folder');
 
 module.exports = (app, ctx) => {
-  const { db, wrap, UPLOADS_DIR, TMP_DIR } = ctx;
+  const { db, wrap, ROOT_DIR, UPLOADS_DIR, TMP_DIR } = ctx;
 
   // ── EXPORT ──
   app.get('/api/export/spk', wrap((req, res) => {
@@ -77,7 +77,7 @@ module.exports = (app, ctx) => {
 
     photos.forEach(ph => {
       try {
-        const full = path.join(__dirname, '..', ph.file_path);
+        const full = path.join(ROOT_DIR, ph.file_path);
         if (!fs.existsSync(full)) return;
         const ext = path.extname(ph.file_path).toLowerCase() || '.jpg';
         const fname = `${ph.borehole_uuid}_${ph.category}_${ph.uuid.slice(0, 8)}${ext}`;
@@ -195,7 +195,7 @@ module.exports = (app, ctx) => {
       if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
       const full = path.join(targetDir, base);
       try { fs.writeFileSync(full, e.getData()); } catch (err) { return; }
-      const rel = path.join('uploads', safeFolderName(bh.site_name || ''),
+      const rel = path.join('Загруженные материалы', safeFolderName(bh.site_name || ''),
         buildBhFolderName(bh), subFolder, base).split(path.sep).join('/');
       const photoUuid = bhUuid + hash; // synthetic; better unique uuid:
       const pUuid = uuidv4();
