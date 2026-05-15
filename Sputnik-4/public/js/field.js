@@ -852,16 +852,86 @@ async function fieldExportExcel() {
 }
 
 async function fieldExportRefs() {
-  try {
-    const r = await fetch(`${API}/field/refs/export`);
-    if (!r.ok) { toast('Не удалось экспортировать', 'err'); return; }
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `refs_${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast('Справочники сохранены — передайте полевику', 'ok');
-  } catch (e) { toast('Ошибка экспорта', 'err'); }
+  const sitesList = (window.sites || []).filter(s => s.name);
+  const sitesHtml = sitesList.length
+    ? sitesList.map(s =>
+        `<label style="display:flex;align-items:center;gap:8px;padding:2px 0;cursor:pointer">
+          <input type="checkbox" class="refs-site-cb" value="${escAttr(s.id)}" checked> ${esc(s.name)}
+        </label>`).join('')
+    : `<span style="color:var(--tx3);font-size:11px">Нет активных объектов</span>`;
+
+  showModal('⬇️ Экспорт справочников',
+    `<div class="fgr">
+      <div style="font-size:11px;font-weight:700;color:var(--tx2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Включить в файл:</div>
+      <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer">
+        <input type="checkbox" id="refs-cb-workers" checked>
+        <span>Работники</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer">
+        <input type="checkbox" id="refs-cb-transport" checked>
+        <span>Техника</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer">
+        <input type="checkbox" id="refs-cb-sites" checked onchange="
+          var s=document.getElementById('refs-sites-sect');
+          s.style.opacity=this.checked?'1':'0.4';
+          s.style.pointerEvents=this.checked?'':'none'">
+        <span>Объекты и KML-точки</span>
+      </label>
+      <div id="refs-sites-sect" style="margin-top:4px;padding-left:22px;border-left:2px solid var(--bd)">
+        <div style="font-size:11px;font-weight:600;color:var(--tx2);margin-bottom:4px">Какие объекты:</div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:2px 0">
+          <input type="radio" name="refs-site-sel" value="all" checked
+            onchange="document.getElementById('refs-sites-list').style.display='none'">
+          Все активные
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:2px 0">
+          <input type="radio" name="refs-site-sel" value="pick"
+            onchange="document.getElementById('refs-sites-list').style.display=''">
+          Выбрать вручную
+        </label>
+        <div id="refs-sites-list" style="display:none;max-height:160px;overflow-y:auto;margin-top:6px;padding-left:14px">
+          ${sitesHtml}
+        </div>
+      </div>
+    </div>`,
+    [
+      {label:'Отмена', cls:'bs', fn:closeModal},
+      {label:'⬇️ Скачать', cls:'bp', fn: async () => {
+        const incWorkers   = document.getElementById('refs-cb-workers').checked;
+        const incTransport = document.getElementById('refs-cb-transport').checked;
+        const incSites     = document.getElementById('refs-cb-sites').checked;
+        const siteMode     = document.querySelector('input[name="refs-site-sel"]:checked')?.value;
+        const selSites     = siteMode === 'pick'
+          ? [...document.querySelectorAll('.refs-site-cb:checked')].map(cb => cb.value)
+          : null;
+        closeModal();
+        try {
+          const r = await fetch(`${API}/field/refs/export`);
+          if (!r.ok) { toast('Не удалось получить справочники', 'err'); return; }
+          const data = await r.json();
+          const out = { version: data.version, exported_at: new Date().toISOString() };
+          out.workers   = incWorkers   ? (data.workers   || []) : [];
+          out.transport = incTransport ? (data.transport || []) : [];
+          if (incSites) {
+            out.sites = selSites
+              ? (data.sites || []).filter(s => selSites.includes(s.id))
+              : (data.sites || []);
+            const siteSet = new Set(out.sites.map(s => s.id));
+            out.kml_points = (data.kml_points || []).filter(p => siteSet.has(p.site_id));
+          } else {
+            out.sites = [];
+            out.kml_points = [];
+          }
+          const blob = new Blob([JSON.stringify(out, null, 2)], {type:'application/json'});
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `refs_${new Date().toISOString().slice(0,10)}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+          toast('Справочники сохранены — передайте полевику', 'ok');
+        } catch(e) { toast('Ошибка экспорта', 'err'); }
+      }}
+    ]);
 }
