@@ -27,13 +27,14 @@ module.exports = (app, ctx) => {
   // Ведомость проб
   app.get('/api/vedomost/samples', wrap((req, res) => {
     const d = db();
-    const { from, to, site_id, coord = 'dd' } = req.query;
+    const { from, to, site_id, brigade_id, coord = 'dd' } = req.query;
     let sql = bhCoordSql(', s.name AS site_name') +
       " LEFT JOIN sites s ON s.id=b.site_id WHERE b.status='done'";
     const p = [];
-    if (from) { sql += ' AND b.drill_date>=?'; p.push(from); }
-    if (to)   { sql += ' AND b.drill_date<=?'; p.push(to); }
-    if (site_id) { sql += ' AND b.site_id=?'; p.push(site_id); }
+    if (from)       { sql += ' AND b.drill_date>=?';  p.push(from); }
+    if (to)         { sql += ' AND b.drill_date<=?';  p.push(to); }
+    if (site_id)    { sql += ' AND b.site_id=?';      p.push(site_id); }
+    if (brigade_id) { sql += ' AND b.brigade_id=?';   p.push(brigade_id); }
     sql += ' ORDER BY b.drill_date, b.name';
     const boreholes = all(d, sql, p);
     const rows = [];
@@ -61,22 +62,24 @@ module.exports = (app, ctx) => {
         });
       });
     });
-    const siteName = site_id ? get(d, 'SELECT name FROM sites WHERE id=?', [site_id])?.name || '' : '';
-    res.json({ rows, coord_mode: coord, site_name: siteName });
+    const siteName    = site_id    ? get(d, 'SELECT name FROM sites WHERE id=?',    [site_id])?.name    || '' : '';
+    const brigadeName = brigade_id ? get(d, 'SELECT label FROM brigades WHERE id=?', [brigade_id])?.label || '' : '';
+    res.json({ rows, coord_mode: coord, site_name: siteName, brigade_name: brigadeName });
   }));
 
   // Ведомость объёмов
   app.get('/api/vedomost/volumes', wrap((req, res) => {
     const d = db();
-    const { from, to, site_id, coord = 'dd' } = req.query;
+    const { from, to, site_id, brigade_id, coord = 'dd' } = req.query;
     let sql = bhCoordSql(', v.kind AS vol_kind, v.name AS vol_name, s.name AS site_name') +
       ` JOIN volumes v ON v.id=b.volume_id
          LEFT JOIN sites s ON s.id=b.site_id
          WHERE b.status='done'`;
     const p = [];
-    if (from) { sql += ' AND b.drill_date>=?'; p.push(from); }
-    if (to)   { sql += ' AND b.drill_date<=?'; p.push(to); }
-    if (site_id) { sql += ' AND b.site_id=?'; p.push(site_id); }
+    if (from)       { sql += ' AND b.drill_date>=?';  p.push(from); }
+    if (to)         { sql += ' AND b.drill_date<=?';  p.push(to); }
+    if (site_id)    { sql += ' AND b.site_id=?';      p.push(site_id); }
+    if (brigade_id) { sql += ' AND b.brigade_id=?';   p.push(brigade_id); }
     sql += ' ORDER BY b.brigade_snapshot, b.drill_date, b.name';
     const boreholes = all(d, sql, p);
     const rows = boreholes.map(bh => {
