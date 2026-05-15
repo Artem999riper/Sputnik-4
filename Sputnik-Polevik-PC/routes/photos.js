@@ -11,7 +11,7 @@ const ALLOWED = new Set(['.jpg', '.jpeg', '.png']);
 const VALID_CATEGORIES = new Set(['vyrabotka', 'drilling', 'core_box', 'journal']);
 
 module.exports = (app, ctx) => {
-  const { db, wrap, ROOT_DIR, UPLOADS_DIR, TMP_DIR } = ctx;
+  const { db, wrap, UPLOADS_DIR, TMP_DIR } = ctx;
 
   const upload = multer({
     storage: multer.diskStorage({
@@ -59,7 +59,7 @@ module.exports = (app, ctx) => {
       const full = path.join(targetDir, fname);
       try { fs.renameSync(f.path, full); }
       catch (e) { fs.copyFileSync(f.path, full); try { fs.unlinkSync(f.path); } catch (_) {} }
-      const rel = path.join('Загруженные материалы', safeFolderName(bh.site_name || ''),
+      const rel = path.join('uploads', safeFolderName(bh.site_name || ''),
         buildBhFolderName(bh), subFolder, fname).split(path.sep).join('/');
       run(d, 'INSERT INTO photos(uuid,borehole_uuid,category,file_path) VALUES(?,?,?,?)',
         [photoUuid, u, category, rel]);
@@ -74,7 +74,7 @@ module.exports = (app, ctx) => {
     if (!p) return res.status(404).json({ error: 'not found' });
     run(d, 'DELETE FROM photos WHERE uuid=?', [req.params.uuid]);
     try {
-      const full = path.join(ROOT_DIR, p.file_path);
+      const full = path.join(__dirname, '..', p.file_path);
       if (fs.existsSync(full)) fs.unlinkSync(full);
     } catch (e) {}
     res.json({ ok: true });
