@@ -74,8 +74,8 @@ function _imgExCancel() {
 }
 
 async function _imgExRender(bounds) {
-  if (typeof html2canvas === 'undefined') {
-    toast('html2canvas не загружен', 'err');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+    toast('Браузер не поддерживает захват экрана', 'err');
     return;
   }
 
@@ -91,66 +91,67 @@ async function _imgExRender(bounds) {
 
   const opts = _imgExOpts || {kml: true, facts: true, machinery: true, bases: true};
 
-  // Собираем элементы для скрытия перед html2canvas.
-  // Важно: html2canvas захватывает ВСЕ canvas-элементы карты, включая kmlPane,
-  // поэтому нужно скрыть pane-контейнеры невыбранных слоёв до захвата.
+  // Скрываем то, что не должно попасть в кадр
   const hiddenEls = [];
   function _hide(el) { if (el) { el.style.display = 'none'; hiddenEls.push(el); } }
 
-  // Pane-контейнеры canvas-слоёв
-  if (!opts.kml)   _hide(map.getPanes()['kmlPane']);
-  if (!opts.facts) { _hide(map.getPanes()['overlayPane']); _hide(map.getPanes()['volPointsPane']); }
-
-  // divIcon-маркеры
+  if (!opts.kml)       _hide(map.getPanes()['kmlPane']);
+  if (!opts.facts)   { _hide(map.getPanes()['overlayPane']); _hide(map.getPanes()['volPointsPane']); }
   if (!opts.machinery) Object.values(mMarkers || {}).forEach(function(m) { _hide(m.getElement ? m.getElement() : null); });
   if (!opts.bases)     Object.values(bMarkers || {}).forEach(function(m) { _hide(m.getElement ? m.getElement() : null); });
 
-  // Тултипы
+  // Скрываем тултипы и контролы Leaflet (зум, выбор слоёв)
   const _tips = document.querySelectorAll('.leaflet-tooltip');
   _tips.forEach(function(el) { el.style.visibility = 'hidden'; });
+  const ctrl = document.querySelector('.leaflet-control-container');
+  if (ctrl) ctrl.style.visibility = 'hidden';
 
-  toast('Создание изображения…', 'ok');
+  toast('В диалоге браузера выберите эту вкладку…', 'ok');
+
+  let stream;
   try {
-    const dpr = window.devicePixelRatio || 1;
-
-    // Шаг 1: html2canvas — тайлы + divIcon-маркеры (которые не скрыты)
-    const baseCanvas = await html2canvas(mapEl, {
-      useCORS: true,
-      allowTaint: false,
-      scale: dpr,
-      logging: false,
-      imageTimeout: 8000,
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { displaySurface: 'browser' },
+      preferCurrentTab: true,
+      selfBrowserSurface: 'include',
+      audio: false
     });
+  } catch (err) {
+    if (ctrl) ctrl.style.visibility = '';
+    _tips.forEach(function(el) { el.style.visibility = ''; });
+    hiddenEls.forEach(function(el) { el.style.display = ''; });
+    toast('Захват отменён', 'warn');
+    return;
+  }
+
+  try {
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    video.muted = true;
+    await new Promise(function(r) { video.onloadedmetadata = r; });
+    await video.play();
+    // Ждём 2 кадра, чтобы захват точно успел отрендерить контент
+    await new Promise(function(r) { requestAnimationFrame(function(){ requestAnimationFrame(r); }); });
+
+    const track = stream.getVideoTracks()[0];
+    const settings = track.getSettings ? track.getSettings() : {};
+    if (settings.displaySurface && settings.displaySurface !== 'browser') {
+      toast('Выбрана не вкладка — снимок может быть обрезан', 'warn');
+    }
+
+    const mapRect = mapEl.getBoundingClientRect();
+    const scaleX = video.videoWidth  / window.innerWidth;
+    const scaleY = video.videoHeight / window.innerHeight;
+
+    const srcX = (mapRect.left + cropX) * scaleX;
+    const srcY = (mapRect.top  + cropY) * scaleY;
+    const srcW = cropW * scaleX;
+    const srcH = cropH * scaleY;
 
     const out = document.createElement('canvas');
-    out.width  = cropW * dpr;
-    out.height = cropH * dpr;
-    const ctx = out.getContext('2d');
-
-    // Рисуем базовый слой
-    ctx.drawImage(baseCanvas, cropX * dpr, cropY * dpr, cropW * dpr, cropH * dpr, 0, 0, cropW * dpr, cropH * dpr);
-
-    // Шаг 2: поверх добавляем canvas-элементы Leaflet-пейнов напрямую.
-    // map.getPanes()[name] — официальный Leaflet API, без угадывания CSS-классов.
-    // kmlPane — KML-слои; overlayPane+volPointsPane — объёмы и +факты.
-    var panesToDraw = [];
-    if (opts.kml)   panesToDraw.push('kmlPane');
-    if (opts.facts) panesToDraw.push('overlayPane', 'volPointsPane');
-
-    panesToDraw.forEach(function(paneName) {
-      var paneEl = map.getPanes()[paneName];
-      if (!paneEl) return;
-      paneEl.querySelectorAll('canvas').forEach(function(c) {
-        // Leaflet двигает canvas через CSS transform: translate(tx, ty).
-        // Учитываем этот сдвиг при кропе.
-        var tx = 0, ty = 0;
-        try {
-          var t = window.getComputedStyle(c).transform;
-          if (t && t !== 'none') { var dm = new DOMMatrix(t); tx = dm.m41; ty = dm.m42; }
-        } catch(e) {}
-        ctx.drawImage(c, (cropX - tx) * dpr, (cropY - ty) * dpr, cropW * dpr, cropH * dpr, 0, 0, cropW * dpr, cropH * dpr);
-      });
-    });
+    out.width  = Math.round(srcW);
+    out.height = Math.round(srcH);
+    out.getContext('2d').drawImage(video, srcX, srcY, srcW, srcH, 0, 0, out.width, out.height);
 
     out.toBlob(function(blob) {
       const a = document.createElement('a');
@@ -163,9 +164,11 @@ async function _imgExRender(bounds) {
 
   } catch(err) {
     console.error('PNG export error:', err);
-    toast('Ошибка экспорта: ' + err.message, 'err');
+    toast('Ошибка: ' + err.message, 'err');
   } finally {
-    hiddenEls.forEach(function(el) { el.style.display = ''; });
+    try { stream.getTracks().forEach(function(t) { t.stop(); }); } catch(e) {}
+    if (ctrl) ctrl.style.visibility = '';
     _tips.forEach(function(el) { el.style.visibility = ''; });
+    hiddenEls.forEach(function(el) { el.style.display = ''; });
   }
 }
