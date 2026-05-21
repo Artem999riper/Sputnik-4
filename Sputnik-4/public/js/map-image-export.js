@@ -57,6 +57,26 @@ async function _imgExRender(bounds) {
   const _tips = document.querySelectorAll('.leaflet-tooltip');
   _tips.forEach(function(el) { el.style.visibility = 'hidden'; });
 
+  // html2canvas рисует в порядке DOM, а не по z-index.
+  // kmlPane создаётся после initMap → оказывается последним в DOM → перекрывает объёмы.
+  // Временно переставляем kmlPane перед overlayPane, чтобы объёмы были поверх KML.
+  const kmlPaneEl    = map.getPane('kmlPane');
+  const overlayPaneEl = map.getPane('overlayPane');
+  let _kmlParent = null, _kmlNext = null;
+  if (kmlPaneEl && overlayPaneEl && overlayPaneEl.parentNode) {
+    _kmlParent = kmlPaneEl.parentNode;
+    _kmlNext   = kmlPaneEl.nextSibling;
+    overlayPaneEl.parentNode.insertBefore(kmlPaneEl, overlayPaneEl);
+  }
+
+  function _restoreDOM() {
+    if (_kmlParent && kmlPaneEl) {
+      if (_kmlNext) _kmlParent.insertBefore(kmlPaneEl, _kmlNext);
+      else _kmlParent.appendChild(kmlPaneEl);
+    }
+    _tips.forEach(function(el) { el.style.visibility = ''; });
+  }
+
   const mapEl = document.getElementById('map');
   const tl = map.latLngToContainerPoint(bounds.getNorthWest());
   const br = map.latLngToContainerPoint(bounds.getSouthEast());
@@ -85,7 +105,7 @@ async function _imgExRender(bounds) {
       cropX * dpr, cropY * dpr, cropW * dpr, cropH * dpr,
       0, 0, cropW * dpr, cropH * dpr
     );
-    _tips.forEach(function(el) { el.style.visibility = ''; });
+    _restoreDOM();
     out.toBlob(function(blob) {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -95,7 +115,7 @@ async function _imgExRender(bounds) {
       toast('PNG сохранён', 'ok');
     }, 'image/png');
   } catch(err) {
-    _tips.forEach(function(el) { el.style.visibility = ''; });
+    _restoreDOM();
     console.error('PNG export error:', err);
     toast('Ошибка экспорта: ' + err.message, 'err');
   }
