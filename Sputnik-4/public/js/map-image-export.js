@@ -1,7 +1,32 @@
 // Экспорт выделенной области карты как PNG-изображение
-let _imgExStart = null, _imgExTmp = null;
+let _imgExStart = null, _imgExTmp = null, _imgExOpts = null;
 
 function openMapImageExport() {
+  showModal('🖼 Экспорт PNG',
+    `<p style="margin:0 0 10px;color:var(--text-secondary)">Выберите слои для экспорта:</p>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="pex-kml" checked> KML слои</label>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="pex-facts" checked> Объёмы (+факты)</label>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="pex-mach" checked> Техника</label>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="pex-bases" checked> Базы</label>
+    </div>`,
+    [
+      {label: 'Отмена', cls: 'bs', fn: closeModal},
+      {label: 'Выбрать область →', cls: 'bp', fn: function() {
+        _imgExOpts = {
+          kml:      document.getElementById('pex-kml').checked,
+          facts:    document.getElementById('pex-facts').checked,
+          machinery: document.getElementById('pex-mach').checked,
+          bases:    document.getElementById('pex-bases').checked
+        };
+        closeModal();
+        _imgExBeginDraw();
+      }}
+    ]
+  );
+}
+
+function _imgExBeginDraw() {
   _imgExStart = null;
   if (_imgExTmp) { try { map.removeLayer(_imgExTmp); } catch(e){} _imgExTmp = null; }
   map.getContainer().style.cursor = 'crosshair';
@@ -64,6 +89,37 @@ async function _imgExRender(bounds) {
 
   if (cropW < 10 || cropH < 10) { toast('Область слишком маленькая', 'warn'); return; }
 
+  const opts = _imgExOpts || {kml: true, facts: true, machinery: true, bases: true};
+
+  // Скрываем/удаляем выключенные слои и запоминаем для восстановления
+  const restored = [];
+  if (!opts.kml) {
+    Object.values(lGroups || {}).forEach(function(g) {
+      if (map.hasLayer(g)) { map.removeLayer(g); restored.push({type: 'layer', g: g}); }
+    });
+  }
+  if (!opts.facts) {
+    Object.values(vpLayers || {}).forEach(function(g) {
+      if (map.hasLayer(g)) { map.removeLayer(g); restored.push({type: 'layer', g: g}); }
+    });
+    Object.values(volLayers || {}).forEach(function(g) {
+      if (map.hasLayer(g)) { map.removeLayer(g); restored.push({type: 'layer', g: g}); }
+    });
+  }
+  if (!opts.machinery) {
+    Object.values(mMarkers || {}).forEach(function(m) {
+      m.setOpacity(0); restored.push({type: 'opacity', m: m, v: 1});
+    });
+  }
+  if (!opts.bases) {
+    Object.values(bMarkers || {}).forEach(function(m) {
+      m.setOpacity(0); restored.push({type: 'opacity', m: m, v: 1});
+    });
+  }
+
+  // Ждём перерисовки canvas после удаления слоёв
+  await new Promise(function(r) { setTimeout(r, 80); });
+
   const _tips = document.querySelectorAll('.leaflet-tooltip');
   _tips.forEach(function(el) { el.style.visibility = 'hidden'; });
 
@@ -71,7 +127,7 @@ async function _imgExRender(bounds) {
   try {
     const dpr = window.devicePixelRatio || 1;
 
-    // Шаг 1: html2canvas захватывает тайлы + divIcon-маркеры + подписи
+    // Шаг 1: html2canvas — тайлы + divIcon-маркеры + подписи
     const baseCanvas = await html2canvas(mapEl, {
       useCORS: true,
       allowTaint: false,
@@ -90,11 +146,10 @@ async function _imgExRender(bounds) {
     ctx.drawImage(baseCanvas, cropX * dpr, cropY * dpr, cropW * dpr, cropH * dpr, 0, 0, cropW * dpr, cropH * dpr);
 
     // Шаг 2: поверх добавляем canvas-элементы Leaflet-пейнов напрямую.
-    // html2canvas не умеет корректно рендерить Leaflet canvas с полигонами,
-    // поэтому читаем canvas-элементы пейнов напрямую через drawImage.
-    // Порядок: от нижнего z-index к верхнему (kml → overlay → volPoints).
+    // Используем map.getPanes()[name] — официальный API, избегаем угадывания CSS-классов.
+    // Порядок: kml (z=200) → overlay (z=400) → volPoints (z=450).
     ['kmlPane', 'overlayPane', 'volPointsPane'].forEach(function(paneName) {
-      var paneEl = mapEl.querySelector('.leaflet-' + paneName);
+      var paneEl = map.getPanes()[paneName];
       if (!paneEl) return;
       paneEl.querySelectorAll('canvas').forEach(function(c) {
         // Leaflet позиционирует canvas через CSS transform: translate(tx, ty).
@@ -105,10 +160,7 @@ async function _imgExRender(bounds) {
           var t = window.getComputedStyle(c).transform;
           if (t && t !== 'none') { var m = new DOMMatrix(t); tx = m.m41; ty = m.m42; }
         } catch(e) {}
-        // Координаты в пикселях canvas-элемента (учитываем DPR и offset)
-        var srcX = (cropX - tx) * dpr;
-        var srcY = (cropY - ty) * dpr;
-        ctx.drawImage(c, srcX, srcY, cropW * dpr, cropH * dpr, 0, 0, cropW * dpr, cropH * dpr);
+        ctx.drawImage(c, (cropX - tx) * dpr, (cropY - ty) * dpr, cropW * dpr, cropH * dpr, 0, 0, cropW * dpr, cropH * dpr);
       });
     });
 
@@ -120,9 +172,16 @@ async function _imgExRender(bounds) {
       setTimeout(function() { URL.revokeObjectURL(a.href); }, 3000);
       toast('PNG сохранён', 'ok');
     }, 'image/png');
+
   } catch(err) {
     _tips.forEach(function(el) { el.style.visibility = ''; });
     console.error('PNG export error:', err);
     toast('Ошибка экспорта: ' + err.message, 'err');
+  } finally {
+    // Восстанавливаем все скрытые/удалённые слои
+    restored.forEach(function(item) {
+      if (item.type === 'layer') item.g.addTo(map);
+      else item.m.setOpacity(item.v);
+    });
   }
 }
