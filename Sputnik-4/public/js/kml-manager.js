@@ -840,7 +840,7 @@ function renderLayerGroupsWithSymbols() {
 
       const g = L.geoJSON(gj, {
         pane: 'kmlPane',
-        renderer: getCanvasRenderer(),
+        renderer: getCanvasRenderer('kmlPane'),
         style: (f) => ({ color: f?.properties?._color || color, weight:2.5, opacity:.85, fillOpacity:.2, dashArray:dashArr }),
         pointToLayer: (f, ll) => {
           // feature-level переопределение символа/цвета

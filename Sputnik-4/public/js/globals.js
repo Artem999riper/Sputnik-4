@@ -37,8 +37,12 @@ let pgkEquipGroups=[];
 let pgkMatGroups=[];
 let kamSiteId=null;
 let CTX_ACTIONS=[];
-let _canvasRenderer=null;
-function getCanvasRenderer(){if(!_canvasRenderer)_canvasRenderer=L.canvas({padding:0.5});return _canvasRenderer;}
+let _canvasRenderers={};
+function getCanvasRenderer(paneName){
+  paneName=paneName||'overlayPane';
+  if(!_canvasRenderers[paneName]) _canvasRenderers[paneName]=L.canvas({pane:paneName,padding:1.0});
+  return _canvasRenderers[paneName];
+}
 let drawMode=null, drawPts=[], drawPtNames=[], drawTmpLayer=null, drawVolId=null, drawSiteId=null, drawVolData=null;
 let volVisible={}; // per-volume show/hide
 let vpLayers={}; // per fact-entry map layers (key=progress id)
