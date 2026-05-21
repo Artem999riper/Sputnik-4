@@ -91,17 +91,21 @@ async function _imgExRender(bounds) {
 
   const opts = _imgExOpts || {kml: true, facts: true, machinery: true, bases: true};
 
-  // Скрываем divIcon-маркеры через DOM (не трогаем canvas-слои — это не мешает html2canvas с тайлами).
-  // Canvas-слои управляются на этапе ручного compositing (шаг 2).
+  // Собираем элементы для скрытия перед html2canvas.
+  // Важно: html2canvas захватывает ВСЕ canvas-элементы карты, включая kmlPane,
+  // поэтому нужно скрыть pane-контейнеры невыбранных слоёв до захвата.
   const hiddenEls = [];
-  function _hideMarker(m) {
-    var el = m.getElement ? m.getElement() : null;
-    if (el) { el.style.visibility = 'hidden'; hiddenEls.push(el); }
-  }
-  if (!opts.machinery) Object.values(mMarkers || {}).forEach(_hideMarker);
-  if (!opts.bases)     Object.values(bMarkers || {}).forEach(_hideMarker);
+  function _hide(el) { if (el) { el.style.display = 'none'; hiddenEls.push(el); } }
 
-  // Скрываем тултипы
+  // Pane-контейнеры canvas-слоёв
+  if (!opts.kml)   _hide(map.getPanes()['kmlPane']);
+  if (!opts.facts) { _hide(map.getPanes()['overlayPane']); _hide(map.getPanes()['volPointsPane']); }
+
+  // divIcon-маркеры
+  if (!opts.machinery) Object.values(mMarkers || {}).forEach(function(m) { _hide(m.getElement ? m.getElement() : null); });
+  if (!opts.bases)     Object.values(bMarkers || {}).forEach(function(m) { _hide(m.getElement ? m.getElement() : null); });
+
+  // Тултипы
   const _tips = document.querySelectorAll('.leaflet-tooltip');
   _tips.forEach(function(el) { el.style.visibility = 'hidden'; });
 
@@ -161,8 +165,7 @@ async function _imgExRender(bounds) {
     console.error('PNG export error:', err);
     toast('Ошибка экспорта: ' + err.message, 'err');
   } finally {
-    // Восстанавливаем скрытые маркеры и тултипы
-    hiddenEls.forEach(function(el) { el.style.visibility = ''; });
+    hiddenEls.forEach(function(el) { el.style.display = ''; });
     _tips.forEach(function(el) { el.style.visibility = ''; });
   }
 }
