@@ -3,9 +3,18 @@ function initMap(){
   const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OSM',maxZoom:21,maxNativeZoom:19});
   const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:21,maxNativeZoom:17});
   sat.on('tileerror',function(e){e.tile.style.display='none';});
+  const gsat=L.tileLayer('https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{attribution:'© Google',maxZoom:21,maxNativeZoom:20,subdomains:['0','1','2','3']});
+  gsat.on('tileerror',function(e){e.tile.style.display='none';});
+  const ghyb=L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',{attribution:'© Google',maxZoom:21,maxNativeZoom:20,subdomains:['0','1','2','3']});
+  ghyb.on('tileerror',function(e){e.tile.style.display='none';});
+  const esriStreet=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:21,maxNativeZoom:19});
+  esriStreet.on('tileerror',function(e){e.tile.style.display='none';});
+  const esriTopo=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:21,maxNativeZoom:19});
+  esriTopo.on('tileerror',function(e){e.tile.style.display='none';});
   const topo=L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{attribution:'© OpenTopoMap (CC-BY-SA)',maxZoom:17,subdomains:['a','b','c']});
+  const carto=L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap contributors © CARTO',maxZoom:21,maxNativeZoom:19,subdomains:['a','b','c','d']});
   sat.addTo(map);
-  window._mapBaseLayers={'🗺 Карта':osm,'🛰 Спутник':sat,'🗻 Топо':topo};
+  window._mapBaseLayers={'🗺 Карта':osm,'🛰 Спутник':sat,'🛰 Спутник Google':gsat,'🗺 Гибрид Google':ghyb,'🗺 Улицы ESRI':esriStreet,'🗻 Топо ESRI':esriTopo,'🗻 Топо':topo,'🌍 Светлая':carto};
   window._mapLayerCtrl=L.control.layers(window._mapBaseLayers,{},{position:'topright'}).addTo(map);
   L.control.zoom({position:'bottomright'}).addTo(map);
   // Pane для точечных объёмов — поверх vpLayers и KML
