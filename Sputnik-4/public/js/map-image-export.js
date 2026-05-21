@@ -91,35 +91,17 @@ async function _imgExRender(bounds) {
 
   const opts = _imgExOpts || {kml: true, facts: true, machinery: true, bases: true};
 
-  // Скрываем/удаляем выключенные слои и запоминаем для восстановления
-  const restored = [];
-  if (!opts.kml) {
-    Object.values(lGroups || {}).forEach(function(g) {
-      if (map.hasLayer(g)) { map.removeLayer(g); restored.push({type: 'layer', g: g}); }
-    });
+  // Скрываем divIcon-маркеры через DOM (не трогаем canvas-слои — это не мешает html2canvas с тайлами).
+  // Canvas-слои управляются на этапе ручного compositing (шаг 2).
+  const hiddenEls = [];
+  function _hideMarker(m) {
+    var el = m.getElement ? m.getElement() : null;
+    if (el) { el.style.visibility = 'hidden'; hiddenEls.push(el); }
   }
-  if (!opts.facts) {
-    Object.values(vpLayers || {}).forEach(function(g) {
-      if (map.hasLayer(g)) { map.removeLayer(g); restored.push({type: 'layer', g: g}); }
-    });
-    Object.values(volLayers || {}).forEach(function(g) {
-      if (map.hasLayer(g)) { map.removeLayer(g); restored.push({type: 'layer', g: g}); }
-    });
-  }
-  if (!opts.machinery) {
-    Object.values(mMarkers || {}).forEach(function(m) {
-      m.setOpacity(0); restored.push({type: 'opacity', m: m, v: 1});
-    });
-  }
-  if (!opts.bases) {
-    Object.values(bMarkers || {}).forEach(function(m) {
-      m.setOpacity(0); restored.push({type: 'opacity', m: m, v: 1});
-    });
-  }
+  if (!opts.machinery) Object.values(mMarkers || {}).forEach(_hideMarker);
+  if (!opts.bases)     Object.values(bMarkers || {}).forEach(_hideMarker);
 
-  // Ждём перерисовки canvas после удаления слоёв
-  await new Promise(function(r) { setTimeout(r, 80); });
-
+  // Скрываем тултипы
   const _tips = document.querySelectorAll('.leaflet-tooltip');
   _tips.forEach(function(el) { el.style.visibility = 'hidden'; });
 
@@ -127,7 +109,7 @@ async function _imgExRender(bounds) {
   try {
     const dpr = window.devicePixelRatio || 1;
 
-    // Шаг 1: html2canvas — тайлы + divIcon-маркеры + подписи
+    // Шаг 1: html2canvas — тайлы + divIcon-маркеры (которые не скрыты)
     const baseCanvas = await html2canvas(mapEl, {
       useCORS: true,
       allowTaint: false,
@@ -135,30 +117,32 @@ async function _imgExRender(bounds) {
       logging: false,
       imageTimeout: 8000,
     });
-    _tips.forEach(function(el) { el.style.visibility = ''; });
 
     const out = document.createElement('canvas');
     out.width  = cropW * dpr;
     out.height = cropH * dpr;
     const ctx = out.getContext('2d');
 
-    // Рисуем базовый слой (тайлы + маркеры из html2canvas)
+    // Рисуем базовый слой
     ctx.drawImage(baseCanvas, cropX * dpr, cropY * dpr, cropW * dpr, cropH * dpr, 0, 0, cropW * dpr, cropH * dpr);
 
     // Шаг 2: поверх добавляем canvas-элементы Leaflet-пейнов напрямую.
-    // Используем map.getPanes()[name] — официальный API, избегаем угадывания CSS-классов.
-    // Порядок: kml (z=200) → overlay (z=400) → volPoints (z=450).
-    ['kmlPane', 'overlayPane', 'volPointsPane'].forEach(function(paneName) {
+    // map.getPanes()[name] — официальный Leaflet API, без угадывания CSS-классов.
+    // kmlPane — KML-слои; overlayPane+volPointsPane — объёмы и +факты.
+    var panesToDraw = [];
+    if (opts.kml)   panesToDraw.push('kmlPane');
+    if (opts.facts) panesToDraw.push('overlayPane', 'volPointsPane');
+
+    panesToDraw.forEach(function(paneName) {
       var paneEl = map.getPanes()[paneName];
       if (!paneEl) return;
       paneEl.querySelectorAll('canvas').forEach(function(c) {
-        // Leaflet позиционирует canvas через CSS transform: translate(tx, ty).
-        // tx/ty — смещение canvas относительно контейнера карты (обычно отрицательное,
-        // т.к. canvas шире вьюпорта из-за padding рендерера).
+        // Leaflet двигает canvas через CSS transform: translate(tx, ty).
+        // Учитываем этот сдвиг при кропе.
         var tx = 0, ty = 0;
         try {
           var t = window.getComputedStyle(c).transform;
-          if (t && t !== 'none') { var m = new DOMMatrix(t); tx = m.m41; ty = m.m42; }
+          if (t && t !== 'none') { var dm = new DOMMatrix(t); tx = dm.m41; ty = dm.m42; }
         } catch(e) {}
         ctx.drawImage(c, (cropX - tx) * dpr, (cropY - ty) * dpr, cropW * dpr, cropH * dpr, 0, 0, cropW * dpr, cropH * dpr);
       });
@@ -174,14 +158,11 @@ async function _imgExRender(bounds) {
     }, 'image/png');
 
   } catch(err) {
-    _tips.forEach(function(el) { el.style.visibility = ''; });
     console.error('PNG export error:', err);
     toast('Ошибка экспорта: ' + err.message, 'err');
   } finally {
-    // Восстанавливаем все скрытые/удалённые слои
-    restored.forEach(function(item) {
-      if (item.type === 'layer') item.g.addTo(map);
-      else item.m.setOpacity(item.v);
-    });
+    // Восстанавливаем скрытые маркеры и тултипы
+    hiddenEls.forEach(function(el) { el.style.visibility = ''; });
+    _tips.forEach(function(el) { el.style.visibility = ''; });
   }
 }
