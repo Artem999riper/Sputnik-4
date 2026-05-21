@@ -280,6 +280,7 @@
       <div id="mp-exp-drop">
         <button onclick="exportExcel(activeSiteId);toggleMpExport()">📤 Excel</button>
         <button onclick="openHtmlExportModal(activeSiteId);toggleMpExport()">📄 HTML</button>
+        <button onclick="openMapImageExport();toggleMpExport()">🖼 PNG</button>
         <button onclick="exportVolumesDXF(activeSiteId);toggleMpExport()">📐 DXF</button>
       </div>
     </div>
@@ -450,8 +451,11 @@
 <script src="js/tasks.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/dem.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" crossorigin="anonymous"></script>
 <script src="js/html-export.js"></script>
+<script src="js/kameral.js"></script>
 <script src="js/dxf-volumes.js"></script>
+<script src="js/map-image-export.js"></script>
 
 <div id="name-gate" style="display:none">
   <div id="name-gate-box">

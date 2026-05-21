@@ -3126,7 +3126,7 @@ function undoDrawPt(){if(!drawPts.length){toast('Нет точек','err');retur
 async function finishDraw(){
   if(!drawMode||!drawPts.length){cancelDraw();return;}
   const pts=drawPts;let gj;
-  if(drawMode==='points'){gj={type:'FeatureCollection',features:pts.map((p,i)=>({type:'Feature',geometry:{type:'Point',coordinates:[p[1],p[0]]},properties:drawPtNames[i]?{name:drawPtNames[i]}:{}}))}}
+  if(drawMode==='points'){gj={type:'FeatureCollection',features:pts.map((p,i)=>({type:'Feature',geometry:{type:'Point',coordinates:[p[1],p[0]]},properties:{...(drawPtNames[i]?{name:drawPtNames[i]}:{}),sem:{type:'borehole',data:{label:drawPtNames[i]||''}}}}))};}
   else if(drawMode==='polygon'){const cl=[...pts,pts[0]];gj={type:'Feature',geometry:{type:'Polygon',coordinates:[cl.map(p=>[p[1],p[0]])]},properties:{}};}
   else{gj={type:'Feature',geometry:{type:'LineString',coordinates:pts.map(p=>[p[1],p[0]])},properties:{}};}
   const sid=drawSiteId;
