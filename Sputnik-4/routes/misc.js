@@ -325,6 +325,23 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     }
   });
 
+  // ── Симуляция зоны затопления ─────────────────────────────
+  app.post('/api/dem/flood', async (req, res) => {
+    if (!demProcessor) return res.status(503).json({ error: 'DEM процессор не доступен' });
+    const { bbox, waterLevel } = req.body || {};
+    if (!bbox || !bbox.minLat || waterLevel == null)
+      return res.status(400).json({ error: 'Укажите bbox и waterLevel' });
+    try {
+      const gj = await demProcessor.computeFloodZone(bbox, Number(waterLevel), (pct, msg) => {
+        console.log(`[FLOOD] ${pct}% ${msg}`);
+      });
+      res.json(gj);
+    } catch (err) {
+      console.error('[FLOOD]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Офлайн тайлы для HTML-экспорта ───────────────────────
   app.post('/api/export-tiles', async (req, res) => {
     const { bbox, minZoom, maxZoom, source } = req.body || {};

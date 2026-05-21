@@ -652,4 +652,82 @@ async function checkGDAL(){
   }
 }
 
-module.exports = {processDEM,cleanupTmp,checkGDAL};
+// ── Симуляция зоны затопления ──────────────────────────────
+async function computeFloodZone(bbox, waterLevelM, onProgress) {
+  findGDALBin(); // инициализирует _pythonExe
+  const env = gdalEnv();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flood_'));
+
+  // Найти gdal_calc.py и gdal_polygonize.py
+  function findPyScript(name) {
+    const candidates = [
+      path.join(_gdalBin, name),
+      path.join(_gdalBin, '..', 'bin', name),
+      path.join('/usr/bin', name),
+      path.join('/usr/local/bin', name),
+    ];
+    const found = candidates.find(p => fs.existsSync(p));
+    if (!found) throw new Error(`Не найден скрипт ${name}. Установите python3-gdal или gdal-bin.`);
+    return found;
+  }
+
+  try {
+    onProgress(5, 'Сборка DEM URL...');
+    const urls = _buildDirectDemUrls(bbox, '10m');
+    if (!urls.length) throw new Error('Нет тайлов для указанного bbox');
+
+    const vrtPath   = path.join(tmpDir, 'dem.vrt');
+    const clipPath  = path.join(tmpDir, 'dem_clip.tif');
+    const maskPath  = path.join(tmpDir, 'flood_mask.tif');
+    const gjPath    = path.join(tmpDir, 'flood.geojson');
+    const gjsPath   = path.join(tmpDir, 'flood_s.geojson');
+
+    onProgress(10, 'Создание VRT...');
+    await runGDAL('gdalbuildvrt', [vrtPath, ...urls]);
+
+    onProgress(25, 'Обрезка по области...');
+    await runGDAL('gdalwarp', [
+      '-te', String(bbox.minLng), String(bbox.minLat), String(bbox.maxLng), String(bbox.maxLat),
+      '-t_srs', 'EPSG:4326', '-r', 'bilinear',
+      '-dstnodata', '-9999',
+      vrtPath, clipPath,
+    ]);
+
+    onProgress(50, 'Вычисление маски затопления...');
+    const calcScript = findPyScript('gdal_calc.py');
+    await new Promise((resolve, reject) => {
+      const cmd = `"${_pythonExe}" "${calcScript}" -A "${clipPath}" --outfile="${maskPath}" --calc="((A>=-9000)*(A<=${waterLevelM})).astype(int)" --type=Byte --NoDataValue=0 --overwrite`;
+      exec(cmd, { env, timeout: 300000, maxBuffer: 100 * 1024 * 1024 }, (err, stdout, stderr) => {
+        if (stderr) console.log('[FLOOD calc stderr]', stderr.slice(0, 300));
+        if (err) reject(new Error(`gdal_calc error: ${(stderr || err.message).slice(0, 300)}`));
+        else resolve();
+      });
+    });
+
+    onProgress(70, 'Векторизация...');
+    const polyScript = findPyScript('gdal_polygonize.py');
+    await new Promise((resolve, reject) => {
+      const cmd = `"${_pythonExe}" "${polyScript}" "${maskPath}" -f GeoJSON "${gjPath}" flood DN`;
+      exec(cmd, { env, timeout: 120000, maxBuffer: 200 * 1024 * 1024 }, (err, stdout, stderr) => {
+        if (stderr) console.log('[FLOOD poly stderr]', stderr.slice(0, 300));
+        if (err) reject(new Error(`gdal_polygonize error: ${(stderr || err.message).slice(0, 300)}`));
+        else resolve();
+      });
+    });
+
+    onProgress(85, 'Упрощение геометрии...');
+    await runGDAL('ogr2ogr', ['-f', 'GeoJSON', gjsPath, gjPath, '-simplify', '0.00005']);
+
+    onProgress(95, 'Чтение результата...');
+    const gj = JSON.parse(fs.readFileSync(gjsPath, 'utf8'));
+    // Оставляем только полигоны с DN=1 (затопленные пиксели)
+    if (gj.features) {
+      gj.features = gj.features.filter(f => f.properties && f.properties.DN === 1);
+    }
+    return gj;
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+  }
+}
+
+module.exports = {processDEM,cleanupTmp,checkGDAL,computeFloodZone};

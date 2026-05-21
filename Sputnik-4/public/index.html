@@ -244,6 +244,7 @@
   <button class="mt" id="tool-kml" onclick="toggleKmlPanel()" title="Менеджер слоёв KML/GPX">🗂 Слои</button>
   <div style="width:1px;height:16px;background:rgba(0,0,0,.12);margin:0 2px;flex-shrink:0"></div>
   <button class="mt" id="tool-dem" onclick="openDEMPanel()" title="Выгрузка рельефа ArcticDEM">🏔 Рельеф</button>
+  <button class="mt" onclick="openFloodTool()" title="Симуляция зоны затопления по ЦМР ArcticDEM">🌊 Затопление</button>
 </div>
 <div id="bnr"><span id="bnr-t">Кликните на карту</span>
   <button class="btn bsm" style="border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.15);color:#fff" onclick="cancelMode()">✕</button>
@@ -456,6 +457,7 @@
 <script src="js/kameral.js"></script>
 <script src="js/dxf-volumes.js"></script>
 <script src="js/map-image-export.js"></script>
+<script src="js/flood.js"></script>
 
 <div id="name-gate" style="display:none">
   <div id="name-gate-box">
