@@ -64,14 +64,15 @@ async function _imgExRender(bounds) {
 
   if (cropW < 10 || cropH < 10) { toast('Область слишком маленькая', 'warn'); return; }
 
-  // Скрываем тултипы — не должны попасть на снимок
   const _tips = document.querySelectorAll('.leaflet-tooltip');
   _tips.forEach(function(el) { el.style.visibility = 'hidden'; });
 
   toast('Создание изображения…', 'ok');
   try {
     const dpr = window.devicePixelRatio || 1;
-    const canvas = await html2canvas(mapEl, {
+
+    // Шаг 1: html2canvas захватывает тайлы + divIcon-маркеры + подписи
+    const baseCanvas = await html2canvas(mapEl, {
       useCORS: true,
       allowTaint: false,
       scale: dpr,
@@ -83,11 +84,34 @@ async function _imgExRender(bounds) {
     const out = document.createElement('canvas');
     out.width  = cropW * dpr;
     out.height = cropH * dpr;
-    out.getContext('2d').drawImage(
-      canvas,
-      cropX * dpr, cropY * dpr, cropW * dpr, cropH * dpr,
-      0, 0, cropW * dpr, cropH * dpr
-    );
+    const ctx = out.getContext('2d');
+
+    // Рисуем базовый слой (тайлы + маркеры из html2canvas)
+    ctx.drawImage(baseCanvas, cropX * dpr, cropY * dpr, cropW * dpr, cropH * dpr, 0, 0, cropW * dpr, cropH * dpr);
+
+    // Шаг 2: поверх добавляем canvas-элементы Leaflet-пейнов напрямую.
+    // html2canvas не умеет корректно рендерить Leaflet canvas с полигонами,
+    // поэтому читаем canvas-элементы пейнов напрямую через drawImage.
+    // Порядок: от нижнего z-index к верхнему (kml → overlay → volPoints).
+    ['kmlPane', 'overlayPane', 'volPointsPane'].forEach(function(paneName) {
+      var paneEl = mapEl.querySelector('.leaflet-' + paneName);
+      if (!paneEl) return;
+      paneEl.querySelectorAll('canvas').forEach(function(c) {
+        // Leaflet позиционирует canvas через CSS transform: translate(tx, ty).
+        // tx/ty — смещение canvas относительно контейнера карты (обычно отрицательное,
+        // т.к. canvas шире вьюпорта из-за padding рендерера).
+        var tx = 0, ty = 0;
+        try {
+          var t = window.getComputedStyle(c).transform;
+          if (t && t !== 'none') { var m = new DOMMatrix(t); tx = m.m41; ty = m.m42; }
+        } catch(e) {}
+        // Координаты в пикселях canvas-элемента (учитываем DPR и offset)
+        var srcX = (cropX - tx) * dpr;
+        var srcY = (cropY - ty) * dpr;
+        ctx.drawImage(c, srcX, srcY, cropW * dpr, cropH * dpr, 0, 0, cropW * dpr, cropH * dpr);
+      });
+    });
+
     out.toBlob(function(blob) {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
