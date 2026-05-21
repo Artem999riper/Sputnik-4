@@ -566,6 +566,7 @@ function renderVolumesOnMap(vols){
 
       var g=L.geoJSON(gj,{
         pane: isPointVol ? 'volPointsPane' : 'overlayPane',
+        renderer: getCanvasRenderer(),
         style:function(feature){
           var c=(feature&&feature.properties&&feature.properties.color)||vol.color||'#1a56db';
           return {color:c,weight:2.5,opacity:.9,fillOpacity:vol.fill_opacity!=null?vol.fill_opacity:.25};
@@ -749,6 +750,7 @@ function renderVpLayers(volProgressList){
       }
 
       var g=L.geoJSON(pGj,{
+        renderer: getCanvasRenderer(),
         style:function(feature){
           var c=(feature&&feature.properties&&feature.properties.color)||color;
           return {color:c,weight:2,opacity:.85,fillOpacity:fillOp,dashArray:'4 3'};
