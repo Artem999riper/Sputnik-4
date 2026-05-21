@@ -53,8 +53,9 @@ async function _imgExRender(bounds) {
     toast('html2canvas не загружен', 'err');
     return;
   }
-  // Закрываем все открытые тултипы чтобы они не попали на снимок
-  map.eachLayer(function(l) { try { l.closeTooltip && l.closeTooltip(); } catch(e){} });
+  // Скрываем все тултипы через CSS (map.eachLayer не спускается в FeatureGroup)
+  const _tips = document.querySelectorAll('.leaflet-tooltip');
+  _tips.forEach(function(el) { el.style.visibility = 'hidden'; });
 
   const mapEl = document.getElementById('map');
   const tl = map.latLngToContainerPoint(bounds.getNorthWest());
@@ -84,6 +85,7 @@ async function _imgExRender(bounds) {
       cropX * dpr, cropY * dpr, cropW * dpr, cropH * dpr,
       0, 0, cropW * dpr, cropH * dpr
     );
+    _tips.forEach(function(el) { el.style.visibility = ''; });
     out.toBlob(function(blob) {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -93,6 +95,7 @@ async function _imgExRender(bounds) {
       toast('PNG сохранён', 'ok');
     }, 'image/png');
   } catch(err) {
+    _tips.forEach(function(el) { el.style.visibility = ''; });
     console.error('PNG export error:', err);
     toast('Ошибка экспорта: ' + err.message, 'err');
   }

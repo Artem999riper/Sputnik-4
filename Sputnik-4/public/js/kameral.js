@@ -130,8 +130,6 @@ async function kamDelRemark(id,siteId){
   await apiDelUndo(`/remarks/${id}`,'Замечание удалено',()=>renderKam(siteId));
 }
 
-let CTX_ACTIONS=[];
-
 // ── Ruler (measure tool) ────────────────────────────────────
 let rulerActive=false, rulerPts=[], rulerLayer=null, rulerLabels=[];
 function startRuler(){
@@ -201,13 +199,6 @@ function stopRuler(){
   }
 }
 function clearRuler(){_rulerClear();rulerPts=[];rulerActive=false;map.off('click',_rulerClick);map.getContainer().style.cursor='';}
-
-const un=()=>document.getElementById('unm').value.trim()||'Пользователь';
-const v=id=>{const e=document.getElementById(id);return e?e.value:''};
-const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-const escAttr=s=>esc(s).replace(/\\/g,'&#92;');
-const fmt=d=>{if(!d||d==='')return'—';try{const p=d.split('-');return`${p[2]}.${p[1]}.${p[0]}`;}catch{return d;}};
-const fmtDT=dt=>{if(!dt)return'';try{const d=new Date(dt.includes('Z')?dt:dt+'Z');return d.toLocaleString('ru',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}catch{return dt;}};
 
 // ═══════════════════════════════════════════════════════════
 // MAP INIT

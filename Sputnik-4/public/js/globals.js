@@ -36,6 +36,7 @@ let pgkFuelReserves=[], pgkSpareGroups=[], pgkSpares=[];
 let pgkEquipGroups=[];
 let pgkMatGroups=[];
 let kamSiteId=null;
+let CTX_ACTIONS=[];
 let drawMode=null, drawPts=[], drawPtNames=[], drawTmpLayer=null, drawVolId=null, drawSiteId=null, drawVolData=null;
 let volVisible={}; // per-volume show/hide
 let vpLayers={}; // per fact-entry map layers (key=progress id)
