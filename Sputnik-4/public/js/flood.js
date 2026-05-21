@@ -5,11 +5,11 @@ function openFloodTool() {
   showModal('🌊 Зона затопления',
     `<p style="margin:0 0 12px;color:var(--text-secondary)">Вычисляет зону затопления по рельефу ArcticDEM (10м разрешение).</p>
     <label style="display:flex;align-items:center;gap:10px;font-size:14px;margin-bottom:12px">
-      Уровень воды (м над ур. моря):
-      <input type="number" id="fl-level" value="${_floodLevel}" min="-500" max="5000" step="1"
+      Уровень воды (м, БСВ-77):
+      <input type="number" id="fl-level" value="${_floodLevel}" min="-500" max="5000" step="0.1"
         style="width:90px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--text)">
     </label>
-    <p style="margin:0;font-size:12px;color:var(--text-secondary)">⏱ Расчёт занимает 1–3 мин. Требуется GDAL и доступ к ArcticDEM (Арктика/Субарктика, ≥55°с.ш.).<br>Изолированные впадины ниже уровня также закрашиваются.</p>`,
+    <p style="margin:0;font-size:12px;color:var(--text-secondary)">Отметка в <b>Балтийской системе высот 1977</b> (БСВ-77). Высоты ArcticDEM автоматически переводятся из WGS-84 в БСВ-77 через геоид EGM2008.<br>⏱ Расчёт 1–3 мин. Требуется GDAL, доступ к интернету. Покрытие: ≥55°с.ш.</p>`,
     [
       { label: 'Отмена', cls: 'bs', fn: closeModal },
       { label: 'Выбрать область →', cls: 'bp', fn: function() {
@@ -102,10 +102,10 @@ async function _floodRender(bounds) {
       return;
     }
 
-    toast('🌊 Зона затопления при ' + _floodLevel + ' м построена', 'ok');
+    toast('🌊 Зона затопления при ' + _floodLevel + ' м БСВ-77 построена', 'ok');
 
     showModal('Зона затопления построена',
-      `<p>Уровень воды: <b>${_floodLevel} м</b> над ур. моря.<br>Полигонов: ${count}.</p>
+      `<p>Уровень воды: <b>${_floodLevel} м БСВ-77</b>.<br>Полигонов: ${count}.</p>
       <p style="font-size:12px;color:var(--text-secondary)">Сохранить как слой KML для дальнейшей работы?</p>`,
       [
         { label: 'Закрыть', cls: 'bs', fn: closeModal },
@@ -119,7 +119,7 @@ async function _floodRender(bounds) {
 }
 
 async function _floodSaveLayer(gj) {
-  const name = '🌊 Затопление ' + _floodLevel + ' м';
+  const name = '🌊 Затопление ' + _floodLevel + ' м БСВ-77';
   try {
     const resp = await fetch('/api/layers', {
       method: 'POST',

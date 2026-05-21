@@ -737,12 +737,29 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
       vrtPath, clipPath,
     ]);
 
-    onProgress(50, 'Вычисление маски затопления...');
+    // Перевод в БСВ-77 (EGM2008, EPSG:9518): ArcticDEM даёт эллипсоидальные высоты WGS-84,
+    // пользователь вводит отметку в балтийской системе — нужно привести растр к той же шкале
+    onProgress(42, 'Перевод высот в БСВ-77...');
+    const geoidPath = path.join(tmpDir, 'dem_bsv77.tif');
+    let demForCalc = clipPath;
+    try {
+      await runGDALFlood('gdalwarp', [
+        '-s_srs', 'EPSG:4979', '-t_srs', 'EPSG:9518',
+        '-r', 'bilinear', '-co', 'COMPRESS=LZW',
+        clipPath, geoidPath,
+      ]);
+      demForCalc = geoidPath;
+      console.log('[FLOOD] Геоид БСВ-77 OK');
+    } catch(e) {
+      console.log('[FLOOD] Геоид пропущен:', e.message.slice(0, 100));
+    }
+
+    onProgress(55, 'Вычисление маски затопления...');
     const calcScript = findPyScript('gdal_calc.py');
     const env = floodEnv();
     await new Promise((resolve, reject) => {
       const calc = `((A>=-9000)*(A<=${waterLevelM})).astype(int)`;
-      const cmd = `"${_pythonExe}" "${calcScript}" -A "${clipPath}" --outfile="${maskPath}" --calc="${calc}" --type=Byte --NoDataValue=0 --overwrite`;
+      const cmd = `"${_pythonExe}" "${calcScript}" -A "${demForCalc}" --outfile="${maskPath}" --calc="${calc}" --type=Byte --NoDataValue=0 --overwrite`;
       exec(cmd, { env, timeout: 300000, maxBuffer: 100 * 1024 * 1024 }, (err, stdout, stderr) => {
         if (stderr) console.log('[FLOOD calc stderr]', stderr.slice(0, 300));
         if (err) reject(new Error(`gdal_calc error: ${(stderr || err.message).slice(0, 300)}`));
