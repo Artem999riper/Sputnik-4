@@ -655,48 +655,94 @@ async function checkGDAL(){
 // ── Симуляция зоны затопления ──────────────────────────────
 async function computeFloodZone(bbox, waterLevelM, onProgress) {
   findGDALBin(); // инициализирует _pythonExe
-  const env = gdalEnv();
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flood_'));
+
+  // Env с поддержкой публичного S3 без авторизации
+  function floodEnv() {
+    return {
+      ...gdalEnv(),
+      AWS_NO_SIGN_REQUEST: 'YES',
+      GDAL_HTTP_MAX_RETRY: '3',
+      GDAL_HTTP_RETRY_DELAY: '2',
+    };
+  }
 
   // Найти gdal_calc.py и gdal_polygonize.py
   function findPyScript(name) {
-    const candidates = [
-      path.join(_gdalBin, name),
-      path.join(_gdalBin, '..', 'bin', name),
-      path.join('/usr/bin', name),
-      path.join('/usr/local/bin', name),
-    ];
-    const found = candidates.find(p => fs.existsSync(p));
-    if (!found) throw new Error(`Не найден скрипт ${name}. Установите python3-gdal или gdal-bin.`);
+    const candidates = IS_WINDOWS
+      ? [
+          path.join(_gdalBin, name),
+          path.join(path.resolve(_gdalBin, '..'), 'apps', 'Python312', 'Scripts', name),
+          path.join(path.resolve(_gdalBin, '..'), 'apps', 'Python39',  'Scripts', name),
+          path.join(_gdalBin, '..', 'bin', name),
+        ]
+      : [
+          path.join('/usr/bin', name),
+          path.join('/usr/local/bin', name),
+          path.join(_gdalBin, name),
+        ];
+    const found = candidates.find(p => { try { return fs.existsSync(p); } catch(e) { return false; } });
+    if (!found) throw new Error(`Не найден скрипт ${name}. Установите python3-gdal (Linux) или убедитесь, что OSGeo4W полный (Windows).`);
     return found;
   }
 
+  function runGDALFlood(exe, args) {
+    console.log('[FLOOD]', exe, args.slice(0,5).join(' '));
+    return execFileP(gdal(exe), args, {
+      env: floodEnv(), maxBuffer: 400*1024*1024, timeout: 600000,
+    });
+  }
+
   try {
-    onProgress(5, 'Сборка DEM URL...');
-    const urls = _buildDirectDemUrls(bbox, '10m');
-    if (!urls.length) throw new Error('Нет тайлов для указанного bbox');
+    onProgress(5, 'Поиск тайлов ArcticDEM...');
+    let tifUrls = [];
 
-    const vrtPath   = path.join(tmpDir, 'dem.vrt');
-    const clipPath  = path.join(tmpDir, 'dem_clip.tif');
-    const maskPath  = path.join(tmpDir, 'flood_mask.tif');
-    const gjPath    = path.join(tmpDir, 'flood.geojson');
-    const gjsPath   = path.join(tmpDir, 'flood_s.geojson');
+    // 1. STAC API (10m, как основной источник для затопления)
+    try {
+      const r10 = await stacSearch(bbox, 'arcticdem-mosaics-v4.1-10m');
+      if ((r10.features || []).length) {
+        tifUrls = r10.features.map(item => {
+          const a = item.assets || {};
+          const k = Object.keys(a).find(k => k === 'dem' || k.endsWith('_dem')) || Object.keys(a)[0];
+          return a[k]?.href;
+        }).filter(Boolean).map(u => u.startsWith('s3://') ? '/vsis3/' + u.slice(5) : '/vsicurl/' + u);
+      }
+    } catch(e) { console.log('[FLOOD] STAC:', e.message.slice(0,80)); }
 
-    onProgress(10, 'Создание VRT...');
-    await runGDAL('gdalbuildvrt', [vrtPath, ...urls]);
+    // 2. Прямые S3 URLs как fallback
+    if (!tifUrls.length) {
+      console.log('[FLOOD] STAC недоступен — прямые S3 URLs');
+      tifUrls = _buildDirectDemUrls(bbox, '10m');
+    }
+    if (!tifUrls.length) throw new Error('Нет тайлов ArcticDEM для выбранного bbox');
 
-    onProgress(25, 'Обрезка по области...');
-    await runGDAL('gdalwarp', [
+    const listFile = path.join(tmpDir, 'tiles.txt');
+    const vrtPath  = path.join(tmpDir, 'dem.vrt');
+    const clipPath = path.join(tmpDir, 'dem_clip.tif');
+    const maskPath = path.join(tmpDir, 'flood_mask.tif');
+    const gjPath   = path.join(tmpDir, 'flood.geojson');
+    const gjsPath  = path.join(tmpDir, 'flood_s.geojson');
+
+    fs.writeFileSync(listFile, tifUrls.join('\n'));
+
+    onProgress(15, 'Сборка VRT...');
+    await runGDALFlood('gdalbuildvrt', ['-input_file_list', listFile, vrtPath]);
+
+    onProgress(30, 'Обрезка по области...');
+    await runGDALFlood('gdalwarp', [
+      '-of', 'GTiff',
       '-te', String(bbox.minLng), String(bbox.minLat), String(bbox.maxLng), String(bbox.maxLat),
-      '-t_srs', 'EPSG:4326', '-r', 'bilinear',
-      '-dstnodata', '-9999',
+      '-te_srs', 'EPSG:4326', '-t_srs', 'EPSG:4326', '-r', 'bilinear',
+      '-co', 'COMPRESS=LZW', '-co', 'TILED=YES',
       vrtPath, clipPath,
     ]);
 
     onProgress(50, 'Вычисление маски затопления...');
     const calcScript = findPyScript('gdal_calc.py');
+    const env = floodEnv();
     await new Promise((resolve, reject) => {
-      const cmd = `"${_pythonExe}" "${calcScript}" -A "${clipPath}" --outfile="${maskPath}" --calc="((A>=-9000)*(A<=${waterLevelM})).astype(int)" --type=Byte --NoDataValue=0 --overwrite`;
+      const calc = `((A>=-9000)*(A<=${waterLevelM})).astype(int)`;
+      const cmd = `"${_pythonExe}" "${calcScript}" -A "${clipPath}" --outfile="${maskPath}" --calc="${calc}" --type=Byte --NoDataValue=0 --overwrite`;
       exec(cmd, { env, timeout: 300000, maxBuffer: 100 * 1024 * 1024 }, (err, stdout, stderr) => {
         if (stderr) console.log('[FLOOD calc stderr]', stderr.slice(0, 300));
         if (err) reject(new Error(`gdal_calc error: ${(stderr || err.message).slice(0, 300)}`));
@@ -716,11 +762,10 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
     });
 
     onProgress(85, 'Упрощение геометрии...');
-    await runGDAL('ogr2ogr', ['-f', 'GeoJSON', gjsPath, gjPath, '-simplify', '0.00005']);
+    await runGDALFlood('ogr2ogr', ['-f', 'GeoJSON', gjsPath, gjPath, '-simplify', '0.00005']);
 
     onProgress(95, 'Чтение результата...');
     const gj = JSON.parse(fs.readFileSync(gjsPath, 'utf8'));
-    // Оставляем только полигоны с DN=1 (затопленные пиксели)
     if (gj.features) {
       gj.features = gj.features.filter(f => f.properties && f.properties.DN === 1);
     }
