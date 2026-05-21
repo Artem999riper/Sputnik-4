@@ -53,31 +53,9 @@ async function _imgExRender(bounds) {
     toast('html2canvas не загружен', 'err');
     return;
   }
-  // Скрываем все тултипы через CSS (map.eachLayer не спускается в FeatureGroup)
-  const _tips = document.querySelectorAll('.leaflet-tooltip');
-  _tips.forEach(function(el) { el.style.visibility = 'hidden'; });
-
-  // html2canvas рисует в порядке DOM, а не по z-index.
-  // kmlPane создаётся после initMap → оказывается последним в DOM → перекрывает объёмы.
-  // Временно переставляем kmlPane перед overlayPane, чтобы объёмы были поверх KML.
-  const kmlPaneEl    = map.getPane('kmlPane');
-  const overlayPaneEl = map.getPane('overlayPane');
-  let _kmlParent = null, _kmlNext = null;
-  if (kmlPaneEl && overlayPaneEl && overlayPaneEl.parentNode) {
-    _kmlParent = kmlPaneEl.parentNode;
-    _kmlNext   = kmlPaneEl.nextSibling;
-    overlayPaneEl.parentNode.insertBefore(kmlPaneEl, overlayPaneEl);
-  }
-
-  function _restoreDOM() {
-    if (_kmlParent && kmlPaneEl) {
-      if (_kmlNext) _kmlParent.insertBefore(kmlPaneEl, _kmlNext);
-      else _kmlParent.appendChild(kmlPaneEl);
-    }
-    _tips.forEach(function(el) { el.style.visibility = ''; });
-  }
 
   const mapEl = document.getElementById('map');
+  const rect  = mapEl.getBoundingClientRect();
   const tl = map.latLngToContainerPoint(bounds.getNorthWest());
   const br = map.latLngToContainerPoint(bounds.getSouthEast());
   const cropX = Math.round(Math.min(tl.x, br.x));
@@ -87,25 +65,50 @@ async function _imgExRender(bounds) {
 
   if (cropW < 10 || cropH < 10) { toast('Область слишком маленькая', 'warn'); return; }
 
+  // Скрываем тултипы и UI-элементы — не должны попасть на снимок
+  const _tips = document.querySelectorAll('.leaflet-tooltip');
+  _tips.forEach(function(el) { el.style.visibility = 'hidden'; });
+  // Скрываем панели интерфейса
+  var _hiddenEls = [];
+  ['#tb','#sidebar','#panel','#mini-panel','#mtb','#bnr','#ctx','#lp','#bcard',
+   '#kml-panel','#personnel-page','#dash-page'].forEach(function(sel) {
+    var el = document.querySelector(sel);
+    if (el && el.style.display !== 'none') { el.style.visibility = 'hidden'; _hiddenEls.push(el); }
+  });
+
+  function _restore() {
+    _tips.forEach(function(el) { el.style.visibility = ''; });
+    _hiddenEls.forEach(function(el) { el.style.visibility = ''; });
+  }
+
   toast('Создание изображения…', 'ok');
   try {
     const dpr = window.devicePixelRatio || 1;
-    const canvas = await html2canvas(mapEl, {
+    // Рендерим весь documentElement — это решает проблему с position:fixed #map:
+    // html2canvas некорректно рендерит absolute-потомков fixed-элемента как корня.
+    // Затем вырезаем нужную область (позиция карты в viewport + offset выделения).
+    const canvas = await html2canvas(document.documentElement, {
       useCORS: true,
       allowTaint: false,
       scale: dpr,
       logging: false,
       imageTimeout: 8000,
+      windowWidth:  window.innerWidth,
+      windowHeight: window.innerHeight,
     });
+    _restore();
+
+    // Координаты выделения в системе полной страницы
+    const pageX = Math.round((rect.left + cropX) * dpr);
+    const pageY = Math.round((rect.top  + cropY) * dpr);
     const out = document.createElement('canvas');
     out.width  = cropW * dpr;
     out.height = cropH * dpr;
     out.getContext('2d').drawImage(
       canvas,
-      cropX * dpr, cropY * dpr, cropW * dpr, cropH * dpr,
+      pageX, pageY, cropW * dpr, cropH * dpr,
       0, 0, cropW * dpr, cropH * dpr
     );
-    _restoreDOM();
     out.toBlob(function(blob) {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -115,7 +118,7 @@ async function _imgExRender(bounds) {
       toast('PNG сохранён', 'ok');
     }, 'image/png');
   } catch(err) {
-    _restoreDOM();
+    _restore();
     console.error('PNG export error:', err);
     toast('Ошибка экспорта: ' + err.message, 'err');
   }
