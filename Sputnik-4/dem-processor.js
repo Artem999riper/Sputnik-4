@@ -387,9 +387,27 @@ function _downloadDemTile(url, localPath, maxRedirects) {
           reject(new Error('HTTP ' + res.statusCode + ' for ' + u));
           return;
         }
+        const total = parseInt(res.headers['content-length'] || '0', 10);
+        const fname = path.basename(localPath);
+        let received = 0, lastPct = -1;
         const out = fs.createWriteStream(localPath);
+        res.on('data', chunk => {
+          received += chunk.length;
+          if (total > 0) {
+            const pct = Math.floor(received / total * 100);
+            if (pct !== lastPct && pct % 10 === 0) {
+              lastPct = pct;
+              const mb = (received / 1048576).toFixed(1);
+              const tot = (total / 1048576).toFixed(1);
+              process.stdout.write(`\r[DEM] ${fname}: ${pct}% (${mb}/${tot} МБ)`);
+            }
+          }
+        });
         res.pipe(out);
-        out.on('finish', resolve);
+        out.on('finish', () => {
+          if (total > 0) process.stdout.write(`\r[DEM] ${fname}: 100% (${(total/1048576).toFixed(1)} МБ) ✓\n`);
+          resolve();
+        });
         out.on('error', reject);
       });
       req.on('error', reject);
