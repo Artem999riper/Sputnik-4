@@ -725,34 +725,41 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
   }
 
   try {
-    // 1. Строим HTTPS URLs и скачиваем тайлы через Node.js (обходит GDAL vsicurl проблемы с S3)
+    // 1. Скачиваем тайлы через Node.js: пробуем 10m, при 404 — fallback на 2m.
+    // Используем us-east-1 URL — Node.js (в отличие от GDAL vsicurl) следует 301 редиректам.
     onProgress(5, 'Скачивание тайлов ArcticDEM...');
-    const BASE = 'https://pgc-opendata-dems.s3.amazonaws.com/arcticdem/mosaics/v4.1';
-    const tileHttpsUrls = [];
+    const BASE = 'https://pgc-opendata-dems.s3.us-east-1.amazonaws.com/arcticdem/mosaics/v4.1';
+
+    const tileDefs = []; // {id, lat, lng}
     for (let lat = Math.floor(bbox.minLat); lat <= Math.floor(bbox.maxLat); lat++) {
       for (let lng = Math.floor(bbox.minLng); lng <= Math.floor(bbox.maxLng); lng++) {
         const latS = lat >= 0 ? `n${String(lat).padStart(2,'0')}` : `s${String(-lat).padStart(2,'0')}`;
         const lngS = lng >= 0 ? `e${String(lng).padStart(3,'0')}` : `w${String(-lng).padStart(3,'0')}`;
-        const id   = `${latS}${lngS}`;
-        tileHttpsUrls.push(`${BASE}/10m/${id}/${id}_10m_v4.1_dem.tif`);
+        tileDefs.push(`${latS}${lngS}`);
       }
     }
-    if (!tileHttpsUrls.length) throw new Error('Нет тайлов ArcticDEM для выбранного bbox');
+    if (!tileDefs.length) throw new Error('Нет тайлов ArcticDEM для выбранного bbox');
 
     const localTilePaths = [];
-    for (let i = 0; i < tileHttpsUrls.length; i++) {
-      const url = tileHttpsUrls[i];
-      const fname = path.basename(url);
-      const localPath = path.join(tmpDir, fname);
-      onProgress(5 + Math.round(25 * i / tileHttpsUrls.length), `Загрузка ${fname}…`);
-      console.log('[FLOOD] Загрузка:', url);
-      try {
-        await _downloadDemTile(url, localPath);
-        localTilePaths.push(localPath);
-        console.log('[FLOOD] OK:', fname);
-      } catch(e) {
-        console.log('[FLOOD] Пропуск тайла', fname + ':', e.message);
+    for (let i = 0; i < tileDefs.length; i++) {
+      const id = tileDefs[i];
+      onProgress(5 + Math.round(25 * i / tileDefs.length), `Загрузка ${id}…`);
+      let downloaded = false;
+      for (const res of ['10m', '2m']) {
+        const url = `${BASE}/${res}/${id}/${id}_${res}_v4.1_dem.tif`;
+        const localPath = path.join(tmpDir, `${id}_${res}_v4.1_dem.tif`);
+        console.log('[FLOOD] Загрузка:', url);
+        try {
+          await _downloadDemTile(url, localPath);
+          localTilePaths.push(localPath);
+          console.log(`[FLOOD] OK: ${id} (${res})`);
+          downloaded = true;
+          break; // 10m найден — 2m не нужен
+        } catch(e) {
+          console.log(`[FLOOD] ${id} @ ${res}: ${e.message}`);
+        }
       }
+      if (!downloaded) console.log(`[FLOOD] Тайл ${id} не найден ни в 10m ни в 2m`);
     }
     if (!localTilePaths.length) throw new Error('Не удалось скачать ни одного DEM тайла. Проверьте доступ в интернет.');
 
