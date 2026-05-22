@@ -254,6 +254,11 @@ function runGDAL(exe, args) {
   console.log('[DEM]', exe, args.slice(0,5).join(' '));
   return execFileP(gdal(exe), args, {
     env: gdalEnv(), maxBuffer: 400*1024*1024, timeout: 600000,
+  }).then(r => {
+    const se = r.stderr || '';
+    if (se.trim() && !se.includes('FutureWarning') && !se.includes('DeprecationWarning'))
+      console.log(`[DEM stderr ${exe}]`, se.slice(0, 400));
+    return r;
   });
 }
 
@@ -784,11 +789,11 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     }catch(e){ fs.copyFileSync(filledTif,upTif); }
     log.push('Upsample OK');
 
-    // 6. Горизонтали → GPKG
+    // 6. Горизонтали → SHP (GPKG в GDAL 4.0 молча создаёт пустой слой)
     onProgress&&onProgress(55,`Горизонтали ${interval}м...`);
-    const contoursGpkg=path.join(tmpDir,'contours.gpkg');
+    const contoursGpkg=path.join(tmpDir,'contours.shp');
     await runGDAL('gdal_contour',[
-      '-a','elevation','-i',String(interval),'-3d','-nln','contours','-f','GPKG',
+      '-a','elevation','-i',String(interval),'-3d',
       upTif,contoursGpkg,
     ]);
     log.push('Contours OK');
