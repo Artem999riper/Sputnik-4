@@ -9,6 +9,7 @@ const https   = require('https');
 const path    = require('path');
 const fs      = require('fs');
 const os      = require('os');
+const proj4   = require('proj4');
 const { promisify } = require('util');
 const execFileP = promisify(execFile);
 const execP     = promisify(exec);
@@ -76,6 +77,53 @@ function _buildDirectDemUrls(bbox, res) {
       urls.push(`/vsicurl/${BASE}/${res}/${id}/${id}_${res}_v4.1_dem.tif`);
     }
   }
+  return urls;
+}
+
+// Генерирует S3 URLs для ArcticDEM v4.1 2m тайлов (50km×50km в EPSG:3413).
+// Константы сетки калиброваны по тайлу 55_61_1_2 (bbox [2049900,1399900,2100100,1450100]):
+//   x_origin = -3350000 m, y_origin = -4650000 m, ячейка = 100km, подтайл = 50km
+proj4.defs('EPSG:3413', '+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +datum=WGS84 +units=m +no_defs');
+
+function _build2mTileUrls(bbox) {
+  const BASE = 'https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1/2m';
+  const X_ORIGIN = -3350000, Y_ORIGIN = -4650000, CELL = 100000, SUBCELL = 50000;
+
+  // Проецируем четыре угла bbox в EPSG:3413
+  const corners = [
+    [bbox.minLng, bbox.minLat], [bbox.maxLng, bbox.minLat],
+    [bbox.minLng, bbox.maxLat], [bbox.maxLng, bbox.maxLat],
+  ].map(([lng, lat]) => proj4('EPSG:4326', 'EPSG:3413', [lng, lat]));
+
+  const px = corners.map(c => c[0]), py = corners.map(c => c[1]);
+  const xMin = Math.min(...px), xMax = Math.max(...px);
+  const yMin = Math.min(...py), yMax = Math.max(...py);
+
+  const colMin = Math.max(1, Math.floor((xMin - X_ORIGIN) / CELL) + 1);
+  const colMax = Math.floor((xMax - X_ORIGIN) / CELL) + 1;
+  const rowMin = Math.max(1, Math.floor((yMin - Y_ORIGIN) / CELL) + 1);
+  const rowMax = Math.floor((yMax - Y_ORIGIN) / CELL) + 1;
+
+  const urls = [];
+  for (let col = colMin; col <= colMax; col++) {
+    for (let row = rowMin; row <= rowMax; row++) {
+      const cell = `${col}_${row}`;
+      for (let sc = 1; sc <= 2; sc++) {
+        for (let sr = 1; sr <= 2; sr++) {
+          // EPSG:3413 bounds этого подтайла
+          const sx0 = X_ORIGIN + (col - 1) * CELL + (sc - 1) * SUBCELL;
+          const sx1 = sx0 + SUBCELL;
+          const sy0 = Y_ORIGIN + (row - 1) * CELL + (sr - 1) * SUBCELL;
+          const sy1 = sy0 + SUBCELL;
+          // Добавляем только если подтайл перекрывается с bbox
+          if (sx0 < xMax && sx1 > xMin && sy0 < yMax && sy1 > yMin) {
+            urls.push(`${BASE}/${cell}/${cell}_${sc}_${sr}_2m_v4.1_dem.tif`);
+          }
+        }
+      }
+    }
+  }
+  console.log(`[DEM] 2m тайлов для bbox: ${urls.length}`);
   return urls;
 }
 
@@ -581,23 +629,35 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
       } else {
         // Скачать 10m через Node.js (поддерживает HTTPS_PROXY)
         log.push('STAC недоступен — скачивание тайлов через Node.js');
-        onProgress&&onProgress(8,'Скачивание тайлов ArcticDEM...');
-        const BASE='https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1';
+        onProgress&&onProgress(8,'Скачивание тайлов ArcticDEM 2m...');
+        const urls2m = _build2mTileUrls(bbox);
         const downloaded=[];
-        for (let lat=Math.floor(minLat);lat<=Math.floor(maxLat);lat++){
-          for (let lng=Math.floor(minLng);lng<=Math.floor(maxLng);lng++){
-            const latS=lat>=0?`n${String(lat).padStart(2,'0')}`:`s${String(-lat).padStart(2,'0')}`;
-            const lngS=lng>=0?`e${String(lng).padStart(3,'0')}`:`w${String(-lng).padStart(3,'0')}`;
-            const id=`${latS}${lngS}`;
-            const url=`${BASE}/10m/${id}/${id}_10m_v4.1_dem.tif`;
-            const lp=path.join(tmpDir,`${id}_10m_v4.1_dem.tif`);
-            try{ await _downloadDemTile(url,lp); downloaded.push(lp); log.push(`${id} 10m OK`); }
-            catch(e){ log.push(`${id} fail: ${e.message.slice(0,50)}`); }
-          }
+        for (let i=0;i<urls2m.length;i++){
+          const url=urls2m[i];
+          const lp=path.join(tmpDir,path.basename(url));
+          try{ await _downloadDemTile(url,lp); downloaded.push(lp); log.push(path.basename(url)+' OK'); }
+          catch(e){ log.push(path.basename(url)+' fail: '+e.message.slice(0,40)); }
         }
-        if (!downloaded.length) throw new Error('Не удалось скачать тайлы ArcticDEM. Установите HTTPS_PROXY или поместите .tif файлы в папку dem_tiles/');
-        tifUrls=downloaded;
-        usedRes='10m';
+        if (downloaded.length){
+          tifUrls=downloaded; usedRes='2m';
+        } else {
+          // fallback 10m
+          log.push('2m недоступны — пробуем 10m');
+          onProgress&&onProgress(8,'Скачивание тайлов ArcticDEM 10m...');
+          const BASE='https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1';
+          for (let lat=Math.floor(minLat);lat<=Math.floor(maxLat);lat++){
+            for (let lng=Math.floor(minLng);lng<=Math.floor(maxLng);lng++){
+              const latS=lat>=0?`n${String(lat).padStart(2,'0')}`:`s${String(-lat).padStart(2,'0')}`;
+              const lngS=lng>=0?`e${String(lng).padStart(3,'0')}`:`w${String(-lng).padStart(3,'0')}`;
+              const id=`${latS}${lngS}`;
+              const lp=path.join(tmpDir,`${id}_10m_v4.1_dem.tif`);
+              try{ await _downloadDemTile(`${BASE}/10m/${id}/${id}_10m_v4.1_dem.tif`,lp); downloaded.push(lp); log.push(`${id} 10m OK`); }
+              catch(e){ log.push(`${id} fail: ${e.message.slice(0,40)}`); }
+            }
+          }
+          if (!downloaded.length) throw new Error('Не удалось скачать тайлы ArcticDEM. Установите HTTPS_PROXY или поместите .tif файлы в папку dem_tiles/');
+          tifUrls=downloaded; usedRes='10m';
+        }
       }
     }
     log.push(`Tiles: ${tifUrls.length} (${usedRes}${stacOk?'':' via S3'})`);
@@ -853,52 +913,63 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
       console.log(`[FLOOD] Найдено ${localTilePaths.length} локальных тайлов в dem_tiles/`);
       onProgress(28, `Используем ${localTilePaths.length} локальных тайлов...`);
     } else {
-      // Скачать с S3 через Node.js (с поддержкой HTTPS_PROXY)
-      onProgress(5, 'Скачивание тайлов ArcticDEM...');
-      const BASE = 'https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1';
+      // Скачать с S3 через Node.js: сначала 2m (правильные PS-координаты), потом 10m
+      onProgress(5, 'Скачивание тайлов ArcticDEM 2m...');
+      const urls2m = _build2mTileUrls(bbox);
+      let used2m = false;
 
-      const tileDefs = [];
-      for (let lat = Math.floor(bbox.minLat); lat <= Math.floor(bbox.maxLat); lat++) {
-        for (let lng = Math.floor(bbox.minLng); lng <= Math.floor(bbox.maxLng); lng++) {
-          const latS = lat >= 0 ? `n${String(lat).padStart(2,'0')}` : `s${String(-lat).padStart(2,'0')}`;
-          const lngS = lng >= 0 ? `e${String(lng).padStart(3,'0')}` : `w${String(-lng).padStart(3,'0')}`;
-          tileDefs.push(`${latS}${lngS}`);
+      for (let i = 0; i < urls2m.length; i++) {
+        const url = urls2m[i];
+        const fname = path.basename(url);
+        const localPath = path.join(tmpDir, fname);
+        onProgress(5 + Math.round(22 * i / Math.max(urls2m.length, 1)), `Загрузка ${fname}…`);
+        console.log('[FLOOD] 2m:', url);
+        try {
+          await _downloadDemTile(url, localPath);
+          localTilePaths.push(localPath);
+          console.log(`[FLOOD] OK: ${fname}`);
+          used2m = true;
+        } catch(e) {
+          console.log(`[FLOOD] 2m skip ${fname}: ${e.message}`);
         }
       }
-      if (!tileDefs.length) throw new Error('Нет тайлов ArcticDEM для выбранного bbox');
 
-      for (let i = 0; i < tileDefs.length; i++) {
-        const id = tileDefs[i];
-        onProgress(5 + Math.round(22 * i / tileDefs.length), `Загрузка ${id}…`);
-        let downloaded = false;
-        // 2m тайлы не используют lat/lng сетку — их правильные URL получаются только через STAC.
-        // Пробуем 10m (верное имя), затем 2m (404, но попытка безвредна).
-        for (const res of ['10m', '2m']) {
-          const url = `${BASE}/${res}/${id}/${id}_${res}_v4.1_dem.tif`;
-          const localPath = path.join(tmpDir, `${id}_${res}_v4.1_dem.tif`);
-          console.log('[FLOOD] Загрузка:', url);
+      // Если 2m недоступны — fallback на 10m (1°×1° lat/lng сетка)
+      if (!used2m) {
+        onProgress(10, 'Скачивание тайлов ArcticDEM 10m...');
+        const BASE = 'https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1';
+        const tileDefs = [];
+        for (let lat = Math.floor(bbox.minLat); lat <= Math.floor(bbox.maxLat); lat++) {
+          for (let lng = Math.floor(bbox.minLng); lng <= Math.floor(bbox.maxLng); lng++) {
+            const latS = lat >= 0 ? `n${String(lat).padStart(2,'0')}` : `s${String(-lat).padStart(2,'0')}`;
+            const lngS = lng >= 0 ? `e${String(lng).padStart(3,'0')}` : `w${String(-lng).padStart(3,'0')}`;
+            tileDefs.push(`${latS}${lngS}`);
+          }
+        }
+        for (let i = 0; i < tileDefs.length; i++) {
+          const id = tileDefs[i];
+          onProgress(10 + Math.round(17 * i / Math.max(tileDefs.length, 1)), `Загрузка ${id}…`);
+          const url = `${BASE}/10m/${id}/${id}_10m_v4.1_dem.tif`;
+          const localPath = path.join(tmpDir, `${id}_10m_v4.1_dem.tif`);
+          console.log('[FLOOD] 10m:', url);
           try {
             await _downloadDemTile(url, localPath);
             localTilePaths.push(localPath);
-            console.log(`[FLOOD] OK: ${id} (${res})`);
-            downloaded = true;
-            break;
+            console.log(`[FLOOD] OK: ${id} (10m)`);
           } catch(e) {
-            console.log(`[FLOOD] ${id}@${res}: ${e.message}`);
+            console.log(`[FLOOD] 10m skip ${id}: ${e.message}`);
           }
         }
-        if (!downloaded) console.log(`[FLOOD] Тайл ${id} недоступен`);
       }
 
       if (!localTilePaths.length) {
-        const tileNames = tileDefs.map(id => `${id}_10m_v4.1_dem.tif`).join(', ');
+        const hint2m = _build2mTileUrls(bbox).slice(0, 4).map(u => path.basename(u)).join(', ');
         throw new Error(
           'Не удалось скачать тайлы ArcticDEM.\n\n' +
           'Способы решения:\n' +
-          '1. Установите HTTPS_PROXY=http://host:port в переменных среды и перезапустите сервер\n' +
-          '2. Скачайте тайлы вручную через VPN и положите .tif файлы в папку dem_tiles/\n\n' +
-          'Нужные файлы: ' + tileNames + '\n' +
-          'URL: https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1/10m/{id}/{id}_10m_v4.1_dem.tif'
+          '1. Установите HTTPS_PROXY=http://host:port и перезапустите сервер\n' +
+          '2. Скачайте .tif файлы через VPN и положите в папку dem_tiles/\n\n' +
+          'Нужные файлы (2m): ' + hint2m
         );
       }
     }
