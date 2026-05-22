@@ -244,10 +244,19 @@ function _downloadDemTile(url, localPath, maxRedirects) {
     function doGet(u, hops) {
       const mod = u.startsWith('https') ? https : require('http');
       const req = mod.get(u, { timeout: 120000 }, function(res) {
-        if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+        if (res.statusCode === 301 || res.statusCode === 302) {
           res.resume();
           if (hops <= 0) { reject(new Error('Too many redirects: ' + u)); return; }
-          doGet(res.headers.location, hops - 1);
+          // S3 должен вернуть Location; если нет — убираем регион из URL (типичный S3-редирект)
+          let loc = res.headers.location;
+          if (!loc) {
+            loc = u.replace(/\.s3\.[a-z0-9-]+\.amazonaws\.com\//, '.s3.amazonaws.com/');
+            console.log('[FLOOD] 301 без Location, fallback URL:', loc);
+            console.log('[FLOOD] 301 headers:', JSON.stringify(res.headers));
+          } else {
+            console.log('[FLOOD] 301 → ', loc);
+          }
+          doGet(loc, hops - 1);
           return;
         }
         if (res.statusCode !== 200) {
