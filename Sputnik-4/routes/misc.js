@@ -287,6 +287,11 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json(await demProcessor.checkGDAL());
   });
 
+  app.get('/api/dem/tiles-info', (req, res) => {
+    if (!demProcessor) return res.json({ dir: '', tiles: [], exists: false });
+    res.json(demProcessor.getDemTilesInfo());
+  });
+
   app.post('/api/dem/export', async (req, res) => {
     if (!demProcessor) return res.status(503).json({ error: 'DEM процессор не доступен' });
     const { bbox, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite } = req.body;

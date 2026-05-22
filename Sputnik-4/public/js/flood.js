@@ -114,7 +114,16 @@ async function _floodRender(bounds) {
     );
   } catch (err) {
     console.error('[FLOOD]', err);
-    toast('Ошибка расчёта: ' + err.message, 'err');
+    const msg = err.message || String(err);
+    if (msg.includes('dem_tiles') || msg.includes('HTTPS_PROXY') || msg.includes('тайлы ArcticDEM')) {
+      showModal(
+        'Нет данных рельефа',
+        '<div style="white-space:pre-wrap;font-size:13px;line-height:1.5">' + msg.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>',
+        [{ label: 'Закрыть', fn: closeModal, cls: 'bp' }]
+      );
+    } else {
+      toast('Ошибка расчёта: ' + msg, 'err');
+    }
   }
 }
 
