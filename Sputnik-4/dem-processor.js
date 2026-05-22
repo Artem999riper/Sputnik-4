@@ -697,6 +697,18 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
     onProgress(5, 'Поиск тайлов ArcticDEM...');
     let tifUrls = [];
 
+    // Конвертация любого URL в /vsis3/ формат (AWS_NO_SIGN_REQUEST обходит auth для публичных бакетов)
+    function toVsis3(u) {
+      if (u.startsWith('s3://')) return '/vsis3/' + u.slice(5);
+      // https://bucket.s3.region.amazonaws.com/path → /vsis3/bucket/path
+      const m = u.match(/^https?:\/\/([^.]+)\.s3[^.]*\.amazonaws\.com\/(.+)$/);
+      if (m) return `/vsis3/${m[1]}/${m[2]}`;
+      // https://s3.region.amazonaws.com/bucket/path → /vsis3/bucket/path
+      const m2 = u.match(/^https?:\/\/s3[^.]*\.amazonaws\.com\/([^/]+)\/(.+)$/);
+      if (m2) return `/vsis3/${m2[1]}/${m2[2]}`;
+      return '/vsicurl/' + u; // не S3 — оставляем как есть
+    }
+
     // 1. STAC API (10m, как основной источник для затопления)
     try {
       const r10 = await stacSearch(bbox, 'arcticdem-mosaics-v4.1-10m');
@@ -705,14 +717,23 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
           const a = item.assets || {};
           const k = Object.keys(a).find(k => k === 'dem' || k.endsWith('_dem')) || Object.keys(a)[0];
           return a[k]?.href;
-        }).filter(Boolean).map(u => u.startsWith('s3://') ? '/vsis3/' + u.slice(5) : '/vsicurl/' + u);
+        }).filter(Boolean).map(toVsis3);
       }
     } catch(e) { console.log('[FLOOD] STAC:', e.message.slice(0,80)); }
 
-    // 2. Прямые S3 URLs как fallback
+    // 2. Прямые /vsis3/ URLs как fallback (без 301 редиректа)
     if (!tifUrls.length) {
-      console.log('[FLOOD] STAC недоступен — прямые S3 URLs');
-      tifUrls = _buildDirectDemUrls(bbox, '10m');
+      console.log('[FLOOD] STAC недоступен — прямые /vsis3/ URLs');
+      const BASE_BUCKET = 'pgc-opendata-dems';
+      const BASE_PATH   = 'arcticdem/mosaics/v4.1';
+      for (let lat = Math.floor(bbox.minLat); lat <= Math.floor(bbox.maxLat); lat++) {
+        for (let lng = Math.floor(bbox.minLng); lng <= Math.floor(bbox.maxLng); lng++) {
+          const latS = lat >= 0 ? `n${String(lat).padStart(2,'0')}` : `s${String(-lat).padStart(2,'0')}`;
+          const lngS = lng >= 0 ? `e${String(lng).padStart(3,'0')}` : `w${String(-lng).padStart(3,'0')}`;
+          const id   = `${latS}${lngS}`;
+          tifUrls.push(`/vsis3/${BASE_BUCKET}/${BASE_PATH}/10m/${id}/${id}_10m_v4.1_dem.tif`);
+        }
+      }
     }
     if (!tifUrls.length) throw new Error('Нет тайлов ArcticDEM для выбранного bbox');
 
