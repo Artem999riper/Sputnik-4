@@ -49,25 +49,24 @@ function stacSearch(bbox, collection) {
 
 // ── Прямые S3-URLs (fallback без STAC) ────────────────────
 // ArcticDEM mosaics v4.1: тайлы 1°×1°, имя n62e068, n61e073 и т.д.
-// Используем глобальный эндпоинт s3.amazonaws.com (без региона) — он не редиректит.
-// Региональный s3.us-east-1.amazonaws.com возвращает 301, который GDAL /vsicurl/ не следует.
+// Используем региональный эндпоинт us-west-2 — именно там лежит bucket pgc-opendata-dems.
 function _normS3Url(u) {
   if (!u) return null;
   if (u.startsWith('s3://')) {
-    // s3://bucket/path → https://bucket.s3.amazonaws.com/path (глобальный)
+    // s3://bucket/path → https://bucket.s3.us-west-2.amazonaws.com/path
     const rest = u.slice(5);
     const slash = rest.indexOf('/');
     if (slash < 0) return null;
     const bucket = rest.slice(0, slash), key = rest.slice(slash + 1);
-    return '/vsicurl/https://' + bucket + '.s3.amazonaws.com/' + key;
+    return '/vsicurl/https://' + bucket + '.s3.us-west-2.amazonaws.com/' + key;
   }
-  // Убираем регион из virtual-hosted URL: bucket.s3.REGION.amazonaws.com → bucket.s3.amazonaws.com
-  u = u.replace(/\.s3\.[a-z0-9-]+\.amazonaws\.com\//, '.s3.amazonaws.com/');
+  // Заменяем любой регион на us-west-2
+  u = u.replace(/\.s3(\.[a-z0-9-]+)?\.amazonaws\.com\//, '.s3.us-west-2.amazonaws.com/');
   return u.startsWith('/vsicurl/') ? u : '/vsicurl/' + u;
 }
 
 function _buildDirectDemUrls(bbox, res) {
-  const BASE = 'https://pgc-opendata-dems.s3.amazonaws.com/arcticdem/mosaics/v4.1';
+  const BASE = 'https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1';
   const urls = [];
   for (let lat = Math.floor(bbox.minLat); lat <= Math.floor(bbox.maxLat); lat++) {
     for (let lng = Math.floor(bbox.minLng); lng <= Math.floor(bbox.maxLng); lng++) {
@@ -250,9 +249,9 @@ function _downloadDemTile(url, localPath, maxRedirects) {
           // S3 должен вернуть Location; если нет — убираем регион из URL (типичный S3-редирект)
           let loc = res.headers.location;
           if (!loc) {
-            loc = u.replace(/\.s3\.[a-z0-9-]+\.amazonaws\.com\//, '.s3.amazonaws.com/');
-            console.log('[FLOOD] 301 без Location, fallback URL:', loc);
-            console.log('[FLOOD] 301 headers:', JSON.stringify(res.headers));
+            const region = res.headers['x-amz-bucket-region'] || 'us-west-2';
+            loc = u.replace(/\.s3(\.[a-z0-9-]+)?\.amazonaws\.com\//, `.s3.${region}.amazonaws.com/`);
+            console.log(`[FLOOD] 301 без Location, регион из заголовка: ${region}, URL: ${loc}`);
           } else {
             console.log('[FLOOD] 301 → ', loc);
           }
@@ -735,9 +734,9 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
 
   try {
     // 1. Скачиваем тайлы через Node.js: пробуем 10m, при 404 — fallback на 2m.
-    // Используем us-east-1 URL — Node.js (в отличие от GDAL vsicurl) следует 301 редиректам.
+    // Bucket pgc-opendata-dems находится в us-west-2.
     onProgress(5, 'Скачивание тайлов ArcticDEM...');
-    const BASE = 'https://pgc-opendata-dems.s3.us-east-1.amazonaws.com/arcticdem/mosaics/v4.1';
+    const BASE = 'https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1';
 
     const tileDefs = []; // {id, lat, lng}
     for (let lat = Math.floor(bbox.minLat); lat <= Math.floor(bbox.maxLat); lat++) {
