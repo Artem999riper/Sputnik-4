@@ -237,6 +237,36 @@ function fetchTile(z,x,y) {
   });
 }
 
+// Скачивает DEM тайл через Node.js (следует редиректам), обходя GDAL vsicurl
+function _downloadDemTile(url, localPath, maxRedirects) {
+  if (maxRedirects === undefined) maxRedirects = 8;
+  return new Promise(function(resolve, reject) {
+    function doGet(u, hops) {
+      const mod = u.startsWith('https') ? https : require('http');
+      const req = mod.get(u, { timeout: 120000 }, function(res) {
+        if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+          res.resume();
+          if (hops <= 0) { reject(new Error('Too many redirects: ' + u)); return; }
+          doGet(res.headers.location, hops - 1);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          reject(new Error('HTTP ' + res.statusCode + ' for ' + u));
+          return;
+        }
+        const out = fs.createWriteStream(localPath);
+        res.pipe(out);
+        out.on('finish', resolve);
+        out.on('error', reject);
+      });
+      req.on('error', reject);
+      req.on('timeout', function() { req.destroy(); reject(new Error('timeout: ' + u)); });
+    }
+    doGet(url, maxRedirects);
+  });
+}
+
 async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif) {
   const {minLat,maxLat,minLng,maxLng} = bbox;
 
@@ -671,16 +701,9 @@ async function checkGDAL(){
 
 // ── Симуляция зоны затопления ──────────────────────────────
 async function computeFloodZone(bbox, waterLevelM, onProgress) {
-  findGDALBin(); // инициализирует _pythonExe
+  findGDALBin(); // инициализирует _pythonExe, _gdalBin
+  const env = gdalEnv();
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flood_'));
-
-  function floodEnv() {
-    return {
-      ...gdalEnv(),
-      GDAL_HTTP_MAX_RETRY: '3',
-      GDAL_HTTP_RETRY_DELAY: '2',
-    };
-  }
 
   // Найти gdal_calc.py и gdal_polygonize.py
   function findPyScript(name) {
@@ -701,36 +724,37 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
     return found;
   }
 
-  function runGDALFlood(exe, args) {
-    console.log('[FLOOD]', exe, args.slice(0,5).join(' '));
-    return execFileP(gdal(exe), args, {
-      env: floodEnv(), maxBuffer: 400*1024*1024, timeout: 600000,
-    });
-  }
-
   try {
-    onProgress(5, 'Поиск тайлов ArcticDEM...');
-    let tifUrls = [];
-
-    // Конвертация любого URL в /vsis3/ формат (AWS_NO_SIGN_REQUEST обходит auth для публичных бакетов)
-    // 1. STAC API (10m, как основной источник для затопления)
-    try {
-      const r10 = await stacSearch(bbox, 'arcticdem-mosaics-v4.1-10m');
-      if ((r10.features || []).length) {
-        tifUrls = r10.features.map(item => {
-          const a = item.assets || {};
-          const k = Object.keys(a).find(k => k === 'dem' || k.endsWith('_dem')) || Object.keys(a)[0];
-          return a[k]?.href;
-        }).filter(Boolean).map(_normS3Url).filter(Boolean);
+    // 1. Строим HTTPS URLs и скачиваем тайлы через Node.js (обходит GDAL vsicurl проблемы с S3)
+    onProgress(5, 'Скачивание тайлов ArcticDEM...');
+    const BASE = 'https://pgc-opendata-dems.s3.amazonaws.com/arcticdem/mosaics/v4.1';
+    const tileHttpsUrls = [];
+    for (let lat = Math.floor(bbox.minLat); lat <= Math.floor(bbox.maxLat); lat++) {
+      for (let lng = Math.floor(bbox.minLng); lng <= Math.floor(bbox.maxLng); lng++) {
+        const latS = lat >= 0 ? `n${String(lat).padStart(2,'0')}` : `s${String(-lat).padStart(2,'0')}`;
+        const lngS = lng >= 0 ? `e${String(lng).padStart(3,'0')}` : `w${String(-lng).padStart(3,'0')}`;
+        const id   = `${latS}${lngS}`;
+        tileHttpsUrls.push(`${BASE}/10m/${id}/${id}_10m_v4.1_dem.tif`);
       }
-    } catch(e) { console.log('[FLOOD] STAC:', e.message.slice(0,80)); }
-
-    // 2. Прямые URLs через глобальный эндпоинт (без региона — без 301)
-    if (!tifUrls.length) {
-      console.log('[FLOOD] STAC недоступен — прямые S3 URLs (глобальный эндпоинт)');
-      tifUrls = _buildDirectDemUrls(bbox, '10m');
     }
-    if (!tifUrls.length) throw new Error('Нет тайлов ArcticDEM для выбранного bbox');
+    if (!tileHttpsUrls.length) throw new Error('Нет тайлов ArcticDEM для выбранного bbox');
+
+    const localTilePaths = [];
+    for (let i = 0; i < tileHttpsUrls.length; i++) {
+      const url = tileHttpsUrls[i];
+      const fname = path.basename(url);
+      const localPath = path.join(tmpDir, fname);
+      onProgress(5 + Math.round(25 * i / tileHttpsUrls.length), `Загрузка ${fname}…`);
+      console.log('[FLOOD] Загрузка:', url);
+      try {
+        await _downloadDemTile(url, localPath);
+        localTilePaths.push(localPath);
+        console.log('[FLOOD] OK:', fname);
+      } catch(e) {
+        console.log('[FLOOD] Пропуск тайла', fname + ':', e.message);
+      }
+    }
+    if (!localTilePaths.length) throw new Error('Не удалось скачать ни одного DEM тайла. Проверьте доступ в интернет.');
 
     const listFile = path.join(tmpDir, 'tiles.txt');
     const vrtPath  = path.join(tmpDir, 'dem.vrt');
@@ -739,13 +763,13 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
     const gjPath   = path.join(tmpDir, 'flood.geojson');
     const gjsPath  = path.join(tmpDir, 'flood_s.geojson');
 
-    fs.writeFileSync(listFile, tifUrls.join('\n'));
+    fs.writeFileSync(listFile, localTilePaths.join('\n'));
 
-    onProgress(15, 'Сборка VRT...');
-    await runGDALFlood('gdalbuildvrt', ['-input_file_list', listFile, vrtPath]);
+    onProgress(32, 'Сборка VRT...');
+    await runGDAL('gdalbuildvrt', ['-input_file_list', listFile, vrtPath]);
 
-    onProgress(30, 'Обрезка по области...');
-    await runGDALFlood('gdalwarp', [
+    onProgress(42, 'Обрезка по области...');
+    await runGDAL('gdalwarp', [
       '-of', 'GTiff',
       '-te', String(bbox.minLng), String(bbox.minLat), String(bbox.maxLng), String(bbox.maxLat),
       '-te_srs', 'EPSG:4326', '-t_srs', 'EPSG:4326', '-r', 'bilinear',
@@ -755,11 +779,11 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
 
     // Перевод в БСВ-77 (EGM2008, EPSG:9518): ArcticDEM даёт эллипсоидальные высоты WGS-84,
     // пользователь вводит отметку в балтийской системе — нужно привести растр к той же шкале
-    onProgress(42, 'Перевод высот в БСВ-77...');
+    onProgress(52, 'Перевод высот в БСВ-77...');
     const geoidPath = path.join(tmpDir, 'dem_bsv77.tif');
     let demForCalc = clipPath;
     try {
-      await runGDALFlood('gdalwarp', [
+      await runGDAL('gdalwarp', [
         '-s_srs', 'EPSG:4979', '-t_srs', 'EPSG:9518',
         '-r', 'bilinear', '-co', 'COMPRESS=LZW',
         clipPath, geoidPath,
@@ -770,9 +794,8 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
       console.log('[FLOOD] Геоид пропущен:', e.message.slice(0, 100));
     }
 
-    onProgress(55, 'Вычисление маски затопления...');
+    onProgress(62, 'Вычисление маски затопления...');
     const calcScript = findPyScript('gdal_calc.py');
-    const env = floodEnv();
     await new Promise((resolve, reject) => {
       const calc = `((A>=-9000)*(A<=${waterLevelM})).astype(int)`;
       const cmd = `"${_pythonExe}" "${calcScript}" -A "${demForCalc}" --outfile="${maskPath}" --calc="${calc}" --type=Byte --NoDataValue=0 --overwrite`;
@@ -783,7 +806,7 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
       });
     });
 
-    onProgress(70, 'Векторизация...');
+    onProgress(77, 'Векторизация...');
     const polyScript = findPyScript('gdal_polygonize.py');
     await new Promise((resolve, reject) => {
       const cmd = `"${_pythonExe}" "${polyScript}" "${maskPath}" -f GeoJSON "${gjPath}" flood DN`;
@@ -794,10 +817,10 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
       });
     });
 
-    onProgress(85, 'Упрощение геометрии...');
-    await runGDALFlood('ogr2ogr', ['-f', 'GeoJSON', gjsPath, gjPath, '-simplify', '0.00005']);
+    onProgress(90, 'Упрощение геометрии...');
+    await runGDAL('ogr2ogr', ['-f', 'GeoJSON', gjsPath, gjPath, '-simplify', '0.00005']);
 
-    onProgress(95, 'Чтение результата...');
+    onProgress(97, 'Чтение результата...');
     const gj = JSON.parse(fs.readFileSync(gjsPath, 'utf8'));
     if (gj.features) {
       gj.features = gj.features.filter(f => f.properties && f.properties.DN === 1);
