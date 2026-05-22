@@ -265,13 +265,15 @@ function runGDAL(exe, args) {
 // Диагностика: min/max/nodata растра — для отслеживания шага, где данные становятся NoData
 async function _gdalStats(tif, label) {
   try {
-    const r = await execFileP(gdal('gdalinfo'), ['-stats', '-json', tif],
+    // -mm вычисляет min/max напрямую и возвращает computedMin/computedMax в GDAL 4.0
+    const r = await execFileP(gdal('gdalinfo'), ['-mm', '-json', tif],
       { env: gdalEnv(), maxBuffer: 4*1024*1024, timeout: 30000 });
     const j = JSON.parse(r.stdout || '{}');
     const b = j.bands?.[0] || {};
-    const m = b.metadata?.[''] || {};
-    console.log(`[DEM stats ${label}] min=${m.STATISTICS_MINIMUM} max=${m.STATISTICS_MAXIMUM} nodata=${b.noDataValue}`);
-    return { min: Number(m.STATISTICS_MINIMUM), max: Number(m.STATISTICS_MAXIMUM), nodata: b.noDataValue };
+    const mn = b.computedMin ?? Number(b.metadata?.['']?.STATISTICS_MINIMUM);
+    const mx = b.computedMax ?? Number(b.metadata?.['']?.STATISTICS_MAXIMUM);
+    console.log(`[DEM stats ${label}] min=${mn} max=${mx} nodata=${b.noDataValue}`);
+    return { min: mn, max: mx, nodata: b.noDataValue };
   } catch(e) {
     console.log(`[DEM stats ${label}] fail: ${e.message.slice(0,80)}`);
     return null;
@@ -752,22 +754,59 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     }
     log.push(`Tiles: ${tifUrls.length} (${usedRes}${stacOk?'':' via S3'})`);
 
-    // 2. VRT + clip
+    // 2. VRT + clip (с fallback: если vsicurl дал all-NoData — скачиваем полностью)
     onProgress&&onProgress(15,`Загрузка ArcticDEM ${usedRes}...`);
-    const listF=path.join(tmpDir,'tiles.txt');
-    const srcVrt=path.join(tmpDir,'src.vrt');
-    fs.writeFileSync(listF,tifUrls.join('\n'));
-    await runGDAL('gdalbuildvrt',['-input_file_list',listF,srcVrt]);
 
-    const clippedTif=path.join(tmpDir,'clipped.tif');
-    await runGDAL('gdalwarp',[
-      '-of','GTiff','-te',String(minLng),String(minLat),String(maxLng),String(maxLat),
-      '-te_srs','EPSG:4326','-t_srs','EPSG:4326','-r','bilinear',
-      '-co','COMPRESS=LZW','-co','TILED=YES',srcVrt,clippedTif,
-    ]);
+    async function buildAndClip(urls) {
+      const listF2=path.join(tmpDir,'tiles.txt');
+      const srcVrt2=path.join(tmpDir,'src.vrt');
+      fs.writeFileSync(listF2, urls.join('\n'));
+      await runGDAL('gdalbuildvrt',['-input_file_list',listF2,srcVrt2]);
+      const clipped2=path.join(tmpDir,'clipped.tif');
+      await runGDAL('gdalwarp',[
+        '-of','GTiff','-te',String(minLng),String(minLat),String(maxLng),String(maxLat),
+        '-te_srs','EPSG:4326','-t_srs','EPSG:4326','-r','bilinear',
+        '-co','COMPRESS=LZW','-co','TILED=YES',srcVrt2,clipped2,
+      ]);
+      return clipped2;
+    }
+
+    let clippedTif = await buildAndClip(tifUrls);
     log.push('Clip OK');
 
-    await _gdalStats(clippedTif, 'clipped');
+    let clipSt = await _gdalStats(clippedTif, 'clipped');
+
+    // Если vsicurl дал all-NoData (крупные range-запросы заблокированы) — скачиваем полностью
+    const usedVsicurl = tifUrls.some(u => u.startsWith('/vsicurl/'));
+    if (usedVsicurl && (!clipSt || !Number.isFinite(clipSt.max) || clipSt.max <= -9000)) {
+      console.log('[DEM] vsicurl дал пустые данные — переключаемся на полное скачивание');
+      onProgress&&onProgress(15, 'Скачивание тайлов (vsicurl недоступен)...');
+      const rawUrls = tifUrls.map(u => u.replace(/^\/vsicurl\//, ''));
+      const downloaded = [];
+      for (let i = 0; i < rawUrls.length; i++) {
+        const url = rawUrls[i];
+        onProgress&&onProgress(15 + Math.round(10 * i / Math.max(rawUrls.length, 1)), `Скачивание ${path.basename(url)}…`);
+        try {
+          const p = await _downloadWithCache(url, tmpDir);
+          downloaded.push(p);
+          log.push(path.basename(url) + ' downloaded');
+        } catch(e) {
+          log.push(path.basename(url) + ' dl-fail: ' + e.message.slice(0, 40));
+        }
+      }
+      if (downloaded.length) {
+        clippedTif = await buildAndClip(downloaded);
+        clipSt = await _gdalStats(clippedTif, 'clipped-dl');
+        log.push('Clip after download OK');
+      } else {
+        const hint = tifUrls.slice(0, 3).map(u => path.basename(u.replace(/^\/vsicurl\//, ''))).join(', ');
+        throw new Error(
+          'Не удалось получить данные ArcticDEM. Скачайте файлы вручную через браузер с сайта\n' +
+          'https://polargeospatialcenter.github.io/stac-browser/ и поместите .tif в папку dem_tiles/\n' +
+          'Нужные файлы: ' + hint
+        );
+      }
+    }
 
     // 3. Геоид: compound CRS сохраняет горизонталь EPSG:4326, меняет только вертикаль (эллипсоид→БСВ-77)
     onProgress&&onProgress(28,useGeoid?'Перевод БСВ-77...':'Подготовка...');
