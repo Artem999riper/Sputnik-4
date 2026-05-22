@@ -49,8 +49,25 @@ function stacSearch(bbox, collection) {
 
 // ── Прямые S3-URLs (fallback без STAC) ────────────────────
 // ArcticDEM mosaics v4.1: тайлы 1°×1°, имя n62e068, n61e073 и т.д.
+// Используем глобальный эндпоинт s3.amazonaws.com (без региона) — он не редиректит.
+// Региональный s3.us-east-1.amazonaws.com возвращает 301, который GDAL /vsicurl/ не следует.
+function _normS3Url(u) {
+  if (!u) return null;
+  if (u.startsWith('s3://')) {
+    // s3://bucket/path → https://bucket.s3.amazonaws.com/path (глобальный)
+    const rest = u.slice(5);
+    const slash = rest.indexOf('/');
+    if (slash < 0) return null;
+    const bucket = rest.slice(0, slash), key = rest.slice(slash + 1);
+    return '/vsicurl/https://' + bucket + '.s3.amazonaws.com/' + key;
+  }
+  // Убираем регион из virtual-hosted URL: bucket.s3.REGION.amazonaws.com → bucket.s3.amazonaws.com
+  u = u.replace(/\.s3\.[a-z0-9-]+\.amazonaws\.com\//, '.s3.amazonaws.com/');
+  return u.startsWith('/vsicurl/') ? u : '/vsicurl/' + u;
+}
+
 function _buildDirectDemUrls(bbox, res) {
-  const BASE = 'https://pgc-opendata-dems.s3.us-east-1.amazonaws.com/arcticdem/mosaics/v4.1';
+  const BASE = 'https://pgc-opendata-dems.s3.amazonaws.com/arcticdem/mosaics/v4.1';
   const urls = [];
   for (let lat = Math.floor(bbox.minLat); lat <= Math.floor(bbox.maxLat); lat++) {
     for (let lng = Math.floor(bbox.minLng); lng <= Math.floor(bbox.maxLng); lng++) {
@@ -410,7 +427,7 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
           const a=item.assets||{};
           const k=Object.keys(a).find(k=>k==='dem'||k.endsWith('_dem'))||Object.keys(a)[0];
           return a[k]?.href;
-        }).filter(Boolean).map(u=>u.startsWith('s3://')?'/vsis3/'+u.slice(5):'/vsicurl/'+u);
+        }).filter(Boolean).map(_normS3Url).filter(Boolean);
       }
     } catch(e){ log.push('STAC 2m: '+e.message.slice(0,60)); }
     if (!tifUrls.length){
@@ -422,7 +439,7 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
             const a=item.assets||{};
             const k=Object.keys(a).find(k=>k==='dem'||k.endsWith('_dem'))||Object.keys(a)[0];
             return a[k]?.href;
-          }).filter(Boolean).map(u=>u.startsWith('s3://')?'/vsis3/'+u.slice(5):'/vsicurl/'+u);
+          }).filter(Boolean).map(_normS3Url).filter(Boolean);
         }
       } catch(e){ log.push('STAC 10m: '+e.message.slice(0,60)); }
     }
@@ -657,11 +674,9 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
   findGDALBin(); // инициализирует _pythonExe
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flood_'));
 
-  // Env с поддержкой публичного S3 без авторизации
   function floodEnv() {
     return {
       ...gdalEnv(),
-      AWS_NO_SIGN_REQUEST: 'YES',
       GDAL_HTTP_MAX_RETRY: '3',
       GDAL_HTTP_RETRY_DELAY: '2',
     };
@@ -698,17 +713,6 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
     let tifUrls = [];
 
     // Конвертация любого URL в /vsis3/ формат (AWS_NO_SIGN_REQUEST обходит auth для публичных бакетов)
-    function toVsis3(u) {
-      if (u.startsWith('s3://')) return '/vsis3/' + u.slice(5);
-      // https://bucket.s3.region.amazonaws.com/path → /vsis3/bucket/path
-      const m = u.match(/^https?:\/\/([^.]+)\.s3[^.]*\.amazonaws\.com\/(.+)$/);
-      if (m) return `/vsis3/${m[1]}/${m[2]}`;
-      // https://s3.region.amazonaws.com/bucket/path → /vsis3/bucket/path
-      const m2 = u.match(/^https?:\/\/s3[^.]*\.amazonaws\.com\/([^/]+)\/(.+)$/);
-      if (m2) return `/vsis3/${m2[1]}/${m2[2]}`;
-      return '/vsicurl/' + u; // не S3 — оставляем как есть
-    }
-
     // 1. STAC API (10m, как основной источник для затопления)
     try {
       const r10 = await stacSearch(bbox, 'arcticdem-mosaics-v4.1-10m');
@@ -717,23 +721,14 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
           const a = item.assets || {};
           const k = Object.keys(a).find(k => k === 'dem' || k.endsWith('_dem')) || Object.keys(a)[0];
           return a[k]?.href;
-        }).filter(Boolean).map(toVsis3);
+        }).filter(Boolean).map(_normS3Url).filter(Boolean);
       }
     } catch(e) { console.log('[FLOOD] STAC:', e.message.slice(0,80)); }
 
-    // 2. Прямые /vsis3/ URLs как fallback (без 301 редиректа)
+    // 2. Прямые URLs через глобальный эндпоинт (без региона — без 301)
     if (!tifUrls.length) {
-      console.log('[FLOOD] STAC недоступен — прямые /vsis3/ URLs');
-      const BASE_BUCKET = 'pgc-opendata-dems';
-      const BASE_PATH   = 'arcticdem/mosaics/v4.1';
-      for (let lat = Math.floor(bbox.minLat); lat <= Math.floor(bbox.maxLat); lat++) {
-        for (let lng = Math.floor(bbox.minLng); lng <= Math.floor(bbox.maxLng); lng++) {
-          const latS = lat >= 0 ? `n${String(lat).padStart(2,'0')}` : `s${String(-lat).padStart(2,'0')}`;
-          const lngS = lng >= 0 ? `e${String(lng).padStart(3,'0')}` : `w${String(-lng).padStart(3,'0')}`;
-          const id   = `${latS}${lngS}`;
-          tifUrls.push(`/vsis3/${BASE_BUCKET}/${BASE_PATH}/10m/${id}/${id}_10m_v4.1_dem.tif`);
-        }
-      }
+      console.log('[FLOOD] STAC недоступен — прямые S3 URLs (глобальный эндпоинт)');
+      tifUrls = _buildDirectDemUrls(bbox, '10m');
     }
     if (!tifUrls.length) throw new Error('Нет тайлов ArcticDEM для выбранного bbox');
 
