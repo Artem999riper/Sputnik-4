@@ -440,6 +440,29 @@ function _findLocalTiles() {
   } catch(e) { return []; }
 }
 
+// Скачивает тайл с кэшированием в dem_tiles/.
+// Если файл уже есть в кэше — возвращает его путь без скачивания.
+// После успешного скачивания сохраняет копию в dem_tiles/ для следующего раза.
+async function _downloadWithCache(url, tmpDir) {
+  const fname = path.basename(url);
+  const cached = path.join(DEM_TILES_DIR, fname);
+  if (fs.existsSync(cached)) {
+    console.log(`[DEM] Кэш: ${fname}`);
+    return cached;
+  }
+  const tmp = path.join(tmpDir, fname);
+  await _downloadDemTile(url, tmp);
+  // Сохраняем в кэш
+  try {
+    fs.mkdirSync(DEM_TILES_DIR, { recursive: true });
+    fs.copyFileSync(tmp, cached);
+    console.log(`[DEM] Сохранено в кэш: ${fname}`);
+  } catch(e) {
+    console.log(`[DEM] Не удалось сохранить в кэш: ${e.message}`);
+  }
+  return tmp;
+}
+
 async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif) {
   const {minLat,maxLat,minLng,maxLng} = bbox;
 
@@ -680,7 +703,7 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
         for (let i=0;i<urls2m.length;i++){
           const url=urls2m[i];
           const lp=path.join(tmpDir,path.basename(url));
-          try{ await _downloadDemTile(url,lp); downloaded.push(lp); log.push(path.basename(url)+' OK'); }
+          try{ const p = await _downloadWithCache(url,tmpDir); downloaded.push(p); log.push(path.basename(url)+' OK'); }
           catch(e){ log.push(path.basename(url)+' fail: '+e.message.slice(0,40)); }
         }
         if (downloaded.length){
@@ -695,8 +718,8 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
               const latS=lat>=0?`n${String(lat).padStart(2,'0')}`:`s${String(-lat).padStart(2,'0')}`;
               const lngS=lng>=0?`e${String(lng).padStart(3,'0')}`:`w${String(-lng).padStart(3,'0')}`;
               const id=`${latS}${lngS}`;
-              const lp=path.join(tmpDir,`${id}_10m_v4.1_dem.tif`);
-              try{ await _downloadDemTile(`${BASE}/10m/${id}/${id}_10m_v4.1_dem.tif`,lp); downloaded.push(lp); log.push(`${id} 10m OK`); }
+              const url10=`${BASE}/10m/${id}/${id}_10m_v4.1_dem.tif`;
+              try{ const p = await _downloadWithCache(url10,tmpDir); downloaded.push(p); log.push(`${id} 10m OK`); }
               catch(e){ log.push(`${id} fail: ${e.message.slice(0,40)}`); }
             }
           }
@@ -988,8 +1011,8 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
         onProgress(5 + Math.round(22 * i / Math.max(urls2m.length, 1)), `Загрузка ${fname}…`);
         console.log('[FLOOD] 2m:', url);
         try {
-          await _downloadDemTile(url, localPath);
-          localTilePaths.push(localPath);
+          const p = await _downloadWithCache(url, tmpDir);
+          localTilePaths.push(p);
           console.log(`[FLOOD] OK: ${fname}`);
           used2m = true;
         } catch(e) {
@@ -1013,11 +1036,10 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
           const id = tileDefs[i];
           onProgress(10 + Math.round(17 * i / Math.max(tileDefs.length, 1)), `Загрузка ${id}…`);
           const url = `${BASE}/10m/${id}/${id}_10m_v4.1_dem.tif`;
-          const localPath = path.join(tmpDir, `${id}_10m_v4.1_dem.tif`);
           console.log('[FLOOD] 10m:', url);
           try {
-            await _downloadDemTile(url, localPath);
-            localTilePaths.push(localPath);
+            const p = await _downloadWithCache(url, tmpDir);
+            localTilePaths.push(p);
             console.log(`[FLOOD] OK: ${id} (10m)`);
           } catch(e) {
             console.log(`[FLOOD] 10m skip ${id}: ${e.message}`);
