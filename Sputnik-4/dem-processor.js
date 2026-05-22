@@ -775,19 +775,36 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
 
     if (format==='geotiff') return {file:reprojTif,tmpDir,log,mime:'image/tiff'};
 
-    // 5. Fillnodata + upsample
+    // 5. Fillnodata + resample
     onProgress&&onProgress(45,'Улучшение растра...');
     const filledTif=path.join(tmpDir,'filled.tif');
     try{
       await runGDAL('gdal_fillnodata',['-md','10','-si','2',reprojTif,filledTif]);
     }catch(e){ fs.copyFileSync(reprojTif,filledTif); }
 
+    // Ресамплинг только для грубых данных (>5м): 10m→5m upsample.
+    // При 2m источнике (-tr 5 5 это downsample) cubicspline в GDAL 4.0 даёт all-NoData.
+    // Используем bilinear — безопасен для обоих направлений.
     const upTif=path.join(tmpDir,'up.tif');
     try{
-      await runGDAL('gdalwarp',['-r','cubicspline','-tr','5','5',
-        '-co','COMPRESS=LZW',filledTif,upTif]);
-    }catch(e){ fs.copyFileSync(filledTif,upTif); }
-    log.push('Upsample OK');
+      const info = await execFileP(gdal('gdalinfo'),['-json',filledTif],
+        {env:gdalEnv(),maxBuffer:2*1024*1024,timeout:30000});
+      const gi = JSON.parse(info.stdout||'{}');
+      const pixW = Math.abs((gi.geoTransform||[0,10])[1]);
+      if (pixW > 5.5) {
+        // Источник грубее 5м (10m, 20m) — уплотняем до 5м
+        await runGDAL('gdalwarp',['-r','bilinear','-tr','5','5',
+          '-co','COMPRESS=LZW',filledTif,upTif]);
+        log.push('Upsample 5m OK');
+      } else {
+        // Источник уже ≤5м (2m ArcticDEM) — ресамплинг не нужен
+        fs.copyFileSync(filledTif,upTif);
+        log.push(`Upsample skip (pix=${pixW.toFixed(1)}m)`);
+      }
+    }catch(e){
+      fs.copyFileSync(filledTif,upTif);
+      log.push('Upsample fallback');
+    }
 
     // 6. Горизонтали → SHP (GPKG в GDAL 4.0 молча создаёт пустой слой)
     onProgress&&onProgress(55,`Горизонтали ${interval}м...`);
