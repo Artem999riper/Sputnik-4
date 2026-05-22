@@ -262,6 +262,22 @@ function runGDAL(exe, args) {
   });
 }
 
+// Диагностика: min/max/nodata растра — для отслеживания шага, где данные становятся NoData
+async function _gdalStats(tif, label) {
+  try {
+    const r = await execFileP(gdal('gdalinfo'), ['-stats', '-json', tif],
+      { env: gdalEnv(), maxBuffer: 4*1024*1024, timeout: 30000 });
+    const j = JSON.parse(r.stdout || '{}');
+    const b = j.bands?.[0] || {};
+    const m = b.metadata?.[''] || {};
+    console.log(`[DEM stats ${label}] min=${m.STATISTICS_MINIMUM} max=${m.STATISTICS_MAXIMUM} nodata=${b.noDataValue}`);
+    return { min: Number(m.STATISTICS_MINIMUM), max: Number(m.STATISTICS_MAXIMUM), nodata: b.noDataValue };
+  } catch(e) {
+    console.log(`[DEM stats ${label}] fail: ${e.message.slice(0,80)}`);
+    return null;
+  }
+}
+
 // ── Спутник ────────────────────────────────────────────────
 function lon2tile(lon,z) { return Math.floor((lon+180)/360*Math.pow(2,z)); }
 function lat2tile(lat,z) {
@@ -751,16 +767,25 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     ]);
     log.push('Clip OK');
 
-    // 3. Геоид
+    await _gdalStats(clippedTif, 'clipped');
+
+    // 3. Геоид: compound CRS сохраняет горизонталь EPSG:4326, меняет только вертикаль (эллипсоид→БСВ-77)
     onProgress&&onProgress(28,useGeoid?'Перевод БСВ-77...':'Подготовка...');
     let demTif=clippedTif;
     if (useGeoid){
       const gTif=path.join(tmpDir,'geoid.tif');
       try{
-        await runGDAL('gdalwarp',['-s_srs','EPSG:4979','-t_srs','EPSG:9518',
+        await runGDAL('gdalwarp',['-s_srs','EPSG:4326+4979','-t_srs','EPSG:4326+9518',
           '-r','bilinear','-co','COMPRESS=LZW',clippedTif,gTif]);
-        demTif=gTif; log.push('Geoid OK');
-      }catch(e){log.push('Geoid skip');}
+        const st = await _gdalStats(gTif, 'geoid');
+        // Если все-NoData (геоид-грид отсутствует) — откатываемся на эллипсоидальные высоты
+        if (st && Number.isFinite(st.max) && st.max > -9000) {
+          demTif=gTif; log.push(`Geoid OK (max=${st.max})`);
+        } else {
+          log.push(`Geoid produced NoData/invalid, fallback to ellipsoidal`);
+          console.log('[DEM] Геоид-шаг дал NoData (вероятно отсутствует EGM2008 grid). Используем эллипсоидальные высоты.');
+        }
+      }catch(e){log.push('Geoid skip: '+e.message.slice(0,80));}
     }
 
     // 4. Репроекция
@@ -772,6 +797,7 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
       '-co','COMPRESS=LZW','-co','TILED=YES',demTif,reprojTif,
     ]);
     log.push('Reproject OK');
+    await _gdalStats(reprojTif, 'reproj');
 
     if (format==='geotiff') return {file:reprojTif,tmpDir,log,mime:'image/tiff'};
 
@@ -781,6 +807,7 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     try{
       await runGDAL('gdal_fillnodata',['-md','10','-si','2',reprojTif,filledTif]);
     }catch(e){ fs.copyFileSync(reprojTif,filledTif); }
+    await _gdalStats(filledTif, 'filled');
 
     // Ресамплинг только для грубых данных (>5м): 10m→5m upsample.
     // При 2m источнике (-tr 5 5 это downsample) cubicspline в GDAL 4.0 даёт all-NoData.
@@ -805,6 +832,7 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
       fs.copyFileSync(filledTif,upTif);
       log.push('Upsample fallback');
     }
+    await _gdalStats(upTif, 'up');
 
     // 6. Горизонтали → SHP (GPKG в GDAL 4.0 молча создаёт пустой слой)
     onProgress&&onProgress(55,`Горизонтали ${interval}м...`);
@@ -844,8 +872,8 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
       exec(`"${_pythonExe}" "${pyScript}" "${paramsFile}"`,
         {env, timeout:600000, maxBuffer:50*1024*1024},
         (err,stdout,stderr)=>{
-          console.log('[PY stdout]', stdout.slice(0,500));
-          if (stderr) console.log('[PY stderr]', stderr.slice(0,300));
+          console.log('[PY stdout]', stdout.slice(0,2000));
+          if (stderr) console.log('[PY stderr]', stderr.slice(0,500));
           if (err) reject(new Error(`Python error: ${stderr||err.message}`.slice(0,300)));
           else resolve(stdout);
         });
@@ -1104,18 +1132,24 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
     ]);
 
     // Перевод в БСВ-77 (EGM2008, EPSG:9518): ArcticDEM даёт эллипсоидальные высоты WGS-84,
-    // пользователь вводит отметку в балтийской системе — нужно привести растр к той же шкале
+    // пользователь вводит отметку в балтийской системе — нужно привести растр к той же шкале.
+    // Используем compound CRS, чтобы сохранить горизонтальную CRS (EPSG:4326).
     onProgress(52, 'Перевод высот в БСВ-77...');
     const geoidPath = path.join(tmpDir, 'dem_bsv77.tif');
     let demForCalc = clipPath;
     try {
       await runGDAL('gdalwarp', [
-        '-s_srs', 'EPSG:4979', '-t_srs', 'EPSG:9518',
+        '-s_srs', 'EPSG:4326+4979', '-t_srs', 'EPSG:4326+9518',
         '-r', 'bilinear', '-co', 'COMPRESS=LZW',
         clipPath, geoidPath,
       ]);
-      demForCalc = geoidPath;
-      console.log('[FLOOD] Геоид БСВ-77 OK');
+      const st = await _gdalStats(geoidPath, 'flood-geoid');
+      if (st && Number.isFinite(st.max) && st.max > -9000) {
+        demForCalc = geoidPath;
+        console.log('[FLOOD] Геоид БСВ-77 OK');
+      } else {
+        console.log('[FLOOD] Геоид дал NoData, используем эллипсоидальные высоты');
+      }
     } catch(e) {
       console.log('[FLOOD] Геоид пропущен:', e.message.slice(0, 100));
     }
