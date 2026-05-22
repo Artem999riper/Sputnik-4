@@ -354,6 +354,17 @@ function _downloadViaProxy(url, localPath, proxyStr) {
   });
 }
 
+// Быстрая проверка: может ли GDAL открыть URL через vsicurl (≤10 сек).
+// Возвращает true если S3 доступен напрямую (COG range-запросы — быстро).
+async function _canVsiCurl(vsicurlUrl) {
+  try {
+    findGDALBin();
+    const env = { ...gdalEnv(), GDAL_HTTP_CONNECTTIMEOUT: '8', GDAL_HTTP_TIMEOUT: '10' };
+    await execFileP(gdal('gdalinfo'), [vsicurlUrl], { env, timeout: 15000, maxBuffer: 2*1024*1024 });
+    return true;
+  } catch(e) { return false; }
+}
+
 // Скачивает DEM тайл через Node.js (следует редиректам), обходя GDAL vsicurl.
 // Если установлен HTTPS_PROXY — маршрутизирует через HTTP CONNECT tunnel.
 function _downloadDemTile(url, localPath, maxRedirects) {
@@ -645,10 +656,26 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
         tifUrls = localFiles;
         usedRes = 'local';
       } else {
-        // Скачать 10m через Node.js (поддерживает HTTPS_PROXY)
-        log.push('STAC недоступен — скачивание тайлов через Node.js');
-        onProgress&&onProgress(8,'Скачивание тайлов ArcticDEM 2m...');
+        log.push('STAC недоступен — пробуем vsicurl COG, затем полное скачивание');
         const urls2m = _build2mTileUrls(bbox);
+        const vsUrls2m = urls2m.map(u => '/vsicurl/' + u);
+
+        // Быстрый путь: vsicurl COG (GDAL читает только нужный bbox)
+        if (vsUrls2m.length) {
+          onProgress&&onProgress(8,'Проверка прямого доступа к ArcticDEM COG...');
+          const vsOk = await _canVsiCurl(vsUrls2m[0]);
+          if (vsOk) {
+            tifUrls = vsUrls2m; usedRes = '2m';
+            log.push('vsicurl 2m COG OK');
+            onProgress&&onProgress(15,'ArcticDEM 2m COG: прямой доступ ✓');
+          } else {
+            log.push('vsicurl недоступен — полное скачивание');
+          }
+        }
+
+        // Медленный путь: полное скачивание файлов
+        if (!tifUrls.length) {
+        onProgress&&onProgress(8,'Скачивание тайлов ArcticDEM 2m...');
         const downloaded=[];
         for (let i=0;i<urls2m.length;i++){
           const url=urls2m[i];
@@ -676,6 +703,7 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
           if (!downloaded.length) throw new Error('Не удалось скачать тайлы ArcticDEM. Установите HTTPS_PROXY или поместите .tif файлы в папку dem_tiles/');
           tifUrls=downloaded; usedRes='10m';
         }
+        } // конец медленного пути
       }
     }
     log.push(`Tiles: ${tifUrls.length} (${usedRes}${stacOk?'':' via S3'})`);
@@ -922,7 +950,7 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
   }
 
   try {
-    // 1. Тайлы ArcticDEM: сначала локальные (dem_tiles/), затем S3 (с поддержкой HTTPS_PROXY)
+    // 1. Тайлы ArcticDEM: локальные → vsicurl COG (быстро) → полное скачивание (медленно)
     onProgress(5, 'Поиск тайлов ArcticDEM...');
 
     let localTilePaths = _findLocalTiles();
@@ -931,9 +959,26 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
       console.log(`[FLOOD] Найдено ${localTilePaths.length} локальных тайлов в dem_tiles/`);
       onProgress(28, `Используем ${localTilePaths.length} локальных тайлов...`);
     } else {
+      const urls2m = _build2mTileUrls(bbox);
+      const vsUrls2m = urls2m.map(u => '/vsicurl/' + u);
+
+      // Быстрый путь: GDAL vsicurl (COG range-запросы, скачивает только нужный bbox)
+      if (vsUrls2m.length) {
+        onProgress(6, 'Проверка прямого доступа к ArcticDEM...');
+        const vsOk = await _canVsiCurl(vsUrls2m[0]);
+        if (vsOk) {
+          console.log('[FLOOD] vsicurl OK — используем COG range-запросы (быстро)');
+          localTilePaths = vsUrls2m;
+          onProgress(28, `ArcticDEM 2m: COG доступ (${vsUrls2m.length} тайл(а))`);
+        } else {
+          console.log('[FLOOD] vsicurl недоступен — полное скачивание');
+        }
+      }
+
+      // Медленный путь: полное скачивание (если vsicurl не работает)
+      if (!localTilePaths.length) {
       // Скачать с S3 через Node.js: сначала 2m (правильные PS-координаты), потом 10m
       onProgress(5, 'Скачивание тайлов ArcticDEM 2m...');
-      const urls2m = _build2mTileUrls(bbox);
       let used2m = false;
 
       for (let i = 0; i < urls2m.length; i++) {
@@ -981,7 +1026,7 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
       }
 
       if (!localTilePaths.length) {
-        const hint2m = _build2mTileUrls(bbox).slice(0, 4).map(u => path.basename(u)).join(', ');
+        const hint2m = urls2m.slice(0, 4).map(u => path.basename(u)).join(', ');
         throw new Error(
           'Не удалось скачать тайлы ArcticDEM.\n\n' +
           'Способы решения:\n' +
@@ -990,6 +1035,7 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
           'Нужные файлы (2m): ' + hint2m
         );
       }
+      } // конец медленного пути
     }
 
     const listFile = path.join(tmpDir, 'tiles.txt');
