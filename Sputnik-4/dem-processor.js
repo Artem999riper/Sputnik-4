@@ -776,16 +776,21 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
 
     let clipSt = await _gdalStats(clippedTif, 'clipped');
 
-    // Если vsicurl дал all-NoData (крупные range-запросы заблокированы) — скачиваем полностью
-    const usedVsicurl = tifUrls.some(u => u.startsWith('/vsicurl/'));
-    if (usedVsicurl && (!clipSt || !Number.isFinite(clipSt.max) || clipSt.max <= -9000)) {
-      console.log('[DEM] vsicurl дал пустые данные — переключаемся на полное скачивание');
-      onProgress&&onProgress(15, 'Скачивание тайлов (vsicurl недоступен)...');
-      const rawUrls = tifUrls.map(u => u.replace(/^\/vsicurl\//, ''));
+    // Если данные пустые (all-NoData) — независимо от источника:
+    //   vsicurl: крупные range-запросы заблокированы → скачиваем полностью
+    //   локальные тайлы: тайл из dem_tiles/ не покрывает этот bbox → скачиваем нужный
+    if (!clipSt || !Number.isFinite(clipSt.max) || clipSt.max <= -9000) {
+      const isVsicurl = tifUrls.some(u => u.startsWith('/vsicurl/'));
+      // vsicurl → убираем префикс, local/other → строим URL для текущего bbox заново
+      const dlUrls = isVsicurl
+        ? tifUrls.map(u => u.replace(/^\/vsicurl\//, ''))
+        : _build2mTileUrls(bbox);
+      console.log(`[DEM] Клип all-NoData (${isVsicurl ? 'vsicurl заблокирован' : 'локальные тайлы не покрывают bbox'}) — скачиваем ${dlUrls.length} тайл(а) напрямую`);
+      onProgress&&onProgress(15, 'Скачивание тайлов...');
       const downloaded = [];
-      for (let i = 0; i < rawUrls.length; i++) {
-        const url = rawUrls[i];
-        onProgress&&onProgress(15 + Math.round(10 * i / Math.max(rawUrls.length, 1)), `Скачивание ${path.basename(url)}…`);
+      for (let i = 0; i < dlUrls.length; i++) {
+        const url = dlUrls[i];
+        onProgress&&onProgress(15 + Math.round(10 * i / Math.max(dlUrls.length, 1)), `Скачивание ${path.basename(url)}…`);
         try {
           const p = await _downloadWithCache(url, tmpDir);
           downloaded.push(p);
@@ -799,10 +804,11 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
         clipSt = await _gdalStats(clippedTif, 'clipped-dl');
         log.push('Clip after download OK');
       } else {
-        const hint = tifUrls.slice(0, 3).map(u => path.basename(u.replace(/^\/vsicurl\//, ''))).join(', ');
+        const hint = dlUrls.slice(0, 3).map(u => path.basename(u)).join(', ');
         throw new Error(
-          'Не удалось получить данные ArcticDEM. Скачайте файлы вручную через браузер с сайта\n' +
-          'https://polargeospatialcenter.github.io/stac-browser/ и поместите .tif в папку dem_tiles/\n' +
+          'Не удалось получить данные ArcticDEM.\n\n' +
+          'Скачайте файлы через браузер с сайта polargeospatialcenter.github.io/stac-browser\n' +
+          'и поместите .tif файлы в папку dem_tiles/\n\n' +
           'Нужные файлы: ' + hint
         );
       }
