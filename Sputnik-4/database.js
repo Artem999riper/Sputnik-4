@@ -255,6 +255,7 @@ async function getDb() {
   ta("CREATE TABLE IF NOT EXISTS pgk_brigade_sites (brigade_id TEXT NOT NULL, site_id TEXT NOT NULL, PRIMARY KEY (brigade_id, site_id))");
   ta("ALTER TABLE field_samples ADD COLUMN depth_top_m REAL");
   ta("ALTER TABLE field_samples ADD COLUMN depth_bottom_m REAL");
+  ta("ALTER TABLE volumes ADD COLUMN visible INTEGER DEFAULT 1");
 
   return _db;
 }

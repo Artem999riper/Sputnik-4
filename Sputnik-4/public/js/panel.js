@@ -535,7 +535,7 @@ function renderVolumesOnMap(vols){
   clearVolumesFromMap();
   (vols||[]).forEach(function(vol){
     if(!vol.geojson)return;
-    if(volVisible[vol.id]===true)return;
+    if(vol.visible===0)return;
     try{
       var gj=JSON.parse(vol.geojson);
       // Determine if this volume is a point collection
@@ -675,7 +675,7 @@ function renderVolumesOnMap(vols){
           }
           menuItems.push({sep:true});
           menuItems.push({i:'📝',l:'Редактировать данные',f:function(){openEditVolModal(vol.id);}});
-          menuItems.push({i:'🚫',l:'Скрыть с карты',f:function(){toggleVolVis(vol.id);}});
+          menuItems.push({i:vol.visible===0?'👁':'🚫',l:vol.visible===0?'Показать на карте':'Скрыть с карты',f:function(){toggleVolVis(vol.id);}});
           menuItems.push({i:'✂️',l:'Удалить контур',cls:'dan',f:function(){clearVolGeom(vol.id);}});
           menuItems.push({i:'🗑',l:'Удалить объём',cls:'dan',f:function(){deleteVol(vol.id);}});
           showCtx(cx,cy,menuItems);
@@ -699,7 +699,7 @@ function renderVolumesOnMap(vols){
         }
         items.push({sep:true});
         items.push({i:'📝',l:'Редактировать данные',f:function(){openEditVolModal(vol.id);}});
-        items.push({i:'🚫',l:'Скрыть с карты',f:function(){toggleVolVis(vol.id);}});
+        items.push({i:vol.visible===0?'👁':'🚫',l:vol.visible===0?'Показать на карте':'Скрыть с карты',f:function(){toggleVolVis(vol.id);}});
         items.push({i:'✂️',l:'Удалить контур',cls:'dan',f:function(){clearVolGeom(vol.id);}});
         items.push({i:'🗑',l:'Удалить объём',cls:'dan',f:function(){deleteVol(vol.id);}});
         showCtx(cx,cy,items);
@@ -736,6 +736,7 @@ function renderVpLayers(volProgressList){
     if(!p.geojson)return;
     if(vpVisible[p.id]===false)return; // явно скрыт пользователем
     var vol=(currentObj&&currentObj.volumes||[]).find(function(v){return v.id===p.volume_id;});
+    if(vol&&vol.visible===0)return; // родительский объём скрыт
     var color=vol?vol.color||'#1a56db':'#1a56db';
     var fillOp=vol&&vol.fill_opacity!==undefined&&vol.fill_opacity!==null?vol.fill_opacity:.3;
     try{
@@ -957,13 +958,15 @@ function toggleVpVis(factId,volId){
 }
 
 function toggleVolVis(volId){
-  const isHidden=(volVisible[volId]===true);
-  if(isHidden){
-    volVisible[volId]=false; // показать
-  } else {
-    volVisible[volId]=true;  // скрыть
-  }
+  var vol=(currentObj&&currentObj.volumes||[]).find(function(v){return v.id===volId;});
+  if(!vol)return;
+  var newVis=vol.visible===0?1:0;
+  vol.visible=newVis; // мгновенная обратная связь
+  fetch(API+'/volumes/'+volId+'/visible',{method:'PATCH',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({visible:newVis})});
   if(currentObj)renderVolumesOnMap(currentObj.volumes||[]);
+  if(currentObj)renderVpLayers(currentObj.vol_progress||[]);
   renderTab();
 }
 function clearVolGeom(volId){

@@ -126,6 +126,12 @@ module.exports = (app, getDb, L) => {
     res.json({ success: true });
   }));
 
+  app.patch('/api/volumes/:id/visible', wrap((req, res) => {
+    const vis = req.body.visible ? 1 : 0;
+    run(db(), 'UPDATE volumes SET visible=? WHERE id=?', [vis, req.params.id]);
+    res.json({ ok: true });
+  }));
+
   app.delete('/api/volumes/:id', wrap((req, res) => {
     const _restore = trashAndDelete(db(), 'volumes', req.params.id, {
       children: [{ table: 'vol_progress', fkColumn: 'volume_id' }],
