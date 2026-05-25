@@ -727,30 +727,41 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
     // 4. gdal_calc: маска ≤ waterLevelM
     onProgress(65, `Маска затопления ≤${waterLevelM}м...`);
     const maskPath = path.join(tmpDir, 'mask.tif');
-    const calcScript = gdal('gdal_calc') + (IS_WINDOWS ? '' : '.py').replace(/gdal_calc(\.py)?\.py$/,'gdal_calc.py');
-    const calcExe = IS_WINDOWS
-      ? path.join(findGDALBin(), '..', 'apps', 'Python312', 'Scripts', 'gdal_calc.py')
-      : gdal('gdal_calc.py');
 
-    // Используем gdalwarp с cutline через командную строку вместо gdal_calc
-    // для совместимости без знания точного пути к gdal_calc.py
-    await new Promise((resolve, reject) => {
+    const pyMaskOut = await new Promise((resolve, reject) => {
       const pyCalcScript = `
 import sys
-from osgeo import gdal
 import numpy as np
+from osgeo import gdal
+gdal.UseExceptions()
+
 ds = gdal.Open(sys.argv[1])
 band = ds.GetRasterBand(1)
-arr = band.ReadAsArray().astype(float)
+arr = band.ReadAsArray().astype(np.float64)
 nodata = band.GetNoDataValue()
+
+# Маска невалидных пикселей: nodata-значение и всё что явно неправдоподобно
+invalid = np.zeros(arr.shape, dtype=bool)
 if nodata is not None:
-    arr[arr == nodata] = np.nan
-mask = (arr <= float(sys.argv[2])).astype(np.uint8)
-if nodata is not None:
-    mask[np.isnan(arr)] = 0
+    invalid |= np.isclose(arr, nodata, atol=0.01)
+invalid |= (arr < -9000)   # защита на случай если nodata = None
+
+valid_vals = arr[~invalid]
+water = float(sys.argv[2])
+print(f"[MASK] nodata={nodata}, valid_pixels={valid_vals.size}, water={water}m")
+if valid_vals.size > 0:
+    print(f"[MASK] elev min={valid_vals.min():.2f} max={valid_vals.max():.2f} mean={valid_vals.mean():.2f}")
+else:
+    print("[MASK] WARNING: no valid pixels - geoid conversion may have failed")
+
+# Затопленные: валидные пиксели с высотой <= уровня воды
+mask = np.zeros(arr.shape, dtype=np.uint8)
+mask[(arr <= water) & ~invalid] = 1
+flood_px = int(mask.sum())
+print(f"[MASK] flooded_pixels={flood_px} of {valid_vals.size} valid ({100*flood_px/max(1,valid_vals.size):.1f}%)")
+
 driver = gdal.GetDriverByName('GTiff')
-out = driver.Create(sys.argv[3], ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Byte,
-    ['COMPRESS=LZW'])
+out = driver.Create(sys.argv[3], ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Byte, ['COMPRESS=LZW'])
 out.SetGeoTransform(ds.GetGeoTransform())
 out.SetProjection(ds.GetProjection())
 b = out.GetRasterBand(1)
@@ -764,8 +775,9 @@ out = None; ds = None
       exec(`"${_pythonExe}" "${pyFile}" "${demForCalc}" "${waterLevelM}" "${maskPath}"`,
         { env: gdalEnv(), timeout: 120000, maxBuffer: 20*1024*1024 },
         (err, stdout, stderr) => {
+          if (stdout) console.log('[FLOOD mask]', stdout.trim());
           if (err) reject(new Error(stderr || err.message));
-          else resolve();
+          else resolve(stdout);
         });
     });
 
