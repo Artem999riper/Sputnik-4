@@ -6,6 +6,7 @@
 let _demDrawing   = false;   // режим рисования bbox
 let _demRect      = null;    // L.rectangle на карте
 let _demStart     = null;    // первая точка bbox
+let _demGeoidN    = null;    // N геоида для центра bbox (WGS84 = BSV77 + N)
 let _demTmpLayer  = null;    // временный прямоугольник при рисовании
 let _demBbox      = null;    // итоговый bbox {minLat,minLng,maxLat,maxLng}
 
@@ -175,6 +176,24 @@ function openDEMPanel() {
       </div>
 
       <div class="fg s2">
+        <label>Пересчёт высот WGS84 → БСВ-77</label>
+        <div style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:4px">
+          <span style="white-space:nowrap;color:var(--t2)">WGS84, м:</span>
+          <input type="number" id="dem-wgs-conv" step="0.1" placeholder="напр. −8.70"
+            style="width:110px;padding:4px 8px;border-radius:6px;border:1px solid var(--bd);
+                   background:var(--s2);color:var(--text);font-size:13px"
+            oninput="_demUpdateBsvConv(this.value)">
+          <span style="white-space:nowrap;color:var(--t2)">= БСВ-77:</span>
+          <span id="dem-bsv77-conv" style="font-weight:700;color:var(--acc)">—</span>
+        </div>
+        <div id="dem-geoid-n-info" style="font-size:10px;color:var(--t2)">
+          ${_demBbox && _demGeoidN !== null
+            ? `N = ${_demGeoidN.toFixed(1)} м (для центра области)`
+            : (_demBbox ? 'Определение N геоида…' : 'Нарисуйте область — N будет определён автоматически')}
+        </div>
+      </div>
+
+      <div class="fg s2">
         <label>Дополнительно</label>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;
                padding:6px 9px;background:var(--s2);border:1.5px solid var(--bd);
@@ -287,6 +306,29 @@ function _demSecondClick(e) {
   // Открываем панель снова с обновлёнными данными
   openDEMPanel();
 
+  // Запрашиваем N геоида для центра bbox — используется в конвертере WGS84→БСВ-77
+  _demGeoidN = null;
+  const latC = (b.getSouth() + b.getNorth()) / 2;
+  const lngC = (b.getWest()  + b.getEast())  / 2;
+  fetch(`/api/dem/geoid-n?lat=${latC.toFixed(4)}&lng=${lngC.toFixed(4)}`)
+    .then(r => r.json())
+    .then(d => {
+      _demGeoidN = (d.n != null && !isNaN(d.n) && Math.abs(d.n) > 0.1) ? d.n : null;
+      const info = document.getElementById('dem-geoid-n-info');
+      if (info) {
+        info.textContent = _demGeoidN !== null
+          ? `N = ${_demGeoidN.toFixed(1)} м (EGM2008/96, центр области)`
+          : 'N геоида недоступен — нет PROJ-данных (установите proj-data в OSGeo4W)';
+      }
+      // Пересчитать если поле уже заполнено
+      const inp = document.getElementById('dem-wgs-conv');
+      if (inp && inp.value) _demUpdateBsvConv(inp.value);
+    })
+    .catch(() => {
+      const info = document.getElementById('dem-geoid-n-info');
+      if (info) info.textContent = 'N геоида недоступен';
+    });
+
   setTimeout(() => {
     const info = document.getElementById('dem-bbox-info');
     if (info) {
@@ -321,6 +363,17 @@ function _demSecondClick(e) {
         `Рекомендуется не более 100 км² для шага 2м.`;
     }
   }, 100);
+}
+
+// Живой пересчёт WGS84 → БСВ-77 в диалоге рельефа
+// Формула: H_BSV77 = h_WGS84 − N  (т.к. h = H + N)
+function _demUpdateBsvConv(val) {
+  const span = document.getElementById('dem-bsv77-conv');
+  if (!span) return;
+  const wgs = parseFloat(val);
+  if (isNaN(wgs)) { span.textContent = '—'; return; }
+  if (_demGeoidN === null) { span.textContent = '? (N неизвестен)'; return; }
+  span.textContent = (wgs - _demGeoidN).toFixed(2) + ' м';
 }
 
 function demClearDraw() {
