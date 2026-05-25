@@ -397,7 +397,13 @@ function handleSseChange(ev){
   // Базовые сущности — общий дебаунсированный loadAll
   if(url.match(/\/(sites|bases|layers|pgk|materials|volumes|vol_progress|kameral|remarks|machinery|workers|equipment)/)){
     if(_sseAllTimer)clearTimeout(_sseAllTimer);
-    _sseAllTimer=setTimeout(function(){try{loadAll&&loadAll();}catch(e){}},900);
+    _sseAllTimer=setTimeout(async function(){
+      try{if(loadAll)await loadAll();}catch(e){}
+      // После обновления общих данных синхронизируем текущий объект:
+      // видимость объёмов и KML-слоёв хранится в полных данных сайта (/api/sites/:id),
+      // а не в /api/sites, поэтому явно перезагружаем текущий объект
+      try{if(typeof currentObj!=='undefined'&&currentObj&&refreshCurrent)refreshCurrent();}catch(e){}
+    },900);
   }
 }
 let _sseAllTimer=null;
