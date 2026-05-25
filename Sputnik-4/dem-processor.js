@@ -660,48 +660,47 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(),'flood_'));
 
   try {
-    // 1. Скачиваем тайлы ArcticDEM 10m через Node.js
+    // 1. Тайлы ArcticDEM — точно так же как в processDEM: STAC → прямые S3 vsicurl
     onProgress(5, 'Поиск тайлов ArcticDEM...');
-    const BASE = 'https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1';
-    const tilePaths = [];
-
-    for (let lat = Math.floor(minLat); lat <= Math.floor(maxLat); lat++) {
-      for (let lng = Math.floor(minLng); lng <= Math.floor(maxLng); lng++) {
-        const latS = lat >= 0 ? `n${String(lat).padStart(2,'0')}` : `s${String(-lat).padStart(2,'0')}`;
-        const lngS = lng >= 0 ? `e${String(lng).padStart(3,'0')}` : `w${String(-lng).padStart(3,'0')}`;
-        const id   = `${latS}${lngS}`;
-        let downloaded = false;
-        for (const res of ['10m']) {
-          const url = `${BASE}/${res}/${id}/${id}_${res}_v4.1_dem.tif`;
-          const localPath = path.join(tmpDir, `${id}_${res}.tif`);
-          try {
-            await _downloadDemTile(url, localPath);
-            tilePaths.push(localPath);
-            downloaded = true;
-            console.log(`[FLOOD] OK: ${id} (${res})`);
-            break;
-          } catch(e) {
-            console.log(`[FLOOD] ${id}@${res}: ${e.message.slice(0,60)}`);
-          }
-        }
-        if (!downloaded) console.log(`[FLOOD] Тайл ${id} недоступен`);
+    let tifUrls = [], usedRes = '10m';
+    try {
+      const r2 = await stacSearch(bbox, 'arcticdem-mosaics-v4.1-2m');
+      if ((r2.features||[]).length) {
+        usedRes = '2m';
+        tifUrls = r2.features.map(item => {
+          const a = item.assets||{};
+          const k = Object.keys(a).find(k=>k==='dem'||k.endsWith('_dem'))||Object.keys(a)[0];
+          return a[k]?.href;
+        }).filter(Boolean).map(u=>u.startsWith('s3://')?'/vsis3/'+u.slice(5):'/vsicurl/'+u);
       }
+    } catch(e) { console.log('[FLOOD] STAC 2m:', e.message.slice(0,60)); }
+    if (!tifUrls.length) {
+      try {
+        const r10 = await stacSearch(bbox, 'arcticdem-mosaics-v4.1-10m');
+        if ((r10.features||[]).length) {
+          usedRes = '10m';
+          tifUrls = r10.features.map(item => {
+            const a = item.assets||{};
+            const k = Object.keys(a).find(k=>k==='dem'||k.endsWith('_dem'))||Object.keys(a)[0];
+            return a[k]?.href;
+          }).filter(Boolean).map(u=>u.startsWith('s3://')?'/vsis3/'+u.slice(5):'/vsicurl/'+u);
+        }
+      } catch(e) { console.log('[FLOOD] STAC 10m:', e.message.slice(0,60)); }
     }
-
-    if (!tilePaths.length) {
-      throw new Error(
-        'Не удалось скачать тайлы ArcticDEM.\n' +
-        'Проверьте доступ к pgc-opendata-dems.s3.us-west-2.amazonaws.com\n' +
-        'или установите HTTPS_PROXY=http://host:port'
-      );
+    if (!tifUrls.length) {
+      console.log('[FLOOD] STAC недоступен — прямые S3 URLs');
+      tifUrls = _buildDirectDemUrls(bbox, '10m');
+      usedRes = '10m';
     }
+    if (!tifUrls.length) throw new Error('Не удалось определить тайлы ArcticDEM для выбранной области');
+    console.log(`[FLOOD] Tiles: ${tifUrls.length} (${usedRes})`);
 
     // 2. VRT + clip в EPSG:4326
-    onProgress(30, 'Подготовка растра...');
-    const listF   = path.join(tmpDir, 'tiles.txt');
-    const srcVrt  = path.join(tmpDir, 'src.vrt');
+    onProgress(28, `Загрузка ArcticDEM ${usedRes}...`);
+    const listF    = path.join(tmpDir, 'tiles.txt');
+    const srcVrt   = path.join(tmpDir, 'src.vrt');
     const clipPath = path.join(tmpDir, 'clip.tif');
-    fs.writeFileSync(listF, tilePaths.join('\n'));
+    fs.writeFileSync(listF, tifUrls.join('\n'));
     await runGDAL('gdalbuildvrt', ['-input_file_list', listF, srcVrt]);
     await runGDAL('gdalwarp', [
       '-te', String(minLng), String(minLat), String(maxLng), String(maxLat),
@@ -826,35 +825,6 @@ print('done', lyr.GetFeatureCount() if lyr else 0)
   } finally {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch(e) {}
   }
-}
-
-function _downloadDemTile(url, localPath, maxRedirects) {
-  if (maxRedirects === undefined) maxRedirects = 8;
-  return new Promise((resolve, reject) => {
-    function doGet(u, hops) {
-      const mod = u.startsWith('https') ? https : require('http');
-      const req = mod.get(u, { timeout: 120000 }, res => {
-        if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
-          res.resume();
-          if (hops <= 0) { reject(new Error('Too many redirects: ' + u)); return; }
-          doGet(res.headers.location, hops - 1);
-          return;
-        }
-        if (res.statusCode !== 200) {
-          res.resume();
-          reject(new Error('HTTP ' + res.statusCode + ' for ' + u));
-          return;
-        }
-        const out = fs.createWriteStream(localPath);
-        res.pipe(out);
-        out.on('finish', resolve);
-        out.on('error', reject);
-      });
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('timeout: ' + u)); });
-    }
-    doGet(url, maxRedirects);
-  });
 }
 
 module.exports = {processDEM,cleanupTmp,checkGDAL,computeFloodZone};
