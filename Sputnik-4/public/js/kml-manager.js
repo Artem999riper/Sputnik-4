@@ -475,10 +475,10 @@ function kmlOpenFeatureList(id) {
   const features = gj.type === 'FeatureCollection' ? gj.features : [gj];
   if (!features.length) { toast('Слой пустой', 'err'); return; }
 
-  // Считаем типы
   const pts  = features.filter(f => f.geometry && f.geometry.type === 'Point').length;
   const lns  = features.filter(f => f.geometry && f.geometry.type === 'LineString').length;
   const pols = features.filter(f => f.geometry && f.geometry.type === 'Polygon').length;
+  const hiddenCount = features.filter(f => f.properties?._hidden).length;
 
   const typeIcon = geomType => geomType === 'Point' ? '📍' : geomType === 'LineString' ? '〰️' : '⬡';
 
@@ -491,7 +491,6 @@ function kmlOpenFeatureList(id) {
     const isHidden = !!props._hidden;
     const geomType = f.geometry ? f.geometry.type : '?';
     const preview  = geomType === 'Point' ? kmlSvgIcon(fSym, fColor, 20) : typeIcon(geomType);
-    // Координаты для отображения
     let coordLabel = '';
     try {
       if (geomType === 'Point') {
@@ -504,7 +503,7 @@ function kmlOpenFeatureList(id) {
       }
     } catch(e) {}
 
-    return `<div class="kfl-row" data-fidx="${idx}" style="${isHidden?'opacity:.45':''}">
+    return `<div class="kfl-row" data-fidx="${idx}" data-name="${esc(nm.toLowerCase())}" style="${isHidden?'opacity:.45':''}">
       <div class="kfl-sym">${preview}</div>
       <div class="kfl-info">
         <div class="kfl-name">${esc(nm)}</div>
@@ -522,14 +521,70 @@ function kmlOpenFeatureList(id) {
 
   const html = `
     <div class="kfl-header">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+        <input id="kfl-search" type="text" placeholder="Поиск по названию…"
+          style="flex:1;padding:5px 8px;border:1px solid var(--bd);border-radius:5px;background:var(--bg);color:var(--tx);font-size:13px"
+          oninput="kflSearch(this.value)">
+        <button class="btn bs" style="font-size:12px;padding:4px 8px;white-space:nowrap"
+          title="Показать все объекты" onclick="kmlSetAllFeaturesVis('${id}',false)">👁 Все</button>
+        <button class="btn bs" style="font-size:12px;padding:4px 8px;white-space:nowrap"
+          title="Скрыть все объекты" onclick="kmlSetAllFeaturesVis('${id}',true)">🚫 Все</button>
+      </div>
       <span style="font-size:11px;color:var(--tx3)">
-        ${pts ? `📍 ${pts} точек  ` : ''}${lns ? `〰️ ${lns} линий  ` : ''}${pols ? `⬡ ${pols} полигонов` : ''}
+        ${pts ? `📍 ${pts}  ` : ''}${lns ? `〰️ ${lns}  ` : ''}${pols ? `⬡ ${pols}  ` : ''}${hiddenCount ? `🚫 скрыто: ${hiddenCount}` : ''}
       </span>
     </div>
-    <div class="kfl-list">${rowsHtml}</div>`;
+    <div class="kfl-list" id="kfl-list">${rowsHtml}</div>`;
 
   showModal(`📋 Объекты слоя — ${esc(l.name)}`, html,
     [{label:'Закрыть',cls:'bs',fn:closeModal}]);
+}
+
+function kflSearch(query) {
+  const q = (query || '').toLowerCase().trim();
+  document.querySelectorAll('#kfl-list .kfl-row').forEach(row => {
+    const nm = row.dataset.name || '';
+    row.style.display = (!q || nm.includes(q)) ? '' : 'none';
+  });
+}
+
+async function kmlSetAllFeaturesVis(layerId, hidden) {
+  const l = layers.find(x => x.id === layerId);
+  if (!l) return;
+  let gj;
+  try { gj = JSON.parse(l.geojson); } catch(e) { return; }
+  const features = gj.type === 'FeatureCollection' ? gj.features : [gj];
+  features.forEach(f => {
+    if (!f.properties) f.properties = {};
+    if (hidden) f.properties._hidden = true;
+    else delete f.properties._hidden;
+  });
+  const newGeojson = JSON.stringify(gj);
+  l.geojson = newGeojson;
+  await fetch(`${API}/layers/${layerId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: l.name, color: l.color, visible: l.visible ? 1 : 0,
+      symbol: l.symbol||'', group_id: l.group_id||'', line_dash: l.line_dash||'solid',
+      min_zoom: l.min_zoom||0, max_zoom: l.max_zoom||20, size: l.size||1,
+      geojson: newGeojson }),
+  });
+  renderLayerGroupsWithSymbols();
+  // Обновляем все строки в модалке без пересоздания
+  document.querySelectorAll('#kfl-list .kfl-row').forEach(row => {
+    row.style.opacity = hidden ? '0.45' : '';
+    const btn = row.querySelector('.kfl-vis-btn');
+    if (btn) { btn.textContent = hidden ? '👁' : '🚫'; btn.title = hidden ? 'Показать объект' : 'Скрыть объект'; }
+  });
+  // Обновляем счётчик скрытых
+  const total = features.length;
+  const span = document.querySelector('.kfl-header span');
+  if (span) {
+    const pts  = features.filter(f => f.geometry?.type === 'Point').length;
+    const lns  = features.filter(f => f.geometry?.type === 'LineString').length;
+    const pols = features.filter(f => f.geometry?.type === 'Polygon').length;
+    span.innerHTML = `${pts ? `📍 ${pts}  ` : ''}${lns ? `〰️ ${lns}  ` : ''}${pols ? `⬡ ${pols}  ` : ''}${hidden ? `🚫 скрыто: ${total}` : ''}`;
+  }
 }
 
 // ── Приблизить к конкретному feature ───────────────────────
@@ -676,6 +731,15 @@ async function kmlToggleFeatureVis(layerId, fIdx) {
     row.style.opacity = nowHidden ? '0.45' : '';
     const btn = row.querySelector('.kfl-vis-btn');
     if (btn) { btn.textContent = nowHidden ? '👁' : '🚫'; btn.title = nowHidden ? 'Показать объект' : 'Скрыть объект'; }
+  }
+  // Обновляем счётчик скрытых в заголовке
+  const span = document.querySelector('.kfl-header span');
+  if (span) {
+    const hc = features.filter(f2 => f2.properties?._hidden).length;
+    const pts = features.filter(f2 => f2.geometry?.type === 'Point').length;
+    const lns = features.filter(f2 => f2.geometry?.type === 'LineString').length;
+    const pols = features.filter(f2 => f2.geometry?.type === 'Polygon').length;
+    span.innerHTML = `${pts ? `📍 ${pts}  ` : ''}${lns ? `〰️ ${lns}  ` : ''}${pols ? `⬡ ${pols}  ` : ''}${hc ? `🚫 скрыто: ${hc}` : ''}`;
   }
 }
 
