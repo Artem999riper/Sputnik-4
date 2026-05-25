@@ -945,9 +945,9 @@ function renderLayerGroupsWithSymbols() {
         renderer: getCanvasRenderer('kmlPane'),
         style: (f) => ({ color: f?.properties?._color || color, weight:2.5, opacity:.85, fillOpacity:.2, dashArray:dashArr }),
         pointToLayer: (f, ll) => {
-          // feature-level переопределение символа/цвета
+          // Точки — в markerPane (z-600), иначе markerPane перехватывает события
           const icon = kmlFeatureDivIcon(l, f.properties);
-          return L.marker(ll, { icon, pane:'kmlPane' });
+          return L.marker(ll, { icon });
         },
         onEachFeature: (f, layer) => {
           const nm = f.properties?.name || f.properties?.Name || '';

@@ -13,7 +13,7 @@ function initMap(){
   esriTopo.on('tileerror',function(e){e.tile.style.display='none';});
   const topo=L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{attribution:'© OpenTopoMap (CC-BY-SA)',maxZoom:17,subdomains:['a','b','c']});
   const carto=L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap contributors © CARTO',maxZoom:21,maxNativeZoom:19,subdomains:['a','b','c','d']});
-  sat.addTo(map);
+  ghyb.addTo(map);
   window._mapBaseLayers={'🗺 Карта':osm,'🛰 Спутник':sat,'🛰 Спутник Google':gsat,'🗺 Гибрид Google':ghyb,'🗺 Улицы ESRI':esriStreet,'🗻 Топо ESRI':esriTopo,'🗻 Топо':topo,'🌍 Светлая':carto};
   window._mapLayerCtrl=L.control.layers(window._mapBaseLayers,{},{position:'topright'}).addTo(map);
   L.control.zoom({position:'bottomright'}).addTo(map);
