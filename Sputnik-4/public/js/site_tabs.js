@@ -94,6 +94,7 @@ function tabVolumes(pb){
           <div style="padding:0 10px 8px;display:flex;gap:3px;flex-wrap:wrap">
             <button class="btn bp bxs" onclick="openAddVolProgressModal('${vol.id}')">＋ Факт</button>
             <button class="btn bs bxs" onclick="openEditVolModal('${vol.id}')">✏️</button>
+            <button class="btn bs bxs" title="${vol.visible===0?'Показать на карте':'Скрыть с карты'}" onclick="toggleVolVis('${vol.id}')">${vol.visible===0?'👁':'🚫'}</button>
             <button class="btn bd bxs" onclick="deleteVol('${vol.id}')">🗑</button>
           </div>
           ${isOpen?`<div style="border-top:1px solid var(--bd)">

@@ -786,9 +786,10 @@ if os.path.exists(sys.argv[2]): os.remove(sys.argv[2])
 dst = drv.CreateDataSource(sys.argv[2])
 lyr = dst.CreateLayer('flood', srs=None)
 gdal.Polygonize(band, band, lyr, -1, [], callback=None)
+count = lyr.GetFeatureCount()
 dst.FlushCache()
 dst = None; src = None
-print('done', lyr.GetFeatureCount() if lyr else 0)
+print('done', count)
 `;
       const pyFile2 = path.join(tmpDir, 'polygonize.py');
       fs.writeFileSync(pyFile2, pyPoly);
