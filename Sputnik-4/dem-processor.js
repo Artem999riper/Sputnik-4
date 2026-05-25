@@ -820,12 +820,16 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     if (useGeoid){
       const gTif=path.join(tmpDir,'geoid.tif');
       try{
-        await runGDAL('gdalwarp',['-s_srs','EPSG:4326+4979','-t_srs','EPSG:4326+9518',
+        await runGDAL('gdalwarp',['-s_srs','EPSG:4979','-t_srs','EPSG:9518',
           '-r','bilinear','-co','COMPRESS=LZW',clippedTif,gTif]);
         const st = await _gdalStats(gTif, 'geoid');
         // Если все-NoData (геоид-грид отсутствует) — откатываемся на эллипсоидальные высоты
         if (st && Number.isFinite(st.max) && st.max > -9000) {
-          demTif=gTif; log.push(`Geoid OK (max=${st.max})`);
+          // Восстанавливаем горизонтальную CRS (EPSG:9518 — вертикальная, gdalwarp её не добавляет)
+          const gTifFixed = path.join(tmpDir,'geoid_fixed.tif');
+          await runGDAL('gdal_translate',['-a_srs','EPSG:4326','-of','GTiff',
+            '-co','COMPRESS=LZW',gTif,gTifFixed]);
+          demTif=gTifFixed; log.push(`Geoid OK (max=${st.max})`);
         } else {
           log.push(`Geoid produced NoData/invalid, fallback to ellipsoidal`);
           console.log('[DEM] Геоид-шаг дал NoData (вероятно отсутствует EGM2008 grid). Используем эллипсоидальные высоты.');
@@ -1178,13 +1182,12 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
 
     // Перевод в БСВ-77 (EGM2008, EPSG:9518): ArcticDEM даёт эллипсоидальные высоты WGS-84,
     // пользователь вводит отметку в балтийской системе — нужно привести растр к той же шкале.
-    // Используем compound CRS, чтобы сохранить горизонтальную CRS (EPSG:4326).
     onProgress(52, 'Перевод высот в БСВ-77...');
     const geoidPath = path.join(tmpDir, 'dem_bsv77.tif');
     let demForCalc = clipPath;
     try {
       await runGDAL('gdalwarp', [
-        '-s_srs', 'EPSG:4326+4979', '-t_srs', 'EPSG:4326+9518',
+        '-s_srs', 'EPSG:4979', '-t_srs', 'EPSG:9518',
         '-r', 'bilinear', '-co', 'COMPRESS=LZW',
         clipPath, geoidPath,
       ]);
