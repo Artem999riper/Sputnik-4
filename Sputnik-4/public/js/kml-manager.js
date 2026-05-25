@@ -512,7 +512,7 @@ function kmlOpenFeatureList(id) {
         <div class="kfl-coord">${esc(coordLabel)}</div>
       </div>
       <div class="kfl-actions">
-        <button class="kml-icon-btn" onclick="kmlToggleFeatureVis('${id}',${idx})" title="${isHidden?'Показать объект':'Скрыть объект'}">${isHidden?'👁':'🚫'}</button>
+        <button class="kml-icon-btn kfl-vis-btn" onclick="kmlToggleFeatureVis('${id}',${idx})" title="${isHidden?'Показать объект':'Скрыть объект'}">${isHidden?'👁':'🚫'}</button>
         <button class="kml-icon-btn" onclick="kmlZoomToFeature('${id}',${idx})" title="Приблизить">🔍</button>
         <button class="kml-icon-btn" onclick="kmlEditFeature('${id}',${idx})" title="Редактировать">✏️</button>
         <button class="kml-icon-btn" style="color:var(--red);opacity:.7" onclick="kmlDeleteFeature('${id}',${idx})" title="Удалить">🗑</button>
@@ -656,8 +656,9 @@ async function kmlToggleFeatureVis(layerId, fIdx) {
   const f = features[fIdx];
   if (!f) return;
   if (!f.properties) f.properties = {};
-  f.properties._hidden = !f.properties._hidden || undefined;
-  if (!f.properties._hidden) delete f.properties._hidden; // не хранить false
+  const nowHidden = !f.properties._hidden;
+  if (nowHidden) f.properties._hidden = true;
+  else delete f.properties._hidden;
   const newGeojson = JSON.stringify(gj);
   l.geojson = newGeojson;
   await fetch(`${API}/layers/${layerId}`, {
@@ -669,7 +670,13 @@ async function kmlToggleFeatureVis(layerId, fIdx) {
       geojson: newGeojson }),
   });
   renderLayerGroupsWithSymbols();
-  kmlOpenFeatureList(layerId); // обновить список в модалке
+  // Обновляем только строку в модалке без пересоздания (сохраняет позицию скролла)
+  const row = document.querySelector(`.kfl-row[data-fidx="${fIdx}"]`);
+  if (row) {
+    row.style.opacity = nowHidden ? '0.45' : '';
+    const btn = row.querySelector('.kfl-vis-btn');
+    if (btn) { btn.textContent = nowHidden ? '👁' : '🚫'; btn.title = nowHidden ? 'Показать объект' : 'Скрыть объект'; }
+  }
 }
 
 // ── Удалить отдельный feature ───────────────────────────────
@@ -840,13 +847,12 @@ function renderLayerGroupsWithSymbols() {
     if (!k.startsWith('s_')) { try { map.removeLayer(lGroups[k]); } catch(e) {} delete lGroups[k]; }
   });
 
-  // Создаём pane с низким z-index (ниже overlayPane=400, ниже объёмов)
+  // kmlPane выше overlayPane(400)/volPointsPane(450) чтобы canvas объёмов не перехватывал события
   if (!map.getPane('kmlPane')) {
     map.createPane('kmlPane');
-    map.getPane('kmlPane').style.zIndex = 200;   // ниже tilePane(200)?  нет — ниже overlayPane(400)
     map.getPane('kmlPane').style.pointerEvents = 'auto';
   }
-  // Убедимся что pane для объёмов выше
+  map.getPane('kmlPane').style.zIndex = 500;
   if (map.getPane('overlayPane'))  map.getPane('overlayPane').style.zIndex  = 400;
   if (map.getPane('volPointsPane'))map.getPane('volPointsPane').style.zIndex = 450;
 

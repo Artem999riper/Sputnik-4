@@ -711,6 +711,7 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
     // 3. Геоид EPSG:4979 → EPSG:9518 (БСВ-77)
     onProgress(50, 'Перевод высот в БСВ-77...');
     const geoidPath = path.join(tmpDir, 'dem_bsv77.tif');
+    const geoidFixedPath = path.join(tmpDir, 'dem_bsv77_fixed.tif');
     let demForCalc = clipPath;
     try {
       await runGDAL('gdalwarp', [
@@ -718,7 +719,9 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
         '-r', 'bilinear', '-co', 'COMPRESS=LZW',
         clipPath, geoidPath,
       ]);
-      demForCalc = geoidPath;
+      // Восстанавливаем горизонтальную CRS (EPSG:9518 — вертикальная, горизонталь теряется)
+      await runGDAL('gdal_translate', ['-a_srs', 'EPSG:4326', geoidPath, geoidFixedPath]);
+      demForCalc = geoidFixedPath;
       console.log('[FLOOD] Геоид БСВ-77 OK');
     } catch(e) {
       console.log('[FLOOD] Геоид пропущен:', e.message.slice(0, 80));
