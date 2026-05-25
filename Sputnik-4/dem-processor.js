@@ -193,6 +193,17 @@ function runGDAL(exe, args) {
   });
 }
 
+// Возвращает среднее значение первого бэнда растра через gdalinfo -stats
+async function _getGdalMean(tif) {
+  try {
+    const r = await execFileP(gdal('gdalinfo'), ['-stats', '-json', tif],
+      { env: gdalEnv(), maxBuffer: 4*1024*1024, timeout: 30000 });
+    const j = JSON.parse(r.stdout || '{}');
+    const m = j.bands?.[0]?.metadata?.[''] || {};
+    return parseFloat(m.STATISTICS_MEAN);
+  } catch(e) { return NaN; }
+}
+
 // ── Спутник ────────────────────────────────────────────────
 function lon2tile(lon,z) { return Math.floor((lon+180)/360*Math.pow(2,z)); }
 function lat2tile(lat,z) {
@@ -451,16 +462,23 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     ]);
     log.push('Clip OK');
 
-    // 3. Геоид
+    // 3. Геоид — EGM2008 → EGM96 → БСВ-77, берём первый с delta > 1м
     onProgress&&onProgress(28,useGeoid?'Перевод БСВ-77...':'Подготовка...');
     let demTif=clippedTif;
     if (useGeoid){
-      const gTif=path.join(tmpDir,'geoid.tif');
-      try{
-        await runGDAL('gdalwarp',['-s_srs','EPSG:4979','-t_srs','EPSG:9518',
-          '-r','bilinear','-co','COMPRESS=LZW',clippedTif,gTif]);
-        demTif=gTif; log.push('Geoid OK');
-      }catch(e){log.push('Geoid skip');}
+      const inputMean = await _getGdalMean(clippedTif);
+      for (const epsg of ['EPSG:3855','EPSG:5773','EPSG:9518']){
+        const gTif=path.join(tmpDir,`geoid_${epsg.replace(':','')}.tif`);
+        try{
+          await runGDAL('gdalwarp',['-s_srs','EPSG:4979','-t_srs',epsg,
+            '-r','bilinear','-co','COMPRESS=LZW',clippedTif,gTif]);
+          const outMean = await _getGdalMean(gTif);
+          const delta = Math.abs(outMean - inputMean);
+          log.push(`Геоид ${epsg}: delta=${delta.toFixed(1)}m`);
+          if (!isNaN(delta) && delta > 1.0){ demTif=gTif; log.push(`Геоид OK (${epsg})`); break; }
+        }catch(e){ log.push(`Геоид ${epsg} skip`); }
+      }
+      if (demTif===clippedTif) log.push('Все геоиды skip — WGS84');
     }
 
     // 4. Репроекция
@@ -708,24 +726,35 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
       '-co', 'COMPRESS=LZW', srcVrt, clipPath,
     ]);
 
-    // 3. Геоид EPSG:4979 → EPSG:9518 (БСВ-77)
+    // 3. Геоид — EGM2008 → EGM96 → БСВ-77, берём первый с delta > 1м
     onProgress(50, 'Перевод высот в БСВ-77...');
-    const geoidPath = path.join(tmpDir, 'dem_bsv77.tif');
-    const geoidFixedPath = path.join(tmpDir, 'dem_bsv77_fixed.tif');
     let demForCalc = clipPath;
-    try {
-      await runGDAL('gdalwarp', [
-        '-s_srs', 'EPSG:4979', '-t_srs', 'EPSG:9518',
-        '-r', 'bilinear', '-co', 'COMPRESS=LZW',
-        clipPath, geoidPath,
-      ]);
-      // Восстанавливаем горизонтальную CRS (EPSG:9518 — вертикальная, горизонталь теряется)
-      await runGDAL('gdal_translate', ['-a_srs', 'EPSG:4326', geoidPath, geoidFixedPath]);
-      demForCalc = geoidFixedPath;
-      console.log('[FLOOD] Геоид БСВ-77 OK');
-    } catch(e) {
-      console.log('[FLOOD] Геоид пропущен:', e.message.slice(0, 80));
+    const inputMean = await _getGdalMean(clipPath);
+    for (const epsg of ['EPSG:3855', 'EPSG:5773', 'EPSG:9518']) {
+      const geoidRaw   = path.join(tmpDir, `geoid_${epsg.replace(':','')}.tif`);
+      const geoidFixed = path.join(tmpDir, `geoidf_${epsg.replace(':','')}.tif`);
+      try {
+        await runGDAL('gdalwarp', [
+          '-s_srs', 'EPSG:4979', '-t_srs', epsg,
+          '-r', 'bilinear', '-co', 'COMPRESS=LZW', clipPath, geoidRaw,
+        ]);
+        // Восстанавливаем горизонтальную CRS (вертикальные EPSG теряют горизонталь)
+        await runGDAL('gdal_translate', ['-a_srs', 'EPSG:4326', geoidRaw, geoidFixed]);
+        const outMean = await _getGdalMean(geoidFixed);
+        const delta = Math.abs(outMean - inputMean);
+        console.log(`[FLOOD] Геоид ${epsg}: ${inputMean.toFixed(2)}→${outMean.toFixed(2)}, delta=${delta.toFixed(2)}m`);
+        if (!isNaN(delta) && delta > 1.0) {
+          demForCalc = geoidFixed;
+          console.log(`[FLOOD] Геоид ${epsg} применён`);
+          break;
+        }
+        console.log(`[FLOOD] Геоид ${epsg} — нет эффекта, пробуем следующий`);
+      } catch(e) {
+        console.log(`[FLOOD] Геоид ${epsg} ошибка: ${e.message.slice(0, 80)}`);
+      }
     }
+    if (demForCalc === clipPath)
+      console.log('[FLOOD] Все геоиды пропущены — WGS84. Установите proj-data в OSGeo4W.');
 
     // 4. gdal_calc: маска ≤ waterLevelM
     onProgress(65, `Маска затопления ≤${waterLevelM}м...`);
