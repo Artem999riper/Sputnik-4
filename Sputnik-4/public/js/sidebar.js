@@ -266,7 +266,6 @@ function renderLayerGroups(){
 async function toggleLV(id,vis){
   const l=layers.find(x=>x.id===id);if(!l)return;
   l.visible=vis;
-  layerVisibility[id]=vis?true:false;
   await fetch(`${API}/layers/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({name:l.name,color:l.color,visible:vis,symbol:l.symbol||'',group_id:l.group_id||'',line_dash:l.line_dash||'solid'})});
   renderLP();renderLayerGroups();setTimeout(bringVolumesToFront,50);

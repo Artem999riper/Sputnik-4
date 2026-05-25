@@ -223,8 +223,6 @@ async function loadAll(){
     if(br.ok)bases=await br.json(); else if(!Array.isArray(bases))bases=[];
     if(lr.ok){
       layers=await lr.json();
-      // Apply local visibility overrides so user-toggled state survives reloads
-      layers.forEach(function(l){ if(layerVisibility.hasOwnProperty(l.id)) l.visible=layerVisibility[l.id]?1:0; });
     } else if(!Array.isArray(layers))layers=[];
     if(mr.ok)pgkMachinery=await mr.json(); else if(!Array.isArray(pgkMachinery))pgkMachinery=[];
   }catch(e){
