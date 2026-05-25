@@ -249,21 +249,26 @@ function buildLayersDXF({ layers = [], transform = (lng, lat) => [lng, lat] }) {
     for (let i = 0; i < coords.length - 1; i++) {
       const [x1, y1] = tf(coords[i]);
       const [x2, y2] = tf(coords[i + 1]);
+      const z1 = isFinite(coords[i][2]) ? coords[i][2] : 0;
+      const z2 = isFinite(coords[i + 1][2]) ? coords[i + 1][2] : 0;
       s += g(0, 'LINE'); s += g(8, layer.dxfName); s += g(62, layer.color);
-      s += g(10, x1.toFixed(3)); s += g(20, y1.toFixed(3)); s += g(30, '0.000');
-      s += g(11, x2.toFixed(3)); s += g(21, y2.toFixed(3)); s += g(31, '0.000');
+      s += g(10, x1.toFixed(3)); s += g(20, y1.toFixed(3)); s += g(30, z1.toFixed(3));
+      s += g(11, x2.toFixed(3)); s += g(21, y2.toFixed(3)); s += g(31, z2.toFixed(3));
     }
   }
 
   function emitPolygon(layer, rings) {
     for (const ring of rings) {
       if (!ring || ring.length < 2) continue;
+      // Используем Z первой точки кольца как высоту полигона (однородная для зоны затопления)
+      const ringZ = isFinite(ring[0]?.[2]) ? ring[0][2] : 0;
       s += g(0, 'POLYLINE'); s += g(8, layer.dxfName); s += g(62, layer.color);
-      s += g(66, 1); s += g(70, 1);
+      s += g(66, 1); s += g(70, 1); s += g(30, ringZ.toFixed(3));
       for (const c of ring) {
         const [x, y] = tf(c);
+        const z = isFinite(c[2]) ? c[2] : ringZ;
         s += g(0, 'VERTEX'); s += g(8, layer.dxfName);
-        s += g(10, x.toFixed(3)); s += g(20, y.toFixed(3)); s += g(30, '0.000');
+        s += g(10, x.toFixed(3)); s += g(20, y.toFixed(3)); s += g(30, z.toFixed(3));
       }
       s += g(0, 'SEQEND'); s += g(8, layer.dxfName);
     }

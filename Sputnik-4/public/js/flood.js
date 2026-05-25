@@ -1,6 +1,7 @@
 // Симуляция зоны затопления по рельефу ArcticDEM
 let _floodLayer = null, _floodStart = null, _floodTmp = null, _floodLevel = 50;
 let _floodGeoidN = null; // N (м): WGS84_ellipsoid = BSV77 + N (N обычно отрицательный для России)
+let _floodLastBbox = null, _floodLastWgs = null; // для DXF-экспорта последнего расчёта
 
 async function openFloodTool() {
   // Загружаем N для текущего центра карты
@@ -125,14 +126,19 @@ async function _floodRender(bounds) {
       return;
     }
 
+    // Сохраняем данные для DXF-экспорта
+    _floodLastBbox = bbox;
+    _floodLastWgs  = wgsLevel;
+
     toast('🌊 Зона затопления при ' + _floodLevel + ' м БСВ-77 построена', 'ok');
 
     showModal('Зона затопления построена',
       `<p>Уровень воды: <b>${_floodLevel} м БСВ-77</b>.<br>Полигонов: ${count}.</p>
-      <p style="font-size:12px;color:var(--text-secondary)">Сохранить как слой KML для дальнейшей работы?</p>`,
+      <p style="font-size:12px;color:var(--text-secondary)">Сохранить слой или экспортировать контуры в DXF.</p>`,
       [
         { label: 'Закрыть', cls: 'bs', fn: closeModal },
-        { label: '💾 Сохранить как слой', cls: 'bp', fn: function() { closeModal(); _floodSaveLayer(gj); } }
+        { label: '📐 DXF', cls: 'bs', fn: function() { closeModal(); openFloodDxfExport(); } },
+        { label: '💾 Сохранить слой', cls: 'bp', fn: function() { closeModal(); _floodSaveLayer(gj); } }
       ]
     );
   } catch (err) {
@@ -147,6 +153,82 @@ async function _floodRender(bounds) {
     } else {
       toast('Ошибка расчёта: ' + msg, 'err');
     }
+  }
+}
+
+function openFloodDxfExport() {
+  if (!_floodLastBbox) { toast('Сначала выполните расчёт затопления', 'warn'); return; }
+
+  // Авто-выбор проекции по долготе центра bbox
+  const lonC = (_floodLastBbox.minLng + _floodLastBbox.maxLng) / 2;
+  const projs = typeof DEM_PROJECTIONS !== 'undefined' ? DEM_PROJECTIONS : [];
+  let defId = projs.length ? projs[0].id : '';
+  if (lonC >= 66 && lonC < 72)  defId = 'msk86_z3';
+  else if (lonC >= 72 && lonC < 78) defId = 'msk86_z4';
+  else if (lonC >= 60 && lonC < 66) defId = 'gsk2011_z12';
+  else if (lonC >= 78 && lonC < 84) defId = 'gsk2011_z14';
+
+  const projOpts = projs.map(p =>
+    `<option value="${p.id}" ${p.id === defId ? 'selected' : ''}>${p.label}</option>`
+  ).join('');
+
+  const wgsLabel = _floodLastWgs != null ? `${_floodLastWgs.toFixed(2)} м WGS84` : `${_floodLevel} м`;
+
+  showModal('📐 Экспорт затопления в DXF',
+    `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;
+                background:var(--accl);border:1.5px solid var(--accm);border-radius:var(--rs);padding:8px 11px">
+      Уровень: <b>${_floodLevel} м БСВ-77</b> (${wgsLabel})<br>
+      Слой DXF: <b>ГРАНИЦА_ЗАТОПЛЕНИЯ</b> (синий), Z = ${_floodLevel} м БСВ-77
+    </div>
+    <div class="fgr">
+      <div class="fg s2">
+        <label>Система координат</label>
+        <select id="fldxf-proj" style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--text)">
+          ${projOpts}
+        </select>
+      </div>
+    </div>`,
+    [
+      { label: 'Отмена', cls: 'bs', fn: closeModal },
+      { label: '⬇️ Скачать ZIP', cls: 'bp', fn: async function() {
+        const selId = document.getElementById('fldxf-proj')?.value;
+        const proj  = projs.find(p => p.id === selId) || {};
+        closeModal();
+        await _floodExportDxf(proj);
+      }}
+    ]
+  );
+}
+
+async function _floodExportDxf(proj) {
+  toast('📐 Формирование DXF… подождите', 'ok');
+  try {
+    const body = {
+      bbox:           _floodLastBbox,
+      waterLevel:     _floodLastWgs != null ? _floodLastWgs : _floodLevel,
+      waterLevelBsv77: _floodLevel,
+      proj4:    proj.proj4  || null,
+      epsg:     proj.epsg   || null,
+      projName: proj.name   || proj.id || 'WGS84',
+    };
+    const resp = await fetch('/api/dem/flood/dxf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || resp.statusText);
+    }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `flood_${_floodLevel}m_${proj.name || 'WGS84'}.zip`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    toast('✅ DXF скачан', 'ok');
+  } catch(e) {
+    toast('Ошибка экспорта DXF: ' + e.message, 'err');
   }
 }
 

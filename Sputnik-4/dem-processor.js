@@ -757,69 +757,64 @@ async function checkGDAL(){
   }
 }
 
-// ── Симуляция затопления ───────────────────────────────────
-async function computeFloodZone(bbox, waterLevelM, onProgress) {
-  onProgress = onProgress || (() => {});
-  findGDALBin();
+// ── Ядро расчёта затопления (переиспользуется в computeFloodZone и computeFloodZoneDxf)
+async function _floodCore(bbox, waterLevelM, tmpDir, onProgress) {
   const {minLat,maxLat,minLng,maxLng} = bbox;
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(),'flood_'));
 
+  // 1. Тайлы ArcticDEM — точно так же как в processDEM: STAC → прямые S3 vsicurl
+  onProgress(5, 'Поиск тайлов ArcticDEM...');
+  let tifUrls = [], usedRes = '10m';
   try {
-    // 1. Тайлы ArcticDEM — точно так же как в processDEM: STAC → прямые S3 vsicurl
-    onProgress(5, 'Поиск тайлов ArcticDEM...');
-    let tifUrls = [], usedRes = '10m';
+    const r2 = await stacSearch(bbox, 'arcticdem-mosaics-v4.1-2m');
+    if ((r2.features||[]).length) {
+      usedRes = '2m';
+      tifUrls = r2.features.map(item => {
+        const a = item.assets||{};
+        const k = Object.keys(a).find(k=>k==='dem'||k.endsWith('_dem'))||Object.keys(a)[0];
+        return a[k]?.href;
+      }).filter(Boolean).map(u=>u.startsWith('s3://')?'/vsis3/'+u.slice(5):'/vsicurl/'+u);
+    }
+  } catch(e) { console.log('[FLOOD] STAC 2m:', e.message.slice(0,60)); }
+  if (!tifUrls.length) {
     try {
-      const r2 = await stacSearch(bbox, 'arcticdem-mosaics-v4.1-2m');
-      if ((r2.features||[]).length) {
-        usedRes = '2m';
-        tifUrls = r2.features.map(item => {
+      const r10 = await stacSearch(bbox, 'arcticdem-mosaics-v4.1-10m');
+      if ((r10.features||[]).length) {
+        usedRes = '10m';
+        tifUrls = r10.features.map(item => {
           const a = item.assets||{};
           const k = Object.keys(a).find(k=>k==='dem'||k.endsWith('_dem'))||Object.keys(a)[0];
           return a[k]?.href;
         }).filter(Boolean).map(u=>u.startsWith('s3://')?'/vsis3/'+u.slice(5):'/vsicurl/'+u);
       }
-    } catch(e) { console.log('[FLOOD] STAC 2m:', e.message.slice(0,60)); }
-    if (!tifUrls.length) {
-      try {
-        const r10 = await stacSearch(bbox, 'arcticdem-mosaics-v4.1-10m');
-        if ((r10.features||[]).length) {
-          usedRes = '10m';
-          tifUrls = r10.features.map(item => {
-            const a = item.assets||{};
-            const k = Object.keys(a).find(k=>k==='dem'||k.endsWith('_dem'))||Object.keys(a)[0];
-            return a[k]?.href;
-          }).filter(Boolean).map(u=>u.startsWith('s3://')?'/vsis3/'+u.slice(5):'/vsicurl/'+u);
-        }
-      } catch(e) { console.log('[FLOOD] STAC 10m:', e.message.slice(0,60)); }
-    }
-    if (!tifUrls.length) {
-      console.log('[FLOOD] STAC недоступен — прямые S3 URLs');
-      tifUrls = _buildDirectDemUrls(bbox, '10m');
-      usedRes = '10m';
-    }
-    if (!tifUrls.length) throw new Error('Не удалось определить тайлы ArcticDEM для выбранной области');
-    console.log(`[FLOOD] Tiles: ${tifUrls.length} (${usedRes})`);
+    } catch(e) { console.log('[FLOOD] STAC 10m:', e.message.slice(0,60)); }
+  }
+  if (!tifUrls.length) {
+    console.log('[FLOOD] STAC недоступен — прямые S3 URLs');
+    tifUrls = _buildDirectDemUrls(bbox, '10m');
+    usedRes = '10m';
+  }
+  if (!tifUrls.length) throw new Error('Не удалось определить тайлы ArcticDEM для выбранной области');
+  console.log(`[FLOOD] Tiles: ${tifUrls.length} (${usedRes})`);
 
-    // 2. VRT + clip в EPSG:4326
-    onProgress(28, `Загрузка ArcticDEM ${usedRes}...`);
-    const listF    = path.join(tmpDir, 'tiles.txt');
-    const srcVrt   = path.join(tmpDir, 'src.vrt');
-    const clipPath = path.join(tmpDir, 'clip.tif');
-    fs.writeFileSync(listF, tifUrls.join('\n'));
-    await runGDAL('gdalbuildvrt', ['-input_file_list', listF, srcVrt]);
-    await runGDAL('gdalwarp', [
-      '-te', String(minLng), String(minLat), String(maxLng), String(maxLat),
-      '-te_srs', 'EPSG:4326', '-t_srs', 'EPSG:4326', '-r', 'bilinear',
-      '-co', 'COMPRESS=LZW', srcVrt, clipPath,
-    ]);
+  // 2. VRT + clip в EPSG:4326
+  onProgress(28, `Загрузка ArcticDEM ${usedRes}...`);
+  const listF    = path.join(tmpDir, 'tiles.txt');
+  const srcVrt   = path.join(tmpDir, 'src.vrt');
+  const clipPath = path.join(tmpDir, 'clip.tif');
+  fs.writeFileSync(listF, tifUrls.join('\n'));
+  await runGDAL('gdalbuildvrt', ['-input_file_list', listF, srcVrt]);
+  await runGDAL('gdalwarp', [
+    '-te', String(minLng), String(minLat), String(maxLng), String(maxLat),
+    '-te_srs', 'EPSG:4326', '-t_srs', 'EPSG:4326', '-r', 'bilinear',
+    '-co', 'COMPRESS=LZW', srcVrt, clipPath,
+  ]);
 
-    // 3. gdal_calc: маска ≤ waterLevelM (WGS84 эллипсоидальная высота)
-    // Конвертация BSV-77→WGS84 выполняется на клиенте через /api/dem/geoid-n
-    onProgress(65, `Маска затопления ≤${waterLevelM}м...`);
-    const maskPath = path.join(tmpDir, 'mask.tif');
+  // 3. gdal_calc: маска ≤ waterLevelM (WGS84 эллипсоидальная высота)
+  onProgress(65, `Маска затопления ≤${waterLevelM}м...`);
+  const maskPath = path.join(tmpDir, 'mask.tif');
 
-    const pyMaskOut = await new Promise((resolve, reject) => {
-      const pyCalcScript = `
+  await new Promise((resolve, reject) => {
+    const pyCalcScript = `
 import sys
 import numpy as np
 from osgeo import gdal
@@ -830,11 +825,10 @@ band = ds.GetRasterBand(1)
 arr = band.ReadAsArray().astype(np.float64)
 nodata = band.GetNoDataValue()
 
-# Маска невалидных пикселей: nodata-значение и всё что явно неправдоподобно
 invalid = np.zeros(arr.shape, dtype=bool)
 if nodata is not None:
     invalid |= np.isclose(arr, nodata, atol=0.01)
-invalid |= (arr < -9000)   # защита на случай если nodata = None
+invalid |= (arr < -9000)
 
 valid_vals = arr[~invalid]
 water = float(sys.argv[2])
@@ -844,7 +838,6 @@ if valid_vals.size > 0:
 else:
     print("[MASK] WARNING: no valid pixels - geoid conversion may have failed")
 
-# Затопленные: валидные пиксели с высотой <= уровня воды
 mask = np.zeros(arr.shape, dtype=np.uint8)
 mask[(arr <= water) & ~invalid] = 1
 flood_px = int(mask.sum())
@@ -860,24 +853,24 @@ b.WriteArray(mask)
 out.FlushCache()
 out = None; ds = None
 `;
-      const pyFile = path.join(tmpDir, 'calc_mask.py');
-      fs.writeFileSync(pyFile, pyCalcScript);
-      exec(`"${_pythonExe}" "${pyFile}" "${clipPath}" "${waterLevelM}" "${maskPath}"`,
-        { env: gdalEnv(), timeout: 120000, maxBuffer: 20*1024*1024 },
-        (err, stdout, stderr) => {
-          if (stdout) console.log('[FLOOD mask]', stdout.trim());
-          if (err) reject(new Error(stderr || err.message));
-          else resolve(stdout);
-        });
-    });
+    const pyFile = path.join(tmpDir, 'calc_mask.py');
+    fs.writeFileSync(pyFile, pyCalcScript);
+    exec(`"${_pythonExe}" "${pyFile}" "${clipPath}" "${waterLevelM}" "${maskPath}"`,
+      { env: gdalEnv(), timeout: 120000, maxBuffer: 20*1024*1024 },
+      (err, stdout, stderr) => {
+        if (stdout) console.log('[FLOOD mask]', stdout.trim());
+        if (err) reject(new Error(stderr || err.message));
+        else resolve(stdout);
+      });
+  });
 
-    // 5. gdal_polygonize → GeoJSON
-    onProgress(80, 'Полигонизация...');
-    const rawGj   = path.join(tmpDir, 'flood_raw.geojson');
-    const simpGj  = path.join(tmpDir, 'flood.geojson');
+  // 4. gdal_polygonize → GeoJSON
+  onProgress(80, 'Полигонизация...');
+  const rawGj  = path.join(tmpDir, 'flood_raw.geojson');
+  const simpGj = path.join(tmpDir, 'flood.geojson');
 
-    await new Promise((resolve, reject) => {
-      const pyPoly = `
+  await new Promise((resolve, reject) => {
+    const pyPoly = `
 import sys
 from osgeo import gdal, ogr
 src = gdal.Open(sys.argv[1])
@@ -893,40 +886,129 @@ dst.FlushCache()
 dst = None; src = None
 print('done', count)
 `;
-      const pyFile2 = path.join(tmpDir, 'polygonize.py');
-      fs.writeFileSync(pyFile2, pyPoly);
-      exec(`"${_pythonExe}" "${pyFile2}" "${maskPath}" "${rawGj}"`,
-        { env: gdalEnv(), timeout: 180000, maxBuffer: 100*1024*1024 },
-        (err, stdout, stderr) => {
-          if (err) reject(new Error(stderr || err.message));
-          else resolve();
-        });
-    });
+    const pyFile2 = path.join(tmpDir, 'polygonize.py');
+    fs.writeFileSync(pyFile2, pyPoly);
+    exec(`"${_pythonExe}" "${pyFile2}" "${maskPath}" "${rawGj}"`,
+      { env: gdalEnv(), timeout: 180000, maxBuffer: 100*1024*1024 },
+      (err, stdout, stderr) => {
+        if (err) reject(new Error(stderr || err.message));
+        else resolve();
+      });
+  });
 
-    // 6. Упрощение геометрии через ogr2ogr
-    onProgress(90, 'Упрощение...');
-    try {
-      await runGDAL('ogr2ogr', ['-f', 'GeoJSON', '-simplify', '0.0001', simpGj, rawGj]);
-    } catch(e) {
-      fs.copyFileSync(rawGj, simpGj);
-    }
+  // 5. Упрощение геометрии через ogr2ogr
+  onProgress(90, 'Упрощение...');
+  try {
+    await runGDAL('ogr2ogr', ['-f', 'GeoJSON', '-simplify', '0.0001', simpGj, rawGj]);
+  } catch(e) {
+    fs.copyFileSync(rawGj, simpGj);
+  }
 
-    // 7. Читаем GeoJSON
+  return simpGj;  // путь к готовому GeoJSON
+}
+
+// ── Симуляция затопления ───────────────────────────────────
+async function computeFloodZone(bbox, waterLevelM, onProgress) {
+  onProgress = onProgress || (() => {});
+  findGDALBin();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(),'flood_'));
+
+  try {
+    const simpGj = await _floodCore(bbox, waterLevelM, tmpDir, onProgress);
     onProgress(98, 'Готово');
-    const gjText = fs.readFileSync(simpGj, 'utf8');
-    const gj = JSON.parse(gjText);
-
-    // Фильтруем мелкие полигоны (шум)
+    const gj = JSON.parse(fs.readFileSync(simpGj, 'utf8'));
     if (gj.features) {
       gj.features = gj.features.filter(f => {
         const c = f.geometry?.coordinates;
         return c && c.length > 0 && c[0].length > 4;
       });
     }
-
     return gj;
   } finally {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch(e) {}
+  }
+}
+
+// ── Экспорт зоны затопления в DXF ─────────────────────────
+async function computeFloodZoneDxf(bbox, waterLevelM, waterLevelBsv77, proj4Str, epsg, projName, onProgress) {
+  onProgress = onProgress || (() => {});
+  findGDALBin();
+  const { buildLayersDXF, saveDXF } = require('./dxf-writer');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flooddxf_'));
+
+  try {
+    // 1-5: download → clip → mask → polygonize → simplify
+    const simpGj = await _floodCore(bbox, waterLevelM, tmpDir, onProgress);
+
+    // 6. Перепроецирование GeoJSON в целевую СК
+    onProgress(91, 'Перепроецирование...');
+    const reprojGj = path.join(tmpDir, 'flood_reproj.geojson');
+    const srsArg = proj4Str || (epsg ? `EPSG:${epsg}` : 'EPSG:4326');
+    try {
+      await runGDAL('ogr2ogr', [
+        '-f', 'GeoJSON', '-s_srs', 'EPSG:4326', '-t_srs', srsArg, reprojGj, simpGj,
+      ]);
+    } catch(e) {
+      console.log('[FLOOD DXF] Перепроецирование не удалось:', e.message.slice(0, 80));
+      fs.copyFileSync(simpGj, reprojGj);
+    }
+
+    // 7. Читаем GeoJSON, добавляем Z = waterLevelBsv77, фильтруем мелкий шум
+    onProgress(94, 'Создание DXF...');
+    const gj = JSON.parse(fs.readFileSync(reprojGj, 'utf8'));
+    const zVal = waterLevelBsv77;
+    function addZ(c) {
+      if (!Array.isArray(c) || !c.length) return c;
+      if (typeof c[0] === 'number') return [c[0], c[1], zVal];
+      return c.map(addZ);
+    }
+    if (gj.features) {
+      gj.features = gj.features
+        .filter(f => { const c = f.geometry?.coordinates; return c && c.length > 0 && c[0].length > 4; })
+        .map(f => { if (f.geometry?.coordinates) f.geometry.coordinates = addZ(f.geometry.coordinates); return f; });
+    }
+
+    // 8. Строим DXF через dxf-writer
+    const dxfStr = buildLayersDXF({
+      layers: [{ name: 'ГРАНИЦА_ЗАТОПЛЕНИЯ', color: 5, geojson: gj }],
+      transform: (x, y) => [x, y],
+    });
+    const safeProj = (projName || 'export').replace(/[^\w\-]/g, '_');
+    const dxfPath  = path.join(tmpDir, `flood_${safeProj}.dxf`);
+    saveDXF(dxfPath, dxfStr);
+
+    // Информационный файл
+    const infoPath = path.join(tmpDir, 'flood_readme.txt');
+    fs.writeFileSync(infoPath,
+      `Зона затопления ArcticDEM\r\n` +
+      `==========================\r\n` +
+      `Дата: ${new Date().toLocaleString('ru')}\r\n` +
+      `Уровень воды: ${waterLevelBsv77} м БСВ-77 (${waterLevelM} м WGS84 эллипсоид)\r\n` +
+      `СК: ${projName || (epsg ? 'EPSG:' + epsg : 'WGS84')}\r\n` +
+      `\r\nСлои DXF (R12):\r\n` +
+      `  ГРАНИЦА_ЗАТОПЛЕНИЯ — синий (5), контуры зоны затопления, Z = уровень воды БСВ-77\r\n`
+    );
+
+    // 9. ZIP (PowerShell на Windows, zip на Linux)
+    onProgress(97, 'Упаковка ZIP...');
+    const zipPath = path.join(tmpDir, 'flood_dxf.zip');
+    const filesToZip = [dxfPath, infoPath].filter(f => fs.existsSync(f));
+    await new Promise((resolve, reject) => {
+      if (IS_WINDOWS) {
+        const toZip = filesToZip.map(f => `'${f}'`).join(',');
+        exec(
+          `powershell -Command "Compress-Archive -Path ${toZip} -DestinationPath '${zipPath}' -Force"`,
+          (err, _, se) => err ? reject(new Error(se || err.message)) : resolve()
+        );
+      } else {
+        execFile('zip', ['-j', zipPath, ...filesToZip], (err, _, se) => err ? reject(new Error(se || err.message)) : resolve());
+      }
+    });
+
+    return { file: zipPath, tmpDir, mime: 'application/zip' };
+  } catch(e) {
+    cleanupTmp(tmpDir);
+    throw e;
   }
 }
 
@@ -941,4 +1023,4 @@ async function computeGeoidN(lat, lng) {
   }
 }
 
-module.exports = {processDEM,cleanupTmp,checkGDAL,computeFloodZone,computeGeoidN};
+module.exports = {processDEM,cleanupTmp,checkGDAL,computeFloodZone,computeFloodZoneDxf,computeGeoidN};

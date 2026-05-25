@@ -360,6 +360,38 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     }
   });
 
+  // ── Экспорт зоны затопления в DXF ────────────────────────
+  app.post('/api/dem/flood/dxf', async (req, res) => {
+    if (!demProcessor || !demProcessor.computeFloodZoneDxf)
+      return res.status(503).json({ error: 'DEM процессор не доступен' });
+    const { bbox, waterLevel, waterLevelBsv77, proj4, epsg, projName } = req.body || {};
+    if (!bbox || !bbox.minLat || waterLevel == null)
+      return res.status(400).json({ error: 'Укажите bbox и waterLevel' });
+    let tmpDir;
+    try {
+      const result = await demProcessor.computeFloodZoneDxf(
+        bbox,
+        Number(waterLevel),
+        Number(waterLevelBsv77 != null ? waterLevelBsv77 : waterLevel),
+        proj4 || null,
+        epsg  || null,
+        projName || 'WGS84',
+        (pct, msg) => console.log(`[FLOOD DXF] ${pct}% ${msg}`)
+      );
+      tmpDir = result.tmpDir;
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', 'attachment; filename="flood_dxf.zip"');
+      const stream = require('fs').createReadStream(result.file);
+      stream.pipe(res);
+      stream.on('end',   () => demProcessor.cleanupTmp(tmpDir));
+      stream.on('error', (err) => { demProcessor.cleanupTmp(tmpDir); console.error('[FLOOD DXF]', err); });
+    } catch (err) {
+      if (tmpDir) demProcessor.cleanupTmp(tmpDir);
+      console.error('[FLOOD DXF]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Офлайн тайлы для HTML-экспорта ───────────────────────
   app.post('/api/export-tiles', async (req, res) => {
     const { bbox, minZoom, maxZoom, source } = req.body || {};
