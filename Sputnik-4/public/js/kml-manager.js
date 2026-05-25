@@ -488,6 +488,7 @@ function kmlOpenFeatureList(id) {
     const desc     = props.description || props.desc || '';
     const fSym     = props._sym   || l.symbol  || 'point';
     const fColor   = props._color || l.color   || '#1a56db';
+    const isHidden = !!props._hidden;
     const geomType = f.geometry ? f.geometry.type : '?';
     const preview  = geomType === 'Point' ? kmlSvgIcon(fSym, fColor, 20) : typeIcon(geomType);
     // Координаты для отображения
@@ -503,7 +504,7 @@ function kmlOpenFeatureList(id) {
       }
     } catch(e) {}
 
-    return `<div class="kfl-row" data-fidx="${idx}">
+    return `<div class="kfl-row" data-fidx="${idx}" style="${isHidden?'opacity:.45':''}">
       <div class="kfl-sym">${preview}</div>
       <div class="kfl-info">
         <div class="kfl-name">${esc(nm)}</div>
@@ -511,6 +512,7 @@ function kmlOpenFeatureList(id) {
         <div class="kfl-coord">${esc(coordLabel)}</div>
       </div>
       <div class="kfl-actions">
+        <button class="kml-icon-btn" onclick="kmlToggleFeatureVis('${id}',${idx})" title="${isHidden?'Показать объект':'Скрыть объект'}">${isHidden?'👁':'🚫'}</button>
         <button class="kml-icon-btn" onclick="kmlZoomToFeature('${id}',${idx})" title="Приблизить">🔍</button>
         <button class="kml-icon-btn" onclick="kmlEditFeature('${id}',${idx})" title="Редактировать">✏️</button>
         <button class="kml-icon-btn" style="color:var(--red);opacity:.7" onclick="kmlDeleteFeature('${id}',${idx})" title="Удалить">🗑</button>
@@ -643,6 +645,32 @@ function kmlEditFeature(layerId, fIdx) {
   ]);
 }
 function kflSelectSym(el){document.querySelectorAll('.kfl-sym-sel').forEach(b=>b.classList.remove('on'));el.classList.add('on');}
+
+// ── Скрыть/показать отдельный feature ──────────────────────
+async function kmlToggleFeatureVis(layerId, fIdx) {
+  const l = layers.find(x => x.id === layerId);
+  if (!l) return;
+  let gj;
+  try { gj = JSON.parse(l.geojson); } catch(e) { return; }
+  const features = gj.type === 'FeatureCollection' ? gj.features : [gj];
+  const f = features[fIdx];
+  if (!f) return;
+  if (!f.properties) f.properties = {};
+  f.properties._hidden = !f.properties._hidden || undefined;
+  if (!f.properties._hidden) delete f.properties._hidden; // не хранить false
+  const newGeojson = JSON.stringify(gj);
+  l.geojson = newGeojson;
+  await fetch(`${API}/layers/${layerId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: l.name, color: l.color, visible: l.visible ? 1 : 0,
+      symbol: l.symbol||'', group_id: l.group_id||'', line_dash: l.line_dash||'solid',
+      min_zoom: l.min_zoom||0, max_zoom: l.max_zoom||20, size: l.size||1,
+      geojson: newGeojson }),
+  });
+  renderLayerGroupsWithSymbols();
+  kmlOpenFeatureList(layerId); // обновить список в модалке
+}
 
 // ── Удалить отдельный feature ───────────────────────────────
 async function kmlDeleteFeature(layerId, fIdx) {
@@ -832,7 +860,11 @@ function renderLayerGroupsWithSymbols() {
       }
     }
     try {
-      const gj       = JSON.parse(l.geojson);
+      const gjRaw    = JSON.parse(l.geojson);
+      // Скрытые объекты слоя не рендерим
+      const gj = gjRaw.type === 'FeatureCollection'
+        ? { ...gjRaw, features: (gjRaw.features || []).filter(f => !f.properties?._hidden) }
+        : gjRaw;
       const showLabels = !!layerLabels[l.id];
       const color    = l.color     || '#1a56db';
       const dash     = l.line_dash || 'solid';
