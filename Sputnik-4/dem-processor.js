@@ -9,7 +9,6 @@ const https   = require('https');
 const path    = require('path');
 const fs      = require('fs');
 const os      = require('os');
-const proj4   = require('proj4');
 const { promisify } = require('util');
 const execFileP = promisify(execFile);
 const execP     = promisify(exec);
@@ -50,24 +49,8 @@ function stacSearch(bbox, collection) {
 
 // ── Прямые S3-URLs (fallback без STAC) ────────────────────
 // ArcticDEM mosaics v4.1: тайлы 1°×1°, имя n62e068, n61e073 и т.д.
-// Используем региональный эндпоинт us-west-2 — именно там лежит bucket pgc-opendata-dems.
-function _normS3Url(u) {
-  if (!u) return null;
-  if (u.startsWith('s3://')) {
-    // s3://bucket/path → https://bucket.s3.us-west-2.amazonaws.com/path
-    const rest = u.slice(5);
-    const slash = rest.indexOf('/');
-    if (slash < 0) return null;
-    const bucket = rest.slice(0, slash), key = rest.slice(slash + 1);
-    return '/vsicurl/https://' + bucket + '.s3.us-west-2.amazonaws.com/' + key;
-  }
-  // Заменяем любой регион на us-west-2
-  u = u.replace(/\.s3(\.[a-z0-9-]+)?\.amazonaws\.com\//, '.s3.us-west-2.amazonaws.com/');
-  return u.startsWith('/vsicurl/') ? u : '/vsicurl/' + u;
-}
-
 function _buildDirectDemUrls(bbox, res) {
-  const BASE = 'https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1';
+  const BASE = 'https://pgc-opendata-dems.s3.us-east-1.amazonaws.com/arcticdem/mosaics/v4.1';
   const urls = [];
   for (let lat = Math.floor(bbox.minLat); lat <= Math.floor(bbox.maxLat); lat++) {
     for (let lng = Math.floor(bbox.minLng); lng <= Math.floor(bbox.maxLng); lng++) {
@@ -77,53 +60,6 @@ function _buildDirectDemUrls(bbox, res) {
       urls.push(`/vsicurl/${BASE}/${res}/${id}/${id}_${res}_v4.1_dem.tif`);
     }
   }
-  return urls;
-}
-
-// Генерирует S3 URLs для ArcticDEM v4.1 2m тайлов (50km×50km в EPSG:3413).
-// Константы сетки калиброваны по тайлу 55_61_1_2 (bbox [2049900,1399900,2100100,1450100]):
-//   x_origin = -3350000 m, y_origin = -4650000 m, ячейка = 100km, подтайл = 50km
-proj4.defs('EPSG:3413', '+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +datum=WGS84 +units=m +no_defs');
-
-function _build2mTileUrls(bbox) {
-  const BASE = 'https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1/2m';
-  const X_ORIGIN = -3350000, Y_ORIGIN = -4650000, CELL = 100000, SUBCELL = 50000;
-
-  // Проецируем четыре угла bbox в EPSG:3413
-  const corners = [
-    [bbox.minLng, bbox.minLat], [bbox.maxLng, bbox.minLat],
-    [bbox.minLng, bbox.maxLat], [bbox.maxLng, bbox.maxLat],
-  ].map(([lng, lat]) => proj4('EPSG:4326', 'EPSG:3413', [lng, lat]));
-
-  const px = corners.map(c => c[0]), py = corners.map(c => c[1]);
-  const xMin = Math.min(...px), xMax = Math.max(...px);
-  const yMin = Math.min(...py), yMax = Math.max(...py);
-
-  const colMin = Math.max(1, Math.floor((xMin - X_ORIGIN) / CELL) + 1);
-  const colMax = Math.floor((xMax - X_ORIGIN) / CELL) + 1;
-  const rowMin = Math.max(1, Math.floor((yMin - Y_ORIGIN) / CELL) + 1);
-  const rowMax = Math.floor((yMax - Y_ORIGIN) / CELL) + 1;
-
-  const urls = [];
-  for (let col = colMin; col <= colMax; col++) {
-    for (let row = rowMin; row <= rowMax; row++) {
-      const cell = `${col}_${row}`;
-      for (let sc = 1; sc <= 2; sc++) {
-        for (let sr = 1; sr <= 2; sr++) {
-          // EPSG:3413 bounds этого подтайла
-          const sx0 = X_ORIGIN + (col - 1) * CELL + (sc - 1) * SUBCELL;
-          const sx1 = sx0 + SUBCELL;
-          const sy0 = Y_ORIGIN + (row - 1) * CELL + (sr - 1) * SUBCELL;
-          const sy1 = sy0 + SUBCELL;
-          // Добавляем только если подтайл перекрывается с bbox
-          if (sx0 < xMax && sx1 > xMin && sy0 < yMax && sy1 > yMin) {
-            urls.push(`${BASE}/${cell}/${cell}_${sc}_${sr}_2m_v4.1_dem.tif`);
-          }
-        }
-      }
-    }
-  }
-  console.log(`[DEM] 2m тайлов для bbox: ${urls.length}`);
   return urls;
 }
 
@@ -254,30 +190,7 @@ function runGDAL(exe, args) {
   console.log('[DEM]', exe, args.slice(0,5).join(' '));
   return execFileP(gdal(exe), args, {
     env: gdalEnv(), maxBuffer: 400*1024*1024, timeout: 600000,
-  }).then(r => {
-    const se = r.stderr || '';
-    if (se.trim() && !se.includes('FutureWarning') && !se.includes('DeprecationWarning'))
-      console.log(`[DEM stderr ${exe}]`, se.slice(0, 400));
-    return r;
   });
-}
-
-// Диагностика: min/max/nodata растра — для отслеживания шага, где данные становятся NoData
-async function _gdalStats(tif, label) {
-  try {
-    // -mm вычисляет min/max напрямую и возвращает computedMin/computedMax в GDAL 4.0
-    const r = await execFileP(gdal('gdalinfo'), ['-mm', '-json', tif],
-      { env: gdalEnv(), maxBuffer: 4*1024*1024, timeout: 30000 });
-    const j = JSON.parse(r.stdout || '{}');
-    const b = j.bands?.[0] || {};
-    const mn = b.computedMin ?? Number(b.metadata?.['']?.STATISTICS_MINIMUM);
-    const mx = b.computedMax ?? Number(b.metadata?.['']?.STATISTICS_MAXIMUM);
-    console.log(`[DEM stats ${label}] min=${mn} max=${mx} nodata=${b.noDataValue}`);
-    return { min: mn, max: mx, nodata: b.noDataValue };
-  } catch(e) {
-    console.log(`[DEM stats ${label}] fail: ${e.message.slice(0,80)}`);
-    return null;
-  }
 }
 
 // ── Спутник ────────────────────────────────────────────────
@@ -305,185 +218,6 @@ function fetchTile(z,x,y) {
     req.on('error',reject);
     req.on('timeout',()=>{req.destroy();reject(new Error('timeout'));});
   });
-}
-
-// Скачивает через HTTP CONNECT proxy — без внешних зависимостей (только net + tls)
-function _downloadViaProxy(url, localPath, proxyStr) {
-  return new Promise((resolve, reject) => {
-    const net = require('net');
-    const tls = require('tls');
-    let proxy;
-    try { proxy = new URL(proxyStr); } catch(e) { return reject(new Error('Invalid HTTPS_PROXY: ' + proxyStr)); }
-    const target = new URL(url);
-    const pPort = parseInt(proxy.port) || 8080;
-
-    const conn = net.createConnection({ host: proxy.hostname, port: pPort });
-    conn.setTimeout(30000);
-    conn.on('timeout', () => { conn.destroy(); reject(new Error('Proxy connection timeout')); });
-    conn.on('error', reject);
-    conn.on('connect', () => {
-      const auth = proxy.username
-        ? 'Proxy-Authorization: Basic ' + Buffer.from(proxy.username + ':' + decodeURIComponent(proxy.password || '')).toString('base64') + '\r\n'
-        : '';
-      conn.write(`CONNECT ${target.hostname}:443 HTTP/1.1\r\nHost: ${target.hostname}:443\r\n${auth}\r\n`);
-    });
-
-    let headerBuf = '';
-    const onHeader = (chunk) => {
-      headerBuf += chunk.toString('binary');
-      const end = headerBuf.indexOf('\r\n\r\n');
-      if (end < 0) return;
-      conn.removeListener('data', onHeader);
-      if (!headerBuf.includes(' 200 ')) {
-        conn.destroy();
-        return reject(new Error('Proxy CONNECT rejected: ' + headerBuf.split('\r\n')[0]));
-      }
-      const tlsSock = tls.connect({ socket: conn, servername: target.hostname, rejectUnauthorized: false });
-      tlsSock.on('error', reject);
-      tlsSock.on('secureConnect', () => {
-        tlsSock.write(`GET ${target.pathname}${target.search} HTTP/1.1\r\nHost: ${target.hostname}\r\nConnection: close\r\n\r\n`);
-        let respBuf = Buffer.alloc(0);
-        let hdrDone = false;
-        let statusCode = 0;
-        let out = null;
-        tlsSock.on('data', (d) => {
-          if (hdrDone) { if (out) out.write(d); return; }
-          respBuf = Buffer.concat([respBuf, d]);
-          const hEnd = respBuf.indexOf('\r\n\r\n');
-          if (hEnd < 0) return;
-          const hStr = respBuf.slice(0, hEnd).toString();
-          const m = hStr.match(/HTTP\/\S+\s+(\d+)/);
-          statusCode = m ? parseInt(m[1]) : 0;
-          if (statusCode === 301 || statusCode === 302) {
-            const loc = (hStr.match(/[Ll]ocation:\s*(\S+)/) || [])[1];
-            tlsSock.destroy(); conn.destroy();
-            return loc ? _downloadDemTile(loc, localPath).then(resolve).catch(reject)
-                       : reject(new Error('Redirect without Location via proxy'));
-          }
-          if (statusCode !== 200) {
-            tlsSock.destroy(); conn.destroy();
-            return reject(new Error('HTTP ' + statusCode + ' via proxy for ' + url));
-          }
-          hdrDone = true;
-          out = fs.createWriteStream(localPath);
-          out.on('error', reject);
-          const body = respBuf.slice(hEnd + 4);
-          if (body.length) out.write(body);
-        });
-        tlsSock.on('end', () => { if (out) out.end(resolve); else if (hdrDone) resolve(); });
-      });
-    };
-    conn.on('data', onHeader);
-  });
-}
-
-// Быстрая проверка: может ли GDAL открыть URL через vsicurl (≤10 сек).
-// Возвращает true если S3 доступен напрямую (COG range-запросы — быстро).
-async function _canVsiCurl(vsicurlUrl) {
-  try {
-    findGDALBin();
-    const env = { ...gdalEnv(), GDAL_HTTP_CONNECTTIMEOUT: '8', GDAL_HTTP_TIMEOUT: '10' };
-    await execFileP(gdal('gdalinfo'), [vsicurlUrl], { env, timeout: 15000, maxBuffer: 2*1024*1024 });
-    return true;
-  } catch(e) { return false; }
-}
-
-// Скачивает DEM тайл через Node.js (следует редиректам), обходя GDAL vsicurl.
-// Если установлен HTTPS_PROXY — маршрутизирует через HTTP CONNECT tunnel.
-function _downloadDemTile(url, localPath, maxRedirects) {
-  if (maxRedirects === undefined) maxRedirects = 8;
-  const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy;
-  if (proxyUrl && url.startsWith('https://')) {
-    console.log('[DEM] Прокси:', proxyUrl.replace(/\/\/([^:@/]+:[^@/]+)@/, '//*:*@'));
-    return _downloadViaProxy(url, localPath, proxyUrl);
-  }
-  return new Promise(function(resolve, reject) {
-    function doGet(u, hops) {
-      const mod = u.startsWith('https') ? https : require('http');
-      const req = mod.get(u, { timeout: 120000 }, function(res) {
-        if (res.statusCode === 301 || res.statusCode === 302) {
-          res.resume();
-          if (hops <= 0) { reject(new Error('Too many redirects: ' + u)); return; }
-          // S3 должен вернуть Location; если нет — убираем регион из URL (типичный S3-редирект)
-          let loc = res.headers.location;
-          if (!loc) {
-            const region = res.headers['x-amz-bucket-region'] || 'us-west-2';
-            loc = u.replace(/\.s3(\.[a-z0-9-]+)?\.amazonaws\.com\//, `.s3.${region}.amazonaws.com/`);
-            console.log(`[FLOOD] 301 без Location, регион из заголовка: ${region}, URL: ${loc}`);
-          } else {
-            console.log('[FLOOD] 301 → ', loc);
-          }
-          doGet(loc, hops - 1);
-          return;
-        }
-        if (res.statusCode !== 200) {
-          res.resume();
-          reject(new Error('HTTP ' + res.statusCode + ' for ' + u));
-          return;
-        }
-        const total = parseInt(res.headers['content-length'] || '0', 10);
-        const fname = path.basename(localPath);
-        let received = 0, lastPct = -1;
-        const out = fs.createWriteStream(localPath);
-        res.on('data', chunk => {
-          received += chunk.length;
-          if (total > 0) {
-            const pct = Math.floor(received / total * 100);
-            if (pct !== lastPct && pct % 10 === 0) {
-              lastPct = pct;
-              const mb = (received / 1048576).toFixed(1);
-              const tot = (total / 1048576).toFixed(1);
-              process.stdout.write(`\r[DEM] ${fname}: ${pct}% (${mb}/${tot} МБ)`);
-            }
-          }
-        });
-        res.pipe(out);
-        out.on('finish', () => {
-          if (total > 0) process.stdout.write(`\r[DEM] ${fname}: 100% (${(total/1048576).toFixed(1)} МБ) ✓\n`);
-          resolve();
-        });
-        out.on('error', reject);
-      });
-      req.on('error', reject);
-      req.on('timeout', function() { req.destroy(); reject(new Error('timeout: ' + u)); });
-    }
-    doGet(url, maxRedirects);
-  });
-}
-
-// Возвращает список .tif файлов из локальной папки dem_tiles/
-const DEM_TILES_DIR = path.join(__dirname, 'dem_tiles');
-
-function _findLocalTiles() {
-  if (!fs.existsSync(DEM_TILES_DIR)) return [];
-  try {
-    return fs.readdirSync(DEM_TILES_DIR)
-      .filter(f => /\.(tif|tiff)$/i.test(f))
-      .map(f => path.join(DEM_TILES_DIR, f));
-  } catch(e) { return []; }
-}
-
-// Скачивает тайл с кэшированием в dem_tiles/.
-// Если файл уже есть в кэше — возвращает его путь без скачивания.
-// После успешного скачивания сохраняет копию в dem_tiles/ для следующего раза.
-async function _downloadWithCache(url, tmpDir) {
-  const fname = path.basename(url);
-  const cached = path.join(DEM_TILES_DIR, fname);
-  if (fs.existsSync(cached)) {
-    console.log(`[DEM] Кэш: ${fname}`);
-    return cached;
-  }
-  const tmp = path.join(tmpDir, fname);
-  await _downloadDemTile(url, tmp);
-  // Сохраняем в кэш
-  try {
-    fs.mkdirSync(DEM_TILES_DIR, { recursive: true });
-    fs.copyFileSync(tmp, cached);
-    console.log(`[DEM] Сохранено в кэш: ${fname}`);
-  } catch(e) {
-    console.log(`[DEM] Не удалось сохранить в кэш: ${e.message}`);
-  }
-  return tmp;
 }
 
 async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif) {
@@ -676,7 +410,7 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
           const a=item.assets||{};
           const k=Object.keys(a).find(k=>k==='dem'||k.endsWith('_dem'))||Object.keys(a)[0];
           return a[k]?.href;
-        }).filter(Boolean).map(_normS3Url).filter(Boolean);
+        }).filter(Boolean).map(u=>u.startsWith('s3://')?'/vsis3/'+u.slice(5):'/vsicurl/'+u);
       }
     } catch(e){ log.push('STAC 2m: '+e.message.slice(0,60)); }
     if (!tifUrls.length){
@@ -688,133 +422,36 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
             const a=item.assets||{};
             const k=Object.keys(a).find(k=>k==='dem'||k.endsWith('_dem'))||Object.keys(a)[0];
             return a[k]?.href;
-          }).filter(Boolean).map(_normS3Url).filter(Boolean);
+          }).filter(Boolean).map(u=>u.startsWith('s3://')?'/vsis3/'+u.slice(5):'/vsicurl/'+u);
         }
       } catch(e){ log.push('STAC 10m: '+e.message.slice(0,60)); }
     }
-    // Fallback: STAC недоступен
+    // Fallback: STAC недоступен — строим URLs прямо по сетке 1°×1°
     if (!tifUrls.length){
-      // Сначала — локальные тайлы из dem_tiles/
-      const localFiles = _findLocalTiles();
-      if (localFiles.length) {
-        log.push(`Локальные тайлы: ${localFiles.length}`);
-        onProgress&&onProgress(15, `Используем ${localFiles.length} локальных тайлов...`);
-        tifUrls = localFiles;
-        usedRes = 'local';
-      } else {
-        log.push('STAC недоступен — пробуем vsicurl COG, затем полное скачивание');
-        const urls2m = _build2mTileUrls(bbox);
-        const vsUrls2m = urls2m.map(u => '/vsicurl/' + u);
-
-        // Быстрый путь: vsicurl COG (GDAL читает только нужный bbox)
-        if (vsUrls2m.length) {
-          onProgress&&onProgress(8,'Проверка прямого доступа к ArcticDEM COG...');
-          const vsOk = await _canVsiCurl(vsUrls2m[0]);
-          if (vsOk) {
-            tifUrls = vsUrls2m; usedRes = '2m';
-            log.push('vsicurl 2m COG OK');
-            onProgress&&onProgress(15,'ArcticDEM 2m COG: прямой доступ ✓');
-          } else {
-            log.push('vsicurl недоступен — полное скачивание');
-          }
-        }
-
-        // Медленный путь: полное скачивание файлов
-        if (!tifUrls.length) {
-        onProgress&&onProgress(8,'Скачивание тайлов ArcticDEM 2m...');
-        const downloaded=[];
-        for (let i=0;i<urls2m.length;i++){
-          const url=urls2m[i];
-          const lp=path.join(tmpDir,path.basename(url));
-          try{ const p = await _downloadWithCache(url,tmpDir); downloaded.push(p); log.push(path.basename(url)+' OK'); }
-          catch(e){ log.push(path.basename(url)+' fail: '+e.message.slice(0,40)); }
-        }
-        if (downloaded.length){
-          tifUrls=downloaded; usedRes='2m';
-        } else {
-          // fallback 10m
-          log.push('2m недоступны — пробуем 10m');
-          onProgress&&onProgress(8,'Скачивание тайлов ArcticDEM 10m...');
-          const BASE='https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1';
-          for (let lat=Math.floor(minLat);lat<=Math.floor(maxLat);lat++){
-            for (let lng=Math.floor(minLng);lng<=Math.floor(maxLng);lng++){
-              const latS=lat>=0?`n${String(lat).padStart(2,'0')}`:`s${String(-lat).padStart(2,'0')}`;
-              const lngS=lng>=0?`e${String(lng).padStart(3,'0')}`:`w${String(-lng).padStart(3,'0')}`;
-              const id=`${latS}${lngS}`;
-              const url10=`${BASE}/10m/${id}/${id}_10m_v4.1_dem.tif`;
-              try{ const p = await _downloadWithCache(url10,tmpDir); downloaded.push(p); log.push(`${id} 10m OK`); }
-              catch(e){ log.push(`${id} fail: ${e.message.slice(0,40)}`); }
-            }
-          }
-          if (!downloaded.length) throw new Error('Не удалось скачать тайлы ArcticDEM. Установите HTTPS_PROXY или поместите .tif файлы в папку dem_tiles/');
-          tifUrls=downloaded; usedRes='10m';
-        }
-        } // конец медленного пути
-      }
+      log.push('STAC недоступен — прямые S3 URLs');
+      onProgress&&onProgress(8,'Прямое подключение к S3 ArcticDEM...');
+      tifUrls=_buildDirectDemUrls(bbox,'2m');
+      usedRes='2m';
+      if (!tifUrls.length) throw new Error('Не удалось определить тайлы ArcticDEM для выбранной области');
     }
     log.push(`Tiles: ${tifUrls.length} (${usedRes}${stacOk?'':' via S3'})`);
 
-    // 2. VRT + clip (с fallback: если vsicurl дал all-NoData — скачиваем полностью)
+    // 2. VRT + clip
     onProgress&&onProgress(15,`Загрузка ArcticDEM ${usedRes}...`);
+    const listF=path.join(tmpDir,'tiles.txt');
+    const srcVrt=path.join(tmpDir,'src.vrt');
+    fs.writeFileSync(listF,tifUrls.join('\n'));
+    await runGDAL('gdalbuildvrt',['-input_file_list',listF,srcVrt]);
 
-    async function buildAndClip(urls) {
-      const listF2=path.join(tmpDir,'tiles.txt');
-      const srcVrt2=path.join(tmpDir,'src.vrt');
-      fs.writeFileSync(listF2, urls.join('\n'));
-      await runGDAL('gdalbuildvrt',['-input_file_list',listF2,srcVrt2]);
-      const clipped2=path.join(tmpDir,'clipped.tif');
-      await runGDAL('gdalwarp',[
-        '-of','GTiff','-te',String(minLng),String(minLat),String(maxLng),String(maxLat),
-        '-te_srs','EPSG:4326','-t_srs','EPSG:4326','-r','bilinear',
-        '-co','COMPRESS=LZW','-co','TILED=YES',srcVrt2,clipped2,
-      ]);
-      return clipped2;
-    }
-
-    let clippedTif = await buildAndClip(tifUrls);
+    const clippedTif=path.join(tmpDir,'clipped.tif');
+    await runGDAL('gdalwarp',[
+      '-of','GTiff','-te',String(minLng),String(minLat),String(maxLng),String(maxLat),
+      '-te_srs','EPSG:4326','-t_srs','EPSG:4326','-r','bilinear',
+      '-co','COMPRESS=LZW','-co','TILED=YES',srcVrt,clippedTif,
+    ]);
     log.push('Clip OK');
 
-    let clipSt = await _gdalStats(clippedTif, 'clipped');
-
-    // Если данные пустые (all-NoData) — независимо от источника:
-    //   vsicurl: крупные range-запросы заблокированы → скачиваем полностью
-    //   локальные тайлы: тайл из dem_tiles/ не покрывает этот bbox → скачиваем нужный
-    if (!clipSt || !Number.isFinite(clipSt.max) || clipSt.max <= -9000) {
-      const isVsicurl = tifUrls.some(u => u.startsWith('/vsicurl/'));
-      // vsicurl → убираем префикс, local/other → строим URL для текущего bbox заново
-      const dlUrls = isVsicurl
-        ? tifUrls.map(u => u.replace(/^\/vsicurl\//, ''))
-        : _build2mTileUrls(bbox);
-      console.log(`[DEM] Клип all-NoData (${isVsicurl ? 'vsicurl заблокирован' : 'локальные тайлы не покрывают bbox'}) — скачиваем ${dlUrls.length} тайл(а) напрямую`);
-      onProgress&&onProgress(15, 'Скачивание тайлов...');
-      const downloaded = [];
-      for (let i = 0; i < dlUrls.length; i++) {
-        const url = dlUrls[i];
-        onProgress&&onProgress(15 + Math.round(10 * i / Math.max(dlUrls.length, 1)), `Скачивание ${path.basename(url)}…`);
-        try {
-          const p = await _downloadWithCache(url, tmpDir);
-          downloaded.push(p);
-          log.push(path.basename(url) + ' downloaded');
-        } catch(e) {
-          log.push(path.basename(url) + ' dl-fail: ' + e.message.slice(0, 40));
-        }
-      }
-      if (downloaded.length) {
-        clippedTif = await buildAndClip(downloaded);
-        clipSt = await _gdalStats(clippedTif, 'clipped-dl');
-        log.push('Clip after download OK');
-      } else {
-        const hint = dlUrls.slice(0, 3).map(u => path.basename(u)).join(', ');
-        throw new Error(
-          'Не удалось получить данные ArcticDEM.\n\n' +
-          'Скачайте файлы через браузер с сайта polargeospatialcenter.github.io/stac-browser\n' +
-          'и поместите .tif файлы в папку dem_tiles/\n\n' +
-          'Нужные файлы: ' + hint
-        );
-      }
-    }
-
-    // 3. Геоид: compound CRS сохраняет горизонталь EPSG:4326, меняет только вертикаль (эллипсоид→БСВ-77)
+    // 3. Геоид
     onProgress&&onProgress(28,useGeoid?'Перевод БСВ-77...':'Подготовка...');
     let demTif=clippedTif;
     if (useGeoid){
@@ -822,19 +459,8 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
       try{
         await runGDAL('gdalwarp',['-s_srs','EPSG:4979','-t_srs','EPSG:9518',
           '-r','bilinear','-co','COMPRESS=LZW',clippedTif,gTif]);
-        const st = await _gdalStats(gTif, 'geoid');
-        // Если все-NoData (геоид-грид отсутствует) — откатываемся на эллипсоидальные высоты
-        if (st && Number.isFinite(st.max) && st.max > -9000) {
-          // Восстанавливаем горизонтальную CRS (EPSG:9518 — вертикальная, gdalwarp её не добавляет)
-          const gTifFixed = path.join(tmpDir,'geoid_fixed.tif');
-          await runGDAL('gdal_translate',['-a_srs','EPSG:4326','-of','GTiff',
-            '-co','COMPRESS=LZW',gTif,gTifFixed]);
-          demTif=gTifFixed; log.push(`Geoid OK (max=${st.max})`);
-        } else {
-          log.push(`Geoid produced NoData/invalid, fallback to ellipsoidal`);
-          console.log('[DEM] Геоид-шаг дал NoData (вероятно отсутствует EGM2008 grid). Используем эллипсоидальные высоты.');
-        }
-      }catch(e){log.push('Geoid skip: '+e.message.slice(0,80));}
+        demTif=gTif; log.push('Geoid OK');
+      }catch(e){log.push('Geoid skip');}
     }
 
     // 4. Репроекция
@@ -846,48 +472,28 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
       '-co','COMPRESS=LZW','-co','TILED=YES',demTif,reprojTif,
     ]);
     log.push('Reproject OK');
-    await _gdalStats(reprojTif, 'reproj');
 
     if (format==='geotiff') return {file:reprojTif,tmpDir,log,mime:'image/tiff'};
 
-    // 5. Fillnodata + resample
+    // 5. Fillnodata + upsample
     onProgress&&onProgress(45,'Улучшение растра...');
     const filledTif=path.join(tmpDir,'filled.tif');
     try{
       await runGDAL('gdal_fillnodata',['-md','10','-si','2',reprojTif,filledTif]);
     }catch(e){ fs.copyFileSync(reprojTif,filledTif); }
-    await _gdalStats(filledTif, 'filled');
 
-    // Ресамплинг только для грубых данных (>5м): 10m→5m upsample.
-    // При 2m источнике (-tr 5 5 это downsample) cubicspline в GDAL 4.0 даёт all-NoData.
-    // Используем bilinear — безопасен для обоих направлений.
     const upTif=path.join(tmpDir,'up.tif');
     try{
-      const info = await execFileP(gdal('gdalinfo'),['-json',filledTif],
-        {env:gdalEnv(),maxBuffer:2*1024*1024,timeout:30000});
-      const gi = JSON.parse(info.stdout||'{}');
-      const pixW = Math.abs((gi.geoTransform||[0,10])[1]);
-      if (pixW > 5.5) {
-        // Источник грубее 5м (10m, 20m) — уплотняем до 5м
-        await runGDAL('gdalwarp',['-r','bilinear','-tr','5','5',
-          '-co','COMPRESS=LZW',filledTif,upTif]);
-        log.push('Upsample 5m OK');
-      } else {
-        // Источник уже ≤5м (2m ArcticDEM) — ресамплинг не нужен
-        fs.copyFileSync(filledTif,upTif);
-        log.push(`Upsample skip (pix=${pixW.toFixed(1)}m)`);
-      }
-    }catch(e){
-      fs.copyFileSync(filledTif,upTif);
-      log.push('Upsample fallback');
-    }
-    await _gdalStats(upTif, 'up');
+      await runGDAL('gdalwarp',['-r','cubicspline','-tr','5','5',
+        '-co','COMPRESS=LZW',filledTif,upTif]);
+    }catch(e){ fs.copyFileSync(filledTif,upTif); }
+    log.push('Upsample OK');
 
-    // 6. Горизонтали → SHP (GPKG в GDAL 4.0 молча создаёт пустой слой)
+    // 6. Горизонтали → GPKG
     onProgress&&onProgress(55,`Горизонтали ${interval}м...`);
-    const contoursGpkg=path.join(tmpDir,'contours.shp');
+    const contoursGpkg=path.join(tmpDir,'contours.gpkg');
     await runGDAL('gdal_contour',[
-      '-a','elevation','-i',String(interval),'-3d',
+      '-a','elevation','-i',String(interval),'-3d','-nln','contours','-f','GPKG',
       upTif,contoursGpkg,
     ]);
     log.push('Contours OK');
@@ -921,8 +527,8 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
       exec(`"${_pythonExe}" "${pyScript}" "${paramsFile}"`,
         {env, timeout:600000, maxBuffer:50*1024*1024},
         (err,stdout,stderr)=>{
-          console.log('[PY stdout]', stdout.slice(0,2000));
-          if (stderr) console.log('[PY stderr]', stderr.slice(0,500));
+          console.log('[PY stdout]', stdout.slice(0,500));
+          if (stderr) console.log('[PY stderr]', stderr.slice(0,300));
           if (err) reject(new Error(`Python error: ${stderr||err.message}`.slice(0,300)));
           else resolve(stdout);
         });
@@ -1046,210 +652,4 @@ async function checkGDAL(){
   }
 }
 
-// ── Симуляция зоны затопления ──────────────────────────────
-async function computeFloodZone(bbox, waterLevelM, onProgress) {
-  findGDALBin(); // инициализирует _pythonExe, _gdalBin
-  const env = gdalEnv();
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flood_'));
-
-  // Найти gdal_calc.py и gdal_polygonize.py
-  function findPyScript(name) {
-    const candidates = IS_WINDOWS
-      ? [
-          path.join(_gdalBin, name),
-          path.join(path.resolve(_gdalBin, '..'), 'apps', 'Python312', 'Scripts', name),
-          path.join(path.resolve(_gdalBin, '..'), 'apps', 'Python39',  'Scripts', name),
-          path.join(_gdalBin, '..', 'bin', name),
-        ]
-      : [
-          path.join('/usr/bin', name),
-          path.join('/usr/local/bin', name),
-          path.join(_gdalBin, name),
-        ];
-    const found = candidates.find(p => { try { return fs.existsSync(p); } catch(e) { return false; } });
-    if (!found) throw new Error(`Не найден скрипт ${name}. Установите python3-gdal (Linux) или убедитесь, что OSGeo4W полный (Windows).`);
-    return found;
-  }
-
-  try {
-    // 1. Тайлы ArcticDEM: локальные → vsicurl COG (быстро) → полное скачивание (медленно)
-    onProgress(5, 'Поиск тайлов ArcticDEM...');
-
-    let localTilePaths = _findLocalTiles();
-
-    if (localTilePaths.length) {
-      console.log(`[FLOOD] Найдено ${localTilePaths.length} локальных тайлов в dem_tiles/`);
-      onProgress(28, `Используем ${localTilePaths.length} локальных тайлов...`);
-    } else {
-      const urls2m = _build2mTileUrls(bbox);
-      const vsUrls2m = urls2m.map(u => '/vsicurl/' + u);
-
-      // Быстрый путь: GDAL vsicurl (COG range-запросы, скачивает только нужный bbox)
-      if (vsUrls2m.length) {
-        onProgress(6, 'Проверка прямого доступа к ArcticDEM...');
-        const vsOk = await _canVsiCurl(vsUrls2m[0]);
-        if (vsOk) {
-          console.log('[FLOOD] vsicurl OK — используем COG range-запросы (быстро)');
-          localTilePaths = vsUrls2m;
-          onProgress(28, `ArcticDEM 2m: COG доступ (${vsUrls2m.length} тайл(а))`);
-        } else {
-          console.log('[FLOOD] vsicurl недоступен — полное скачивание');
-        }
-      }
-
-      // Медленный путь: полное скачивание (если vsicurl не работает)
-      if (!localTilePaths.length) {
-      // Скачать с S3 через Node.js: сначала 2m (правильные PS-координаты), потом 10m
-      onProgress(5, 'Скачивание тайлов ArcticDEM 2m...');
-      let used2m = false;
-
-      for (let i = 0; i < urls2m.length; i++) {
-        const url = urls2m[i];
-        const fname = path.basename(url);
-        const localPath = path.join(tmpDir, fname);
-        onProgress(5 + Math.round(22 * i / Math.max(urls2m.length, 1)), `Загрузка ${fname}…`);
-        console.log('[FLOOD] 2m:', url);
-        try {
-          const p = await _downloadWithCache(url, tmpDir);
-          localTilePaths.push(p);
-          console.log(`[FLOOD] OK: ${fname}`);
-          used2m = true;
-        } catch(e) {
-          console.log(`[FLOOD] 2m skip ${fname}: ${e.message}`);
-        }
-      }
-
-      // Если 2m недоступны — fallback на 10m (1°×1° lat/lng сетка)
-      if (!used2m) {
-        onProgress(10, 'Скачивание тайлов ArcticDEM 10m...');
-        const BASE = 'https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1';
-        const tileDefs = [];
-        for (let lat = Math.floor(bbox.minLat); lat <= Math.floor(bbox.maxLat); lat++) {
-          for (let lng = Math.floor(bbox.minLng); lng <= Math.floor(bbox.maxLng); lng++) {
-            const latS = lat >= 0 ? `n${String(lat).padStart(2,'0')}` : `s${String(-lat).padStart(2,'0')}`;
-            const lngS = lng >= 0 ? `e${String(lng).padStart(3,'0')}` : `w${String(-lng).padStart(3,'0')}`;
-            tileDefs.push(`${latS}${lngS}`);
-          }
-        }
-        for (let i = 0; i < tileDefs.length; i++) {
-          const id = tileDefs[i];
-          onProgress(10 + Math.round(17 * i / Math.max(tileDefs.length, 1)), `Загрузка ${id}…`);
-          const url = `${BASE}/10m/${id}/${id}_10m_v4.1_dem.tif`;
-          console.log('[FLOOD] 10m:', url);
-          try {
-            const p = await _downloadWithCache(url, tmpDir);
-            localTilePaths.push(p);
-            console.log(`[FLOOD] OK: ${id} (10m)`);
-          } catch(e) {
-            console.log(`[FLOOD] 10m skip ${id}: ${e.message}`);
-          }
-        }
-      }
-
-      if (!localTilePaths.length) {
-        const hint2m = urls2m.slice(0, 4).map(u => path.basename(u)).join(', ');
-        throw new Error(
-          'Не удалось скачать тайлы ArcticDEM.\n\n' +
-          'Способы решения:\n' +
-          '1. Установите HTTPS_PROXY=http://host:port и перезапустите сервер\n' +
-          '2. Скачайте .tif файлы через VPN и положите в папку dem_tiles/\n\n' +
-          'Нужные файлы (2m): ' + hint2m
-        );
-      }
-      } // конец медленного пути
-    }
-
-    const listFile = path.join(tmpDir, 'tiles.txt');
-    const vrtPath  = path.join(tmpDir, 'dem.vrt');
-    const clipPath = path.join(tmpDir, 'dem_clip.tif');
-    const maskPath = path.join(tmpDir, 'flood_mask.tif');
-    const gjPath   = path.join(tmpDir, 'flood.geojson');
-    const gjsPath  = path.join(tmpDir, 'flood_s.geojson');
-
-    fs.writeFileSync(listFile, localTilePaths.join('\n'));
-
-    onProgress(32, 'Сборка VRT...');
-    await runGDAL('gdalbuildvrt', ['-input_file_list', listFile, vrtPath]);
-
-    onProgress(42, 'Обрезка по области...');
-    await runGDAL('gdalwarp', [
-      '-of', 'GTiff',
-      '-te', String(bbox.minLng), String(bbox.minLat), String(bbox.maxLng), String(bbox.maxLat),
-      '-te_srs', 'EPSG:4326', '-t_srs', 'EPSG:4326', '-r', 'bilinear',
-      '-co', 'COMPRESS=LZW', '-co', 'TILED=YES',
-      vrtPath, clipPath,
-    ]);
-
-    // Перевод в БСВ-77 (EGM2008, EPSG:9518): ArcticDEM даёт эллипсоидальные высоты WGS-84,
-    // пользователь вводит отметку в балтийской системе — нужно привести растр к той же шкале.
-    onProgress(52, 'Перевод высот в БСВ-77...');
-    const geoidPath = path.join(tmpDir, 'dem_bsv77.tif');
-    let demForCalc = clipPath;
-    try {
-      await runGDAL('gdalwarp', [
-        '-s_srs', 'EPSG:4979', '-t_srs', 'EPSG:9518',
-        '-r', 'bilinear', '-co', 'COMPRESS=LZW',
-        clipPath, geoidPath,
-      ]);
-      const st = await _gdalStats(geoidPath, 'flood-geoid');
-      if (st && Number.isFinite(st.max) && st.max > -9000) {
-        demForCalc = geoidPath;
-        console.log('[FLOOD] Геоид БСВ-77 OK');
-      } else {
-        console.log('[FLOOD] Геоид дал NoData, используем эллипсоидальные высоты');
-      }
-    } catch(e) {
-      console.log('[FLOOD] Геоид пропущен:', e.message.slice(0, 100));
-    }
-
-    onProgress(62, 'Вычисление маски затопления...');
-    const calcScript = findPyScript('gdal_calc.py');
-    await new Promise((resolve, reject) => {
-      const calc = `((A>=-9000)*(A<=${waterLevelM})).astype(int)`;
-      const cmd = `"${_pythonExe}" "${calcScript}" -A "${demForCalc}" --outfile="${maskPath}" --calc="${calc}" --type=Byte --NoDataValue=0 --overwrite`;
-      exec(cmd, { env, timeout: 300000, maxBuffer: 100 * 1024 * 1024 }, (err, stdout, stderr) => {
-        if (stderr) console.log('[FLOOD calc stderr]', stderr.slice(0, 300));
-        if (err) reject(new Error(`gdal_calc error: ${(stderr || err.message).slice(0, 300)}`));
-        else resolve();
-      });
-    });
-
-    onProgress(77, 'Векторизация...');
-    const polyScript = findPyScript('gdal_polygonize.py');
-    await new Promise((resolve, reject) => {
-      const cmd = `"${_pythonExe}" "${polyScript}" "${maskPath}" -f GeoJSON "${gjPath}" flood DN`;
-      exec(cmd, { env, timeout: 120000, maxBuffer: 200 * 1024 * 1024 }, (err, stdout, stderr) => {
-        if (stderr) console.log('[FLOOD poly stderr]', stderr.slice(0, 300));
-        if (err) reject(new Error(`gdal_polygonize error: ${(stderr || err.message).slice(0, 300)}`));
-        else resolve();
-      });
-    });
-
-    onProgress(90, 'Упрощение геометрии...');
-    await runGDAL('ogr2ogr', ['-f', 'GeoJSON', gjsPath, gjPath, '-simplify', '0.00005']);
-
-    onProgress(97, 'Чтение результата...');
-    const gj = JSON.parse(fs.readFileSync(gjsPath, 'utf8'));
-    if (gj.features) {
-      gj.features = gj.features.filter(f => f.properties && f.properties.DN === 1);
-    }
-    return gj;
-  } finally {
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
-  }
-}
-
-function getDemTilesInfo() {
-  if (!fs.existsSync(DEM_TILES_DIR)) return { dir: DEM_TILES_DIR, tiles: [], exists: false };
-  try {
-    const tiles = fs.readdirSync(DEM_TILES_DIR)
-      .filter(f => /\.(tif|tiff)$/i.test(f))
-      .map(f => {
-        const fp = path.join(DEM_TILES_DIR, f);
-        return { name: f, sizeMb: Math.round(fs.statSync(fp).size / 1048576) };
-      });
-    return { dir: DEM_TILES_DIR, tiles, exists: true };
-  } catch(e) { return { dir: DEM_TILES_DIR, tiles: [], exists: true, error: e.message }; }
-}
-
-module.exports = {processDEM,cleanupTmp,checkGDAL,computeFloodZone,getDemTilesInfo};
+module.exports = {processDEM,cleanupTmp,checkGDAL};
