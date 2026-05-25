@@ -813,55 +813,9 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
       '-co', 'COMPRESS=LZW', srcVrt, clipPath,
     ]);
 
-    // 3. Геоид — EGM2008 → EGM96 → БСВ-77, берём первый с delta > 1м
-    // Сначала убеждаемся что grid-файлы есть (скачиваем при необходимости)
-    await _ensureGeoidGrids();
-    onProgress(50, 'Перевод высот в БСВ-77...');
-    let demForCalc = clipPath;
-    const inputMean = await _getGdalMean(clipPath);
-    for (const epsg of ['EPSG:3855', 'EPSG:5773', 'EPSG:9518']) {
-      const geoidRaw   = path.join(tmpDir, `geoid_${epsg.replace(':','')}.tif`);
-      const geoidFixed = path.join(tmpDir, `geoidf_${epsg.replace(':','')}.tif`);
-      try {
-        await runGDAL('gdalwarp', [
-          '-s_srs', 'EPSG:4979', '-t_srs', epsg,
-          '-r', 'bilinear', '-co', 'COMPRESS=LZW', clipPath, geoidRaw,
-        ]);
-        // Восстанавливаем горизонтальную CRS (вертикальные EPSG теряют горизонталь)
-        await runGDAL('gdal_translate', ['-a_srs', 'EPSG:4326', geoidRaw, geoidFixed]);
-        const outMean = await _getGdalMean(geoidFixed);
-        const delta = Math.abs(outMean - inputMean);
-        console.log(`[FLOOD] Геоид ${epsg}: ${inputMean.toFixed(2)}→${outMean.toFixed(2)}, delta=${delta.toFixed(2)}m`);
-        if (!isNaN(delta) && delta > 1.0) {
-          demForCalc = geoidFixed;
-          console.log(`[FLOOD] Геоид ${epsg} применён`);
-          break;
-        }
-        console.log(`[FLOOD] Геоид ${epsg} — нет эффекта, пробуем следующий`);
-      } catch(e) {
-        console.log(`[FLOOD] Геоид ${epsg} ошибка: ${e.message.slice(0, 80)}`);
-      }
-    }
-    // Если ни один геоид-растр не сработал — конвертируем порог через точечное преобразование
-    let effectiveWaterLevel = waterLevelM;
-    if (demForCalc === clipPath) {
-      console.log('[FLOOD] Все геоиды пропущены — пробуем точечное преобразование БСВ-77→WGS84...');
-      const lonCenter = (bbox.minLng + bbox.maxLng) / 2;
-      const latCenter = (bbox.minLat + bbox.maxLat) / 2;
-      const N = await _computeGeoidN(lonCenter, latCenter, tmpDir);
-      if (N !== null) {
-        effectiveWaterLevel = waterLevelM + N;
-        console.log(`[FLOOD] N=${N.toFixed(2)}м: ${waterLevelM}м БСВ-77 → ${effectiveWaterLevel.toFixed(2)}м WGS84`);
-      } else {
-        console.log('[FLOOD] Геоид недоступен. Ввод трактуется как WGS84 (установите proj-data в OSGeo4W или подключение к интернету).');
-      }
-    }
-
-    // 4. gdal_calc: маска ≤ effectiveWaterLevel
-    const waterDisplay = effectiveWaterLevel !== waterLevelM
-      ? `${waterLevelM}м БСВ-77 (${effectiveWaterLevel.toFixed(2)}м WGS84)`
-      : `${waterLevelM}м`;
-    onProgress(65, `Маска затопления ≤${waterDisplay}...`);
+    // 3. gdal_calc: маска ≤ waterLevelM (WGS84 эллипсоидальная высота)
+    // Конвертация BSV-77→WGS84 выполняется на клиенте через /api/dem/geoid-n
+    onProgress(65, `Маска затопления ≤${waterLevelM}м...`);
     const maskPath = path.join(tmpDir, 'mask.tif');
 
     const pyMaskOut = await new Promise((resolve, reject) => {
@@ -908,7 +862,7 @@ out = None; ds = None
 `;
       const pyFile = path.join(tmpDir, 'calc_mask.py');
       fs.writeFileSync(pyFile, pyCalcScript);
-      exec(`"${_pythonExe}" "${pyFile}" "${demForCalc}" "${effectiveWaterLevel}" "${maskPath}"`,
+      exec(`"${_pythonExe}" "${pyFile}" "${clipPath}" "${waterLevelM}" "${maskPath}"`,
         { env: gdalEnv(), timeout: 120000, maxBuffer: 20*1024*1024 },
         (err, stdout, stderr) => {
           if (stdout) console.log('[FLOOD mask]', stdout.trim());
@@ -976,4 +930,15 @@ print('done', count)
   }
 }
 
-module.exports = {processDEM,cleanupTmp,checkGDAL,computeFloodZone};
+async function computeGeoidN(lat, lng) {
+  await initGDAL();
+  if (!_pythonExe) return null;
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'geoid_'));
+  try {
+    return await _computeGeoidN(lng, lat, tmpDir);
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true }); } catch(e) {}
+  }
+}
+
+module.exports = {processDEM,cleanupTmp,checkGDAL,computeFloodZone,computeGeoidN};

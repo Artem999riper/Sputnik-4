@@ -292,6 +292,19 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json(demProcessor.getDemTilesInfo());
   });
 
+  app.get('/api/dem/geoid-n', async (req, res) => {
+    const lat = parseFloat(req.query.lat);
+    const lng = parseFloat(req.query.lng);
+    if (isNaN(lat) || isNaN(lng)) return res.status(400).json({ error: 'lat и lng обязательны' });
+    if (!demProcessor || !demProcessor.computeGeoidN) return res.json({ n: null });
+    try {
+      const n = await demProcessor.computeGeoidN(lat, lng);
+      res.json({ n });
+    } catch(e) {
+      res.json({ n: null });
+    }
+  });
+
   app.post('/api/dem/export', async (req, res) => {
     if (!demProcessor) return res.status(503).json({ error: 'DEM процессор не доступен' });
     const { bbox, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite } = req.body;
