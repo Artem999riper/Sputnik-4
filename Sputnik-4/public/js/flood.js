@@ -1,7 +1,8 @@
 // Симуляция зоны затопления по рельефу ArcticDEM
 let _floodLayer = null, _floodStart = null, _floodTmp = null, _floodLevel = 50;
-let _floodGeoidN = null; // N (м): WGS84_ellipsoid = BSV77 + N (N обычно отрицательный для России)
+let _floodGeoidN = null; // N (м): WGS84_ellipsoid = BSV77 + N
 let _floodLastBbox = null, _floodLastWgs = null; // для DXF-экспорта последнего расчёта
+let _floodPendingBounds = null; // bbox после рисования, до ввода уровня
 
 function _floodCalcWgs(bsv77) {
   if (_floodGeoidN === null) return null;
@@ -20,45 +21,11 @@ function _floodUpdateWgsField(val) {
   }
 }
 
-async function openFloodTool() {
-  // Загружаем N для текущего центра карты
+// Точка входа — сразу начинаем выделять область
+function openFloodTool() {
   _floodGeoidN = null;
-  const center = map.getCenter();
-  try {
-    const r = await fetch(`/api/dem/geoid-n?lat=${center.lat.toFixed(4)}&lng=${center.lng.toFixed(4)}`);
-    if (r.ok) { const d = await r.json(); _floodGeoidN = (d.n !== null && !isNaN(d.n)) ? d.n : null; }
-  } catch(e) {}
-
-  const initWgs = _floodCalcWgs(_floodLevel);
-  const wgsVal  = initWgs !== null ? initWgs.toFixed(2) : '';
-  const nHint   = _floodGeoidN !== null
-    ? `<span style="color:var(--text-secondary);font-size:11px">N = ${_floodGeoidN.toFixed(1)} м (геоид центра карты)</span>`
-    : `<span style="color:var(--text-secondary);font-size:11px">N неизвестен — нет PROJ-данных, используется WGS84</span>`;
-
-  const inputStyle = 'width:100px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--text)';
-
-  showModal('🌊 Зона затопления',
-    `<p style="margin:0 0 12px;color:var(--text-secondary)">Вычисляет зону затопления по рельефу ArcticDEM (10м разрешение).</p>
-    <div style="display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px 12px;font-size:14px;margin-bottom:8px">
-      <label for="fl-level" style="white-space:nowrap">Уровень воды (м, БСВ-77):</label>
-      <input type="number" id="fl-level" value="${_floodLevel}" min="-500" max="5000" step="0.1"
-        style="${inputStyle}" oninput="_floodUpdateWgsField(this.value)">
-      <label for="fl-level-wgs" style="white-space:nowrap;color:var(--text-secondary)">WGS84 (м):</label>
-      <input type="number" id="fl-level-wgs" value="${wgsVal}" readonly
-        style="${inputStyle};background:var(--surface-3,var(--surface-2));color:var(--accent);cursor:default"
-        placeholder="нет данных" title="Автоматически: БСВ-77 + N геоида">
-    </div>
-    <div style="margin-bottom:10px">${nHint}</div>
-    <p style="margin:0;font-size:12px;color:var(--text-secondary)">Расчёт ведётся по WGS84 эллипсоиду. Вводите уровень в БСВ-77 — WGS84 считается автоматически.<br>⏱ 1–3 мин. GDAL + интернет. Покрытие: ≥55°с.ш.</p>`,
-    [
-      { label: 'Отмена', cls: 'bs', fn: closeModal },
-      { label: 'Выбрать область →', cls: 'bp', fn: function() {
-        _floodLevel = parseFloat(document.getElementById('fl-level').value) || 0;
-        closeModal();
-        _floodBeginDraw();
-      }}
-    ]
-  );
+  _floodPendingBounds = null;
+  _floodBeginDraw();
 }
 
 function _floodBeginDraw() {
@@ -67,7 +34,7 @@ function _floodBeginDraw() {
   map.getContainer().style.cursor = 'crosshair';
   const bnr = document.getElementById('bnr');
   bnr.className = 'show draw';
-  document.getElementById('bnr-t').textContent = '🌊 Первый угол области (ПКМ — отмена)';
+  document.getElementById('bnr-t').textContent = '🌊 Первый угол области затопления (ПКМ — отмена)';
   map.once('click', _floodFirst);
   map.once('contextmenu', _floodCancel);
 }
@@ -88,14 +55,65 @@ function _floodMove(e) {
   else _floodTmp = L.rectangle(b, { color: '#1d4ed8', weight: 2, dashArray: '6 4', fillColor: '#3b82f6', fillOpacity: 0.08 }).addTo(map);
 }
 
-function _floodSecond(e) {
+async function _floodSecond(e) {
   map.off('mousemove', _floodMove);
   map.off('contextmenu', _floodCancel);
   const bounds = L.latLngBounds(_floodStart, e.latlng);
-  if (_floodTmp) { try { map.removeLayer(_floodTmp); } catch(e) {} _floodTmp = null; }
+  if (_floodTmp) { try { map.removeLayer(_floodTmp); } catch(e2) {} _floodTmp = null; }
   map.getContainer().style.cursor = '';
   document.getElementById('bnr').className = '';
-  _floodRender(bounds);
+
+  _floodPendingBounds = bounds;
+
+  // Показываем rectangle на карте пока диалог открыт
+  _floodTmp = L.rectangle(bounds, { color: '#1d4ed8', weight: 2, dashArray: '6 4', fillColor: '#3b82f6', fillOpacity: 0.08 }).addTo(map);
+
+  // Загружаем N геоида для центра выделенной области
+  const latC = (bounds.getSouth() + bounds.getNorth()) / 2;
+  const lngC = (bounds.getWest()  + bounds.getEast())  / 2;
+  try {
+    const r = await fetch(`/api/dem/geoid-n?lat=${latC.toFixed(4)}&lng=${lngC.toFixed(4)}`);
+    if (r.ok) { const d = await r.json(); _floodGeoidN = (d.n !== null && !isNaN(d.n)) ? d.n : null; }
+  } catch(e2) {}
+
+  _floodShowLevelDialog(bounds);
+}
+
+function _floodShowLevelDialog(bounds) {
+  const initWgs = _floodCalcWgs(_floodLevel);
+  const wgsVal  = initWgs !== null ? initWgs.toFixed(2) : '';
+  const nHint   = _floodGeoidN !== null
+    ? `<span style="color:var(--text-secondary);font-size:11px">N = ${_floodGeoidN.toFixed(1)} м (геоид центра области)</span>`
+    : `<span style="color:var(--text-secondary);font-size:11px">N недоступен — WGS84 = БСВ-77 без поправки</span>`;
+
+  const inputStyle = 'width:100px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--text)';
+
+  showModal('🌊 Зона затопления',
+    `<p style="margin:0 0 12px;color:var(--text-secondary)">Вычисляет зону затопления по рельефу ArcticDEM (10м разрешение).</p>
+    <div style="display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px 12px;font-size:14px;margin-bottom:8px">
+      <label for="fl-level" style="white-space:nowrap">Уровень воды (м, БСВ-77):</label>
+      <input type="number" id="fl-level" value="${_floodLevel}" min="-500" max="5000" step="0.1"
+        style="${inputStyle}" oninput="_floodUpdateWgsField(this.value)">
+      <label for="fl-level-wgs" style="white-space:nowrap;color:var(--text-secondary)">WGS84 (м):</label>
+      <input type="number" id="fl-level-wgs" value="${wgsVal}" readonly
+        style="${inputStyle};background:var(--surface-3,var(--surface-2));color:var(--accent);cursor:default"
+        placeholder="нет данных" title="Автоматически: БСВ-77 + N геоида">
+    </div>
+    <div style="margin-bottom:10px">${nHint}</div>
+    <p style="margin:0;font-size:12px;color:var(--text-secondary)">⏱ 1–3 мин. GDAL + интернет. Покрытие: ≥55°с.ш.</p>`,
+    [
+      { label: 'Отмена', cls: 'bs', fn: function() {
+        closeModal();
+        if (_floodTmp) { try { map.removeLayer(_floodTmp); } catch(e) {} _floodTmp = null; }
+      }},
+      { label: '▶ Рассчитать', cls: 'bp', fn: function() {
+        _floodLevel = parseFloat(document.getElementById('fl-level').value) || 0;
+        closeModal();
+        if (_floodTmp) { try { map.removeLayer(_floodTmp); } catch(e) {} _floodTmp = null; }
+        _floodRender(_floodPendingBounds);
+      }}
+    ]
+  );
 }
 
 function _floodCancel() {
@@ -123,7 +141,7 @@ async function _floodRender(bounds) {
   // Конвертируем BSV-77 → WGS84 если N известен
   const wgsLevel = (_floodGeoidN !== null) ? _floodLevel + _floodGeoidN : _floodLevel;
   const levelDisplay = (_floodGeoidN !== null)
-    ? `${_floodLevel}м BSV-77 (${wgsLevel.toFixed(2)}м WGS84)`
+    ? `${_floodLevel}м БСВ-77 (${wgsLevel.toFixed(2)}м WGS84)`
     : `${_floodLevel}м`;
   toast(`🌊 Расчёт зоны затопления [${levelDisplay}]… 1–3 мин`, 'ok');
 
