@@ -911,12 +911,12 @@ function renderLayerGroupsWithSymbols() {
     if (!k.startsWith('s_')) { try { map.removeLayer(lGroups[k]); } catch(e) {} delete lGroups[k]; }
   });
 
-  // kmlPane выше overlayPane(400)/volPointsPane(450) чтобы canvas объёмов не перехватывал события
+  // kmlPane ниже overlayPane (400) — KML визуально под объёмами
   if (!map.getPane('kmlPane')) {
     map.createPane('kmlPane');
     map.getPane('kmlPane').style.pointerEvents = 'auto';
   }
-  map.getPane('kmlPane').style.zIndex = 500;
+  map.getPane('kmlPane').style.zIndex = 300;
   if (map.getPane('overlayPane'))  map.getPane('overlayPane').style.zIndex  = 400;
   if (map.getPane('volPointsPane'))map.getPane('volPointsPane').style.zIndex = 450;
 
