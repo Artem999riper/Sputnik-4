@@ -3,6 +3,23 @@ let _floodLayer = null, _floodStart = null, _floodTmp = null, _floodLevel = 50;
 let _floodGeoidN = null; // N (м): WGS84_ellipsoid = BSV77 + N (N обычно отрицательный для России)
 let _floodLastBbox = null, _floodLastWgs = null; // для DXF-экспорта последнего расчёта
 
+function _floodCalcWgs(bsv77) {
+  if (_floodGeoidN === null) return null;
+  return (parseFloat(bsv77) || 0) + _floodGeoidN;
+}
+
+function _floodUpdateWgsField(val) {
+  const el = document.getElementById('fl-level-wgs');
+  if (!el) return;
+  const wgs = _floodCalcWgs(val);
+  if (wgs === null) {
+    el.value = '';
+    el.placeholder = 'нет данных';
+  } else {
+    el.value = wgs.toFixed(2);
+  }
+}
+
 async function openFloodTool() {
   // Загружаем N для текущего центра карты
   _floodGeoidN = null;
@@ -12,22 +29,27 @@ async function openFloodTool() {
     if (r.ok) { const d = await r.json(); _floodGeoidN = (d.n !== null && !isNaN(d.n)) ? d.n : null; }
   } catch(e) {}
 
-  function _wgs84hint(val) {
-    if (_floodGeoidN === null) return '<span style="color:var(--text-secondary)">WGS84 неизвестен (нет PROJ-данных)</span>';
-    const wgs = (parseFloat(val) || 0) + _floodGeoidN;
-    return `<span style="color:var(--accent)">≈ <b>${wgs.toFixed(2)} м WGS84</b></span> <span style="color:var(--text-secondary)">(N=${_floodGeoidN.toFixed(1)}м)</span>`;
-  }
+  const initWgs = _floodCalcWgs(_floodLevel);
+  const wgsVal  = initWgs !== null ? initWgs.toFixed(2) : '';
+  const nHint   = _floodGeoidN !== null
+    ? `<span style="color:var(--text-secondary);font-size:11px">N = ${_floodGeoidN.toFixed(1)} м (геоид центра карты)</span>`
+    : `<span style="color:var(--text-secondary);font-size:11px">N неизвестен — нет PROJ-данных, используется WGS84</span>`;
+
+  const inputStyle = 'width:100px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--text)';
 
   showModal('🌊 Зона затопления',
-    `<p style="margin:0 0 10px;color:var(--text-secondary)">Вычисляет зону затопления по рельефу ArcticDEM (10м разрешение).</p>
-    <div style="display:flex;align-items:center;gap:10px;font-size:14px;margin-bottom:6px">
+    `<p style="margin:0 0 12px;color:var(--text-secondary)">Вычисляет зону затопления по рельефу ArcticDEM (10м разрешение).</p>
+    <div style="display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px 12px;font-size:14px;margin-bottom:8px">
       <label for="fl-level" style="white-space:nowrap">Уровень воды (м, БСВ-77):</label>
       <input type="number" id="fl-level" value="${_floodLevel}" min="-500" max="5000" step="0.1"
-        style="width:90px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--text)"
-        oninput="document.getElementById('fl-wgs').innerHTML=window._floodWgsHint(this.value)">
+        style="${inputStyle}" oninput="_floodUpdateWgsField(this.value)">
+      <label for="fl-level-wgs" style="white-space:nowrap;color:var(--text-secondary)">WGS84 (м):</label>
+      <input type="number" id="fl-level-wgs" value="${wgsVal}" readonly
+        style="${inputStyle};background:var(--surface-3,var(--surface-2));color:var(--accent);cursor:default"
+        placeholder="нет данных" title="Автоматически: БСВ-77 + N геоида">
     </div>
-    <div id="fl-wgs" style="font-size:13px;margin-bottom:10px;padding-left:4px">${_wgs84hint(_floodLevel)}</div>
-    <p style="margin:0;font-size:12px;color:var(--text-secondary)">Расчёт ведётся по высотам WGS84 эллипсоида. Пересчёт из БСВ-77 через N-геоид центра карты.<br>⏱ 1–3 мин. GDAL + интернет. Покрытие: ≥55°с.ш.</p>`,
+    <div style="margin-bottom:10px">${nHint}</div>
+    <p style="margin:0;font-size:12px;color:var(--text-secondary)">Расчёт ведётся по WGS84 эллипсоиду. Вводите уровень в БСВ-77 — WGS84 считается автоматически.<br>⏱ 1–3 мин. GDAL + интернет. Покрытие: ≥55°с.ш.</p>`,
     [
       { label: 'Отмена', cls: 'bs', fn: closeModal },
       { label: 'Выбрать область →', cls: 'bp', fn: function() {
@@ -37,7 +59,6 @@ async function openFloodTool() {
       }}
     ]
   );
-  window._floodWgsHint = _wgs84hint;
 }
 
 function _floodBeginDraw() {

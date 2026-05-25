@@ -193,103 +193,6 @@ function runGDAL(exe, args) {
   });
 }
 
-// Возвращает среднее значение первого бэнда растра через gdalinfo -stats
-async function _getGdalMean(tif) {
-  try {
-    const r = await execFileP(gdal('gdalinfo'), ['-stats', '-json', tif],
-      { env: gdalEnv(), maxBuffer: 4*1024*1024, timeout: 30000 });
-    const j = JSON.parse(r.stdout || '{}');
-    const m = j.bands?.[0]?.metadata?.[''] || {};
-    return parseFloat(m.STATISTICS_MEAN);
-  } catch(e) { return NaN; }
-}
-
-// Вычисляет поправку геоида N (м) через Python OSR для точки (lon, lat).
-// N = h_WGS84 - H_ортометр; при PROJ_NETWORK=ON PROJ скачает грид если нужно.
-// Возвращает число или null при ошибке.
-async function _computeGeoidN(lon, lat, tmpDir) {
-  const pyScript = `
-import sys, os
-os.environ.setdefault('PROJ_NETWORK', 'ON')
-from osgeo import osr
-lon_pt = float(sys.argv[1])
-lat_pt = float(sys.argv[2])
-for epsg in [3855, 5773]:
-    try:
-        src = osr.SpatialReference()
-        src.ImportFromEPSG(4979)
-        src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-        tgt = osr.SpatialReference()
-        tgt.ImportFromEPSG(epsg)
-        tgt.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-        ct = osr.CoordinateTransformation(src, tgt)
-        x, y, h = ct.TransformPoint(lon_pt, lat_pt, 0.0)
-        # h_out - это ортометрическая высота точки с эллипсоидальной h=0
-        # N = h_WGS84 - H_ortho => если h_WGS84=0, то N = -h_out
-        n_val = -h
-        if abs(n_val) > 0.5:
-            print(f'{n_val:.4f}')
-            sys.exit(0)
-    except Exception as e:
-        sys.stderr.write(f'epsg {epsg}: {e}\\n')
-print('0')
-`;
-  const pyF = path.join(tmpDir, 'get_geoid_n.py');
-  fs.writeFileSync(pyF, pyScript);
-  return new Promise(resolve => {
-    exec(`"${_pythonExe}" "${pyF}" "${lon}" "${lat}"`,
-      { env: { ...gdalEnv(), PROJ_NETWORK: 'ON' }, timeout: 20000, maxBuffer: 64 * 1024 },
-      (err, stdout, stderr) => {
-        if (stderr) console.log('[FLOOD] geoidN stderr:', stderr.slice(0, 200));
-        const n = parseFloat((stdout || '0').trim());
-        resolve((!err && !isNaN(n) && Math.abs(n) > 0.5) ? n : null);
-      });
-  });
-}
-
-// Скачивает PROJ grid-файлы EGM2008/EGM96 в PROJ_LIB если их нет.
-// Один раз при первом запуске — затем gdalwarp найдёт их и применит реальную конвертацию.
-async function _ensureGeoidGrids() {
-  if (!_projLib) return;
-  const grids = [
-    'us_nga_egm08_25.tif',  // EGM2008 → EPSG:3855
-    'us_nga_egm96_15.tif',  // EGM96   → EPSG:5773
-  ];
-  for (const file of grids) {
-    const target = path.join(_projLib, file);
-    if (fs.existsSync(target)) continue;
-    const url = `https://cdn.proj.org/${file}`;
-    console.log(`[DEM] Загрузка геоид-грида ${file} (~2MB)...`);
-    try {
-      await new Promise((resolve, reject) => {
-        const out = fs.createWriteStream(target);
-        const req = https.get(url, { timeout: 60000 }, res => {
-          if (res.statusCode === 301 || res.statusCode === 302) {
-            out.destroy();
-            try { fs.unlinkSync(target); } catch(_) {}
-            reject(new Error(`redirect ${res.headers.location}`));
-            return;
-          }
-          if (res.statusCode !== 200) {
-            out.destroy();
-            try { fs.unlinkSync(target); } catch(_) {}
-            return reject(new Error(`HTTP ${res.statusCode}`));
-          }
-          res.pipe(out);
-          out.on('finish', resolve);
-          out.on('error', e => { try { fs.unlinkSync(target); } catch(_) {} reject(e); });
-        });
-        req.on('error', e => { out.destroy(); try { fs.unlinkSync(target); } catch(_) {} reject(e); });
-        req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
-      });
-      console.log(`[DEM] Геоид-грид OK: ${file}`);
-    } catch(e) {
-      console.log(`[DEM] Геоид-грид недоступен (${file}): ${e.message.slice(0, 80)}`);
-      try { fs.unlinkSync(target); } catch(_) {}
-    }
-  }
-}
-
 // ── Спутник ────────────────────────────────────────────────
 function lon2tile(lon,z) { return Math.floor((lon+180)/360*Math.pow(2,z)); }
 function lat2tile(lat,z) {
@@ -548,23 +451,16 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     ]);
     log.push('Clip OK');
 
-    // 3. Геоид — EGM2008 → EGM96 → БСВ-77, берём первый с delta > 1м
+    // 3. Геоид
     onProgress&&onProgress(28,useGeoid?'Перевод БСВ-77...':'Подготовка...');
     let demTif=clippedTif;
     if (useGeoid){
-      const inputMean = await _getGdalMean(clippedTif);
-      for (const epsg of ['EPSG:3855','EPSG:5773','EPSG:9518']){
-        const gTif=path.join(tmpDir,`geoid_${epsg.replace(':','')}.tif`);
-        try{
-          await runGDAL('gdalwarp',['-s_srs','EPSG:4979','-t_srs',epsg,
-            '-r','bilinear','-co','COMPRESS=LZW',clippedTif,gTif]);
-          const outMean = await _getGdalMean(gTif);
-          const delta = Math.abs(outMean - inputMean);
-          log.push(`Геоид ${epsg}: delta=${delta.toFixed(1)}m`);
-          if (!isNaN(delta) && delta > 1.0){ demTif=gTif; log.push(`Геоид OK (${epsg})`); break; }
-        }catch(e){ log.push(`Геоид ${epsg} skip`); }
-      }
-      if (demTif===clippedTif) log.push('Все геоиды skip — WGS84');
+      const gTif=path.join(tmpDir,'geoid.tif');
+      try{
+        await runGDAL('gdalwarp',['-s_srs','EPSG:4979','-t_srs','EPSG:9518',
+          '-r','bilinear','-co','COMPRESS=LZW',clippedTif,gTif]);
+        demTif=gTif; log.push('Geoid OK');
+      }catch(e){log.push('Geoid skip');}
     }
 
     // 4. Репроекция
@@ -756,11 +652,51 @@ async function checkGDAL(){
   }
 }
 
-// ── Ядро расчёта затопления (переиспользуется в computeFloodZone и computeFloodZoneDxf)
+// ── Поправка геоида N через Python OSR ────────────────────
+// Возвращает N (м) или null. N = WGS84_эллипсоид - БСВ-77_ортометр
+async function _computeGeoidN(lon, lat, tmpDir) {
+  const pyScript = `
+import sys, os
+os.environ.setdefault('PROJ_NETWORK', 'ON')
+from osgeo import osr
+lon_pt = float(sys.argv[1])
+lat_pt = float(sys.argv[2])
+for epsg in [3855, 5773]:
+    try:
+        src = osr.SpatialReference()
+        src.ImportFromEPSG(4979)
+        src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        tgt = osr.SpatialReference()
+        tgt.ImportFromEPSG(epsg)
+        tgt.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        ct = osr.CoordinateTransformation(src, tgt)
+        x, y, h = ct.TransformPoint(lon_pt, lat_pt, 0.0)
+        n_val = -h
+        if abs(n_val) > 0.5:
+            print(f'{n_val:.4f}')
+            sys.exit(0)
+    except Exception as e:
+        sys.stderr.write(f'epsg {epsg}: {e}\\n')
+print('0')
+`;
+  const pyF = path.join(tmpDir, 'get_geoid_n.py');
+  fs.writeFileSync(pyF, pyScript);
+  return new Promise(resolve => {
+    exec(`"${_pythonExe}" "${pyF}" "${lon}" "${lat}"`,
+      { env: { ...gdalEnv(), PROJ_NETWORK: 'ON' }, timeout: 20000, maxBuffer: 64 * 1024 },
+      (err, stdout, stderr) => {
+        if (stderr) console.log('[FLOOD] geoidN stderr:', stderr.slice(0, 200));
+        const n = parseFloat((stdout || '0').trim());
+        resolve((!err && !isNaN(n) && Math.abs(n) > 0.5) ? n : null);
+      });
+  });
+}
+
+// ── Ядро расчёта затопления ────────────────────────────────
 async function _floodCore(bbox, waterLevelM, tmpDir, onProgress) {
   const {minLat,maxLat,minLng,maxLng} = bbox;
 
-  // 1. Тайлы ArcticDEM — точно так же как в processDEM: STAC → прямые S3 vsicurl
+  // 1. Тайлы ArcticDEM
   onProgress(5, 'Поиск тайлов ArcticDEM...');
   let tifUrls = [], usedRes = '10m';
   try {
@@ -903,7 +839,7 @@ print('done', count)
     fs.copyFileSync(rawGj, simpGj);
   }
 
-  return simpGj;  // путь к готовому GeoJSON
+  return simpGj;
 }
 
 // ── Симуляция затопления ───────────────────────────────────
@@ -936,10 +872,9 @@ async function computeFloodZoneDxf(bbox, waterLevelM, waterLevelBsv77, proj4Str,
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flooddxf_'));
 
   try {
-    // 1-5: download → clip → mask → polygonize → simplify
     const simpGj = await _floodCore(bbox, waterLevelM, tmpDir, onProgress);
 
-    // 6. Перепроецирование GeoJSON в целевую СК
+    // Перепроецирование GeoJSON в целевую СК
     onProgress(91, 'Перепроецирование...');
     const reprojGj = path.join(tmpDir, 'flood_reproj.geojson');
     const srsArg = proj4Str || (epsg ? `EPSG:${epsg}` : 'EPSG:4326');
@@ -952,7 +887,7 @@ async function computeFloodZoneDxf(bbox, waterLevelM, waterLevelBsv77, proj4Str,
       fs.copyFileSync(simpGj, reprojGj);
     }
 
-    // 7. Читаем GeoJSON, добавляем Z = waterLevelBsv77, фильтруем мелкий шум
+    // Читаем GeoJSON, добавляем Z = waterLevelBsv77, фильтруем мелкий шум
     onProgress(94, 'Создание DXF...');
     const gj = JSON.parse(fs.readFileSync(reprojGj, 'utf8'));
     const zVal = waterLevelBsv77;
@@ -967,7 +902,6 @@ async function computeFloodZoneDxf(bbox, waterLevelM, waterLevelBsv77, proj4Str,
         .map(f => { if (f.geometry?.coordinates) f.geometry.coordinates = addZ(f.geometry.coordinates); return f; });
     }
 
-    // 8. Строим DXF через dxf-writer
     const dxfStr = buildLayersDXF({
       layers: [{ name: 'ГРАНИЦА_ЗАТОПЛЕНИЯ', color: 5, geojson: gj }],
       transform: (x, y) => [x, y],
@@ -976,7 +910,6 @@ async function computeFloodZoneDxf(bbox, waterLevelM, waterLevelBsv77, proj4Str,
     const dxfPath  = path.join(tmpDir, `flood_${safeProj}.dxf`);
     saveDXF(dxfPath, dxfStr);
 
-    // Информационный файл
     const infoPath = path.join(tmpDir, 'flood_readme.txt');
     fs.writeFileSync(infoPath,
       `Зона затопления ArcticDEM\r\n` +
@@ -988,7 +921,6 @@ async function computeFloodZoneDxf(bbox, waterLevelM, waterLevelBsv77, proj4Str,
       `  ГРАНИЦА_ЗАТОПЛЕНИЯ — синий (5), контуры зоны затопления, Z = уровень воды БСВ-77\r\n`
     );
 
-    // 9. ZIP (PowerShell на Windows, zip на Linux)
     onProgress(97, 'Упаковка ZIP...');
     const zipPath = path.join(tmpDir, 'flood_dxf.zip');
     const filesToZip = [dxfPath, infoPath].filter(f => fs.existsSync(f));
@@ -1011,8 +943,9 @@ async function computeFloodZoneDxf(bbox, waterLevelM, waterLevelBsv77, proj4Str,
   }
 }
 
+// ── Публичная функция для получения N геоида ──────────────
 async function computeGeoidN(lat, lng) {
-  await initGDAL();
+  findGDALBin();
   if (!_pythonExe) return null;
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'geoid_'));
   try {
