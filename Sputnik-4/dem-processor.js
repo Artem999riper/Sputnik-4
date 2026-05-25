@@ -656,28 +656,79 @@ async function checkGDAL(){
 // Возвращает N (м) или null. N = WGS84_эллипсоид - БСВ-77_ортометр
 async function _computeGeoidN(lon, lat, tmpDir) {
   const pyScript = `
-import sys, os
+import sys, os, math
+
+def geoid_lookup(lon, lat):
+    # EGM96 approx geoid undulation (meters, +-5m accuracy) for Russia/Arctic
+    # Grid: lat 40-80N step 5deg (9 rows), lon 10-180E step 10deg (18 cols)
+    LAT0, DLAT, NLAT = 40.0, 5.0, 9
+    LON0, DLON, NLON = 10.0, 10.0, 18
+    T = [
+        # 40N
+        [30,38,35,28,22,18,14,12, 8, 5, 3, 2,-2,-8,-14,-18,-20,-21],
+        # 45N
+        [22,32,30,23,18,14,10, 7, 3, 0,-1,-2,-5,-10,-16,-19,-21,-22],
+        # 50N
+        [18,28,26,20,15,10, 6, 2,-2,-5,-5,-5,-7,-12,-17,-20,-21,-22],
+        # 55N
+        [14,22,20,15,10, 5, 3,-1,-5,-7,-6,-6,-8,-12,-18,-20,-21,-22],
+        # 60N
+        [10,18,18,14, 8, 2,-2,-6,-9,-11,-11,-11,-14,-16,-20,-21,-21,-21],
+        # 65N
+        [ 6,14,14,10, 4,-4,-8,-15,-16,-15,-14,-14,-16,-18,-22,-22,-21,-21],
+        # 70N
+        [ 4,10,10, 8, 2,-5,-13,-19,-20,-19,-18,-17,-18,-19,-22,-22,-21,-21],
+        # 75N
+        [ 2, 6, 6, 5, 0,-7,-14,-20,-22,-22,-21,-20,-20,-20,-22,-22,-21,-21],
+        # 80N
+        [ 2, 4, 4, 3,-1,-7,-12,-18,-22,-23,-22,-21,-20,-20,-22,-22,-21,-21],
+    ]
+    lat = max(40.0, min(79.99, lat))
+    lon = ((lon + 180.0) % 360.0) - 180.0
+    lon = max(10.0, min(179.99, lon))
+    fi = (lat - LAT0) / DLAT
+    fj = (lon - LON0) / DLON
+    i0 = int(fi); i1 = min(i0 + 1, NLAT - 1)
+    j0 = int(fj); j1 = min(j0 + 1, NLON - 1)
+    di = fi - i0; dj = fj - j0
+    v = (T[i0][j0]*(1-di)*(1-dj) + T[i0][j1]*(1-di)*dj +
+         T[i1][j0]*di*(1-dj)     + T[i1][j1]*di*dj)
+    return round(v, 2)
+
 os.environ.setdefault('PROJ_NETWORK', 'ON')
-from osgeo import osr
 lon_pt = float(sys.argv[1])
 lat_pt = float(sys.argv[2])
-for epsg in [3855, 5773]:
-    try:
-        src = osr.SpatialReference()
-        src.ImportFromEPSG(4979)
-        src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-        tgt = osr.SpatialReference()
-        tgt.ImportFromEPSG(epsg)
-        tgt.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-        ct = osr.CoordinateTransformation(src, tgt)
-        x, y, h = ct.TransformPoint(lon_pt, lat_pt, 0.0)
-        n_val = -h
-        if abs(n_val) > 0.5:
-            print(f'{n_val:.4f}')
-            sys.exit(0)
-    except Exception as e:
-        sys.stderr.write(f'epsg {epsg}: {e}\\n')
-print('0')
+
+n_osr = None
+try:
+    import warnings
+    warnings.filterwarnings('ignore')
+    from osgeo import osr
+    for epsg in [3855, 5773]:
+        try:
+            src = osr.SpatialReference()
+            src.ImportFromEPSG(4979)
+            src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+            tgt = osr.SpatialReference()
+            tgt.ImportFromEPSG(epsg)
+            tgt.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+            ct = osr.CoordinateTransformation(src, tgt)
+            x, y, h = ct.TransformPoint(lon_pt, lat_pt, 0.0)
+            n_val = -h
+            if abs(n_val) > 0.5:
+                n_osr = n_val
+                break
+        except Exception as e:
+            sys.stderr.write(f'epsg {epsg}: {e}\\n')
+except Exception as e:
+    sys.stderr.write(f'osr import: {e}\\n')
+
+if n_osr is not None:
+    print(f'{n_osr:.4f}')
+else:
+    n_fb = geoid_lookup(lon_pt, lat_pt)
+    sys.stderr.write(f'OSR no grid, EGM96 table: N={n_fb}\\n')
+    print(f'{n_fb:.4f}')
 `;
   const pyF = path.join(tmpDir, 'get_geoid_n.py');
   fs.writeFileSync(pyF, pyScript);
@@ -685,9 +736,9 @@ print('0')
     exec(`"${_pythonExe}" "${pyF}" "${lon}" "${lat}"`,
       { env: { ...gdalEnv(), PROJ_NETWORK: 'ON' }, timeout: 20000, maxBuffer: 64 * 1024 },
       (err, stdout, stderr) => {
-        if (stderr) console.log('[FLOOD] geoidN stderr:', stderr.slice(0, 200));
-        const n = parseFloat((stdout || '0').trim());
-        resolve((!err && !isNaN(n) && Math.abs(n) > 0.5) ? n : null);
+        if (stderr) console.log('[FLOOD] geoidN stderr:', stderr.slice(0, 300));
+        const n = parseFloat((stdout || '').trim());
+        resolve((!err && !isNaN(n) && Math.abs(n) > 0.1) ? n : null);
       });
   });
 }
