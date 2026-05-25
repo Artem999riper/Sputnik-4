@@ -163,7 +163,6 @@ function gdalEnv() {
       GDAL_CACHEMAX: '512',
       VSI_CACHE: 'TRUE',
       VSI_CACHE_SIZE: '104857600',
-      PROJ_NETWORK: 'ON',
     };
   }
   const root = path.resolve(_gdalBin, '..');
@@ -179,7 +178,6 @@ function gdalEnv() {
     GDAL_CACHEMAX: '512',
     VSI_CACHE: 'TRUE',
     VSI_CACHE_SIZE: '104857600',
-    PROJ_NETWORK: 'ON',
     PYTHONPATH: [
       path.join(root, 'apps', 'Python312', 'lib', 'site-packages'),
       path.join(root, 'apps', 'Python39',  'lib', 'site-packages'),
@@ -247,6 +245,49 @@ print('0')
         resolve((!err && !isNaN(n) && Math.abs(n) > 0.5) ? n : null);
       });
   });
+}
+
+// Скачивает PROJ grid-файлы EGM2008/EGM96 в PROJ_LIB если их нет.
+// Один раз при первом запуске — затем gdalwarp найдёт их и применит реальную конвертацию.
+async function _ensureGeoidGrids() {
+  if (!_projLib) return;
+  const grids = [
+    'us_nga_egm08_25.tif',  // EGM2008 → EPSG:3855
+    'us_nga_egm96_15.tif',  // EGM96   → EPSG:5773
+  ];
+  for (const file of grids) {
+    const target = path.join(_projLib, file);
+    if (fs.existsSync(target)) continue;
+    const url = `https://cdn.proj.org/${file}`;
+    console.log(`[DEM] Загрузка геоид-грида ${file} (~2MB)...`);
+    try {
+      await new Promise((resolve, reject) => {
+        const out = fs.createWriteStream(target);
+        const req = https.get(url, { timeout: 60000 }, res => {
+          if (res.statusCode === 301 || res.statusCode === 302) {
+            out.destroy();
+            try { fs.unlinkSync(target); } catch(_) {}
+            reject(new Error(`redirect ${res.headers.location}`));
+            return;
+          }
+          if (res.statusCode !== 200) {
+            out.destroy();
+            try { fs.unlinkSync(target); } catch(_) {}
+            return reject(new Error(`HTTP ${res.statusCode}`));
+          }
+          res.pipe(out);
+          out.on('finish', resolve);
+          out.on('error', e => { try { fs.unlinkSync(target); } catch(_) {} reject(e); });
+        });
+        req.on('error', e => { out.destroy(); try { fs.unlinkSync(target); } catch(_) {} reject(e); });
+        req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+      });
+      console.log(`[DEM] Геоид-грид OK: ${file}`);
+    } catch(e) {
+      console.log(`[DEM] Геоид-грид недоступен (${file}): ${e.message.slice(0, 80)}`);
+      try { fs.unlinkSync(target); } catch(_) {}
+    }
+  }
 }
 
 // ── Спутник ────────────────────────────────────────────────
@@ -511,6 +552,7 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     onProgress&&onProgress(28,useGeoid?'Перевод БСВ-77...':'Подготовка...');
     let demTif=clippedTif;
     if (useGeoid){
+      await _ensureGeoidGrids();
       const inputMean = await _getGdalMean(clippedTif);
       for (const epsg of ['EPSG:3855','EPSG:5773','EPSG:9518']){
         const gTif=path.join(tmpDir,`geoid_${epsg.replace(':','')}.tif`);
@@ -772,6 +814,8 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
     ]);
 
     // 3. Геоид — EGM2008 → EGM96 → БСВ-77, берём первый с delta > 1м
+    // Сначала убеждаемся что grid-файлы есть (скачиваем при необходимости)
+    await _ensureGeoidGrids();
     onProgress(50, 'Перевод высот в БСВ-77...');
     let demForCalc = clipPath;
     const inputMean = await _getGdalMean(clipPath);
