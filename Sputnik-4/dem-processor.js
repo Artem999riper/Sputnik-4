@@ -652,4 +652,209 @@ async function checkGDAL(){
   }
 }
 
-module.exports = {processDEM,cleanupTmp,checkGDAL};
+// ── Симуляция затопления ───────────────────────────────────
+async function computeFloodZone(bbox, waterLevelM, onProgress) {
+  onProgress = onProgress || (() => {});
+  findGDALBin();
+  const {minLat,maxLat,minLng,maxLng} = bbox;
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(),'flood_'));
+
+  try {
+    // 1. Скачиваем тайлы ArcticDEM 10m через Node.js
+    onProgress(5, 'Поиск тайлов ArcticDEM...');
+    const BASE = 'https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1';
+    const tilePaths = [];
+
+    for (let lat = Math.floor(minLat); lat <= Math.floor(maxLat); lat++) {
+      for (let lng = Math.floor(minLng); lng <= Math.floor(maxLng); lng++) {
+        const latS = lat >= 0 ? `n${String(lat).padStart(2,'0')}` : `s${String(-lat).padStart(2,'0')}`;
+        const lngS = lng >= 0 ? `e${String(lng).padStart(3,'0')}` : `w${String(-lng).padStart(3,'0')}`;
+        const id   = `${latS}${lngS}`;
+        let downloaded = false;
+        for (const res of ['10m']) {
+          const url = `${BASE}/${res}/${id}/${id}_${res}_v4.1_dem.tif`;
+          const localPath = path.join(tmpDir, `${id}_${res}.tif`);
+          try {
+            await _downloadDemTile(url, localPath);
+            tilePaths.push(localPath);
+            downloaded = true;
+            console.log(`[FLOOD] OK: ${id} (${res})`);
+            break;
+          } catch(e) {
+            console.log(`[FLOOD] ${id}@${res}: ${e.message.slice(0,60)}`);
+          }
+        }
+        if (!downloaded) console.log(`[FLOOD] Тайл ${id} недоступен`);
+      }
+    }
+
+    if (!tilePaths.length) {
+      throw new Error(
+        'Не удалось скачать тайлы ArcticDEM.\n' +
+        'Проверьте доступ к pgc-opendata-dems.s3.us-west-2.amazonaws.com\n' +
+        'или установите HTTPS_PROXY=http://host:port'
+      );
+    }
+
+    // 2. VRT + clip в EPSG:4326
+    onProgress(30, 'Подготовка растра...');
+    const listF   = path.join(tmpDir, 'tiles.txt');
+    const srcVrt  = path.join(tmpDir, 'src.vrt');
+    const clipPath = path.join(tmpDir, 'clip.tif');
+    fs.writeFileSync(listF, tilePaths.join('\n'));
+    await runGDAL('gdalbuildvrt', ['-input_file_list', listF, srcVrt]);
+    await runGDAL('gdalwarp', [
+      '-te', String(minLng), String(minLat), String(maxLng), String(maxLat),
+      '-te_srs', 'EPSG:4326', '-t_srs', 'EPSG:4326', '-r', 'bilinear',
+      '-co', 'COMPRESS=LZW', srcVrt, clipPath,
+    ]);
+
+    // 3. Геоид EPSG:4979 → EPSG:9518 (БСВ-77)
+    onProgress(50, 'Перевод высот в БСВ-77...');
+    const geoidPath = path.join(tmpDir, 'dem_bsv77.tif');
+    let demForCalc = clipPath;
+    try {
+      await runGDAL('gdalwarp', [
+        '-s_srs', 'EPSG:4979', '-t_srs', 'EPSG:9518',
+        '-r', 'bilinear', '-co', 'COMPRESS=LZW',
+        clipPath, geoidPath,
+      ]);
+      demForCalc = geoidPath;
+      console.log('[FLOOD] Геоид БСВ-77 OK');
+    } catch(e) {
+      console.log('[FLOOD] Геоид пропущен:', e.message.slice(0, 80));
+    }
+
+    // 4. gdal_calc: маска ≤ waterLevelM
+    onProgress(65, `Маска затопления ≤${waterLevelM}м...`);
+    const maskPath = path.join(tmpDir, 'mask.tif');
+    const calcScript = gdal('gdal_calc') + (IS_WINDOWS ? '' : '.py').replace(/gdal_calc(\.py)?\.py$/,'gdal_calc.py');
+    const calcExe = IS_WINDOWS
+      ? path.join(findGDALBin(), '..', 'apps', 'Python312', 'Scripts', 'gdal_calc.py')
+      : gdal('gdal_calc.py');
+
+    // Используем gdalwarp с cutline через командную строку вместо gdal_calc
+    // для совместимости без знания точного пути к gdal_calc.py
+    await new Promise((resolve, reject) => {
+      const pyCalcScript = `
+import sys
+from osgeo import gdal
+import numpy as np
+ds = gdal.Open(sys.argv[1])
+band = ds.GetRasterBand(1)
+arr = band.ReadAsArray().astype(float)
+nodata = band.GetNoDataValue()
+if nodata is not None:
+    arr[arr == nodata] = np.nan
+mask = (arr <= float(sys.argv[2])).astype(np.uint8)
+if nodata is not None:
+    mask[np.isnan(arr)] = 0
+driver = gdal.GetDriverByName('GTiff')
+out = driver.Create(sys.argv[3], ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Byte,
+    ['COMPRESS=LZW'])
+out.SetGeoTransform(ds.GetGeoTransform())
+out.SetProjection(ds.GetProjection())
+b = out.GetRasterBand(1)
+b.SetNoDataValue(0)
+b.WriteArray(mask)
+out.FlushCache()
+out = None; ds = None
+`;
+      const pyFile = path.join(tmpDir, 'calc_mask.py');
+      fs.writeFileSync(pyFile, pyCalcScript);
+      exec(`"${_pythonExe}" "${pyFile}" "${demForCalc}" "${waterLevelM}" "${maskPath}"`,
+        { env: gdalEnv(), timeout: 120000, maxBuffer: 20*1024*1024 },
+        (err, stdout, stderr) => {
+          if (err) reject(new Error(stderr || err.message));
+          else resolve();
+        });
+    });
+
+    // 5. gdal_polygonize → GeoJSON
+    onProgress(80, 'Полигонизация...');
+    const rawGj   = path.join(tmpDir, 'flood_raw.geojson');
+    const simpGj  = path.join(tmpDir, 'flood.geojson');
+
+    await new Promise((resolve, reject) => {
+      const pyPoly = `
+import sys
+from osgeo import gdal, ogr
+src = gdal.Open(sys.argv[1])
+band = src.GetRasterBand(1)
+drv = ogr.GetDriverByName('GeoJSON')
+import os; os.makedirs(os.path.dirname(sys.argv[2]), exist_ok=True) if os.path.dirname(sys.argv[2]) else None
+if os.path.exists(sys.argv[2]): os.remove(sys.argv[2])
+dst = drv.CreateDataSource(sys.argv[2])
+lyr = dst.CreateLayer('flood', srs=None)
+gdal.Polygonize(band, band, lyr, -1, [], callback=None)
+dst.FlushCache()
+dst = None; src = None
+print('done', lyr.GetFeatureCount() if lyr else 0)
+`;
+      const pyFile2 = path.join(tmpDir, 'polygonize.py');
+      fs.writeFileSync(pyFile2, pyPoly);
+      exec(`"${_pythonExe}" "${pyFile2}" "${maskPath}" "${rawGj}"`,
+        { env: gdalEnv(), timeout: 180000, maxBuffer: 100*1024*1024 },
+        (err, stdout, stderr) => {
+          if (err) reject(new Error(stderr || err.message));
+          else resolve();
+        });
+    });
+
+    // 6. Упрощение геометрии через ogr2ogr
+    onProgress(90, 'Упрощение...');
+    try {
+      await runGDAL('ogr2ogr', ['-f', 'GeoJSON', '-simplify', '0.0001', simpGj, rawGj]);
+    } catch(e) {
+      fs.copyFileSync(rawGj, simpGj);
+    }
+
+    // 7. Читаем GeoJSON
+    onProgress(98, 'Готово');
+    const gjText = fs.readFileSync(simpGj, 'utf8');
+    const gj = JSON.parse(gjText);
+
+    // Фильтруем мелкие полигоны (шум)
+    if (gj.features) {
+      gj.features = gj.features.filter(f => {
+        const c = f.geometry?.coordinates;
+        return c && c.length > 0 && c[0].length > 4;
+      });
+    }
+
+    return gj;
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch(e) {}
+  }
+}
+
+function _downloadDemTile(url, localPath, maxRedirects) {
+  if (maxRedirects === undefined) maxRedirects = 8;
+  return new Promise((resolve, reject) => {
+    function doGet(u, hops) {
+      const mod = u.startsWith('https') ? https : require('http');
+      const req = mod.get(u, { timeout: 120000 }, res => {
+        if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+          res.resume();
+          if (hops <= 0) { reject(new Error('Too many redirects: ' + u)); return; }
+          doGet(res.headers.location, hops - 1);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          reject(new Error('HTTP ' + res.statusCode + ' for ' + u));
+          return;
+        }
+        const out = fs.createWriteStream(localPath);
+        res.pipe(out);
+        out.on('finish', resolve);
+        out.on('error', reject);
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('timeout: ' + u)); });
+    }
+    doGet(url, maxRedirects);
+  });
+}
+
+module.exports = {processDEM,cleanupTmp,checkGDAL,computeFloodZone};
