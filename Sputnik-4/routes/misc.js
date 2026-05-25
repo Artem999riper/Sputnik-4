@@ -343,16 +343,57 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     }
   });
 
+  // ── Предзагрузка DEM (скачать тайлы + вычислить геоид) ───
+  // Сессии живут 30 мин, затем tmpDir автоматически очищается
+  const _floodSessions = new Map();
+  setInterval(() => {
+    const cutoff = Date.now() - 30 * 60 * 1000;
+    for (const [id, s] of _floodSessions) {
+      if (s.ts < cutoff && demProcessor) {
+        demProcessor.cleanupTmp(s.tmpDir);
+        _floodSessions.delete(id);
+      }
+    }
+  }, 5 * 60 * 1000);
+
+  app.post('/api/dem/flood/preload', async (req, res) => {
+    if (!demProcessor || !demProcessor.preloadFloodDem)
+      return res.status(503).json({ error: 'DEM процессор не доступен' });
+    const { bbox } = req.body || {};
+    if (!bbox || !bbox.minLat) return res.status(400).json({ error: 'Укажите bbox' });
+    try {
+      const result = await demProcessor.preloadFloodDem(bbox, (pct, msg) => {
+        console.log(`[FLOOD] ${pct}% ${msg}`);
+      });
+      const sessionId = require('crypto').randomBytes(8).toString('hex');
+      _floodSessions.set(sessionId, { tmpDir: result.tmpDir, ts: Date.now() });
+      res.json({ sessionId, geoidN: result.geoidN });
+    } catch (err) {
+      console.error('[FLOOD preload]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Симуляция зоны затопления ─────────────────────────────
   app.post('/api/dem/flood', async (req, res) => {
     if (!demProcessor) return res.status(503).json({ error: 'DEM процессор не доступен' });
-    const { bbox, waterLevel } = req.body || {};
-    if (!bbox || !bbox.minLat || waterLevel == null)
-      return res.status(400).json({ error: 'Укажите bbox и waterLevel' });
+    const { bbox, waterLevel, sessionId } = req.body || {};
+    if (waterLevel == null) return res.status(400).json({ error: 'Укажите waterLevel' });
     try {
-      const gj = await demProcessor.computeFloodZone(bbox, Number(waterLevel), (pct, msg) => {
-        console.log(`[FLOOD] ${pct}% ${msg}`);
-      });
+      let gj;
+      if (sessionId && _floodSessions.has(sessionId)) {
+        const session = _floodSessions.get(sessionId);
+        _floodSessions.delete(sessionId);
+        gj = await demProcessor.computeFloodFromPreload(session.tmpDir, Number(waterLevel), (pct, msg) => {
+          console.log(`[FLOOD] ${pct}% ${msg}`);
+        });
+        demProcessor.cleanupTmp(session.tmpDir);
+      } else {
+        if (!bbox || !bbox.minLat) return res.status(400).json({ error: 'Укажите bbox и waterLevel' });
+        gj = await demProcessor.computeFloodZone(bbox, Number(waterLevel), (pct, msg) => {
+          console.log(`[FLOOD] ${pct}% ${msg}`);
+        });
+      }
       res.json(gj);
     } catch (err) {
       console.error('[FLOOD]', err.message);
