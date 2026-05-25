@@ -552,7 +552,6 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     onProgress&&onProgress(28,useGeoid?'Перевод БСВ-77...':'Подготовка...');
     let demTif=clippedTif;
     if (useGeoid){
-      await _ensureGeoidGrids();
       const inputMean = await _getGdalMean(clippedTif);
       for (const epsg of ['EPSG:3855','EPSG:5773','EPSG:9518']){
         const gTif=path.join(tmpDir,`geoid_${epsg.replace(':','')}.tif`);
