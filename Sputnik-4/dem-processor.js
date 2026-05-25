@@ -163,6 +163,7 @@ function gdalEnv() {
       GDAL_CACHEMAX: '512',
       VSI_CACHE: 'TRUE',
       VSI_CACHE_SIZE: '104857600',
+      PROJ_NETWORK: 'ON',
     };
   }
   const root = path.resolve(_gdalBin, '..');
@@ -178,6 +179,7 @@ function gdalEnv() {
     GDAL_CACHEMAX: '512',
     VSI_CACHE: 'TRUE',
     VSI_CACHE_SIZE: '104857600',
+    PROJ_NETWORK: 'ON',
     PYTHONPATH: [
       path.join(root, 'apps', 'Python312', 'lib', 'site-packages'),
       path.join(root, 'apps', 'Python39',  'lib', 'site-packages'),
@@ -202,6 +204,49 @@ async function _getGdalMean(tif) {
     const m = j.bands?.[0]?.metadata?.[''] || {};
     return parseFloat(m.STATISTICS_MEAN);
   } catch(e) { return NaN; }
+}
+
+// Вычисляет поправку геоида N (м) через Python OSR для точки (lon, lat).
+// N = h_WGS84 - H_ортометр; при PROJ_NETWORK=ON PROJ скачает грид если нужно.
+// Возвращает число или null при ошибке.
+async function _computeGeoidN(lon, lat, tmpDir) {
+  const pyScript = `
+import sys, os
+os.environ.setdefault('PROJ_NETWORK', 'ON')
+from osgeo import osr
+lon_pt = float(sys.argv[1])
+lat_pt = float(sys.argv[2])
+for epsg in [3855, 5773]:
+    try:
+        src = osr.SpatialReference()
+        src.ImportFromEPSG(4979)
+        src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        tgt = osr.SpatialReference()
+        tgt.ImportFromEPSG(epsg)
+        tgt.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        ct = osr.CoordinateTransformation(src, tgt)
+        x, y, h = ct.TransformPoint(lon_pt, lat_pt, 0.0)
+        # h_out - это ортометрическая высота точки с эллипсоидальной h=0
+        # N = h_WGS84 - H_ortho => если h_WGS84=0, то N = -h_out
+        n_val = -h
+        if abs(n_val) > 0.5:
+            print(f'{n_val:.4f}')
+            sys.exit(0)
+    except Exception as e:
+        sys.stderr.write(f'epsg {epsg}: {e}\\n')
+print('0')
+`;
+  const pyF = path.join(tmpDir, 'get_geoid_n.py');
+  fs.writeFileSync(pyF, pyScript);
+  return new Promise(resolve => {
+    exec(`"${_pythonExe}" "${pyF}" "${lon}" "${lat}"`,
+      { env: { ...gdalEnv(), PROJ_NETWORK: 'ON' }, timeout: 20000, maxBuffer: 64 * 1024 },
+      (err, stdout, stderr) => {
+        if (stderr) console.log('[FLOOD] geoidN stderr:', stderr.slice(0, 200));
+        const n = parseFloat((stdout || '0').trim());
+        resolve((!err && !isNaN(n) && Math.abs(n) > 0.5) ? n : null);
+      });
+  });
 }
 
 // ── Спутник ────────────────────────────────────────────────
@@ -753,11 +798,26 @@ async function computeFloodZone(bbox, waterLevelM, onProgress) {
         console.log(`[FLOOD] Геоид ${epsg} ошибка: ${e.message.slice(0, 80)}`);
       }
     }
-    if (demForCalc === clipPath)
-      console.log('[FLOOD] Все геоиды пропущены — WGS84. Установите proj-data в OSGeo4W.');
+    // Если ни один геоид-растр не сработал — конвертируем порог через точечное преобразование
+    let effectiveWaterLevel = waterLevelM;
+    if (demForCalc === clipPath) {
+      console.log('[FLOOD] Все геоиды пропущены — пробуем точечное преобразование БСВ-77→WGS84...');
+      const lonCenter = (bbox.minLng + bbox.maxLng) / 2;
+      const latCenter = (bbox.minLat + bbox.maxLat) / 2;
+      const N = await _computeGeoidN(lonCenter, latCenter, tmpDir);
+      if (N !== null) {
+        effectiveWaterLevel = waterLevelM + N;
+        console.log(`[FLOOD] N=${N.toFixed(2)}м: ${waterLevelM}м БСВ-77 → ${effectiveWaterLevel.toFixed(2)}м WGS84`);
+      } else {
+        console.log('[FLOOD] Геоид недоступен. Ввод трактуется как WGS84 (установите proj-data в OSGeo4W или подключение к интернету).');
+      }
+    }
 
-    // 4. gdal_calc: маска ≤ waterLevelM
-    onProgress(65, `Маска затопления ≤${waterLevelM}м...`);
+    // 4. gdal_calc: маска ≤ effectiveWaterLevel
+    const waterDisplay = effectiveWaterLevel !== waterLevelM
+      ? `${waterLevelM}м БСВ-77 (${effectiveWaterLevel.toFixed(2)}м WGS84)`
+      : `${waterLevelM}м`;
+    onProgress(65, `Маска затопления ≤${waterDisplay}...`);
     const maskPath = path.join(tmpDir, 'mask.tif');
 
     const pyMaskOut = await new Promise((resolve, reject) => {
@@ -804,7 +864,7 @@ out = None; ds = None
 `;
       const pyFile = path.join(tmpDir, 'calc_mask.py');
       fs.writeFileSync(pyFile, pyCalcScript);
-      exec(`"${_pythonExe}" "${pyFile}" "${demForCalc}" "${waterLevelM}" "${maskPath}"`,
+      exec(`"${_pythonExe}" "${pyFile}" "${demForCalc}" "${effectiveWaterLevel}" "${maskPath}"`,
         { env: gdalEnv(), timeout: 120000, maxBuffer: 20*1024*1024 },
         (err, stdout, stderr) => {
           if (stdout) console.log('[FLOOD mask]', stdout.trim());
