@@ -19,7 +19,7 @@ function initMap(){
   L.control.zoom({position:'bottomright'}).addTo(map);
   // Pane для точечных объёмов — поверх vpLayers и KML
   map.createPane('volPointsPane');
-  map.getPane('volPointsPane').style.zIndex=450;
+  map.getPane('volPointsPane').style.zIndex=640;
   map.on('click',onMapClick);
   map.on('contextmenu',onMapRClick);
   map.on('zoomend',_updateKmlLabelScale);

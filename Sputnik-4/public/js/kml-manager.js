@@ -917,8 +917,8 @@ function renderLayerGroupsWithSymbols() {
     map.getPane('kmlPane').style.pointerEvents = 'auto';
   }
   map.getPane('kmlPane').style.zIndex = 300;
-  if (map.getPane('overlayPane'))  map.getPane('overlayPane').style.zIndex  = 400;
-  if (map.getPane('volPointsPane'))map.getPane('volPointsPane').style.zIndex = 450;
+  if (map.getPane('overlayPane'))  map.getPane('overlayPane').style.zIndex  = 620;
+  if (map.getPane('volPointsPane'))map.getPane('volPointsPane').style.zIndex = 640;
 
   layers.filter(l => l.visible && !l.site_id).forEach(l => {
     // If the layer's group is bound to a specific site, only show when that site is active
