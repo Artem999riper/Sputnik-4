@@ -454,16 +454,13 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     // 3. Геоид
     onProgress&&onProgress(28,useGeoid?'Перевод БСВ-77...':'Подготовка...');
     let demTif=clippedTif;
+    let geoidApplied = false;
     if (useGeoid){
       const gTif=path.join(tmpDir,'geoid.tif');
-      const gFixedTif=path.join(tmpDir,'geoid_fixed.tif');
       try{
         await runGDAL('gdalwarp',['-s_srs','EPSG:4979','-t_srs','EPSG:9518',
           '-r','bilinear','-co','COMPRESS=LZW',clippedTif,gTif]);
-        // Сбросить CRS на WGS84-горизонталь: иначе gdalwarp для ГСК2011 (GRS80≡WGS84)
-        // пытается вертикальную трансформацию EPSG:9518→WGS84 и без гридов возвращает identity
-        await runGDAL('gdal_translate',['-a_srs','EPSG:4326',gTif,gFixedTif]);
-        demTif=gFixedTif; log.push('Geoid OK');
+        demTif=gTif; geoidApplied=true; log.push('Geoid OK');
       }catch(e){log.push('Geoid skip');}
     }
 
@@ -471,10 +468,14 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     onProgress&&onProgress(36,'Перепроецирование...');
     const reprojTif=path.join(tmpDir,'reproj.tif');
     const targetSrs=proj4?proj4:`EPSG:${epsg||4326}`;
-    await runGDAL('gdalwarp',[
-      '-of','GTiff','-t_srs',targetSrs,'-r','bilinear',
-      '-co','COMPRESS=LZW','-co','TILED=YES',demTif,reprojTif,
-    ]);
+    // При геоид-коррекции источник имеет EPSG:9518 (compound 3D CRS).
+    // Явно задаём -s_srs EPSG:4326 (2D), чтобы gdalwarp не пытался делать
+    // вертикальную трансформацию в целевую СК (МСК, ГСК2011 и др.).
+    const reprojArgs=['-of','GTiff','-t_srs',targetSrs,'-r','bilinear',
+      '-co','COMPRESS=LZW','-co','TILED=YES'];
+    if(geoidApplied) reprojArgs.push('-s_srs','EPSG:4326');
+    reprojArgs.push(demTif,reprojTif);
+    await runGDAL('gdalwarp',reprojArgs);
     log.push('Reproject OK');
 
     if (format==='geotiff') return {file:reprojTif,tmpDir,log,mime:'image/tiff'};
