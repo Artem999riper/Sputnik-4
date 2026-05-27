@@ -966,12 +966,14 @@ function renderLayerGroupsWithSymbols() {
                 coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
               }
             } catch(e) {}
+            const fIdx = gjRaw.features ? gjRaw.features.indexOf(f) : -1;
             showCtx(cx, cy, [
-              {i:'🗺',l:`<b>${esc(featureName)}</b> <span style="color:var(--tx3);font-weight:400">${esc(l.name)}</span>`,f:null},{sep:true},
+              {i:'🗺',l:`<b>${esc(featureName)}</b> <span style="color:var(--tx3);font-weight:400">${esc(l.name)}</span>`,f:null,html:true},{sep:true},
               {i:'🔍',l:'Приблизить',f:()=>{
                 try { map.flyToBounds(layer.getBounds ? layer.getBounds() : L.latLngBounds([[layer.getLatLng().lat,layer.getLatLng().lng]]), {padding:[60,60]}); }
                 catch(e){ try{map.flyTo(layer.getLatLng(),16);}catch(e2){} }
               }},
+              ...(fIdx>=0?[{i:'✏️',l:'Редактировать объект',f:()=>kmlEditFeature(l.id,fIdx)}]:[]),
               ...(coordStr?[{i:'📋',l:'Копировать координаты',f:()=>{navigator.clipboard.writeText(coordStr).then(()=>toast('Скопировано','ok'));}}]:[]),
               {sep:true},
               {i:'🎨',l:'Стиль слоя',f:()=>kmlOpenStyleModal(l.id)},
