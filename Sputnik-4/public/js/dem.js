@@ -8,6 +8,7 @@ let _demRect      = null;    // L.rectangle на карте
 let _demStart     = null;    // первая точка bbox
 let _demTmpLayer  = null;    // временный прямоугольник при рисовании
 let _demBbox      = null;    // итоговый bbox {minLat,minLng,maxLat,maxLng}
+let _demLastBbox  = (() => { try { return JSON.parse(localStorage.getItem('dem_last_bbox')); } catch(e) { return null; } })();
 
 // ── Источники тайлов для подложки ─────────────────────────
 const DEM_SAT_SOURCES = [
@@ -137,6 +138,7 @@ function openDEMPanel() {
           <button class="btn bp bsm" style="flex:1" onclick="demStartDraw()">
             ✏️ Нарисовать прямоугольник
           </button>
+          ${_demLastBbox ? `<button class="btn bs bsm" style="white-space:nowrap" onclick="demRestoreLast()" title="Восстановить предыдущую область">↩ Предыдущее</button>` : ''}
           <button class="btn bs bsm" onclick="demClearDraw()">✕</button>
         </div>
         <div id="dem-bbox-info" style="margin-top:5px;font-size:10px;color:var(--tx3)">
@@ -232,6 +234,8 @@ function openDEMPanel() {
         <select id="dem-sat-zoom" style="width:100%;font-size:12px;padding:5px 8px;
           border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
           <option value="0">Авто (подобрать под область)</option>
+          <option value="11">z=11 (~80 м/пкс, широкий охват)</option>
+          <option value="12">z=12 (~40 м/пкс, обзорный--)</option>
           <option value="13">z=13 (~20 м/пкс, обзорный)</option>
           <option value="14">z=14 (~10 м/пкс, обзорный+)</option>
           <option value="15">z=15 (~5 м/пкс, стандарт)</option>
@@ -317,6 +321,8 @@ function _demSecondClick(e) {
     minLat: b.getSouth(), maxLat: b.getNorth(),
     minLng: b.getWest(),  maxLng: b.getEast(),
   };
+  _demLastBbox = _demBbox;
+  try { localStorage.setItem('dem_last_bbox', JSON.stringify(_demLastBbox)); } catch(e2) {}
 
   // Рисуем финальный прямоугольник
   _demRect = L.rectangle(b, {
@@ -380,6 +386,37 @@ function demClearDraw() {
   if (info) { info.style.color = 'var(--tx3)'; info.textContent = 'Область не выбрана'; }
   const warn = document.getElementById('dem-size-warn');
   if (warn) warn.style.display = 'none';
+}
+
+function demRestoreLast() {
+  if (!_demLastBbox) return;
+  _demBbox = _demLastBbox;
+  if (_demRect) { try { map.removeLayer(_demRect); } catch(e) {} _demRect = null; }
+  const b = L.latLngBounds(
+    [_demBbox.minLat, _demBbox.minLng],
+    [_demBbox.maxLat, _demBbox.maxLng]
+  );
+  _demRect = L.rectangle(b, {
+    color: '#f59e0b', weight: 2.5,
+    fillColor: '#f59e0b', fillOpacity: 0.18,
+  }).addTo(map);
+  map.fitBounds(b, {padding:[20,20]});
+  const latDist = (_demBbox.maxLat - _demBbox.minLat) * 111320;
+  const lngDist = (_demBbox.maxLng - _demBbox.minLng) * 111320 *
+                  Math.cos((_demBbox.minLat + _demBbox.maxLat) / 2 * Math.PI / 180);
+  const areaSqKm = (latDist * lngDist) / 1e6;
+  setTimeout(() => {
+    const info = document.getElementById('dem-bbox-info');
+    if (info) {
+      info.style.color = 'var(--grn)';
+      info.textContent = `✅ Восстановлено: ${latDist.toFixed(0)}м × ${lngDist.toFixed(0)}м ≈ ${areaSqKm.toFixed(1)} км²`;
+    }
+    const warn = document.getElementById('dem-size-warn');
+    if (warn && areaSqKm > 100) {
+      warn.style.display = 'block';
+      warn.textContent = `⚠️ Большая область (${areaSqKm.toFixed(0)} км²). Загрузка может занять несколько минут.`;
+    }
+  }, 50);
 }
 
 function demCancelDraw() {
