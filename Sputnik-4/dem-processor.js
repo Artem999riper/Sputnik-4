@@ -269,11 +269,13 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
 
   const xMin = lon2tile(minLng,zoom), xMax = lon2tile(maxLng,zoom);
   const yMin = lat2tile(maxLat,zoom), yMax = lat2tile(minLat,zoom);
-  console.log(`[SAT] zoom=${zoom} tiles=${xMax-xMin+1}x${yMax-yMin+1}`);
+  const totalTiles = (xMax-xMin+1) * (yMax-yMin+1);
+  console.log(`[SAT] zoom=${zoom} tiles=${xMax-xMin+1}x${yMax-yMin+1} (всего ${totalTiles})`);
 
   const tileDir = path.join(tmpDir,'sat_tiles');
   fs.mkdirSync(tileDir, {recursive:true});
   const tileFiles = [];
+  let tilesDone = 0, lastLogPct = -1;
   for (let ty2 = yMin; ty2 <= yMax; ty2++) {
     for (let tx2 = xMin; tx2 <= xMax; tx2++) {
       const out = path.join(tileDir, `t_${ty2}_${tx2}.jpg`);
@@ -282,6 +284,12 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
         catch(e) { if (a===2) console.warn(`[SAT] tile ${tx2}/${ty2} fail:`,e.message); }
       }
       if (fs.existsSync(out)) tileFiles.push({file:out, tx:tx2, ty:ty2});
+      tilesDone++;
+      const pct = Math.floor(tilesDone / totalTiles * 100);
+      if (pct >= lastLogPct + 5) {
+        lastLogPct = pct;
+        console.log(`[SAT] скачано ${tilesDone}/${totalTiles} тайлов (${pct}%)`);
+      }
     }
   }
   if (!tileFiles.length) throw new Error('Не удалось скачать тайлы спутника');
