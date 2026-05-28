@@ -205,6 +205,19 @@ function tile2lat(y,z) {
   return 180/Math.PI*Math.atan(0.5*(Math.exp(n)-Math.exp(-n)));
 }
 
+const UA_BROWSER = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+function _tileHeaders(url) {
+  if (url.includes('google.com'))          return { 'User-Agent':UA_BROWSER, 'Referer':'https://maps.google.com/', 'Origin':'https://maps.google.com' };
+  if (url.includes('arcgisonline.com') ||
+      url.includes('arcgis.com'))          return { 'User-Agent':UA_BROWSER, 'Referer':'https://www.arcgis.com/' };
+  if (url.includes('cgkipd.ru'))           return { 'User-Agent':UA_BROWSER, 'Referer':'https://fsgs.cgkipd.ru/' };
+  if (url.includes('openstreetmap.org'))   return { 'User-Agent':'Sputnik-4/1.0 (survey app; contact: falconsvc71@gmail.com)', 'Referer':'https://www.openstreetmap.org/' };
+  if (url.includes('opentopomap.org'))     return { 'User-Agent':UA_BROWSER, 'Referer':'https://opentopomap.org/' };
+  if (url.includes('cartocdn.com'))        return { 'User-Agent':UA_BROWSER, 'Referer':'https://carto.com/' };
+  return { 'User-Agent':UA_BROWSER };
+}
+
 function fetchTile(z,x,y,urlTemplate,subdomains) {
   let url;
   if (urlTemplate) {
@@ -216,7 +229,7 @@ function fetchTile(z,x,y,urlTemplate,subdomains) {
   const mod=url.startsWith('https')?https:require('http');
   return new Promise((resolve,reject)=>{
     const req=mod.get(url,{
-      headers:{'User-Agent':'Mozilla/5.0','Referer':'https://www.arcgis.com/'},
+      headers: _tileHeaders(url),
       timeout:20000,
       rejectUnauthorized:false,   // российские CA (Минцифры) не в bundle Node.js
     },res=>{
