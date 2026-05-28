@@ -10,16 +10,12 @@ let _demTmpLayer  = null;    // временный прямоугольник п
 let _demBbox      = null;    // итоговый bbox {minLat,minLng,maxLat,maxLng}
 
 // ── Источники тайлов для подложки ─────────────────────────
+// Только источники, которые отдают тайлы серверным запросам.
+// Google блокирует server-side скачивание (403) — исключён.
 const DEM_SAT_SOURCES = [
   { id:'esri',       label:'Esri World Imagery (спутник)',
     url:'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     subdomains:[] },
-  { id:'google_sat', label:'Google Спутник',
-    url:'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-    subdomains:['0','1','2','3'] },
-  { id:'google_hyb', label:'Google Гибрид (спутник + подписи)',
-    url:'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-    subdomains:['0','1','2','3'] },
   { id:'esri_topo',  label:'Esri Топо',
     url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
     subdomains:[] },
@@ -31,9 +27,6 @@ const DEM_SAT_SOURCES = [
     subdomains:[] },
   { id:'osm',        label:'OpenStreetMap',
     url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    subdomains:['a','b','c'] },
-  { id:'topo',       label:'OpenTopoMap',
-    url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
     subdomains:['a','b','c'] },
 ];
 
