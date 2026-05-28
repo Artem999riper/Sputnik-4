@@ -273,6 +273,17 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   const totalTiles = (xMax-xMin+1) * (yMax-yMin+1);
   console.log(`[SAT] zoom=${zoom} tiles=${xMax-xMin+1}x${yMax-yMin+1} (всего ${totalTiles})`);
 
+  // PNG color type byte → channel count
+  function _pngBands(buf) {
+    // PNG sig(8) + chunk_len(4) + "IHDR"(4) + width(4) + height(4) + bitdepth(1) + colortype(1)
+    if (!buf || buf.length < 26) return 3;
+    if (buf[0] !== 0x89 || buf[1] !== 0x50) return 3; // not PNG → assume JPEG (3 bands)
+    const ct = buf[25]; // color type
+    if (ct === 0 || ct === 4) return 1; // grayscale or grayscale+alpha
+    if (ct === 6) return 4;             // RGBA
+    return 3;                           // RGB or palette
+  }
+
   const tileDir = path.join(tmpDir,'sat_tiles');
   fs.mkdirSync(tileDir, {recursive:true});
   const tileFiles = [];
@@ -280,11 +291,12 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   for (let ty2 = yMin; ty2 <= yMax; ty2++) {
     for (let tx2 = xMin; tx2 <= xMax; tx2++) {
       const out = path.join(tileDir, `t_${ty2}_${tx2}.jpg`);
+      let tileBuf = null;
       for (let a = 0; a < 3; a++) {
-        try { fs.writeFileSync(out, await fetchTile(zoom,tx2,ty2,satSourceUrl,satSourceSubdomains)); break; }
+        try { tileBuf = await fetchTile(zoom,tx2,ty2,satSourceUrl,satSourceSubdomains); fs.writeFileSync(out, tileBuf); break; }
         catch(e) { if (a===2) console.warn(`[SAT] tile ${tx2}/${ty2} fail:`,e.message); }
       }
-      if (fs.existsSync(out)) tileFiles.push({file:out, tx:tx2, ty:ty2});
+      if (fs.existsSync(out)) tileFiles.push({file:out, tx:tx2, ty:ty2, bands:_pngBands(tileBuf)});
       tilesDone++;
       const pct = Math.floor(tilesDone / totalTiles * 100);
       if (pct >= lastLogPct + 5) {
@@ -316,11 +328,12 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   ];
   for (const band of [1,2,3]) {
     vrtLines.push(`  <VRTRasterBand dataType="Byte" band="${band}">`);
-    for (const {file,tx:tx2,ty:ty2} of tileFiles) {
+    for (const {file,tx:tx2,ty:ty2,bands:tileBands} of tileFiles) {
       const xOff=(tx2-xMin)*256, yOff=(ty2-yMin)*256;
+      const srcBand = Math.min(band, tileBands || 3);
       vrtLines.push(
         `    <SimpleSource><SourceFilename relativeToVRT="0">${file}</SourceFilename>`,
-        `      <SourceBand>${band}</SourceBand>`,
+        `      <SourceBand>${srcBand}</SourceBand>`,
         `      <SrcRect xOff="0" yOff="0" xSize="256" ySize="256"/>`,
         `      <DstRect xOff="${xOff}" yOff="${yOff}" xSize="256" ySize="256"/>`,
         `    </SimpleSource>`);
