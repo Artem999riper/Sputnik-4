@@ -20,9 +20,9 @@ const DEM_SAT_SOURCES = [
   { id:'google_hyb', label:'Google Гибрид (спутник + подписи)',
     url:'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
     subdomains:['0','1','2','3'] },
-  { id:'2gis',       label:'2ГИС (карта России)',
-    url:'https://tile{s}.maps.2gis.com/tiles?x={x}&y={y}&z={z}&v=1.1',
-    subdomains:['0','1','2','3'] },
+  { id:'topo',       label:'OpenTopoMap (тopo + горизонтали)',
+    url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    subdomains:['a','b','c'] },
 ];
 
 // ── Проекции ───────────────────────────────────────────────

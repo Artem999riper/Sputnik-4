@@ -15,10 +15,8 @@ function initMap(){
   const carto=L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap contributors © CARTO',maxZoom:21,maxNativeZoom:19,subdomains:['a','b','c','d']});
   const rosreestr=L.tileLayer('https://fsgs.cgkipd.ru/eeko/tile/56/{z}/{x}/{y}.png',{attribution:'© Росреестр / ЦГКИПД',maxZoom:18,maxNativeZoom:18});
   rosreestr.on('tileerror',function(e){e.tile.style.display='none';});
-  const dgis=L.tileLayer('https://tile{s}.maps.2gis.com/tiles?x={x}&y={y}&z={z}&v=1.1',{attribution:'© 2ГИС',maxZoom:19,maxNativeZoom:18,subdomains:['0','1','2','3']});
-  dgis.on('tileerror',function(e){e.tile.style.display='none';});
   sat.addTo(map);
-  window._mapBaseLayers={'🗺 Карта':osm,'🛰 Спутник':sat,'🛰 Спутник Google':gsat,'🗺 Гибрид Google':ghyb,'🗺 Росреестр':rosreestr,'🗺 2ГИС':dgis,'🗺 Улицы ESRI':esriStreet,'🗻 Топо ESRI':esriTopo,'🗻 Топо':topo,'🌍 Светлая':carto};
+  window._mapBaseLayers={'🗺 Карта':osm,'🛰 Спутник':sat,'🛰 Спутник Google':gsat,'🗺 Гибрид Google':ghyb,'🗺 Росреестр':rosreestr,'🗺 Улицы ESRI':esriStreet,'🗻 Топо ESRI':esriTopo,'🗻 Топо':topo,'🌍 Светлая':carto};
   window._mapLayerCtrl=L.control.layers(window._mapBaseLayers,{},{position:'topright'}).addTo(map);
   L.control.zoom({position:'bottomright'}).addTo(map);
   // Pane для точечных объёмов — поверх vpLayers и KML
