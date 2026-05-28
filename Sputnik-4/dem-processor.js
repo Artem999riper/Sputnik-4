@@ -216,7 +216,9 @@ function fetchTile(z,x,y,urlTemplate,subdomains) {
   const mod=url.startsWith('https')?https:require('http');
   return new Promise((resolve,reject)=>{
     const req=mod.get(url,{
-      headers:{'User-Agent':'Mozilla/5.0','Referer':'https://www.arcgis.com/'},timeout:20000,
+      headers:{'User-Agent':'Mozilla/5.0','Referer':'https://www.arcgis.com/'},
+      timeout:20000,
+      rejectUnauthorized:false,   // российские CA (Минцифры) не в bundle Node.js
     },res=>{
       const c=[];
       res.on('data',d=>c.push(d));
