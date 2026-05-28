@@ -215,6 +215,7 @@ function _tileHeaders(url) {
   if (url.includes('openstreetmap.org'))   return { 'User-Agent':'Sputnik-4/1.0 (survey app; contact: falconsvc71@gmail.com)', 'Referer':'https://www.openstreetmap.org/' };
   if (url.includes('opentopomap.org'))     return { 'User-Agent':UA_BROWSER, 'Referer':'https://opentopomap.org/' };
   if (url.includes('cartocdn.com'))        return { 'User-Agent':UA_BROWSER, 'Referer':'https://carto.com/' };
+  if (url.includes('2gis.com'))            return { 'User-Agent':UA_BROWSER, 'Referer':'https://2gis.ru/' };
   return { 'User-Agent':UA_BROWSER };
 }
 
