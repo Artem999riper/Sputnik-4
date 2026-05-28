@@ -3,7 +3,7 @@ const fs   = require('fs');
 const { v4: uuid } = require('uuid');
 const { all, get, run } = require('../database');
 const { required, wrap } = require('./validate');
-const { trashAndDelete } = require('./realtime');
+const { trashAndDelete, broadcast } = require('./realtime');
 
 module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, getBackupSettings, setBackupSettings, performAutoBackup }) => {
   const db = () => getDb();
@@ -307,7 +307,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
 
   app.post('/api/dem/export', async (req, res) => {
     if (!demProcessor) return res.status(503).json({ error: 'DEM процессор не доступен' });
-    const { bbox, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite, satelliteOnly, satZoom } = req.body;
+    const { bbox, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite, satelliteOnly, satZoom, satSourceUrl, satSourceSubdomains } = req.body;
     if (!bbox || !bbox.minLat) return res.status(400).json({ error: 'Не указана область (bbox)' });
     let tmpDir = null;
     try {
@@ -322,7 +322,12 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
         exportSatellite: exportSatellite !== false,
         satelliteOnly: !!satelliteOnly,
         satZoom: parseInt(satZoom) || 0,
-        onProgress: (pct, text) => console.log(`[DEM] ${pct}% - ${text}`),
+        satSourceUrl: satSourceUrl || null,
+        satSourceSubdomains: satSourceSubdomains || [],
+        onProgress: (pct, text) => {
+          console.log(`[DEM] ${pct}% - ${text}`);
+          broadcast({ type: 'dem_progress', pct, text });
+        },
       });
       tmpDir = result.tmpDir;
       const stat = fs.statSync(result.file);

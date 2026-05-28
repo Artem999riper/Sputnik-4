@@ -9,6 +9,34 @@ let _demStart     = null;    // первая точка bbox
 let _demTmpLayer  = null;    // временный прямоугольник при рисовании
 let _demBbox      = null;    // итоговый bbox {minLat,minLng,maxLat,maxLng}
 
+// ── Источники тайлов для подложки ─────────────────────────
+const DEM_SAT_SOURCES = [
+  { id:'esri',       label:'Esri World Imagery (спутник)',
+    url:'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    subdomains:[] },
+  { id:'google_sat', label:'Google Спутник',
+    url:'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+    subdomains:['0','1','2','3'] },
+  { id:'google_hyb', label:'Google Гибрид (спутник + подписи)',
+    url:'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+    subdomains:['0','1','2','3'] },
+  { id:'esri_topo',  label:'Esri Топо',
+    url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    subdomains:[] },
+  { id:'esri_street',label:'Esri Улицы',
+    url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    subdomains:[] },
+  { id:'rosreestr',  label:'Росреестр / ЦГКИПД',
+    url:'https://fsgs.cgkipd.ru/eeko/tile/56/{z}/{x}/{y}.png',
+    subdomains:[] },
+  { id:'osm',        label:'OpenStreetMap',
+    url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    subdomains:['a','b','c'] },
+  { id:'topo',       label:'OpenTopoMap',
+    url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    subdomains:['a','b','c'] },
+];
+
 // ── Проекции ───────────────────────────────────────────────
 // WGS-84: метрическая проекция UTM (зоны выбираются по longitude)
 // ГСК-2011: Гаусс-Крюгер по ГОСТ 32453-2017 (эллипсоид ГСК-2011 = GRS80)
@@ -200,8 +228,16 @@ function openDEMPanel() {
         </label>
       </div>
 
+      <div class="fg" id="dem-sat-source-row">
+        <label>Источник подложки</label>
+        <select id="dem-sat-source" style="width:100%;font-size:12px;padding:5px 8px;
+          border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+          ${DEM_SAT_SOURCES.map(s=>`<option value="${s.id}">${s.label}</option>`).join('')}
+        </select>
+      </div>
+
       <div class="fg" id="dem-sat-zoom-row">
-        <label>Масштаб спутника (зум тайлов)</label>
+        <label>Масштаб подложки (зум тайлов)</label>
         <select id="dem-sat-zoom" style="width:100%;font-size:12px;padding:5px 8px;
           border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
           <option value="0">Авто (подобрать под область)</option>
@@ -368,10 +404,15 @@ function demCancelDraw() {
 function _demToggleSatOnly() {
   const satOnly = document.getElementById('dem-sat-only')?.checked;
   const dxfFields = ['dem-interval','dem-grid-step','dem-jitter-min','dem-jitter-max'];
-  // Поля DEM (горизонтали, точки, геоид)
-  const dxfRows = document.querySelectorAll(
-    '.fg:has(#dem-interval), .fg:has(#dem-grid-step), .fg:has(#dem-jitter-min), .fg:has(#dem-bsv77)');
-  dxfRows.forEach(row => { row.style.opacity = satOnly ? '0.35' : '1'; });
+  const dxfRowIds = ['dem-interval','dem-grid-step','dem-jitter-min'];
+  dxfRowIds.forEach(id => {
+    const row = document.getElementById(id)?.closest('.fg');
+    if (row) row.style.opacity = satOnly ? '0.35' : '1';
+  });
+  // Блок с разбросом — ищем fg с двумя jitter-полями
+  document.querySelectorAll('.fg').forEach(row => {
+    if (row.querySelector('#dem-jitter-min')) row.style.opacity = satOnly ? '0.35' : '1';
+  });
   dxfFields.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.disabled = !!satOnly;
@@ -402,6 +443,8 @@ async function demExport() {
   const useGeoid    = document.getElementById('dem-bsv77')?.checked !== false;
   const satelliteOnly = document.getElementById('dem-sat-only')?.checked === true;
   const satZoom     = parseInt(document.getElementById('dem-sat-zoom')?.value ?? '0') || 0;
+  const satSourceId = document.getElementById('dem-sat-source')?.value || 'esri';
+  const satSourceObj = DEM_SAT_SOURCES.find(s => s.id === satSourceId) || DEM_SAT_SOURCES[0];
 
   const proj = DEM_PROJECTIONS.find(p => p.id === projId);
   const fmt  = { id: 'dxf', ext: '.zip' };
@@ -421,8 +464,20 @@ async function demExport() {
   const btns = document.querySelectorAll('#mft .btn');
   btns.forEach(b => b.disabled = true);
 
+  // SSE-слушатель прогресса
+  const _demSse = new EventSource(`${location.origin}/api/events`);
+  _demSse.onmessage = (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      if (d.type === 'dem_progress') {
+        setProgress(d.pct, d.text);
+        console.log(`[DEM ${d.pct}%] ${d.text}`);
+      }
+    } catch(err) {}
+  };
+
   try {
-    setProgress(10, '⏳ Запрос к ArcticDEM...');
+    setProgress(5, '⏳ Запрос к ArcticDEM...');
 
     const res = await fetch(`${API}/dem/export`, {
       method: 'POST',
@@ -442,15 +497,19 @@ async function demExport() {
         exportSatellite: satelliteOnly ? true : exportSatellite,
         satelliteOnly,
         satZoom,
+        satSourceUrl: satSourceObj.url,
+        satSourceSubdomains: satSourceObj.subdomains,
       }),
     });
+
+    _demSse.close();
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(err.error || 'Ошибка сервера');
     }
 
-    setProgress(90, '⏳ Получение файла...');
+    setProgress(95, '⏳ Получение файла...');
 
     // Скачиваем файл
     const blob = await res.blob();
@@ -458,10 +517,12 @@ async function demExport() {
     const a    = document.createElement('a');
 
     // Формируем имя файла
-    const date   = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const date    = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const projLbl = proj.name || proj.id.toUpperCase();
     a.href     = url;
-    a.download = `ArcticDEM_${date}_${projLbl}_${interval}m.zip`;
+    a.download = satelliteOnly
+      ? `Satellite_${date}_${projLbl}_z${satZoom||'auto'}.zip`
+      : `ArcticDEM_${date}_${projLbl}_${interval}m.zip`;
     a.click();
     URL.revokeObjectURL(url);
 
@@ -474,6 +535,7 @@ async function demExport() {
     }, 1500);
 
   } catch (err) {
+    _demSse.close();
     setProgress(0, '');
     if (progWrap) progWrap.style.display = 'none';
     btns.forEach(b => b.disabled = false);

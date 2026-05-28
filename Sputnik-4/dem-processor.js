@@ -205,10 +205,17 @@ function tile2lat(y,z) {
   return 180/Math.PI*Math.atan(0.5*(Math.exp(n)-Math.exp(-n)));
 }
 
-function fetchTile(z,x,y) {
+function fetchTile(z,x,y,urlTemplate,subdomains) {
+  let url;
+  if (urlTemplate) {
+    const s=(subdomains&&subdomains.length)?subdomains[Math.floor(Math.random()*subdomains.length)]:'';
+    url=urlTemplate.replace('{z}',z).replace('{x}',x).replace('{y}',y).replace('{s}',s).replace('{r}','');
+  } else {
+    url=`https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
+  }
+  const mod=url.startsWith('https')?https:require('http');
   return new Promise((resolve,reject)=>{
-    const url=`https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
-    const req=https.get(url,{
+    const req=mod.get(url,{
       headers:{'User-Agent':'Mozilla/5.0','Referer':'https://www.arcgis.com/'},timeout:20000,
     },res=>{
       const c=[];
@@ -220,7 +227,7 @@ function fetchTile(z,x,y) {
   });
 }
 
-async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom) {
+async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, satSourceUrl, satSourceSubdomains) {
   const {minLat,maxLat,minLng,maxLng} = bbox;
 
   // Вычисляем размер области в км для решения о зуме
@@ -256,7 +263,7 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom) {
     for (let tx2 = xMin; tx2 <= xMax; tx2++) {
       const out = path.join(tileDir, `t_${ty2}_${tx2}.jpg`);
       for (let a = 0; a < 3; a++) {
-        try { fs.writeFileSync(out, await fetchTile(zoom,tx2,ty2)); break; }
+        try { fs.writeFileSync(out, await fetchTile(zoom,tx2,ty2,satSourceUrl,satSourceSubdomains)); break; }
         catch(e) { if (a===2) console.warn(`[SAT] tile ${tx2}/${ty2} fail:`,e.message); }
       }
       if (fs.existsSync(out)) tileFiles.push({file:out, tx:tx2, ty:ty2});
@@ -389,7 +396,7 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom) {
 // ── Главная функция ────────────────────────────────────────
 async function processDEM({bbox,projId,proj4,epsg,projName,format,
                             interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,
-                            satelliteOnly,satZoom,onProgress}) {
+                            satelliteOnly,satZoom,satSourceUrl,satSourceSubdomains,onProgress}) {
   gridStep = (gridStep !== undefined && gridStep !== null && gridStep !== '') ? parseInt(gridStep) : 20;
   if (isNaN(gridStep)) gridStep = 20;
   const jMin = parseFloat(jitterMin)||0;
@@ -406,7 +413,7 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     // ── Режим «только спутник»: пропускаем весь DEM-пайплайн ──────────────
     if (satelliteOnly) {
       onProgress&&onProgress(10,'Загрузка спутника...');
-      const satRes = await buildSatellite(bbox,tmpDir,proj4,epsg,null,satZoom);
+      const satRes = await buildSatellite(bbox,tmpDir,proj4,epsg,null,satZoom,satSourceUrl,satSourceSubdomains);
       const satFiles=[];
       let satPixelSizeM=null,satImgW=null,satImgH=null,satGt=null;
       for (const sec of satRes) {
@@ -586,7 +593,7 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     if (exportSatellite){
       onProgress&&onProgress(85,'Загрузка спутника...');
       try{
-        const satSections=await buildSatellite(bbox,tmpDir,proj4,epsg,reprojTif,satZoom);
+        const satSections=await buildSatellite(bbox,tmpDir,proj4,epsg,reprojTif,satZoom,satSourceUrl,satSourceSubdomains);
         for (const sec of satSections) {
           if (sec.jpeg && fs.existsSync(sec.jpeg)) satFiles.push(sec.jpeg);
           if (sec.jgw  && fs.existsSync(sec.jgw))  satFiles.push(sec.jgw);
