@@ -220,7 +220,7 @@ function fetchTile(z,x,y) {
   });
 }
 
-async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif) {
+async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom) {
   const {minLat,maxLat,minLng,maxLng} = bbox;
 
   // Вычисляем размер области в км для решения о зуме
@@ -232,12 +232,17 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif) {
   const targetSrs = proj4 ? proj4 : `EPSG:${epsg||4326}`;
 
   // Шаг 1: скачиваем тайлы для всего bbox сразу (не секциями — один проход)
-  // Выбираем zoom так чтобы итоговый растр не превышал 6000×6000 px
+  // Выбираем zoom: явный (satZoom > 0) или авто — первый что помещается в 6000×6000 px
   let zoom = 14;
-  for (let z = 17; z >= 8; z--) {
-    const tx = Math.abs(lon2tile(maxLng,z) - lon2tile(minLng,z)) + 1;
-    const ty = Math.abs(lat2tile(minLat,z) - lat2tile(maxLat,z)) + 1;
-    if (tx*256 <= 6000 && ty*256 <= 6000) { zoom = z; break; }
+  if (satZoom && satZoom > 0) {
+    zoom = Math.min(Math.max(satZoom, 8), 17);
+    console.log(`[SAT] zoom=${zoom} (задан вручную)`);
+  } else {
+    for (let z = 17; z >= 8; z--) {
+      const tx = Math.abs(lon2tile(maxLng,z) - lon2tile(minLng,z)) + 1;
+      const ty = Math.abs(lat2tile(minLat,z) - lat2tile(maxLat,z)) + 1;
+      if (tx*256 <= 6000 && ty*256 <= 6000) { zoom = z; break; }
+    }
   }
 
   const xMin = lon2tile(minLng,zoom), xMax = lon2tile(maxLng,zoom);
@@ -383,7 +388,8 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif) {
 
 // ── Главная функция ────────────────────────────────────────
 async function processDEM({bbox,projId,proj4,epsg,projName,format,
-                            interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,onProgress}) {
+                            interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,
+                            satelliteOnly,satZoom,onProgress}) {
   gridStep = (gridStep !== undefined && gridStep !== null && gridStep !== '') ? parseInt(gridStep) : 20;
   if (isNaN(gridStep)) gridStep = 20;
   const jMin = parseFloat(jitterMin)||0;
@@ -395,8 +401,42 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     findGDALBin();
     const {minLat,maxLat,minLng,maxLng}=bbox;
     const areaKm2=((maxLat-minLat)*111.32)*((maxLng-minLng)*111.32*Math.cos((minLat+maxLat)/2*Math.PI/180));
-    if (areaKm2>2000) throw new Error(`Слишком большая область: ${areaKm2.toFixed(0)} км². Макс 2000.`);
     log.push(`Area: ${areaKm2.toFixed(1)} km²`);
+
+    // ── Режим «только спутник»: пропускаем весь DEM-пайплайн ──────────────
+    if (satelliteOnly) {
+      onProgress&&onProgress(10,'Загрузка спутника...');
+      const satRes = await buildSatellite(bbox,tmpDir,proj4,epsg,null,satZoom);
+      const satFiles=[];
+      let satPixelSizeM=null,satImgW=null,satImgH=null,satGt=null;
+      for (const sec of satRes) {
+        if (sec.jpeg && fs.existsSync(sec.jpeg)) satFiles.push(sec.jpeg);
+        if (sec.jgw  && fs.existsSync(sec.jgw))  satFiles.push(sec.jgw);
+        if (sec.prj  && fs.existsSync(sec.prj))  satFiles.push(sec.prj);
+        if (sec.pixelSizeM){ satPixelSizeM=sec.pixelSizeM; satImgW=sec.imgWidthPx; satImgH=sec.imgHeightPx; satGt=sec.gt; }
+      }
+      onProgress&&onProgress(90,'Упаковка архива...');
+      const infoFile=path.join(tmpDir,'readme.txt');
+      let satScaleInfo='';
+      if (satPixelSizeM&&satImgW&&satGt){
+        const scaleF=satPixelSizeM.toFixed(6);
+        const insX=(satGt[0]+satGt[1]*0.5+satGt[2]*0.5).toFixed(3);
+        const insY=(satGt[3]+satGt[4]*0.5+satGt[5]*0.5).toFixed(3);
+        satScaleInfo=`\r\nСпутник в AutoCAD:\r\n  IMAGEATTACH → satellite.jpg\r\n  Insertion point: X=${insX}  Y=${insY}  Z=0\r\n  Scale factor: ${scaleF}\r\n  Размер: ${satImgW}x${satImgH} пкс, пиксель=${scaleF} м\r\n`;
+      }
+      fs.writeFileSync(infoFile,`ArcticDEM Satellite Export\r\n=========================\r\nДата: ${new Date().toLocaleString('ru')}\r\nСК: ${projName||projId} ${proj4||''}\r\nРежим: только подложка (JPEG + геопривязка)${satScaleInfo}`);
+      const zipFile=path.join(tmpDir,'satellite_export.zip');
+      const filesToZip=[...satFiles,infoFile].filter(f=>fs.existsSync(f));
+      await new Promise((resolve,reject)=>{
+        if (IS_WINDOWS){
+          const toZip=filesToZip.map(f=>`'${f}'`).join(',');
+          exec(`powershell -Command "Compress-Archive -Path ${toZip} -DestinationPath '${zipFile}' -Force"`,(err,_,se)=>err?reject(new Error(se||err.message)):resolve());
+        } else {
+          execFile('zip',['-j',zipFile,...filesToZip],(err,_,se)=>err?reject(new Error(se||err.message)):resolve());
+        }
+      });
+      return {file:zipFile,tmpDir,log,mime:'application/zip'};
+    }
 
     // 1. Поиск тайлов ArcticDEM: STAC → прямые S3-URLs как fallback
     onProgress&&onProgress(8,'Поиск тайлов ArcticDEM...');
@@ -546,7 +586,7 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     if (exportSatellite){
       onProgress&&onProgress(85,'Загрузка спутника...');
       try{
-        const satSections=await buildSatellite(bbox,tmpDir,proj4,epsg,reprojTif);
+        const satSections=await buildSatellite(bbox,tmpDir,proj4,epsg,reprojTif,satZoom);
         for (const sec of satSections) {
           if (sec.jpeg && fs.existsSync(sec.jpeg)) satFiles.push(sec.jpeg);
           if (sec.jgw  && fs.existsSync(sec.jgw))  satFiles.push(sec.jgw);

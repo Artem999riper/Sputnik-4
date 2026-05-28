@@ -179,6 +179,14 @@ function openDEMPanel() {
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;
                padding:6px 9px;background:var(--s2);border:1.5px solid var(--bd);
                border-radius:var(--rs);font-size:11px;margin-bottom:5px">
+          <input type="checkbox" id="dem-sat-only"
+            style="width:14px;height:14px;accent-color:var(--acc)"
+            onchange="_demToggleSatOnly()">
+          <span>🛰 Только спутник <b>JPEG + JGW</b> (без горизонталей и пикетов)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;
+               padding:6px 9px;background:var(--s2);border:1.5px solid var(--bd);
+               border-radius:var(--rs);font-size:11px;margin-bottom:5px">
           <input type="checkbox" id="dem-satellite" checked
             style="width:14px;height:14px;accent-color:var(--acc)">
           <span>🛰 Добавить спутник <b>JPEG + JGW</b> (геопривязка)</span>
@@ -190,6 +198,22 @@ function openDEMPanel() {
             style="width:14px;height:14px;accent-color:var(--acc)">
           <span>📐 Перевести в <b>БСВ-77</b> (EGM2008)</span>
         </label>
+      </div>
+
+      <div class="fg" id="dem-sat-zoom-row">
+        <label>Масштаб спутника (зум тайлов)</label>
+        <select id="dem-sat-zoom" style="width:100%;font-size:12px;padding:5px 8px;
+          border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+          <option value="0">Авто (подобрать под область)</option>
+          <option value="13">z=13 (~20 м/пкс, обзорный)</option>
+          <option value="14">z=14 (~10 м/пкс, обзорный+)</option>
+          <option value="15">z=15 (~5 м/пкс, стандарт)</option>
+          <option value="16">z=16 (~2.5 м/пкс, детальный)</option>
+          <option value="17">z=17 (~1.2 м/пкс, макс. детализация)</option>
+        </select>
+        <div style="font-size:10px;color:var(--tx3);margin-top:3px">
+          Чем выше зум — тем крупнее файл и дольше загрузка
+        </div>
       </div>
     </div>
 
@@ -317,8 +341,7 @@ function _demSecondClick(e) {
       warn.style.display = 'block';
       warn.textContent =
         `⚠️ Большая область (${areaSqKm.toFixed(0)} км²). ` +
-        `Загрузка может занять несколько минут. ` +
-        `Рекомендуется не более 100 км² для шага 2м.`;
+        `Загрузка может занять несколько минут.`;
     }
   }, 100);
 }
@@ -341,18 +364,44 @@ function demCancelDraw() {
   if (bnr) { bnr.className = ''; bnr.style.display = 'none'; }
 }
 
+// ── Переключение режима "только спутник" ───────────────────
+function _demToggleSatOnly() {
+  const satOnly = document.getElementById('dem-sat-only')?.checked;
+  const dxfFields = ['dem-interval','dem-grid-step','dem-jitter-min','dem-jitter-max'];
+  // Поля DEM (горизонтали, точки, геоид)
+  const dxfRows = document.querySelectorAll(
+    '.fg:has(#dem-interval), .fg:has(#dem-grid-step), .fg:has(#dem-jitter-min), .fg:has(#dem-bsv77)');
+  dxfRows.forEach(row => { row.style.opacity = satOnly ? '0.35' : '1'; });
+  dxfFields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !!satOnly;
+  });
+  // Чекбокс "добавить спутник" неактуален в режиме satOnly — скрываем его
+  const satRow = document.querySelector('label:has(#dem-satellite)');
+  if (satRow) satRow.style.display = satOnly ? 'none' : '';
+  const bsvRow = document.querySelector('label:has(#dem-bsv77)');
+  if (bsvRow) bsvRow.style.display = satOnly ? 'none' : '';
+  // Обновляем описание в шапке
+  const desc = document.querySelector('#mft .fgr > div:first-child b');
+  if (desc) desc.textContent = satOnly
+    ? 'Результат: ZIP архив с JPEG спутником и геопривязкой (без DXF)'
+    : 'Результат: ZIP архив с DXF (горизонтали + точки) и JPEG спутником';
+}
+
 // ── Выгрузка ───────────────────────────────────────────────
 async function demExport() {
   if (!_demBbox) { toast('Сначала нарисуйте область на карте', 'err'); return; }
 
-  const projId   = document.getElementById('dem-proj')?.value;
-  const interval = parseFloat(document.getElementById('dem-interval')?.value) || 2;
+  const projId      = document.getElementById('dem-proj')?.value;
+  const interval    = parseFloat(document.getElementById('dem-interval')?.value) || 2;
   const gridStepRaw = document.getElementById('dem-grid-step')?.value ?? '20';
-  const gridStep = (gridStepRaw === '' || gridStepRaw === null) ? 20 : parseInt(gridStepRaw, 10);
-  const jitterMin = parseFloat(document.getElementById('dem-jitter-min')?.value ?? '0') || 0;
-  const jitterMax = parseFloat(document.getElementById('dem-jitter-max')?.value ?? '0') || 0;
+  const gridStep    = (gridStepRaw === '' || gridStepRaw === null) ? 20 : parseInt(gridStepRaw, 10);
+  const jitterMin   = parseFloat(document.getElementById('dem-jitter-min')?.value ?? '0') || 0;
+  const jitterMax   = parseFloat(document.getElementById('dem-jitter-max')?.value ?? '0') || 0;
   const exportSatellite = document.getElementById('dem-satellite')?.checked !== false;
-  const useGeoid = document.getElementById('dem-bsv77')?.checked !== false;
+  const useGeoid    = document.getElementById('dem-bsv77')?.checked !== false;
+  const satelliteOnly = document.getElementById('dem-sat-only')?.checked === true;
+  const satZoom     = parseInt(document.getElementById('dem-sat-zoom')?.value ?? '0') || 0;
 
   const proj = DEM_PROJECTIONS.find(p => p.id === projId);
   const fmt  = { id: 'dxf', ext: '.zip' };
@@ -390,7 +439,9 @@ async function demExport() {
         jitterMin,
         jitterMax,
         useGeoid,
-        exportSatellite,
+        exportSatellite: satelliteOnly ? true : exportSatellite,
+        satelliteOnly,
+        satZoom,
       }),
     });
 
