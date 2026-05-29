@@ -294,6 +294,19 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json(demProcessor.getDemTilesInfo());
   });
 
+  app.get('/api/elevation/point', async (req, res) => {
+    const lat = parseFloat(req.query.lat);
+    const lng = parseFloat(req.query.lng);
+    if (isNaN(lat) || isNaN(lng)) return res.status(400).json({ error: 'lat и lng обязательны' });
+    if (!demProcessor || !demProcessor.getElevationAtPoint) return res.json({ elevation: null, error: 'no_processor' });
+    try {
+      const result = await demProcessor.getElevationAtPoint(lat, lng);
+      res.json(result);
+    } catch(e) {
+      res.json({ elevation: null, error: e.message });
+    }
+  });
+
   app.get('/api/dem/geoid-n', async (req, res) => {
     const lat = parseFloat(req.query.lat);
     const lng = parseFloat(req.query.lng);

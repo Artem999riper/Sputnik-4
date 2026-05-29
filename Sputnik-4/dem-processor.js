@@ -193,6 +193,73 @@ function runGDAL(exe, args) {
   });
 }
 
+// ── Локальные DEM-тайлы ────────────────────────────────────
+const DEM_TILES_DIR = path.join(__dirname, 'dem_tiles');
+
+function _findLocalTiles() {
+  if (!fs.existsSync(DEM_TILES_DIR)) return [];
+  try {
+    return fs.readdirSync(DEM_TILES_DIR)
+      .filter(f => /\.(tif|tiff)$/i.test(f))
+      .map(f => path.join(DEM_TILES_DIR, f));
+  } catch(e) { return []; }
+}
+
+async function getElevationAtPoint(lat, lng) {
+  findGDALBin();
+  const tiles = _findLocalTiles();
+  if (!tiles.length) throw new Error('no_tiles');
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ep-'));
+  try {
+    const margin   = 0.005;
+    const vrtFile  = path.join(tmpDir, 'combined.vrt');
+    const clipped  = path.join(tmpDir, 'clipped.tif');
+
+    await runGDAL('gdalbuildvrt', [vrtFile, ...tiles]);
+    await runGDAL('gdalwarp', [
+      '-te', String(lng-margin), String(lat-margin), String(lng+margin), String(lat+margin),
+      '-ts', '5', '5', '-r', 'bilinear', vrtFile, clipped,
+    ]);
+
+    // Попытка конвертации в БСВ-77 через геоид
+    for (const epsg of ['EPSG:3855', 'EPSG:5773', 'EPSG:9518']) {
+      const geoidTif = path.join(tmpDir, `geoid_${epsg.replace(':','')}.tif`);
+      try {
+        await runGDAL('gdalwarp', ['-s_srs','EPSG:4979','-t_srs',epsg,'-r','bilinear',clipped,geoidTif]);
+        const r = await execFileP(gdal('gdallocationinfo'),
+          ['-wgs84', '-valonly', geoidTif, String(lng), String(lat)],
+          { env: gdalEnv(), timeout: 15000, maxBuffer: 65536 });
+        const val = parseFloat((r.stdout||'').trim());
+        if (!isNaN(val) && val > -9000 && val < 9000) {
+          return { elevation: val, source: 'arcticdem', datum: 'bsv77' };
+        }
+      } catch(_) {}
+    }
+
+    // Fallback: возвращаем эллипсоидальную WGS84 высоту
+    const r = await execFileP(gdal('gdallocationinfo'),
+      ['-wgs84', '-valonly', clipped, String(lng), String(lat)],
+      { env: gdalEnv(), timeout: 15000, maxBuffer: 65536 });
+    const val = parseFloat((r.stdout||'').trim());
+    if (isNaN(val) || val <= -9000) throw new Error('invalid_value');
+    return { elevation: val, source: 'arcticdem', datum: 'wgs84_ellipsoidal' };
+
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch(_) {}
+  }
+}
+
+function getDemTilesInfo() {
+  if (!fs.existsSync(DEM_TILES_DIR)) return { dir: DEM_TILES_DIR, tiles: [], exists: false };
+  try {
+    const tiles = fs.readdirSync(DEM_TILES_DIR)
+      .filter(f => /\.(tif|tiff)$/i.test(f))
+      .map(f => ({ name: f, size: fs.statSync(path.join(DEM_TILES_DIR, f)).size }));
+    return { dir: DEM_TILES_DIR, tiles, exists: true };
+  } catch(e) { return { dir: DEM_TILES_DIR, tiles: [], exists: true, error: e.message }; }
+}
+
 // ── Спутник ────────────────────────────────────────────────
 function lon2tile(lon,z) { return Math.floor((lon+180)/360*Math.pow(2,z)); }
 function lat2tile(lat,z) {
@@ -736,4 +803,4 @@ async function checkGDAL(){
   }
 }
 
-module.exports = {processDEM,cleanupTmp,checkGDAL};
+module.exports = {processDEM,cleanupTmp,checkGDAL,getElevationAtPoint,getDemTilesInfo};

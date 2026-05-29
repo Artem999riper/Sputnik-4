@@ -266,8 +266,32 @@ function _epShowPanel(data) {
 }
 
 // ── Chart.js ──────────────────────────────────────────────
+function _epChartMove(e) {
+  if (!_epChart || !_epChartSamples.length) return;
+  const items = _epChart.getElementsAtEventForMode(e, 'index', { intersect: false }, true);
+  if (!items.length) return;
+  const idx = Math.min(items[0].index, _epChartSamples.length - 1);
+  const s = _epChartSamples[idx];
+  const ll = L.latLng(s.lat, s.lng);
+  if (_epMarker) {
+    _epMarker.setLatLng(ll);
+  } else {
+    _epMarker = L.circleMarker(ll, {
+      radius: 8, color: '#e02424', fillColor: '#fff', fillOpacity: 1, weight: 3,
+    }).addTo(map);
+  }
+}
+function _epChartLeave() {
+  if (_epMarker) { try { map.removeLayer(_epMarker); } catch(e2) {} _epMarker = null; }
+}
+
 function _epRenderChart(data) {
-  const ctx = document.getElementById('ep-canvas').getContext('2d');
+  const canvas = document.getElementById('ep-canvas');
+  // Удалить старые слушатели
+  canvas.removeEventListener('mousemove', _epChartMove);
+  canvas.removeEventListener('mouseleave', _epChartLeave);
+
+  const ctx = canvas.getContext('2d');
   if (_epChart) { _epChart.destroy(); _epChart = null; }
 
   const labels = data.map(d => d.distM < 1000
@@ -294,50 +318,89 @@ function _epRenderChart(data) {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
+      interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
         tooltip: {
           mode: 'index',
           intersect: false,
           callbacks: {
-            label: ctx => `${ctx.raw != null ? ctx.raw.toFixed(0) : '—'} м`,
+            label: ctx => `${ctx.raw != null ? ctx.raw.toFixed(0) : '—'} м БСВ-77`,
           },
         },
       },
       scales: {
         x: {
-          ticks: {
-            maxTicksLimit: 8,
-            font: { size: 10 },
-            color: '#6b7280',
-          },
+          ticks: { maxTicksLimit: 8, font: { size: 10 }, color: '#6b7280' },
           grid: { color: 'rgba(0,0,0,0.05)' },
         },
         y: {
-          ticks: { font: { size: 10 }, color: '#6b7280', callback: v => v + ' м БСВ' },
+          ticks: { font: { size: 10 }, color: '#6b7280', callback: v => v + ' м' },
           grid: { color: 'rgba(0,0,0,0.05)' },
         },
       },
-      onHover: (event, items) => {
-        if (items.length && _epChartSamples.length) {
-          const idx = Math.min(items[0].index, _epChartSamples.length - 1);
-          const s = _epChartSamples[idx];
-          if (!s) return;
-          const ll = L.latLng(s.lat, s.lng);
-          if (_epMarker) {
-            _epMarker.setLatLng(ll);
-          } else {
-            _epMarker = L.circleMarker(ll, {
-              radius: 8, color: '#e02424', fillColor: '#fff',
-              fillOpacity: 1, weight: 3,
-            }).addTo(map);
-          }
-        } else {
-          if (_epMarker) { try { map.removeLayer(_epMarker); } catch(e) {} _epMarker = null; }
-        }
-      },
     },
   });
+
+  // Используем нативные события — нет мигания от Chart.js onHover
+  canvas.addEventListener('mousemove', _epChartMove);
+  canvas.addEventListener('mouseleave', _epChartLeave);
+}
+
+// ── Отметка высоты по ПКМ ─────────────────────────────────
+let _elevPopup = null;
+
+async function showElevationAtPoint(latlng) {
+  if (_elevPopup) { _elevPopup.remove(); _elevPopup = null; }
+
+  _elevPopup = L.popup({ closeButton: true, autoClose: false, closeOnClick: false, className: 'elev-popup' })
+    .setLatLng(latlng)
+    .setContent('<div class="popup" style="min-width:130px"><div class="popup-n">📍 Высота поверхности</div><div style="padding:4px 0;color:var(--tx2)">⏳ Загрузка…</div></div>')
+    .openOn(map);
+
+  // Пробуем сервер (ArcticDEM + БСВ-77)
+  let elevation = null, label = '', src = '';
+  try {
+    const resp = await fetch(`/api/elevation/point?lat=${latlng.lat.toFixed(7)}&lng=${latlng.lng.toFixed(7)}`);
+    const j = await resp.json();
+    if (j.elevation != null) {
+      elevation = j.elevation;
+      label = j.datum === 'bsv77' ? 'м БСВ-77 (ArcticDEM 2м)' : 'м WGS84 (ArcticDEM)';
+      src = 'arcticdem';
+    }
+  } catch(_) {}
+
+  // Fallback — Terrarium тайлы (уже используется в профиле)
+  if (elevation == null) {
+    try {
+      const { x, y, z } = _latLngToTile(latlng.lat, latlng.lng, 12);
+      const imageData = await _fetchTile(z, x, y);
+      if (imageData) {
+        const { px, py } = _tilePixel(latlng.lat, latlng.lng, z, x, y);
+        const cx = Math.max(0, Math.min(255, px)), cy = Math.max(0, Math.min(255, py));
+        const off = (cy * 256 + cx) * 4;
+        const R = imageData.data[off], G = imageData.data[off+1], B = imageData.data[off+2];
+        elevation = R * 256 + G + B / 256 - 32768;
+        label = 'м БСВ-77 (прибл.)';
+        src = 'terrarium';
+      }
+    } catch(_) {}
+  }
+
+  if (elevation == null) {
+    _elevPopup.setContent('<div class="popup"><div class="popup-n">⚠️ Нет данных</div></div>');
+    return;
+  }
+
+  const elevStr = elevation.toFixed(1);
+  const coordStr = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
+  _elevPopup.setContent(`
+    <div class="popup" style="min-width:140px">
+      <div class="popup-n">📍 Высота поверхности</div>
+      <div style="font-size:16px;font-weight:800;color:var(--acc);margin:5px 0 2px">${elevStr} ${label}</div>
+      <div class="popup-s">${coordStr}</div>
+    </div>
+  `);
 }
 
 // ── Закрыть ───────────────────────────────────────────────
@@ -353,7 +416,11 @@ function closeElevationProfile() {
 
   if (_epLine)   { try { map.removeLayer(_epLine);   } catch(e) {} _epLine = null; }
   if (_epMarker) { try { map.removeLayer(_epMarker); } catch(e) {} _epMarker = null; }
-  if (_epChart)  { _epChart.destroy(); _epChart = null; }
+  if (_epChart)  {
+    const cv = document.getElementById('ep-canvas');
+    if (cv) { cv.removeEventListener('mousemove', _epChartMove); cv.removeEventListener('mouseleave', _epChartLeave); }
+    _epChart.destroy(); _epChart = null;
+  }
 
   const panel = document.getElementById('ep-panel');
   if (panel) panel.classList.remove('open');
