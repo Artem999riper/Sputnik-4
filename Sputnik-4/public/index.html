@@ -244,6 +244,8 @@
   <button class="mt" id="tool-kml" onclick="toggleKmlPanel()" title="Менеджер слоёв KML/GPX">🗂 Слои</button>
   <div style="width:1px;height:16px;background:rgba(0,0,0,.12);margin:0 2px;flex-shrink:0"></div>
   <button class="mt" id="tool-dem" onclick="openDEMPanel()" title="Выгрузка рельефа ArcticDEM">🏔 Рельеф</button>
+  <div style="width:1px;height:16px;background:rgba(0,0,0,.12);margin:0 2px;flex-shrink:0"></div>
+  <button class="mt" id="tool-elev" onclick="openElevationProfile()" title="Профиль высот по линии">📈 Профиль</button>
 </div>
 <div id="bnr"><span id="bnr-t">Кликните на карту</span>
   <button class="btn bsm" style="border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.15);color:#fff" onclick="cancelMode()">✕</button>
@@ -452,6 +454,7 @@
 <script src="js/ui.js"></script>
 <script src="js/dem.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="js/html-export.js"></script>
 <script src="js/kameral.js"></script>
 <script src="js/dxf-volumes.js"></script>
@@ -495,10 +498,23 @@
   </div>
 </div>
 
+<div id="ep-panel">
+  <div class="ep-hd">
+    <span>📈 Профиль высот</span>
+    <div id="ep-stats"></div>
+    <button class="kml-panel-close" onclick="closeElevationProfile()" title="Закрыть">✕</button>
+  </div>
+  <div class="ep-body">
+    <div id="ep-loading">⏳ Загрузка высот…</div>
+    <canvas id="ep-canvas" style="display:none"></canvas>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="js/coords.js"></script>
 <script src="js/kml-manager.js"></script>
 <script src="js/field.js"></script>
+<script src="js/elevation-profile.js"></script>
 
 </body>
 </html>
