@@ -475,19 +475,19 @@
 <!-- KML LAYER MANAGER PANEL -->
 <div id="kml-panel">
   <div class="kml-panel-hd">
-    <div style="display:flex;align-items:center;gap:6px">
-      <span style="font-size:14px">🗂</span>
-      <span style="font-size:12px;font-weight:800">Слои карты</span>
+    <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0">
+      <span style="font-size:14px;flex-shrink:0">🗂</span>
+      <span style="font-size:12px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Слои карты</span>
     </div>
-    <div style="display:flex;align-items:center;gap:4px">
-      <button class="btn bs bxs" onclick="kmlCreateGroup()" title="Создать группу">📁 Группа</button>
-      <label class="btn bp bxs" style="cursor:pointer" title="Импорт KML/GPX">
-        ＋ Импорт
-        <input type="file" accept=".kml,.gpx" style="display:none" onchange="kmlPanelImport(event)">
-      </label>
-      <button class="btn bs bxs" onclick="openLayerExportDialog()" title="Экспорт слоёв в DXF">📤 Экспорт</button>
-      <button class="kml-panel-close" onclick="toggleKmlPanel()" title="Закрыть панель слоёв">✕</button>
-    </div>
+    <button class="kml-panel-close" onclick="toggleKmlPanel()" title="Закрыть">✕</button>
+  </div>
+  <div class="kml-panel-acts">
+    <button class="btn bs bxs" onclick="kmlCreateGroup()" title="Создать группу">📁 Группа</button>
+    <label class="btn bp bxs" style="cursor:pointer" title="Импорт KML/GPX">
+      ＋ Импорт
+      <input type="file" accept=".kml,.gpx" style="display:none" onchange="kmlPanelImport(event)">
+    </label>
+    <button class="btn bs bxs" onclick="openLayerExportDialog()" title="Экспорт слоёв в DXF">📤 DXF</button>
   </div>
   <div id="kml-panel-body" class="kml-panel-body"></div>
   <div class="kml-panel-ft">
