@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════
 // Профиль высот — рисуем линию, получаем график высот
-// Источник: opentopodata.org SRTM 90м (бесплатно, ключ не нужен)
+// Источник: AWS Terrarium Terrain-RGB (бесплатно, ключ не нужен)
 // ═══════════════════════════════════════════════════════════
 
 let _epActive  = false;
@@ -201,27 +201,6 @@ function _epInterpolate(pts, maxPoints) {
     result.push({ lat: last.lat, lng: last.lng, distM: total });
   }
   return result;
-}
-
-// ── Запрос высот ──────────────────────────────────────────
-async function _epFetchElevations(samples) {
-  const BATCH = 100;
-  const elevs = [];
-  for (let i = 0; i < samples.length; i += BATCH) {
-    const batch = samples.slice(i, i + BATCH);
-    const locs = batch.map(p => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`).join('|');
-    const resp = await fetch(ELEV_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ locations: locs }),
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const j = await resp.json();
-    if (!j.results) throw new Error('Нет данных в ответе');
-    j.results.forEach(r => elevs.push(r.elevation ?? null));
-    if (i + BATCH < samples.length) await new Promise(r => setTimeout(r, 1100)); // rate limit
-  }
-  return elevs;
 }
 
 // ── Основная функция построения ───────────────────────────
