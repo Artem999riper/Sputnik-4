@@ -289,6 +289,16 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json(await demProcessor.checkGDAL());
   });
 
+  // Диагностика и ручной запуск скачивания геоид-гридов
+  app.post('/api/dem/download-geoid-grids', async (req, res) => {
+    if (!demProcessor) return res.status(503).json({ error: 'no processor' });
+    demProcessor._resetGeoidCheck();
+    const before = await demProcessor.checkGDAL();
+    await demProcessor._downloadGeoidGrids();
+    const after = await demProcessor.checkGDAL();
+    res.json({ before: before.geoid_grids, after: after.geoid_grids });
+  });
+
   app.get('/api/dem/tiles-info', (req, res) => {
     if (!demProcessor) return res.json({ dir: '', tiles: [], exists: false });
     res.json(demProcessor.getDemTilesInfo());

@@ -211,6 +211,7 @@ function _findLocalTiles() {
 async function computeGeoidN(lat, lng) {
   findGDALBin();
   if (!_pythonExe) return null;
+  await _ensureGeoidGrids(); // скачать grid-файлы если отсутствуют
   // Python: создаём 3×3 GeoTIFF с нулевыми эллипсоидальными высотами,
   // применяем конвертацию EPSG:4979→EPSG:3855/5773/9518.
   // Результат = ортометрическая высота при h=0 = H = 0 - N → N = -H
@@ -838,17 +839,72 @@ function cleanupTmp(tmpDir){
   try{fs.rmSync(tmpDir,{recursive:true,force:true});}catch(e){}
 }
 
+// ── Авто-загрузка геоид-гридов ─────────────────────────────
+const GEOID_GRIDS = [
+  { file: 'us_nga_egm08_25.tif', url: 'https://cdn.proj.org/us_nga_egm08_25.tif', desc: 'EGM2008 (~56MB)' },
+  { file: 'us_nga_egm96_15.tif', url: 'https://cdn.proj.org/us_nga_egm96_15.tif', desc: 'EGM96 (~26MB)' },
+];
+
+let _geoidGridsChecked = false;
+
+async function _ensureGeoidGrids() {
+  if (!_projLib || _geoidGridsChecked) return;
+  _geoidGridsChecked = true;
+  for (const { file, url, desc } of GEOID_GRIDS) {
+    const target = path.join(_projLib, file);
+    if (fs.existsSync(target)) { console.log(`[GEOID] Найден: ${file}`); continue; }
+    console.log(`[GEOID] Скачиваю ${file} ${desc}...`);
+    try {
+      await new Promise((resolve, reject) => {
+        const tmpTarget = target + '.tmp';
+        const out = fs.createWriteStream(tmpTarget);
+        const get = (u, hops) => {
+          const mod = u.startsWith('https') ? https : require('http');
+          const req = mod.get(u, { timeout: 120000 }, res => {
+            if (res.statusCode === 301 || res.statusCode === 302) {
+              res.resume();
+              if (hops <= 0) return reject(new Error('Too many redirects'));
+              return get(res.headers.location, hops - 1);
+            }
+            if (res.statusCode !== 200) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
+            res.pipe(out);
+            out.on('finish', () => { fs.renameSync(tmpTarget, target); resolve(); });
+            out.on('error', reject);
+          });
+          req.on('error', reject);
+          req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+        };
+        get(url, 5);
+      });
+      console.log(`[GEOID] OK: ${file}`);
+    } catch(e) {
+      console.log(`[GEOID] Недоступно (${file}): ${e.message.slice(0, 80)}`);
+      try { fs.unlinkSync(target + '.tmp'); } catch(_) {}
+    }
+  }
+}
+
 async function checkGDAL(){
   try{
     const bin=findGDALBin();
     const {stdout}=await execFileP(gdal('gdalinfo'),['--version'],{env:gdalEnv()});
+    const grids = GEOID_GRIDS.map(g => ({
+      file: g.file,
+      present: _projLib ? fs.existsSync(path.join(_projLib, g.file)) : false,
+    }));
     return {available:true,version:stdout.trim(),path:bin,
-            gdal_data:_gdalData,python:_pythonExe,
-            has_proj_db:_projLib?fs.existsSync(path.join(_projLib,'proj.db')):null};
+            gdal_data:_gdalData,python:_pythonExe,proj_lib:_projLib,
+            has_proj_db:_projLib?fs.existsSync(path.join(_projLib,'proj.db')):null,
+            geoid_grids: grids};
   }catch(e){
     return {available:false,reason:e.message,
             hint:IS_WINDOWS?'Установите OSGeo4W: https://trac.osgeo.org/osgeo4w/':'Установите: sudo apt install gdal-bin'};
   }
 }
 
-module.exports = {processDEM,cleanupTmp,checkGDAL,getElevationAtPoint,getDemTilesInfo,computeGeoidN};
+module.exports = {
+  processDEM, cleanupTmp, checkGDAL,
+  getElevationAtPoint, getDemTilesInfo, computeGeoidN,
+  _downloadGeoidGrids: _ensureGeoidGrids,
+  _resetGeoidCheck: () => { _geoidGridsChecked = false; },
+};

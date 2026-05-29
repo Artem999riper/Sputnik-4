@@ -219,6 +219,14 @@ function openDEMPanel() {
             style="width:14px;height:14px;accent-color:var(--acc)">
           <span>📐 Перевести в <b>БСВ-77</b> (EGM2008)</span>
         </label>
+        <div id="dem-geoid-status" style="font-size:10px;margin-top:4px;padding:5px 8px;
+          border-radius:var(--rs);background:var(--s2);border:1px solid var(--bd)">
+          <span style="color:var(--tx3)">⏳ Проверяю геоид-гриды...</span>
+          <button onclick="demCheckGeoid()" style="float:right;font-size:9px;padding:1px 6px;
+            background:var(--s3);border:1px solid var(--bd);border-radius:3px;cursor:pointer;color:var(--tx2)">
+            Обновить
+          </button>
+        </div>
       </div>
 
       <div class="fg" id="dem-sat-source-row">
@@ -571,3 +579,68 @@ async function demExport() {
     console.error('DEM export error:', err);
   }
 }
+
+// ── Диагностика геоид-гридов ───────────────────────────────
+async function demCheckGeoid() {
+  const el = document.getElementById('dem-geoid-status');
+  if (!el) return;
+  el.innerHTML = '<span style="color:var(--tx3)">⏳ Проверяю...</span>';
+  try {
+    const r = await fetch('/api/dem/status');
+    const j = await r.json();
+    if (!j.available) {
+      el.innerHTML = `<span style="color:var(--ylw)">⚠️ GDAL недоступен</span>`;
+      return;
+    }
+    const grids = j.geoid_grids || [];
+    const ok    = grids.filter(g => g.present);
+    const miss  = grids.filter(g => !g.present);
+
+    if (ok.length > 0) {
+      el.innerHTML =
+        `<span style="color:var(--grn)">✅ Геоид OK: ${ok.map(g=>g.file.replace('us_nga_','').replace('.tif','')).join(', ')}</span>` +
+        `<button onclick="demCheckGeoid()" style="float:right;font-size:9px;padding:1px 6px;
+          background:var(--s3);border:1px solid var(--bd);border-radius:3px;cursor:pointer;color:var(--tx2)">↺</button>`;
+    } else {
+      const projPath = j.proj_lib || 'C:\\OSGeo4W\\share\\proj';
+      el.innerHTML =
+        `<span style="color:var(--red,#e02424)">❌ Grid-файлы не найдены</span>` +
+        `<button onclick="demDownloadGeoidGrids()" style="margin-left:6px;font-size:9px;padding:2px 8px;
+          background:var(--acc);color:#fff;border:none;border-radius:3px;cursor:pointer">
+          ⬇ Скачать автоматически
+        </button>
+        <button onclick="demCheckGeoid()" style="float:right;font-size:9px;padding:1px 6px;
+          background:var(--s3);border:1px solid var(--bd);border-radius:3px;cursor:pointer;color:var(--tx2)">↺</button>
+        <div style="margin-top:5px;font-size:9px;color:var(--tx3);line-height:1.5">
+          Папка PROJ: <code style="background:var(--s3);padding:1px 4px;border-radius:2px">${projPath}</code><br>
+          Нужны файлы (скачать вручную с <b>cdn.proj.org</b>):<br>
+          &nbsp;• <b>us_nga_egm08_25.tif</b> (~56 МБ) — EGM2008<br>
+          &nbsp;• <b>us_nga_egm96_15.tif</b> (~26 МБ) — EGM96 (альтернатива)
+        </div>`;
+    }
+  } catch(e) {
+    el.innerHTML = `<span style="color:var(--ylw)">⚠️ Ошибка: ${e.message}</span>`;
+  }
+}
+
+async function demDownloadGeoidGrids() {
+  const el = document.getElementById('dem-geoid-status');
+  if (el) el.innerHTML = '<span style="color:var(--acc)">⬇ Скачиваю grid-файлы (EGM2008 ~56МБ, EGM96 ~26МБ)... Подождите.</span>';
+  try {
+    const r = await fetch('/api/dem/download-geoid-grids', { method: 'POST' });
+    const j = await r.json();
+    await demCheckGeoid();
+    const ok = (j.after || []).filter(g => g.present);
+    if (ok.length > 0) toast('✅ Геоид-гриды установлены: ' + ok.map(g=>g.file).join(', '), 'ok');
+    else toast('⚠️ Не удалось скачать grid-файлы. Проверьте соединение или скачайте вручную.', 'warn');
+  } catch(e) {
+    toast('❌ Ошибка скачивания: ' + e.message, 'err');
+    await demCheckGeoid();
+  }
+}
+
+// Запустить проверку при первом открытии модалки
+document.addEventListener('DOMContentLoaded', () => {
+  // Отложенная проверка — не мешаем загрузке страницы
+  setTimeout(demCheckGeoid, 3000);
+});
