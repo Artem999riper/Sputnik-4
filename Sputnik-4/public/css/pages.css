@@ -133,7 +133,7 @@
 
 /* ── SMG ── */
 .nt.smg.on{background:#0f766e}
-#smg-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column}
+#smg-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;transition:right .25s cubic-bezier(.4,0,.2,1)}
 #smg-page.show{display:flex}
 .smg-toolbar{display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--s);border-bottom:1px solid var(--bd);flex-shrink:0;flex-wrap:wrap}
 .smg-toolbar h3{font-size:13px;font-weight:800;color:#0f766e;margin-right:4px}
@@ -172,9 +172,9 @@
 
 /* ── Field Materials ── */
 .nt.field.on{background:#0891b2}
-#field-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden}
+#field-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden;transition:right .25s cubic-bezier(.4,0,.2,1)}
 #field-page.show{display:flex}
-#brigades-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow-y:auto}
+#brigades-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow-y:auto;transition:right .25s cubic-bezier(.4,0,.2,1)}
 #brigades-page.show{display:flex}
 .field-toolbar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--s);border-bottom:1.5px solid var(--bd);flex-shrink:0;flex-wrap:wrap}
 .field-toolbar h3{font-size:14px;font-weight:800;color:#0891b2;margin-right:4px}

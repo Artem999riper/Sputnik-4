@@ -11,7 +11,19 @@
 body:has(#kml-panel.open) #map{right:268px}
 body:has(#kml-panel.open) #panel{right:268px}
 body:has(#kml-panel.open) #lp{right:275px}
+body:has(#kml-panel.open) #workers-page,
+body:has(#kml-panel.open) #machinery-page,
+body:has(#kml-panel.open) #equipment-page,
+body:has(#kml-panel.open) #materials-page,
+body:has(#kml-panel.open) #dash-page,
+body:has(#kml-panel.open) #gtasks-page,
+body:has(#kml-panel.open) #gruz-page,
+body:has(#kml-panel.open) #smg-page,
+body:has(#kml-panel.open) #field-page,
+body:has(#kml-panel.open) #brigades-page{right:268px}
 .kml-panel-hd{display:flex;align-items:center;justify-content:space-between;padding:7px 9px;border-bottom:1.5px solid var(--bd);flex-shrink:0;gap:5px;background:var(--s2)}
+.kml-panel-close{background:none;border:none;cursor:pointer;font-size:15px;color:var(--tx2);padding:2px 6px;border-radius:4px;line-height:1;flex-shrink:0;transition:all .15s}
+.kml-panel-close:hover{background:var(--s3);color:var(--tx)}
 .kml-panel-body{flex:1;overflow-y:auto;padding:4px 0}
 .kml-panel-body::-webkit-scrollbar{width:3px}
 .kml-panel-body::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
@@ -29,7 +41,7 @@ body:has(#kml-panel.open) #lp{right:275px}
 .kml-layer-row{display:flex;align-items:center;gap:3px;padding:4px 8px;border-bottom:1px solid var(--bd);transition:background .1s}
 .kml-layer-row:hover{background:var(--accl)}
 .kml-layer-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--tx);font-size:11px}
-.kml-icon-btn{background:none;border:none;cursor:pointer;font-size:12px;padding:2px 3px;border-radius:3px;color:var(--tx3);opacity:.45;flex-shrink:0;transition:all .1s;line-height:1}
+.kml-icon-btn{background:none;border:none;cursor:pointer;font-size:12px;padding:2px 3px;border-radius:3px;color:var(--tx3);opacity:.7;flex-shrink:0;transition:all .1s;line-height:1}
 .kml-icon-btn:hover,.kml-icon-btn.on{opacity:1;background:var(--s3);color:var(--tx)}
 .kml-icon-btn.vis.on{opacity:1;color:var(--acc)}
 .kml-sym-preview{width:22px;height:22px;flex-shrink:0;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;transition:background .1s;border:1.5px solid transparent}

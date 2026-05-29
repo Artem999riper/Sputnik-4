@@ -111,10 +111,10 @@ function initCoordsWidget() {
       border: 1px solid var(--bd);
       border-radius: 7px;
       box-shadow: var(--shm);
-      padding: 5px 10px 5px 8px;
+      padding: 5px 8px 5px 8px;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 5px;
       font-size: 11px;
       color: var(--tx2);
       pointer-events: auto;
@@ -142,7 +142,7 @@ function initCoordsWidget() {
       font-weight: 500;
       color: var(--tx);
       font-variant-numeric: tabular-nums;
-      min-width: 300px;
+      min-width: 240px;
       letter-spacing: 0.01em;
     }
     #coord-display b { font-weight: 700; }
