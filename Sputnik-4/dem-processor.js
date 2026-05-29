@@ -205,6 +205,54 @@ function _findLocalTiles() {
   } catch(e) { return []; }
 }
 
+// Вычисляет поправку геоида N через Python/GDAL:
+// возвращает значение, которое нужно ПРИБАВИТЬ к эллипсоидальной высоте (Terrarium) для BSV-77
+// Т.е.: H_bsv77 = h_ellipsoidal + N_correction
+async function computeGeoidN(lat, lng) {
+  findGDALBin();
+  if (!_pythonExe) return null;
+  // Python: создаём 3×3 GeoTIFF с нулевыми эллипсоидальными высотами,
+  // применяем конвертацию EPSG:4979→EPSG:3855/5773/9518.
+  // Результат = ортометрическая высота при h=0 = H = 0 - N → N = -H
+  // но нам нужна поправка +|N| для конвертации, поэтому возвращаем значение напрямую
+  const py = `
+from osgeo import gdal, osr
+import sys
+gdal.UseExceptions()
+lng,lat=${lng},${lat}
+drv=gdal.GetDriverByName('MEM')
+ds=drv.Create('',3,3,1,gdal.GDT_Float32)
+srs=osr.SpatialReference(); srs.ImportFromEPSG(4326)
+ds.SetProjection(srs.ExportToWkt())
+ds.SetGeoTransform([lng-0.001,0.001,0,lat+0.001,0,-0.001])
+ds.GetRasterBand(1).SetNoDataValue(-9999)
+ds.GetRasterBand(1).Fill(0)
+for epsg in [3855,5773,9518]:
+    try:
+        wo=gdal.WarpOptions(srcSRS='EPSG:4979',dstSRS='EPSG:'+str(epsg),resampleAlg='bilinear',format='MEM')
+        out=gdal.Warp('',ds,options=wo)
+        val=float(out.GetRasterBand(1).ReadAsArray()[1,1])
+        if abs(val)>0.5:
+            print(val); sys.exit(0)
+    except Exception as e:
+        pass
+print('null')
+`.trim();
+  try {
+    const r = await execFileP(_pythonExe, ['-c', py],
+      { env: gdalEnv(), timeout: 30000, maxBuffer: 65536 });
+    const s = (r.stdout || '').trim();
+    if (!s || s === 'null') return null;
+    const val = parseFloat(s);
+    if (isNaN(val)) return null;
+    // val = H при h=0 = -N, поправка = -val (добавить к эллипсоидальной высоте)
+    return -val;
+  } catch(e) {
+    console.log('[GEOID N] error:', e.message.slice(0, 100));
+    return null;
+  }
+}
+
 async function getElevationAtPoint(lat, lng) {
   findGDALBin();
   const tiles = _findLocalTiles();
@@ -803,4 +851,4 @@ async function checkGDAL(){
   }
 }
 
-module.exports = {processDEM,cleanupTmp,checkGDAL,getElevationAtPoint,getDemTilesInfo};
+module.exports = {processDEM,cleanupTmp,checkGDAL,getElevationAtPoint,getDemTilesInfo,computeGeoidN};

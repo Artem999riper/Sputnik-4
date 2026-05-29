@@ -204,10 +204,19 @@ function _epInterpolate(pts, maxPoints) {
   return result;
 }
 
+// ── Поправка геоида (сервер) ──────────────────────────────
+async function _epGetGeoidCorrection(lat, lng) {
+  try {
+    const r = await fetch(`/api/dem/geoid-n?lat=${lat.toFixed(6)}&lng=${lng.toFixed(6)}`);
+    const j = await r.json();
+    return (j && j.n != null) ? j.n : null;
+  } catch(_) { return null; }
+}
+
 // ── Основная функция построения ───────────────────────────
 async function _epBuild() {
   _epSamples = _epInterpolate(_epPts, 150);
-  _epShowPanel(null); // показать панель с лоадером
+  _epShowPanel(null);
 
   let elevs;
   try {
@@ -218,16 +227,24 @@ async function _epBuild() {
     return;
   }
 
-  _epChartSamples = _epSamples
-    .map((s, i) => ({ lat: s.lat, lng: s.lng, distM: s.distM, elev: elevs[i] }))
-    .filter(d => d.elev !== null);
+  // Поправка геоида для середины трассы (применяется ко всем точкам)
+  const mid = _epSamples[Math.floor(_epSamples.length / 2)];
+  const geoidCorr = await _epGetGeoidCorrection(mid.lat, mid.lng);
 
-  _epShowPanel(_epChartSamples);
+  _epChartSamples = _epSamples
+    .map((s, i) => {
+      if (elevs[i] == null) return null;
+      const elev = geoidCorr != null ? elevs[i] + geoidCorr : elevs[i];
+      return { lat: s.lat, lng: s.lng, distM: s.distM, elev };
+    })
+    .filter(Boolean);
+
+  _epShowPanel(_epChartSamples, geoidCorr != null);
   _epRenderChart(_epChartSamples);
 }
 
 // ── Показать / обновить панель ────────────────────────────
-function _epShowPanel(data) {
+function _epShowPanel(data, bsv77) {
   const panel = document.getElementById('ep-panel');
   if (!panel) return;
   panel.classList.add('open');
@@ -258,9 +275,10 @@ function _epShowPanel(data) {
     const d = data[i].elev - data[i-1].elev;
     if (d > 0) gain += d; else loss -= d;
   }
+  const datum = bsv77 ? 'БСВ-77' : 'WGS84 элл.';
   stats.innerHTML =
     `<b>${totalKm} км</b> &nbsp;·&nbsp; ` +
-    `▼ ${minE} м &nbsp; ▲ ${maxE} м БСВ-77 &nbsp;·&nbsp; ` +
+    `▼ ${minE} &nbsp; ▲ ${maxE} м ${datum} &nbsp;·&nbsp; ` +
     `<span style="color:#16a34a">+${gain.toFixed(0)}</span> / ` +
     `<span style="color:#dc2626">-${loss.toFixed(0)}</span> м`;
 }
@@ -370,7 +388,7 @@ async function showElevationAtPoint(latlng) {
     }
   } catch(_) {}
 
-  // Fallback — Terrarium тайлы (уже используется в профиле)
+  // Fallback — Terrarium тайлы + поправка геоида от сервера
   if (elevation == null) {
     try {
       const { x, y, z } = _latLngToTile(latlng.lat, latlng.lng, 12);
@@ -380,8 +398,16 @@ async function showElevationAtPoint(latlng) {
         const cx = Math.max(0, Math.min(255, px)), cy = Math.max(0, Math.min(255, py));
         const off = (cy * 256 + cx) * 4;
         const R = imageData.data[off], G = imageData.data[off+1], B = imageData.data[off+2];
-        elevation = R * 256 + G + B / 256 - 32768;
-        label = 'м БСВ-77 (прибл.)';
+        const rawElev = R * 256 + G + B / 256 - 32768;
+        // Поправка геоида: Terrarium выше 60°N хранит эллипсоидальные высоты
+        const geoidN = await _epGetGeoidCorrection(latlng.lat, latlng.lng);
+        if (geoidN != null) {
+          elevation = rawElev + geoidN;
+          label = 'м БСВ-77';
+        } else {
+          elevation = rawElev;
+          label = 'м (WGS84 элл.)';
+        }
         src = 'terrarium';
       }
     } catch(_) {}
