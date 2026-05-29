@@ -3,12 +3,13 @@
 // Источник: AWS Terrarium Terrain-RGB (бесплатно, ключ не нужен)
 // ═══════════════════════════════════════════════════════════
 
-let _epActive  = false;
-let _epPts     = [];      // [L.LatLng, ...]
-let _epLine    = null;    // L.polyline
-let _epChart   = null;    // Chart.js instance
-let _epMarker  = null;    // маркер позиции при ховере на графике
-let _epSamples = [];      // [{lat,lng,distM}, ...] интерполированные точки
+let _epActive       = false;
+let _epPts          = [];   // [L.LatLng, ...]
+let _epLine         = null; // L.polyline
+let _epChart        = null; // Chart.js instance
+let _epMarker       = null; // маркер позиции при ховере на графике
+let _epSamples      = [];   // [{lat,lng,distM}, ...] интерполированные точки
+let _epChartSamples = [];   // [{lat,lng,distM,elev}, ...] параллельно данным графика
 
 // ── Terrarium Terrain-RGB tiles (AWS, бесплатно, без ключа) ──
 // elevation = R*256 + G + B/256 - 32768  (метры)
@@ -217,11 +218,12 @@ async function _epBuild() {
     return;
   }
 
-  const data = _epSamples.map((s, i) => ({ distM: s.distM, elev: elevs[i] }))
+  _epChartSamples = _epSamples
+    .map((s, i) => ({ lat: s.lat, lng: s.lng, distM: s.distM, elev: elevs[i] }))
     .filter(d => d.elev !== null);
 
-  _epShowPanel(data);
-  _epRenderChart(data);
+  _epShowPanel(_epChartSamples);
+  _epRenderChart(_epChartSamples);
 }
 
 // ── Показать / обновить панель ────────────────────────────
@@ -258,7 +260,7 @@ function _epShowPanel(data) {
   }
   stats.innerHTML =
     `<b>${totalKm} км</b> &nbsp;·&nbsp; ` +
-    `▼ ${minE} м &nbsp; ▲ ${maxE} м &nbsp;·&nbsp; ` +
+    `▼ ${minE} м &nbsp; ▲ ${maxE} м БСВ-77 &nbsp;·&nbsp; ` +
     `<span style="color:#16a34a">+${gain.toFixed(0)}</span> / ` +
     `<span style="color:#dc2626">-${loss.toFixed(0)}</span> м`;
 }
@@ -312,22 +314,22 @@ function _epRenderChart(data) {
           grid: { color: 'rgba(0,0,0,0.05)' },
         },
         y: {
-          ticks: { font: { size: 10 }, color: '#6b7280', callback: v => v + ' м' },
+          ticks: { font: { size: 10 }, color: '#6b7280', callback: v => v + ' м БСВ' },
           grid: { color: 'rgba(0,0,0,0.05)' },
         },
       },
       onHover: (event, items) => {
-        if (items.length && _epSamples.length) {
-          const idx = items[0].index;
-          const s = _epSamples[Math.min(idx, _epSamples.length - 1)];
+        if (items.length && _epChartSamples.length) {
+          const idx = Math.min(items[0].index, _epChartSamples.length - 1);
+          const s = _epChartSamples[idx];
           if (!s) return;
           const ll = L.latLng(s.lat, s.lng);
           if (_epMarker) {
             _epMarker.setLatLng(ll);
           } else {
             _epMarker = L.circleMarker(ll, {
-              radius: 6, color: '#1a56db', fillColor: '#fff',
-              fillOpacity: 1, weight: 2,
+              radius: 8, color: '#e02424', fillColor: '#fff',
+              fillOpacity: 1, weight: 3,
             }).addTo(map);
           }
         } else {
@@ -358,4 +360,5 @@ function closeElevationProfile() {
   setTool('view');
   _epPts = [];
   _epSamples = [];
+  _epChartSamples = [];
 }

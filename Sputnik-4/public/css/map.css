@@ -69,9 +69,10 @@ body:has(#kml-panel.open) #brigades-page{right:268px}
 .kfl-actions{display:flex;gap:2px;flex-shrink:0}
 
 /* ── Elevation Profile Panel ── */
-#ep-panel{position:fixed;bottom:0;left:var(--sw);right:0;z-index:1100;background:var(--s);border-top:2px solid var(--bd);box-shadow:0 -4px 16px rgba(0,0,0,.12);transform:translateY(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;height:220px}
+#ep-panel{position:fixed;bottom:0;left:var(--sw);right:0;z-index:1100;background:var(--s);border-top:2px solid var(--bd);box-shadow:0 -4px 16px rgba(0,0,0,.12);transform:translateY(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;height:230px}
 #ep-panel.open{transform:translateY(0)}
-body:has(#ep-panel.open) #map{bottom:220px;transition:bottom .25s cubic-bezier(.4,0,.2,1)}
+body:has(#ep-panel.open) #map{bottom:230px;transition:bottom .25s cubic-bezier(.4,0,.2,1)}
+body:has(#ep-panel.open) #coord-widget{bottom:calc(230px + 8px);transition:bottom .25s cubic-bezier(.4,0,.2,1)}
 body:has(#kml-panel.open) #ep-panel{right:268px}
 .ep-hd{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid var(--bd);background:var(--s2);flex-shrink:0;font-size:12px;font-weight:700}
 #ep-stats{flex:1;font-size:11px;color:var(--tx2);font-weight:400}

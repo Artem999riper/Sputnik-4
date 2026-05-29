@@ -45,6 +45,7 @@ function onMapClick(e){
 }
 function onMapRClick(e){
   e.originalEvent.preventDefault();
+  if(typeof _epActive!=='undefined'&&_epActive){_epFinish(e);return;}
   if(vertexEditLayerId){_handleVertexEditRCM(e);return;}
   if(drawMode){
     showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
