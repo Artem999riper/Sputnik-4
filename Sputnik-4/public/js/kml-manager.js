@@ -1018,7 +1018,9 @@ function openLayerExportDialog() {
       <div>
         <div style="font-weight:600;margin-bottom:4px">Система координат</div>
         <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="wgs84"> WGS-84 (градусы)</label>
-        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86" checked> МСК-86 (авто, зона 3/4)</label>
+        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86" checked> МСК-86 (авто зона по долготе)</label>
+        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=66°, фиксированная)</label>
+        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=72°, фиксированная)</label>
         <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="gsk2011"> ГСК-2011 (6° зоны)</label>
       </div>
       <div>

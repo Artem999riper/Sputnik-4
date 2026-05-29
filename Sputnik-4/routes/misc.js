@@ -258,6 +258,8 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
 
     let zoneInfo = '';
     if (crsKey === 'msk86') zoneInfo = `_z${pickMsk86Zone(centerLng)}`;
+    else if (crsKey === 'msk86_z3') zoneInfo = '_z3';
+    else if (crsKey === 'msk86_z4') zoneInfo = '_z4';
     else if (crsKey === 'gsk2011') zoneInfo = `_z${pickGsk2011Zone(centerLng)}`;
 
     const layers = rows.map(r => ({

@@ -64,8 +64,8 @@ function pickGsk2011Zone(centerLngDeg) {
 
 /**
  * Фабрика трансформации (lng, lat) → [x, y].
- * crs: 'wgs84' | 'msk86' | 'gsk2011'
- * centerLng не используется (зона определяется per-point), оставлен для совместимости.
+ * crs: 'wgs84' | 'msk86' | 'msk86_z3' | 'msk86_z4' | 'gsk2011'
+ * centerLng не используется (зона определяется per-point или фиксирована), оставлен для совместимости.
  */
 function makeTransform(crs) {
   if (crs === 'wgs84' || !crs) {
@@ -75,6 +75,18 @@ function makeTransform(crs) {
     return (lng, lat) => {
       const r = wgs84ToMsk86(lat, lng);
       return [r.easting, r.northing];
+    };
+  }
+  if (crs === 'msk86_z3') {
+    return (lng, lat) => {
+      const [easting, northing] = proj4(_WGS84, _mskProj(3), [lng, lat]);
+      return [easting, northing];
+    };
+  }
+  if (crs === 'msk86_z4') {
+    return (lng, lat) => {
+      const [easting, northing] = proj4(_WGS84, _mskProj(4), [lng, lat]);
+      return [easting, northing];
     };
   }
   if (crs === 'gsk2011') {
