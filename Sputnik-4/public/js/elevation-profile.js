@@ -10,7 +10,83 @@ let _epChart   = null;    // Chart.js instance
 let _epMarker  = null;    // маркер позиции при ховере на графике
 let _epSamples = [];      // [{lat,lng,distM}, ...] интерполированные точки
 
-const ELEV_API = 'https://api.opentopodata.org/v1/srtm90m';
+// ── Terrarium Terrain-RGB tiles (AWS, бесплатно, без ключа) ──
+// elevation = R*256 + G + B/256 - 32768  (метры)
+const _TERRARIUM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+const _TERRARIUM_Z   = 10;   // ~152 м/пкс — достаточно для профиля
+const _tileCache     = new Map();
+
+function _latLngToTile(lat, lng, z) {
+  const n = Math.pow(2, z);
+  const x = Math.floor((lng + 180) / 360 * n);
+  const latRad = lat * Math.PI / 180;
+  const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+  return { x, y, z };
+}
+
+function _tilePixel(lat, lng, z, tileX, tileY) {
+  const n = Math.pow(2, z);
+  const px = (lng + 180) / 360 * n - tileX;
+  const latRad = lat * Math.PI / 180;
+  const py = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n - tileY;
+  return { px: Math.floor(px * 256), py: Math.floor(py * 256) };
+}
+
+async function _fetchTile(z, x, y) {
+  const key = `${z}/${x}/${y}`;
+  if (_tileCache.has(key)) return _tileCache.get(key);
+  const url = _TERRARIUM_URL.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+  const promise = new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 256;
+      const ctx = cv.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      try {
+        resolve(ctx.getImageData(0, 0, 256, 256));
+      } catch(e) {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+  _tileCache.set(key, promise);
+  return promise;
+}
+
+async function _epFetchElevations(samples) {
+  // Группируем точки по тайлам
+  const tileGroups = new Map();
+  samples.forEach((s, i) => {
+    const { x, y, z } = _latLngToTile(s.lat, s.lng, _TERRARIUM_Z);
+    const key = `${z}/${x}/${y}`;
+    if (!tileGroups.has(key)) tileGroups.set(key, { z, x, y, indices: [] });
+    tileGroups.get(key).indices.push(i);
+  });
+
+  const elevs = new Array(samples.length).fill(null);
+
+  await Promise.all([...tileGroups.values()].map(async ({ z, x, y, indices }) => {
+    const imageData = await _fetchTile(z, x, y);
+    if (!imageData) return;
+    indices.forEach(i => {
+      const s = samples[i];
+      const { px, py } = _tilePixel(s.lat, s.lng, z, x, y);
+      const cx = Math.max(0, Math.min(255, px));
+      const cy = Math.max(0, Math.min(255, py));
+      const offset = (cy * 256 + cx) * 4;
+      const R = imageData.data[offset];
+      const G = imageData.data[offset + 1];
+      const B = imageData.data[offset + 2];
+      elevs[i] = R * 256 + G + B / 256 - 32768;
+    });
+  }));
+
+  return elevs;
+}
 
 // ── Открыть инструмент ─────────────────────────────────────
 function openElevationProfile() {
@@ -157,8 +233,7 @@ async function _epBuild() {
   try {
     elevs = await _epFetchElevations(_epSamples);
   } catch(e) {
-    document.getElementById('ep-loading').textContent =
-      '⚠️ Сервис высот недоступен. Используйте 🏔 Рельеф для точных данных ArcticDEM.';
+    document.getElementById('ep-loading').textContent = '⚠️ Ошибка загрузки высот. Проверьте соединение.';
     console.error('[EP]', e);
     return;
   }
