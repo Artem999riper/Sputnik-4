@@ -191,7 +191,7 @@ function _updateMapScale(lat) {
   const useLat = (lat !== undefined) ? lat : map.getCenter().lat;
   const mPerPx = 156543.03392 * Math.cos(useLat * Math.PI / 180) / Math.pow(2, zoom);
   const denom = Math.round(mPerPx * 3779.53);
-  el.textContent = `1 : ${denom.toLocaleString('ru')}`;
+  el.textContent = `1 : ${denom.toLocaleString('ru')} z${zoom}`;
 }
 
 function onMapMouseMove(e) {
