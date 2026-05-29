@@ -147,11 +147,11 @@ function initCoordsWidget() {
     }
     #coord-display b { font-weight: 700; }
     #map-scale-display {
-      font-size: 10.5px;
-      font-weight: 600;
-      color: var(--tx3);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--tx);
       white-space: nowrap;
-      padding-left: 4px;
+      padding-left: 6px;
       border-left: 1.5px solid var(--bd);
       font-variant-numeric: tabular-nums;
       letter-spacing: 0.01em;
