@@ -163,6 +163,7 @@ function gdalEnv() {
       GDAL_CACHEMAX: '512',
       VSI_CACHE: 'TRUE',
       VSI_CACHE_SIZE: '104857600',
+      PROJ_NETWORK: 'ON',
     };
   }
   const root = path.resolve(_gdalBin, '..');
@@ -178,6 +179,7 @@ function gdalEnv() {
     GDAL_CACHEMAX: '512',
     VSI_CACHE: 'TRUE',
     VSI_CACHE_SIZE: '104857600',
+    PROJ_NETWORK: 'ON',
     PYTHONPATH: [
       path.join(root, 'apps', 'Python312', 'lib', 'site-packages'),
       path.join(root, 'apps', 'Python39',  'lib', 'site-packages'),
