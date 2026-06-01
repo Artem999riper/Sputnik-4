@@ -213,7 +213,7 @@ function _findLocalTiles() {
 async function computeGeoidN(lat, lng) {
   findGDALBin();
   if (!_pythonExe) return null;
-  await _ensureGeoidGrids(); // скачать grid-файлы если отсутствуют
+  // Автоматическое скачивание grid-файлов отключено (cdn.proj.org недоступен)
   // Python: создаём 3×3 GeoTIFF с нулевыми эллипсоидальными высотами,
   // применяем конвертацию EPSG:4979→EPSG:3855/5773/9518.
   // Результат = ортометрическая высота при h=0 = H = 0 - N → N = -H
