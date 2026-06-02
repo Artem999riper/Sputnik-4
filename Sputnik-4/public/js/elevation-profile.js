@@ -236,7 +236,10 @@ async function _epBuild() {
   _epChartSamples = _epSamples
     .map((s, i) => {
       if (elevs[i] == null) return null;
-      const elev = geoidCorr != null ? elevs[i] + geoidCorr : elevs[i];
+      const raw = elevs[i];
+      // Водный пиксель: Terrarium кодирует воду как ~0 м (ортометр.), не как эллипсоид. высоту
+      const isWater = geoidCorr != null && Math.abs(raw) < 2 && Math.abs(geoidCorr) > 10;
+      const elev = isWater ? 0 : (geoidCorr != null ? raw + geoidCorr : raw);
       return { lat: s.lat, lng: s.lng, distM: s.distM, elev };
     })
     .filter(Boolean);
@@ -401,11 +404,18 @@ async function showElevationAtPoint(latlng) {
         const off = (cy * 256 + cx) * 4;
         const R = imageData.data[off], G = imageData.data[off+1], B = imageData.data[off+2];
         const rawElev = R * 256 + G + B / 256 - 32768;
-        // Поправка геоида: Terrarium выше 60°N хранит эллипсоидальные высоты
+        // Поправка геоида: Terrarium выше 60°N хранит эллипсоидальные высоты.
+        // Исключение: водные пиксели Terrarium кодируются как ~0 м (ортометр. уровень воды),
+        // а не как эллипсоидальная высота. Если rawElev≈0 при большой поправке — водный объект:
+        // применять поправку некорректно (0_ортом + N ≠ реальная BSV-77 высоты воды).
         const geoidN = await _epGetGeoidCorrection(latlng.lat, latlng.lng);
-        if (geoidN != null) {
+        const isWaterPx = geoidN != null && Math.abs(rawElev) < 2 && Math.abs(geoidN) > 10;
+        if (geoidN != null && !isWaterPx) {
           elevation = rawElev + geoidN;
           label = 'м БСВ-77';
+        } else if (isWaterPx) {
+          elevation = 0;
+          label = 'м (уровень воды)';
         } else {
           elevation = rawElev;
           label = 'м (WGS84 элл.)';
