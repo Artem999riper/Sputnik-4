@@ -317,6 +317,21 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     }
   });
 
+  // POST /api/elevation/profile  body: [{lat,lng}, ...]
+  // Возвращает [{lat,lng,elevation,datum}, ...] или null если нет тайлов
+  app.post('/api/elevation/profile', async (req, res) => {
+    if (!demProcessor || !demProcessor.getElevationProfile) return res.json(null);
+    const points = req.body;
+    if (!Array.isArray(points) || points.length === 0) return res.status(400).json({ error: 'points required' });
+    try {
+      const elevs = await demProcessor.getElevationProfile(points);
+      res.json(elevs);
+    } catch(e) {
+      console.error('[/api/elevation/profile]', e.message);
+      res.json(null);
+    }
+  });
+
   app.get('/api/dem/geoid-n', async (req, res) => {
     const lat = parseFloat(req.query.lat);
     const lng = parseFloat(req.query.lng);

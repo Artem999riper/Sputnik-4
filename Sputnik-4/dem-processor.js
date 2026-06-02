@@ -308,6 +308,91 @@ async function getElevationAtPoint(lat, lng) {
   }
 }
 
+// ── Профиль высот: пакетный запрос по ArcticDEM + геоид ───
+async function getElevationProfile(points) {
+  findGDALBin();
+  const tiles = _findLocalTiles();
+  if (!tiles.length || !_pythonExe) return null;
+  if (!points || points.length === 0) return [];
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'epprof-'));
+  try {
+    const margin = 0.01;
+    const lats = points.map(p => p.lat);
+    const lngs = points.map(p => p.lng);
+    const minLng = Math.min(...lngs) - margin, maxLng = Math.max(...lngs) + margin;
+    const minLat = Math.min(...lats) - margin, maxLat = Math.max(...lats) + margin;
+
+    const vrtFile = path.join(tmpDir, 'combined.vrt');
+    const clipped  = path.join(tmpDir, 'clipped.tif');
+
+    await runGDAL('gdalbuildvrt', ['-vrtnodata', '-9999', vrtFile, ...tiles]);
+    await runGDAL('gdalwarp', [
+      '-te', String(minLng), String(minLat), String(maxLng), String(maxLat),
+      '-r', 'bilinear', '-dstnodata', '-9999', vrtFile, clipped,
+    ]);
+
+    const srcPath = clipped.replace(/\\/g, '/');
+    const ptsJson = JSON.stringify(points.map(p => [p.lat, p.lng]));
+    const pyCode = `
+import sys, json
+from osgeo import gdal, osr
+import numpy as np
+gdal.UseExceptions()
+src = gdal.Open(r'${srcPath}')
+if src is None:
+    print(json.dumps([None]*${points.length})); sys.exit(0)
+gt = src.GetGeoTransform()
+band = src.GetRasterBand(1)
+data = band.ReadAsArray().astype(np.float32)
+nd = band.GetNoDataValue()
+
+corr = None
+mem = gdal.GetDriverByName('MEM').Create('', src.RasterXSize, src.RasterYSize, 1, gdal.GDT_Float32)
+mem.SetGeoTransform(gt)
+s4979 = osr.SpatialReference(); s4979.ImportFromEPSG(4979); mem.SetProjection(s4979.ExportToWkt())
+mb = mem.GetRasterBand(1); mb.Fill(0.0); mb.SetNoDataValue(-9999)
+for code in [3855, 5773, 9518]:
+    try:
+        wo = gdal.WarpOptions(srcSRS='EPSG:4979', dstSRS='EPSG:'+str(code), resampleAlg='bilinear', format='MEM')
+        out = gdal.Warp('', mem, options=wo)
+        c = out.GetRasterBand(1).ReadAsArray().astype(np.float32)
+        if float(np.nanmax(np.abs(c))) > 0.5:
+            corr = c; break
+    except Exception as ex:
+        pass
+
+results = []
+pts = ${ptsJson}
+for lat, lng in pts:
+    px = int((lng - gt[0]) / gt[1])
+    py = int((lat - gt[3]) / gt[5])
+    if 0 <= px < src.RasterXSize and 0 <= py < src.RasterYSize:
+        v = float(data[py, px])
+        if v <= -9000 or (nd is not None and abs(v - nd) < 1):
+            results.append(None)
+        else:
+            if corr is not None:
+                v += float(corr[py, px])
+            results.append(round(v, 2))
+    else:
+        results.append(None)
+print(json.dumps(results))
+`;
+    const pyFile = path.join(tmpDir, 'query.py');
+    fs.writeFileSync(pyFile, pyCode);
+    const r = await execFileP(_pythonExe, [pyFile], {
+      env: gdalEnv(), timeout: 60000, maxBuffer: 1024 * 1024,
+    });
+    return JSON.parse(r.stdout.trim());
+  } catch(e) {
+    console.error('[getElevationProfile]', e.message);
+    return null;
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch(_) {}
+  }
+}
+
 function getDemTilesInfo() {
   if (!fs.existsSync(DEM_TILES_DIR)) return { dir: DEM_TILES_DIR, tiles: [], exists: false };
   try {
@@ -955,7 +1040,7 @@ async function checkGDAL(){
 
 module.exports = {
   processDEM, cleanupTmp, checkGDAL,
-  getElevationAtPoint, getDemTilesInfo, computeGeoidN,
+  getElevationAtPoint, getElevationProfile, getDemTilesInfo, computeGeoidN,
   _downloadGeoidGrids: _ensureGeoidGrids,
   _resetGeoidCheck: () => { _geoidGridsChecked = false; },
 };

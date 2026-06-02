@@ -220,6 +220,35 @@ async function _epBuild() {
   _epSamples = _epInterpolate(_epPts, 150);
   _epShowPanel(null);
 
+  // 1) Пробуем сервер (ArcticDEM + геоид — точнее Terrarium, без артефактов на воде)
+  let serverElevs = null;
+  let usedBsv77 = false;
+  try {
+    const r = await fetch('/api/elevation/profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(_epSamples.map(s => ({ lat: s.lat, lng: s.lng }))),
+    });
+    const j = await r.json();
+    if (Array.isArray(j) && j.some(v => v != null)) {
+      serverElevs = j;
+      usedBsv77 = true;
+    }
+  } catch(_) {}
+
+  if (serverElevs) {
+    _epChartSamples = _epSamples
+      .map((s, i) => {
+        if (serverElevs[i] == null) return null;
+        return { lat: s.lat, lng: s.lng, distM: s.distM, elev: serverElevs[i] };
+      })
+      .filter(Boolean);
+    _epShowPanel(_epChartSamples, usedBsv77);
+    _epRenderChart(_epChartSamples);
+    return;
+  }
+
+  // 2) Fallback — Terrarium тайлы + поправка геоида
   let elevs;
   try {
     elevs = await _epFetchElevations(_epSamples);
@@ -229,7 +258,6 @@ async function _epBuild() {
     return;
   }
 
-  // Поправка геоида для середины трассы (применяется ко всем точкам)
   const mid = _epSamples[Math.floor(_epSamples.length / 2)];
   const geoidCorr = await _epGetGeoidCorrection(mid.lat, mid.lng);
 
@@ -237,7 +265,6 @@ async function _epBuild() {
     .map((s, i) => {
       if (elevs[i] == null) return null;
       const raw = elevs[i];
-      // Водный пиксель: Terrarium кодирует воду как ~0 м (ортометр.), не как эллипсоид. высоту
       const isWater = geoidCorr != null && Math.abs(raw) < 2 && Math.abs(geoidCorr) > 10;
       const elev = isWater ? 0 : (geoidCorr != null ? raw + geoidCorr : raw);
       return { lat: s.lat, lng: s.lng, distM: s.distM, elev };
