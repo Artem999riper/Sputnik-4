@@ -207,7 +207,28 @@ function _findLocalTiles() {
   } catch(e) { return []; }
 }
 
-// Вычисляет поправку геоида N через Python/GDAL:
+// Получает список тайлов (локальных или удалённых) для bbox
+async function _resolveTilesForBbox(bbox) {
+  const local = _findLocalTiles();
+  if (local.length) return local;
+
+  // Нет локальных — обращаемся к STAC/S3 (GDAL читает удалённые COG без полного скачивания)
+  for (const col of ['arcticdem-mosaics-v4.1-2m', 'arcticdem-mosaics-v4.1-10m']) {
+    try {
+      const r = await stacSearch(bbox, col);
+      const urls = (r.features || []).map(item => {
+        const a = item.assets || {};
+        const k = Object.keys(a).find(k => k === 'dem' || k.endsWith('_dem')) || Object.keys(a)[0];
+        return a[k]?.href;
+      }).filter(Boolean).map(u => u.startsWith('s3://') ? '/vsis3/' + u.slice(5) : '/vsicurl/' + u);
+      if (urls.length) return urls;
+    } catch(_) {}
+  }
+  // Fallback: прямые S3-URL по сетке 1°×1°
+  return _buildDirectDemUrls(bbox, '2m');
+}
+
+
 // возвращает значение, которое нужно ПРИБАВИТЬ к эллипсоидальной высоте (Terrarium) для BSV-77
 // Т.е.: H_bsv77 = h_ellipsoidal + N_correction
 async function computeGeoidN(lat, lng) {
@@ -258,12 +279,13 @@ print('null')
 
 async function getElevationAtPoint(lat, lng) {
   findGDALBin();
-  const tiles = _findLocalTiles();
+  const margin = 0.005;
+  const bbox = { minLat: lat - margin, maxLat: lat + margin, minLng: lng - margin, maxLng: lng + margin };
+  const tiles = await _resolveTilesForBbox(bbox);
   if (!tiles.length) throw new Error('no_tiles');
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ep-'));
   try {
-    const margin   = 0.005;
     const vrtFile  = path.join(tmpDir, 'combined.vrt');
     const clipped  = path.join(tmpDir, 'clipped.tif');
 
@@ -311,18 +333,20 @@ async function getElevationAtPoint(lat, lng) {
 // ── Профиль высот: пакетный запрос по ArcticDEM + геоид ───
 async function getElevationProfile(points) {
   findGDALBin();
-  const tiles = _findLocalTiles();
-  if (!tiles.length || !_pythonExe) return null;
+  if (!_pythonExe) return null;
   if (!points || points.length === 0) return [];
+
+  const margin = 0.01;
+  const lats = points.map(p => p.lat);
+  const lngs = points.map(p => p.lng);
+  const minLng = Math.min(...lngs) - margin, maxLng = Math.max(...lngs) + margin;
+  const minLat = Math.min(...lats) - margin, maxLat = Math.max(...lats) + margin;
+
+  const tiles = await _resolveTilesForBbox({ minLat, maxLat, minLng, maxLng });
+  if (!tiles.length) return null;
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'epprof-'));
   try {
-    const margin = 0.01;
-    const lats = points.map(p => p.lat);
-    const lngs = points.map(p => p.lng);
-    const minLng = Math.min(...lngs) - margin, maxLng = Math.max(...lngs) + margin;
-    const minLat = Math.min(...lats) - margin, maxLat = Math.max(...lats) + margin;
-
     const vrtFile = path.join(tmpDir, 'combined.vrt');
     const clipped  = path.join(tmpDir, 'clipped.tif');
 
@@ -384,6 +408,15 @@ print(json.dumps(results))
     const r = await execFileP(_pythonExe, [pyFile], {
       env: gdalEnv(), timeout: 60000, maxBuffer: 1024 * 1024,
     });
+
+    // Кэшируем вырезку для следующих обращений
+    try {
+      if (!fs.existsSync(DEM_TILES_DIR)) fs.mkdirSync(DEM_TILES_DIR, { recursive: true });
+      const cacheKey = [minLng, minLat, maxLng, maxLat].map(v => v.toFixed(3)).join('_');
+      const cacheTif = path.join(DEM_TILES_DIR, `dem_${cacheKey}.tif`);
+      if (!fs.existsSync(cacheTif)) fs.copyFileSync(clipped, cacheTif);
+    } catch(_) {}
+
     return JSON.parse(r.stdout.trim());
   } catch(e) {
     console.error('[getElevationProfile]', e.message);
