@@ -664,21 +664,53 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     onProgress&&onProgress(28,useGeoid?'Перевод БСВ-77...':'Подготовка...');
     let demTif=clippedTif;
     if (useGeoid){
-      const gTifTmp=path.join(tmpDir,'geoid_tmp.tif');
-      const gTif   =path.join(tmpDir,'geoid.tif');
+      const gTif    = path.join(tmpDir,'geoid.tif');
+      const pyFile  = path.join(tmpDir,'apply_geoid.py');
+      const srcPath = clippedTif.replace(/\\/g,'/');
+      const dstPath = gTif.replace(/\\/g,'/');
+      // Python-скрипт: вычисляет поправку как поле -N (gdalwarp Z=0→EPSG:3855),
+      // прибавляет к каждому пикселю и ЗАПИСЫВАЕТ с тем же GeoTransform (без сдвига).
+      // Это обходит баг: gdalwarp -t_srs EPSG:3855 меняет экстент растра (вертикальная
+      // CRS без горизонтальных осей), что приводит к искажению горизонталей при репроекции.
+      const pyCode = `
+import sys
+from osgeo import gdal, osr
+import numpy as np
+gdal.UseExceptions()
+src=gdal.Open(r'${srcPath}')
+gt=src.GetGeoTransform(); cols,rows=src.RasterXSize,src.RasterYSize
+band=src.GetRasterBand(1); data=band.ReadAsArray().astype(np.float32)
+nd=band.GetNoDataValue()
+mem=gdal.GetDriverByName('MEM').Create('',cols,rows,1,gdal.GDT_Float32)
+mem.SetGeoTransform(gt)
+s4979=osr.SpatialReference(); s4979.ImportFromEPSG(4979); mem.SetProjection(s4979.ExportToWkt())
+b=mem.GetRasterBand(1); b.Fill(0.0); b.SetNoDataValue(-9999)
+ok=False
+for code in [3855,5773,9518]:
+    try:
+        wo=gdal.WarpOptions(srcSRS='EPSG:4979',dstSRS='EPSG:'+str(code),resampleAlg='bilinear',format='MEM')
+        out=gdal.Warp('',mem,options=wo)
+        corr=out.GetRasterBand(1).ReadAsArray().astype(np.float32)
+        if float(np.nanmax(np.abs(corr)))<0.5: continue
+        mask=(data>-9990) if nd is None else (data!=nd)
+        data[mask]+=corr[mask]; ok=True; break
+    except: pass
+if not ok: print('GEOID_SKIP'); sys.exit(0)
+s4326=osr.SpatialReference(); s4326.ImportFromEPSG(4326)
+ds=gdal.GetDriverByName('GTiff').Create(r'${dstPath}',cols,rows,1,gdal.GDT_Float32,['COMPRESS=LZW'])
+ds.SetGeoTransform(gt); ds.SetProjection(s4326.ExportToWkt())
+ob=ds.GetRasterBand(1); ob.WriteArray(data)
+if nd is not None: ob.SetNoDataValue(nd)
+ds.FlushCache(); ds=None; print('GEOID_OK')
+`.trim();
       let geoidOk=false;
-      for (const geoidEpsg of ['EPSG:3855','EPSG:5773','EPSG:9518']){
-        try{
-          await runGDAL('gdalwarp',['-s_srs','EPSG:4979','-t_srs',geoidEpsg,
-            '-r','bilinear','-co','COMPRESS=LZW',clippedTif,gTifTmp]);
-          // После конвертации высот CRS становится чисто вертикальной (EPSG:3855/5773/9518).
-          // Восстанавливаем горизонтальную CRS EPSG:4326, иначе следующий gdalwarp в ГСК-проекцию
-          // не может найти трансформацию ("EngineeringCRS" → целевой CRS → ошибка 500).
-          await runGDAL('gdal_translate',['-a_srs','EPSG:4326',
-            '-co','COMPRESS=LZW',gTifTmp,gTif]);
-          demTif=gTif; log.push(`Geoid OK (${geoidEpsg})`); geoidOk=true; break;
-        }catch(e){ log.push(`Geoid try ${geoidEpsg}: ${e.message.slice(0,60)}`); }
-      }
+      try{
+        fs.writeFileSync(pyFile, pyCode);
+        const r=await execFileP(_pythonExe,[pyFile],{env:gdalEnv(),timeout:120000,maxBuffer:1048576});
+        const out=(r.stdout||'').trim();
+        if(out==='GEOID_OK'){demTif=gTif;log.push('Geoid OK (Python/EGM)');geoidOk=true;}
+        else log.push('Geoid skip: '+out);
+      }catch(e){log.push('Geoid error: '+e.message.slice(0,80));}
       if(!geoidOk) log.push('Geoid skip (нет grid-файлов)');
     }
 
