@@ -207,6 +207,31 @@ function _findLocalTiles() {
   } catch(e) { return []; }
 }
 
+// Парсит bbox из имени файла кэша: dem_<minLng>_<minLat>_<maxLng>_<maxLat>.tif
+function _tileBboxFromName(name) {
+  const m = name.match(/^dem_(-?[\d.]+)_(-?[\d.]+)_(-?[\d.]+)_(-?[\d.]+)\.tif$/i);
+  if (!m) return null;
+  return { minLng: +m[1], minLat: +m[2], maxLng: +m[3], maxLat: +m[4] };
+}
+
+// Возвращает локальный тайл, который ПОЛНОСТЬЮ покрывает запрошенный bbox (или null)
+function _findCoveringLocalTile(bbox) {
+  if (!fs.existsSync(DEM_TILES_DIR)) return null;
+  const eps = 1e-6;
+  let files;
+  try { files = fs.readdirSync(DEM_TILES_DIR).filter(f => /\.tif$/i.test(f)); }
+  catch(_) { return null; }
+  for (const f of files) {
+    const tb = _tileBboxFromName(f);
+    if (!tb) continue;
+    if (tb.minLng <= bbox.minLng + eps && tb.maxLng >= bbox.maxLng - eps &&
+        tb.minLat <= bbox.minLat + eps && tb.maxLat >= bbox.maxLat - eps) {
+      return path.join(DEM_TILES_DIR, f);
+    }
+  }
+  return null;
+}
+
 // Получает список тайлов (локальных или удалённых) для bbox
 async function _resolveTilesForBbox(bbox) {
   const local = _findLocalTiles();
@@ -698,11 +723,22 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
       return {file:zipFile,tmpDir,log,mime:'application/zip'};
     }
 
-    // 1. Поиск тайлов ArcticDEM: STAC → прямые S3-URLs как fallback
+    // 1. Поиск тайлов ArcticDEM: сначала локальный кэш, затем STAC → S3
     onProgress&&onProgress(8,'Поиск тайлов ArcticDEM...');
     let tifUrls=[],usedRes='2m';
     let stacOk=false;
-    try {
+
+    // 1a. Уже выгруженная территория? Берём из кэша, не качаем заново.
+    const cachedCover = _findCoveringLocalTile({minLng,minLat,maxLng,maxLat});
+    if (cachedCover) {
+      tifUrls=[cachedCover];
+      usedRes='кэш';
+      stacOk=true;
+      log.push('Кэш: территория уже выгружена — '+path.basename(cachedCover));
+      onProgress&&onProgress(12,'Использую кэш ArcticDEM (без повторной загрузки)...');
+    }
+
+    if (!tifUrls.length) try {
       const r2=await stacSearch(bbox,'arcticdem-mosaics-v4.1-2m');
       if ((r2.features||[]).length){
         usedRes='2m'; stacOk=true;
@@ -752,7 +788,8 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     log.push('Clip OK');
 
     // Кэшируем raw WGS84-тайл для последующих запросов профиля высот
-    try {
+    // (пропускаем, если территория уже была взята из кэша — не плодим дубликаты)
+    if (!cachedCover) try {
       if (!fs.existsSync(DEM_TILES_DIR)) fs.mkdirSync(DEM_TILES_DIR, { recursive: true });
       const cacheKey = [minLng, minLat, maxLng, maxLat].map(v => v.toFixed(3)).join('_');
       const cacheTif = path.join(DEM_TILES_DIR, `dem_${cacheKey}.tif`);
