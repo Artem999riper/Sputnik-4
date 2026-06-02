@@ -284,6 +284,8 @@ async function getElevationAtPoint(lat, lng) {
   const tiles = await _resolveTilesForBbox(bbox);
   if (!tiles.length) throw new Error('no_tiles');
 
+  const isRemote = tiles.some(t => t.startsWith('/vsicurl/') || t.startsWith('/vsis3/'));
+
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ep-'));
   try {
     const vrtFile  = path.join(tmpDir, 'combined.vrt');
@@ -301,6 +303,24 @@ async function getElevationAtPoint(lat, lng) {
       { env: gdalEnv(), timeout: 10000, maxBuffer: 65536 });
     const rawVal = parseFloat((rawCheck.stdout || '').trim());
     if (isNaN(rawVal) || rawVal <= -9990) throw new Error('no_elev');
+
+    // Кэшируем широкую вырезку (0.5°×0.5°) для будущих запросов в этом районе
+    if (isRemote) {
+      try {
+        if (!fs.existsSync(DEM_TILES_DIR)) fs.mkdirSync(DEM_TILES_DIR, { recursive: true });
+        const cm = 0.25;
+        const cacheKey = [lng - cm, lat - cm, lng + cm, lat + cm].map(v => v.toFixed(3)).join('_');
+        const cacheTif = path.join(DEM_TILES_DIR, `dem_${cacheKey}.tif`);
+        if (!fs.existsSync(cacheTif)) {
+          const wideClip = path.join(tmpDir, 'wide.tif');
+          await runGDAL('gdalwarp', [
+            '-te', String(lng-cm), String(lat-cm), String(lng+cm), String(lat+cm),
+            '-r', 'bilinear', '-co', 'COMPRESS=LZW', '-dstnodata', '-9999', vrtFile, wideClip,
+          ]);
+          fs.copyFileSync(wideClip, cacheTif);
+        }
+      } catch(_) {}
+    }
 
     // Попытка конвертации в БСВ-77 через геоид
     for (const epsg of ['EPSG:3855', 'EPSG:5773', 'EPSG:9518']) {
