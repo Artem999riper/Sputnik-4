@@ -664,14 +664,20 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     onProgress&&onProgress(28,useGeoid?'Перевод БСВ-77...':'Подготовка...');
     let demTif=clippedTif;
     if (useGeoid){
-      const gTif=path.join(tmpDir,'geoid.tif');
+      const gTifTmp=path.join(tmpDir,'geoid_tmp.tif');
+      const gTif   =path.join(tmpDir,'geoid.tif');
       let geoidOk=false;
-      for (const epsg of ['EPSG:3855','EPSG:5773','EPSG:9518']){
+      for (const geoidEpsg of ['EPSG:3855','EPSG:5773','EPSG:9518']){
         try{
-          await runGDAL('gdalwarp',['-s_srs','EPSG:4979','-t_srs',epsg,
-            '-r','bilinear','-co','COMPRESS=LZW',clippedTif,gTif]);
-          demTif=gTif; log.push(`Geoid OK (${epsg})`); geoidOk=true; break;
-        }catch(e){}
+          await runGDAL('gdalwarp',['-s_srs','EPSG:4979','-t_srs',geoidEpsg,
+            '-r','bilinear','-co','COMPRESS=LZW',clippedTif,gTifTmp]);
+          // После конвертации высот CRS становится чисто вертикальной (EPSG:3855/5773/9518).
+          // Восстанавливаем горизонтальную CRS EPSG:4326, иначе следующий gdalwarp в ГСК-проекцию
+          // не может найти трансформацию ("EngineeringCRS" → целевой CRS → ошибка 500).
+          await runGDAL('gdal_translate',['-a_srs','EPSG:4326',
+            '-co','COMPRESS=LZW',gTifTmp,gTif]);
+          demTif=gTif; log.push(`Geoid OK (${geoidEpsg})`); geoidOk=true; break;
+        }catch(e){ log.push(`Geoid try ${geoidEpsg}: ${e.message.slice(0,60)}`); }
       }
       if(!geoidOk) log.push('Geoid skip (нет grid-файлов)');
     }
