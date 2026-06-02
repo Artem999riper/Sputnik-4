@@ -91,7 +91,8 @@ async function _epFetchElevations(samples) {
 
 // ── Открыть инструмент ─────────────────────────────────────
 function openElevationProfile() {
-  if (_epActive) { closeElevationProfile(); return; }
+  const _panel = document.getElementById('ep-panel');
+  if (_epActive || (_panel && _panel.classList.contains('open'))) { closeElevationProfile(); return; }
   _epActive = true;
   _epPts = [];
   if (_epLine) { try { map.removeLayer(_epLine); } catch(e) {} _epLine = null; }
@@ -125,6 +126,7 @@ function _epRedrawLine() {
 // ── Завершить рисование ────────────────────────────────────
 function _epFinish(e) {
   if (e && e.originalEvent) e.originalEvent.preventDefault();
+  _epActive = false;   // фаза рисования завершена; ПКМ снова работает
   map.off('click',       _epClick);
   map.off('dblclick',    _epFinish);
   map.off('contextmenu', _epFinish);
