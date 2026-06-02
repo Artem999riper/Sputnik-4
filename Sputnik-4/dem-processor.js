@@ -745,6 +745,14 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     ]);
     log.push('Clip OK');
 
+    // Кэшируем raw WGS84-тайл для последующих запросов профиля высот
+    try {
+      if (!fs.existsSync(DEM_TILES_DIR)) fs.mkdirSync(DEM_TILES_DIR, { recursive: true });
+      const cacheKey = [minLng, minLat, maxLng, maxLat].map(v => v.toFixed(3)).join('_');
+      const cacheTif = path.join(DEM_TILES_DIR, `dem_${cacheKey}.tif`);
+      if (!fs.existsSync(cacheTif)) fs.copyFileSync(clippedTif, cacheTif);
+    } catch(e) { log.push('Cache skip: ' + e.message.slice(0, 60)); }
+
     // 3. Геоид
     onProgress&&onProgress(28,useGeoid?'Перевод БСВ-77...':'Подготовка...');
     let demTif=clippedTif;

@@ -227,6 +227,16 @@ function openDEMPanel() {
             Обновить
           </button>
         </div>
+        <div id="dem-tile-cache" style="font-size:10px;margin-top:4px;padding:5px 8px;
+          border-radius:var(--rs);background:var(--s2);border:1px solid var(--bd);
+          display:flex;align-items:center;justify-content:space-between;gap:6px">
+          <span id="dem-tile-cache-info" style="color:var(--tx3)">⏳ Кэш тайлов...</span>
+          <button onclick="demClearTileCache()" id="dem-tile-cache-btn"
+            style="font-size:9px;padding:1px 7px;background:var(--s3);border:1px solid var(--bd);
+            border-radius:3px;cursor:pointer;color:var(--tx2);white-space:nowrap;display:none">
+            🗑 Очистить
+          </button>
+        </div>
       </div>
 
       <div class="fg" id="dem-sat-source-row">
@@ -273,6 +283,7 @@ function openDEMPanel() {
       { label: '⬇️ Выгрузить', cls: 'bp', fn: demExport },
     ]
   );
+  setTimeout(demRefreshTileCache, 100);
 }
 
 
@@ -564,6 +575,7 @@ async function demExport() {
 
     setProgress(100, '✅ Файл готов!');
     toast(`✅ Файл выгружен: ${a.download}`, 'ok');
+    demRefreshTileCache();
 
     setTimeout(() => {
       if (progWrap) progWrap.style.display = 'none';
@@ -639,8 +651,43 @@ async function demDownloadGeoidGrids() {
   }
 }
 
+async function demRefreshTileCache() {
+  const el  = document.getElementById('dem-tile-cache-info');
+  const btn = document.getElementById('dem-tile-cache-btn');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/dem/tiles-info');
+    const j = await r.json();
+    const tiles = j.tiles || [];
+    if (tiles.length === 0) {
+      el.innerHTML = '<span style="color:var(--tx3)">Нет кэшированных тайлов рельефа</span>';
+      if (btn) btn.style.display = 'none';
+    } else {
+      const totalMb = (tiles.reduce((s, t) => s + (t.size || 0), 0) / 1024 / 1024).toFixed(0);
+      el.innerHTML = `<span style="color:var(--grn)">✅ Тайлы рельефа: ${tiles.length} шт. (${totalMb} МБ) — профиль использует ArcticDEM</span>`;
+      if (btn) btn.style.display = '';
+    }
+  } catch(e) {
+    if (el) el.innerHTML = '<span style="color:var(--tx3)">—</span>';
+  }
+}
+
+async function demClearTileCache() {
+  if (!confirm('Удалить все кэшированные тайлы рельефа? Следующий профиль высот будет использовать Terrarium до нового экспорта.')) return;
+  const el = document.getElementById('dem-tile-cache-info');
+  if (el) el.innerHTML = '<span style="color:var(--tx3)">⏳ Очищаю...</span>';
+  try {
+    const r = await fetch('/api/dem/tiles', { method: 'DELETE' });
+    const j = await r.json();
+    toast(`🗑 Удалено тайлов: ${j.deleted}`, 'ok');
+    await demRefreshTileCache();
+  } catch(e) {
+    toast('❌ ' + e.message, 'err');
+  }
+}
+
 // Запустить проверку при первом открытии модалки
 document.addEventListener('DOMContentLoaded', () => {
   // Отложенная проверка — не мешаем загрузке страницы
-  setTimeout(demCheckGeoid, 3000);
+  setTimeout(() => { demCheckGeoid(); demRefreshTileCache(); }, 3000);
 });

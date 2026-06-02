@@ -304,6 +304,16 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json(demProcessor.getDemTilesInfo());
   });
 
+  app.delete('/api/dem/tiles', (req, res) => {
+    if (!demProcessor) return res.json({ deleted: 0 });
+    const info = demProcessor.getDemTilesInfo();
+    let deleted = 0;
+    for (const t of (info.tiles || [])) {
+      try { fs.unlinkSync(require('path').join(info.dir, t.name)); deleted++; } catch(_) {}
+    }
+    res.json({ deleted });
+  });
+
   app.get('/api/elevation/point', async (req, res) => {
     const lat = parseFloat(req.query.lat);
     const lng = parseFloat(req.query.lng);
