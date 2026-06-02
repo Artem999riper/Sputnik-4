@@ -195,6 +195,35 @@ function runGDAL(exe, args) {
   });
 }
 
+// Как runGDAL, но добавляет -progress и парсит проценты в onPct(0..100).
+// Используется для крупной загрузки/клипа ArcticDEM, чтобы давать прогресс по ~5%.
+function runGDALProgress(exe, args, onPct) {
+  console.log('[DEM]', exe, '(progress)', args.slice(0,5).join(' '));
+  const { spawn } = require('child_process');
+  return new Promise((resolve, reject) => {
+    const child = spawn(gdal(exe), ['-progress', ...args], { env: gdalEnv() });
+    let errBuf = '';
+    let last = -1;
+    const parse = (chunk) => {
+      const s = chunk.toString();
+      // gdalwarp -progress печатает "0...10...20...30...40...50...60...70...80...90...100"
+      const nums = s.match(/\d{1,3}/g);
+      if (nums) {
+        for (const n of nums) {
+          const v = parseInt(n, 10);
+          if (v >= 0 && v <= 100 && v >= last + 5) { last = v; try { onPct(v); } catch(_) {} }
+        }
+      }
+    };
+    child.stdout.on('data', parse);
+    child.stderr.on('data', d => { errBuf += d; parse(d); });
+    child.on('error', reject);
+    child.on('close', code => code === 0
+      ? resolve({ stdout: '', stderr: errBuf })
+      : reject(new Error(errBuf.slice(0, 300) || `${exe} exited ${code}`)));
+  });
+}
+
 // ── Локальные DEM-тайлы ────────────────────────────────────
 const DEM_TILES_DIR = path.join(__dirname, 'dem_tiles');
 
@@ -674,7 +703,7 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
 // ── Главная функция ────────────────────────────────────────
 async function processDEM({bbox,projId,proj4,epsg,projName,format,
                             interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,
-                            satelliteOnly,satZoom,satSourceUrl,satSourceSubdomains,onProgress}) {
+                            satelliteOnly,cacheOnly,satZoom,satSourceUrl,satSourceSubdomains,onProgress}) {
   gridStep = (gridStep !== undefined && gridStep !== null && gridStep !== '') ? parseInt(gridStep) : 20;
   if (isNaN(gridStep)) gridStep = 20;
   const jMin = parseFloat(jitterMin)||0;
@@ -779,22 +808,38 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     fs.writeFileSync(listF,tifUrls.join('\n'));
     await runGDAL('gdalbuildvrt',['-input_file_list',listF,srcVrt]);
 
+    // Прогресс клипа отображаем по ~5%. В режиме «только кэш» клип — единственный
+    // тяжёлый шаг → растягиваем на 15..90%, иначе на 15..28% (дальше геоид/DXF).
+    const clipFrom = 15, clipTo = cacheOnly ? 90 : 28;
     const clippedTif=path.join(tmpDir,'clipped.tif');
-    await runGDAL('gdalwarp',[
+    await runGDALProgress('gdalwarp',[
       '-of','GTiff','-te',String(minLng),String(minLat),String(maxLng),String(maxLat),
       '-te_srs','EPSG:4326','-t_srs','EPSG:4326','-r','bilinear',
       '-co','COMPRESS=LZW','-co','TILED=YES',srcVrt,clippedTif,
-    ]);
+    ], pct => onProgress && onProgress(
+      Math.round(clipFrom + (clipTo-clipFrom)*pct/100),
+      `Загрузка ArcticDEM ${usedRes}... ${pct}%`
+    ));
     log.push('Clip OK');
 
     // Кэшируем raw WGS84-тайл для последующих запросов профиля высот
     // (пропускаем, если территория уже была взята из кэша — не плодим дубликаты)
+    let savedCacheTif = null;
     if (!cachedCover) try {
       if (!fs.existsSync(DEM_TILES_DIR)) fs.mkdirSync(DEM_TILES_DIR, { recursive: true });
       const cacheKey = [minLng, minLat, maxLng, maxLat].map(v => v.toFixed(3)).join('_');
       const cacheTif = path.join(DEM_TILES_DIR, `dem_${cacheKey}.tif`);
       if (!fs.existsSync(cacheTif)) fs.copyFileSync(clippedTif, cacheTif);
+      savedCacheTif = cacheTif;
     } catch(e) { log.push('Cache skip: ' + e.message.slice(0, 60)); }
+
+    // ── Режим «только кэш»: тайл сохранён, дальше ничего не делаем ──
+    if (cacheOnly) {
+      onProgress&&onProgress(100,'Тайл ArcticDEM закэширован');
+      log.push('Cache-only: готово');
+      return { cacheOnly: true, tmpDir, log,
+               cached: !cachedCover, file: savedCacheTif || clippedTif };
+    }
 
     // 3. Геоид
     onProgress&&onProgress(28,useGeoid?'Перевод БСВ-77...':'Подготовка...');

@@ -373,7 +373,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
 
   app.post('/api/dem/export', async (req, res) => {
     if (!demProcessor) return res.status(503).json({ error: 'DEM процессор не доступен' });
-    const { bbox, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite, satelliteOnly, satZoom, satSourceUrl, satSourceSubdomains } = req.body;
+    const { bbox, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite, satelliteOnly, cacheOnly, satZoom, satSourceUrl, satSourceSubdomains } = req.body;
     if (!bbox || !bbox.minLat) return res.status(400).json({ error: 'Не указана область (bbox)' });
     let tmpDir = null;
     try {
@@ -387,6 +387,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
         jitterMax: parseFloat(jitterMax) || 0,
         exportSatellite: exportSatellite !== false,
         satelliteOnly: !!satelliteOnly,
+        cacheOnly: !!cacheOnly,
         satZoom: parseInt(satZoom) || 0,
         satSourceUrl: satSourceUrl || null,
         satSourceSubdomains: satSourceSubdomains || [],
@@ -396,6 +397,13 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
         },
       });
       tmpDir = result.tmpDir;
+
+      // Режим «только кэш»: файл не отдаём, отвечаем JSON
+      if (result.cacheOnly) {
+        demProcessor.cleanupTmp(tmpDir);
+        return res.json({ ok: true, cacheOnly: true, cached: result.cached });
+      }
+
       const stat = fs.statSync(result.file);
       res.setHeader('Content-Type', result.mime || 'application/octet-stream');
       res.setHeader('Content-Length', stat.size);

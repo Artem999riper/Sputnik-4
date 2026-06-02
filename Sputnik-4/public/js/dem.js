@@ -200,6 +200,14 @@ function openDEMPanel() {
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;
                padding:6px 9px;background:var(--s2);border:1.5px solid var(--bd);
                border-radius:var(--rs);font-size:11px;margin-bottom:5px">
+          <input type="checkbox" id="dem-cache-only"
+            style="width:14px;height:14px;accent-color:var(--acc)"
+            onchange="_demToggleCacheOnly()">
+          <span>📦 Только кэш <b>ArcticDEM (.tif)</b> — без DXF и спутника</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;
+               padding:6px 9px;background:var(--s2);border:1.5px solid var(--bd);
+               border-radius:var(--rs);font-size:11px;margin-bottom:5px">
           <input type="checkbox" id="dem-sat-only"
             style="width:14px;height:14px;accent-color:var(--acc)"
             onchange="_demToggleSatOnly()">
@@ -456,6 +464,28 @@ function demCancelDraw() {
 }
 
 // ── Переключение режима "только спутник" ───────────────────
+function _demToggleCacheOnly() {
+  const cacheOnly = document.getElementById('dem-cache-only')?.checked;
+  // В режиме «только кэш» все прочие опции неактуальны — гасим их
+  ['dem-sat-only','dem-satellite','dem-bsv77'].forEach(id => {
+    const cb = document.getElementById(id);
+    if (cb) cb.disabled = !!cacheOnly;
+    const row = cb?.closest('label');
+    if (row) row.style.opacity = cacheOnly ? '0.35' : '1';
+  });
+  ['dem-interval','dem-grid-step','dem-jitter-min','dem-jitter-max','dem-sat-source','dem-sat-zoom','dem-proj'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !!cacheOnly;
+    const row = el?.closest('.fg');
+    if (row) row.style.opacity = cacheOnly ? '0.35' : '1';
+  });
+  if (cacheOnly && document.getElementById('dem-sat-only')) document.getElementById('dem-sat-only').checked = false;
+  const desc = document.querySelector('#mft .fgr > div:first-child b');
+  if (desc) desc.textContent = cacheOnly
+    ? 'Результат: только .tif в кэш ArcticDEM (для профиля и отметок высот)'
+    : 'Результат: ZIP архив с DXF (горизонтали + точки) и JPEG спутником';
+}
+
 function _demToggleSatOnly() {
   const satOnly = document.getElementById('dem-sat-only')?.checked;
   const dxfFields = ['dem-interval','dem-grid-step','dem-jitter-min','dem-jitter-max'];
@@ -497,6 +527,7 @@ async function demExport() {
   const exportSatellite = document.getElementById('dem-satellite')?.checked !== false;
   const useGeoid    = document.getElementById('dem-bsv77')?.checked !== false;
   const satelliteOnly = document.getElementById('dem-sat-only')?.checked === true;
+  const cacheOnly   = document.getElementById('dem-cache-only')?.checked === true;
   const satZoom     = parseInt(document.getElementById('dem-sat-zoom')?.value ?? '0') || 0;
   const satSourceId = document.getElementById('dem-sat-source')?.value || 'esri';
   const satSourceObj = DEM_SAT_SOURCES.find(s => s.id === satSourceId) || DEM_SAT_SOURCES[0];
@@ -551,6 +582,7 @@ async function demExport() {
         useGeoid,
         exportSatellite: satelliteOnly ? true : exportSatellite,
         satelliteOnly,
+        cacheOnly,
         satZoom,
         satSourceUrl: satSourceObj.url,
         satSourceSubdomains: satSourceObj.subdomains,
@@ -562,6 +594,21 @@ async function demExport() {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(err.error || 'Ошибка сервера');
+    }
+
+    // Режим «только кэш»: файла нет, сервер вернул JSON
+    if (cacheOnly) {
+      const j = await res.json().catch(() => ({}));
+      setProgress(100, '✅ Тайл закэширован!');
+      toast(j.cached === false
+        ? '📦 Территория уже была в кэше'
+        : '✅ Тайл ArcticDEM добавлен в кэш', 'ok');
+      demRefreshTileCache();
+      setTimeout(() => {
+        if (progWrap) progWrap.style.display = 'none';
+        btns.forEach(b => b.disabled = false);
+      }, 1500);
+      return;
     }
 
     setProgress(95, '⏳ Получение файла...');
