@@ -665,11 +665,15 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     let demTif=clippedTif;
     if (useGeoid){
       const gTif=path.join(tmpDir,'geoid.tif');
-      try{
-        await runGDAL('gdalwarp',['-s_srs','EPSG:4979','-t_srs','EPSG:9518',
-          '-r','bilinear','-co','COMPRESS=LZW',clippedTif,gTif]);
-        demTif=gTif; log.push('Geoid OK');
-      }catch(e){log.push('Geoid skip');}
+      let geoidOk=false;
+      for (const epsg of ['EPSG:3855','EPSG:5773','EPSG:9518']){
+        try{
+          await runGDAL('gdalwarp',['-s_srs','EPSG:4979','-t_srs',epsg,
+            '-r','bilinear','-co','COMPRESS=LZW',clippedTif,gTif]);
+          demTif=gTif; log.push(`Geoid OK (${epsg})`); geoidOk=true; break;
+        }catch(e){}
+      }
+      if(!geoidOk) log.push('Geoid skip (нет grid-файлов)');
     }
 
     // 4. Репроекция

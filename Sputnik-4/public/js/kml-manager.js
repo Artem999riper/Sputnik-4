@@ -969,6 +969,8 @@ function renderLayerGroupsWithSymbols() {
             const fIdx = gjRaw.features ? gjRaw.features.indexOf(f) : -1;
             showCtx(cx, cy, [
               {i:'🗺',l:`<b>${esc(featureName)}</b> <span style="color:var(--tx3);font-weight:400">${esc(l.name)}</span>`,f:null,html:true},{sep:true},
+              {i:'📍',l:'Отметка высоты (БСВ-77)',f:()=>showElevationAtPoint(ev.latlng)},
+              {sep:true},
               {i:'🔍',l:'Приблизить',f:()=>{
                 try { map.flyToBounds(layer.getBounds ? layer.getBounds() : L.latLngBounds([[layer.getLatLng().lat,layer.getLatLng().lng]]), {padding:[60,60]}); }
                 catch(e){ try{map.flyTo(layer.getLatLng(),16);}catch(e2){} }
