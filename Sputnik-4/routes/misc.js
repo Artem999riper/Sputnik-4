@@ -304,6 +304,22 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json(demProcessor.getDemTilesInfo());
   });
 
+  // GET /api/dem/tiles-bbox — bbox каждого кэшированного тайла (из имени файла)
+  app.get('/api/dem/tiles-bbox', (req, res) => {
+    if (!demProcessor) return res.json([]);
+    const info = demProcessor.getDemTilesInfo();
+    const result = (info.tiles || []).map(t => {
+      const m = t.name.match(/^dem_([-\d.]+)_([-\d.]+)_([-\d.]+)_([-\d.]+)\.tif$/i);
+      if (!m) return null;
+      return {
+        file: t.name,
+        size: t.size,
+        bbox: { minLng: parseFloat(m[1]), minLat: parseFloat(m[2]), maxLng: parseFloat(m[3]), maxLat: parseFloat(m[4]) },
+      };
+    }).filter(Boolean);
+    res.json(result);
+  });
+
   app.delete('/api/dem/tiles', (req, res) => {
     if (!demProcessor) return res.json({ deleted: 0 });
     const info = demProcessor.getDemTilesInfo();

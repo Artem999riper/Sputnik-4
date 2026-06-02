@@ -228,14 +228,22 @@ function openDEMPanel() {
           </button>
         </div>
         <div id="dem-tile-cache" style="font-size:10px;margin-top:4px;padding:5px 8px;
-          border-radius:var(--rs);background:var(--s2);border:1px solid var(--bd);
-          display:flex;align-items:center;justify-content:space-between;gap:6px">
-          <span id="dem-tile-cache-info" style="color:var(--tx3)">⏳ Кэш тайлов...</span>
-          <button onclick="demClearTileCache()" id="dem-tile-cache-btn"
-            style="font-size:9px;padding:1px 7px;background:var(--s3);border:1px solid var(--bd);
-            border-radius:3px;cursor:pointer;color:var(--tx2);white-space:nowrap;display:none">
-            🗑 Очистить
-          </button>
+          border-radius:var(--rs);background:var(--s2);border:1px solid var(--bd)">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+            <span id="dem-tile-cache-info" style="color:var(--tx3)">⏳ Кэш тайлов...</span>
+            <div style="display:flex;gap:4px">
+              <button onclick="demToggleTileCoverage()" id="dem-tile-show-btn"
+                style="font-size:9px;padding:1px 7px;background:var(--s3);border:1px solid var(--bd);
+                border-radius:3px;cursor:pointer;color:var(--tx2);white-space:nowrap;display:none">
+                🗺 Показать
+              </button>
+              <button onclick="demClearTileCache()" id="dem-tile-cache-btn"
+                style="font-size:9px;padding:1px 7px;background:var(--s3);border:1px solid var(--bd);
+                border-radius:3px;cursor:pointer;color:var(--tx2);white-space:nowrap;display:none">
+                🗑 Очистить
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -652,8 +660,9 @@ async function demDownloadGeoidGrids() {
 }
 
 async function demRefreshTileCache() {
-  const el  = document.getElementById('dem-tile-cache-info');
-  const btn = document.getElementById('dem-tile-cache-btn');
+  const el      = document.getElementById('dem-tile-cache-info');
+  const btn     = document.getElementById('dem-tile-cache-btn');
+  const showBtn = document.getElementById('dem-tile-show-btn');
   if (!el) return;
   try {
     const r = await fetch('/api/dem/tiles-info');
@@ -661,19 +670,56 @@ async function demRefreshTileCache() {
     const tiles = j.tiles || [];
     if (tiles.length === 0) {
       el.innerHTML = '<span style="color:var(--tx3)">Нет кэшированных тайлов рельефа</span>';
-      if (btn) btn.style.display = 'none';
+      if (btn)     btn.style.display = 'none';
+      if (showBtn) showBtn.style.display = 'none';
     } else {
       const totalMb = (tiles.reduce((s, t) => s + (t.size || 0), 0) / 1024 / 1024).toFixed(0);
       el.innerHTML = `<span style="color:var(--grn)">✅ Тайлы рельефа: ${tiles.length} шт. (${totalMb} МБ) — профиль использует ArcticDEM</span>`;
-      if (btn) btn.style.display = '';
+      if (btn)     btn.style.display = '';
+      if (showBtn) showBtn.style.display = '';
     }
   } catch(e) {
     if (el) el.innerHTML = '<span style="color:var(--tx3)">—</span>';
   }
 }
 
+// ── Покрытие тайлов на карте ───────────────────────────────
+let _demTileLayers = [];
+
+async function demToggleTileCoverage() {
+  const btn = document.getElementById('dem-tile-show-btn');
+  if (_demTileLayers.length) {
+    _demTileLayers.forEach(l => { try { map.removeLayer(l); } catch(_) {} });
+    _demTileLayers = [];
+    if (btn) btn.textContent = '🗺 Показать';
+    return;
+  }
+  try {
+    const r = await fetch('/api/dem/tiles-bbox');
+    const tiles = await r.json();
+    if (!tiles.length) { toast('Нет тайлов для отображения', 'warn'); return; }
+    tiles.forEach(t => {
+      const b = t.bbox;
+      const mb = (t.size / 1024 / 1024).toFixed(0);
+      const rect = L.rectangle(
+        [[b.minLat, b.minLng], [b.maxLat, b.maxLng]],
+        { color: '#f59e0b', weight: 2, fillOpacity: 0.08, dashArray: '6 4' }
+      ).addTo(map);
+      rect.bindTooltip(`📐 ArcticDEM кэш<br><b>${t.file}</b><br>${mb} МБ`, { sticky: true });
+      _demTileLayers.push(rect);
+    });
+    closeModal();
+    if (btn) btn.textContent = '🗺 Скрыть';
+  } catch(e) {
+    toast('❌ ' + e.message, 'err');
+  }
+}
+
 async function demClearTileCache() {
   if (!confirm('Удалить все кэшированные тайлы рельефа? Следующий профиль высот будет использовать Terrarium до нового экспорта.')) return;
+  // Убрать слои с карты
+  _demTileLayers.forEach(l => { try { map.removeLayer(l); } catch(_) {} });
+  _demTileLayers = [];
   const el = document.getElementById('dem-tile-cache-info');
   if (el) el.innerHTML = '<span style="color:var(--tx3)">⏳ Очищаю...</span>';
   try {

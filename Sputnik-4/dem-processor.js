@@ -347,7 +347,10 @@ for lat, lng in pts:
             results.append(None)
         else:
             if corr is not None:
-                v += float(corr[py, px])
+                # corr может быть на 1-2 пикселя меньше data из-за округления gdalwarp
+                cpx = min(px, corr.shape[1]-1)
+                cpy = min(py, corr.shape[0]-1)
+                v += float(corr[cpy, cpx])
             results.append(round(v, 2))
     else:
         results.append(None)
