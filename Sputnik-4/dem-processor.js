@@ -195,18 +195,18 @@ function runGDAL(exe, args) {
   });
 }
 
-// Как runGDAL, но добавляет -progress и парсит проценты в onPct(0..100).
-// Используется для крупной загрузки/клипа ArcticDEM, чтобы давать прогресс по ~5%.
+// Как runGDAL, но парсит индикатор прогресса gdalwarp (печатается по умолчанию
+// в stdout как "0...10...20...30...40...50...60...70...80...90...100 - done.")
+// и вызывает onPct(0..100) по ~5%.
 function runGDALProgress(exe, args, onPct) {
   console.log('[DEM]', exe, '(progress)', args.slice(0,5).join(' '));
   const { spawn } = require('child_process');
   return new Promise((resolve, reject) => {
-    const child = spawn(gdal(exe), ['-progress', ...args], { env: gdalEnv() });
+    const child = spawn(gdal(exe), args, { env: gdalEnv() });
     let errBuf = '';
     let last = -1;
     const parse = (chunk) => {
       const s = chunk.toString();
-      // gdalwarp -progress печатает "0...10...20...30...40...50...60...70...80...90...100"
       const nums = s.match(/\d{1,3}/g);
       if (nums) {
         for (const n of nums) {
@@ -216,7 +216,7 @@ function runGDALProgress(exe, args, onPct) {
       }
     };
     child.stdout.on('data', parse);
-    child.stderr.on('data', d => { errBuf += d; parse(d); });
+    child.stderr.on('data', d => { errBuf += d; });
     child.on('error', reject);
     child.on('close', code => code === 0
       ? resolve({ stdout: '', stderr: errBuf })
