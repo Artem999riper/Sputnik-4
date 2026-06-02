@@ -248,8 +248,8 @@ print('null')
     if (!s || s === 'null') return null;
     const val = parseFloat(s);
     if (isNaN(val)) return null;
-    // val = H при h=0 = -N, поправка = -val (добавить к эллипсоидальной высоте)
-    return -val;
+    // val = H при h=0 = -N → поправка для добавления к WGS84: correction = val = -N
+    return val;
   } catch(e) {
     console.log('[GEOID N] error:', e.message.slice(0, 100));
     return null;
@@ -267,11 +267,18 @@ async function getElevationAtPoint(lat, lng) {
     const vrtFile  = path.join(tmpDir, 'combined.vrt');
     const clipped  = path.join(tmpDir, 'clipped.tif');
 
-    await runGDAL('gdalbuildvrt', [vrtFile, ...tiles]);
+    await runGDAL('gdalbuildvrt', ['-vrtnodata', '-9999', vrtFile, ...tiles]);
     await runGDAL('gdalwarp', [
       '-te', String(lng-margin), String(lat-margin), String(lng+margin), String(lat+margin),
-      '-ts', '5', '5', '-r', 'bilinear', vrtFile, clipped,
+      '-ts', '5', '5', '-r', 'bilinear', '-dstnodata', '-9999', vrtFile, clipped,
     ]);
+
+    // Проверяем, что тайл реально покрывает точку (не nodata-заполнение)
+    const rawCheck = await execFileP(gdal('gdallocationinfo'),
+      ['-wgs84', '-valonly', clipped, String(lng), String(lat)],
+      { env: gdalEnv(), timeout: 10000, maxBuffer: 65536 });
+    const rawVal = parseFloat((rawCheck.stdout || '').trim());
+    if (isNaN(rawVal) || rawVal <= -9990) throw new Error('no_elev');
 
     // Попытка конвертации в БСВ-77 через геоид
     for (const epsg of ['EPSG:3855', 'EPSG:5773', 'EPSG:9518']) {
