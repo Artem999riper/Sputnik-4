@@ -277,86 +277,16 @@ print('null')
   }
 }
 
-async function getElevationAtPoint(lat, lng) {
-  findGDALBin();
-  const margin = 0.005;
-  const bbox = { minLat: lat - margin, maxLat: lat + margin, minLng: lng - margin, maxLng: lng + margin };
-  const tiles = await _resolveTilesForBbox(bbox);
-  if (!tiles.length) throw new Error('no_tiles');
-
-  const isRemote = tiles.some(t => t.startsWith('/vsicurl/') || t.startsWith('/vsis3/'));
-
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ep-'));
-  try {
-    const vrtFile  = path.join(tmpDir, 'combined.vrt');
-    const clipped  = path.join(tmpDir, 'clipped.tif');
-
-    await runGDAL('gdalbuildvrt', ['-vrtnodata', '-9999', vrtFile, ...tiles]);
-    await runGDAL('gdalwarp', [
-      '-te', String(lng-margin), String(lat-margin), String(lng+margin), String(lat+margin),
-      '-ts', '5', '5', '-r', 'bilinear', '-dstnodata', '-9999', vrtFile, clipped,
-    ]);
-
-    // Проверяем, что тайл реально покрывает точку (не nodata-заполнение)
-    const rawCheck = await execFileP(gdal('gdallocationinfo'),
-      ['-wgs84', '-valonly', clipped, String(lng), String(lat)],
-      { env: gdalEnv(), timeout: 10000, maxBuffer: 65536 });
-    const rawVal = parseFloat((rawCheck.stdout || '').trim());
-    if (isNaN(rawVal) || rawVal <= -9990) throw new Error('no_elev');
-
-    // Кэшируем широкую вырезку (0.5°×0.5°) для будущих запросов в этом районе
-    if (isRemote) {
-      try {
-        if (!fs.existsSync(DEM_TILES_DIR)) fs.mkdirSync(DEM_TILES_DIR, { recursive: true });
-        const cm = 0.25;
-        const cacheKey = [lng - cm, lat - cm, lng + cm, lat + cm].map(v => v.toFixed(3)).join('_');
-        const cacheTif = path.join(DEM_TILES_DIR, `dem_${cacheKey}.tif`);
-        if (!fs.existsSync(cacheTif)) {
-          const wideClip = path.join(tmpDir, 'wide.tif');
-          await runGDAL('gdalwarp', [
-            '-te', String(lng-cm), String(lat-cm), String(lng+cm), String(lat+cm),
-            '-r', 'bilinear', '-co', 'COMPRESS=LZW', '-dstnodata', '-9999', vrtFile, wideClip,
-          ]);
-          fs.copyFileSync(wideClip, cacheTif);
-        }
-      } catch(_) {}
-    }
-
-    // Попытка конвертации в БСВ-77 через геоид
-    for (const epsg of ['EPSG:3855', 'EPSG:5773', 'EPSG:9518']) {
-      const geoidTif = path.join(tmpDir, `geoid_${epsg.replace(':','')}.tif`);
-      try {
-        await runGDAL('gdalwarp', ['-s_srs','EPSG:4979','-t_srs',epsg,'-r','bilinear',clipped,geoidTif]);
-        const r = await execFileP(gdal('gdallocationinfo'),
-          ['-wgs84', '-valonly', geoidTif, String(lng), String(lat)],
-          { env: gdalEnv(), timeout: 15000, maxBuffer: 65536 });
-        const val = parseFloat((r.stdout||'').trim());
-        if (!isNaN(val) && val > -9000 && val < 9000) {
-          return { elevation: val, source: 'arcticdem', datum: 'bsv77' };
-        }
-      } catch(_) {}
-    }
-
-    // Fallback: возвращаем эллипсоидальную WGS84 высоту
-    const r = await execFileP(gdal('gdallocationinfo'),
-      ['-wgs84', '-valonly', clipped, String(lng), String(lat)],
-      { env: gdalEnv(), timeout: 15000, maxBuffer: 65536 });
-    const val = parseFloat((r.stdout||'').trim());
-    if (isNaN(val) || val <= -9000) throw new Error('invalid_value');
-    return { elevation: val, source: 'arcticdem', datum: 'wgs84_ellipsoidal' };
-
-  } finally {
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch(_) {}
-  }
-}
-
-// ── Профиль высот: пакетный запрос по ArcticDEM + геоид ───
-async function getElevationProfile(points) {
+// ── Общий сэмплер высот по ArcticDEM (та же математика, что и в экспорте) ──
+// Возвращает { values:[<num|null>...], geoidApplied:bool } или null (нет тайлов/GDAL).
+// Метод поправки геоида идентичен processDEM: поле -N (warp Z=0 EPSG:4979→3855/5773/9518),
+// прибавляется к сырой WGS84-эллипсоидальной высоте на нативном разрешении.
+async function _sampleElevationsAtPoints(points, opts = {}) {
   findGDALBin();
   if (!_pythonExe) return null;
-  if (!points || points.length === 0) return [];
+  if (!points || points.length === 0) return { values: [], geoidApplied: false };
 
-  const margin = 0.01;
+  const margin = opts.margin != null ? opts.margin : 0.01;
   const lats = points.map(p => p.lat);
   const lngs = points.map(p => p.lng);
   const minLng = Math.min(...lngs) - margin, maxLng = Math.max(...lngs) + margin;
@@ -365,10 +295,10 @@ async function getElevationProfile(points) {
   const tiles = await _resolveTilesForBbox({ minLat, maxLat, minLng, maxLng });
   if (!tiles.length) return null;
 
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'epprof-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'epsamp-'));
   try {
     const vrtFile = path.join(tmpDir, 'combined.vrt');
-    const clipped  = path.join(tmpDir, 'clipped.tif');
+    const clipped = path.join(tmpDir, 'clipped.tif');
 
     await runGDAL('gdalbuildvrt', ['-vrtnodata', '-9999', vrtFile, ...tiles]);
     await runGDAL('gdalwarp', [
@@ -385,7 +315,7 @@ import numpy as np
 gdal.UseExceptions()
 src = gdal.Open(r'${srcPath}')
 if src is None:
-    print(json.dumps([None]*${points.length})); sys.exit(0)
+    print(json.dumps({"values":[None]*${points.length},"geoid":False})); sys.exit(0)
 gt = src.GetGeoTransform()
 band = src.GetRasterBand(1)
 data = band.ReadAsArray().astype(np.float32)
@@ -421,7 +351,7 @@ for lat, lng in pts:
             results.append(round(v, 2))
     else:
         results.append(None)
-print(json.dumps(results))
+print(json.dumps({"values": results, "geoid": corr is not None}))
 `;
     const pyFile = path.join(tmpDir, 'query.py');
     fs.writeFileSync(pyFile, pyCode);
@@ -429,7 +359,7 @@ print(json.dumps(results))
       env: gdalEnv(), timeout: 60000, maxBuffer: 1024 * 1024,
     });
 
-    // Кэшируем вырезку для следующих обращений
+    // Кэшируем вырезку для следующих обращений (тот же кэш, что и у экспорта)
     try {
       if (!fs.existsSync(DEM_TILES_DIR)) fs.mkdirSync(DEM_TILES_DIR, { recursive: true });
       const cacheKey = [minLng, minLat, maxLng, maxLat].map(v => v.toFixed(3)).join('_');
@@ -437,13 +367,33 @@ print(json.dumps(results))
       if (!fs.existsSync(cacheTif)) fs.copyFileSync(clipped, cacheTif);
     } catch(_) {}
 
-    return JSON.parse(r.stdout.trim());
+    const parsed = JSON.parse(r.stdout.trim());
+    return { values: parsed.values, geoidApplied: !!parsed.geoid };
   } catch(e) {
-    console.error('[getElevationProfile]', e.message);
+    console.error('[_sampleElevationsAtPoints]', e.message);
     return null;
   } finally {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch(_) {}
   }
+}
+
+async function getElevationAtPoint(lat, lng) {
+  const r = await _sampleElevationsAtPoints([{ lat, lng }], { margin: 0.005 });
+  if (!r) throw new Error('no_tiles');
+  const v = r.values[0];
+  if (v == null) throw new Error('no_elev');
+  return {
+    elevation: v,
+    source: 'arcticdem',
+    datum: r.geoidApplied ? 'bsv77' : 'wgs84_ellipsoidal',
+  };
+}
+
+// ── Профиль высот: пакетный запрос по ArcticDEM + геоид ───
+async function getElevationProfile(points) {
+  const r = await _sampleElevationsAtPoints(points, { margin: 0.01 });
+  if (!r) return null;
+  return { values: r.values, geoidApplied: r.geoidApplied };
 }
 
 function getDemTilesInfo() {

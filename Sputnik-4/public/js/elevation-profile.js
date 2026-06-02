@@ -10,6 +10,7 @@ let _epChart        = null; // Chart.js instance
 let _epMarker       = null; // маркер позиции при ховере на графике
 let _epSamples      = [];   // [{lat,lng,distM}, ...] интерполированные точки
 let _epChartSamples = [];   // [{lat,lng,distM,elev}, ...] параллельно данным графика
+let _epUnitLabel    = 'м';  // подпись единиц в тултипе графика (БСВ-77 / WGS84 элл.)
 
 // ── Terrarium Terrain-RGB tiles (AWS, бесплатно, без ключа) ──
 // elevation = R*256 + G + B/256 - 32768  (метры)
@@ -230,9 +231,9 @@ async function _epBuild() {
       body: JSON.stringify(_epSamples.map(s => ({ lat: s.lat, lng: s.lng }))),
     });
     const j = await r.json();
-    if (Array.isArray(j) && j.some(v => v != null)) {
-      serverElevs = j;
-      usedBsv77 = true;
+    if (j && Array.isArray(j.values) && j.values.some(v => v != null)) {
+      serverElevs = j.values;
+      usedBsv77 = !!j.geoidApplied;   // честно: БСВ-77 только если поправка реально применена
     }
   } catch(_) {}
 
@@ -243,6 +244,7 @@ async function _epBuild() {
         return { lat: s.lat, lng: s.lng, distM: s.distM, elev: serverElevs[i] };
       })
       .filter(Boolean);
+    _epUnitLabel = usedBsv77 ? 'м БСВ-77' : 'м WGS84 элл.';
     _epShowPanel(_epChartSamples, usedBsv77);
     _epRenderChart(_epChartSamples);
     return;
@@ -271,6 +273,7 @@ async function _epBuild() {
     })
     .filter(Boolean);
 
+  _epUnitLabel = geoidCorr != null ? 'м БСВ-77' : 'м WGS84 элл.';
   _epShowPanel(_epChartSamples, geoidCorr != null);
   _epRenderChart(_epChartSamples);
 }
@@ -375,7 +378,7 @@ function _epRenderChart(data) {
           mode: 'index',
           intersect: false,
           callbacks: {
-            label: ctx => `${ctx.raw != null ? ctx.raw.toFixed(0) : '—'} м БСВ-77`,
+            label: ctx => `${ctx.raw != null ? ctx.raw.toFixed(0) : '—'} ${_epUnitLabel}`,
           },
         },
       },

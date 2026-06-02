@@ -328,7 +328,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
   });
 
   // POST /api/elevation/profile  body: [{lat,lng}, ...]
-  // Возвращает [{lat,lng,elevation,datum}, ...] или null если нет тайлов
+  // Возвращает { values:[<число|null>...], geoidApplied:bool } или null если нет тайлов
   app.post('/api/elevation/profile', async (req, res) => {
     if (!demProcessor || !demProcessor.getElevationProfile) return res.json(null);
     const points = req.body;
