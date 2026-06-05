@@ -274,10 +274,8 @@ async function toggleLV(id,vis){
 function _updateKmlLabelScale(){
   if(!window.map)return;
   const z=map.getZoom();
-  // < 9: скрыть, 9-11: мелкий шрифт, >= 12: нормальный
   document.querySelectorAll('.leaflet-tooltip.mlbl').forEach(el=>{
-    if(z<9){el.style.display='none';}
-    else{el.style.display='';el.style.fontSize=z<12?'8px':'10px';}
+    el.style.visibility = z < 9 ? 'hidden' : '';
   });
 }
 async function toggleLayerLabels(id){

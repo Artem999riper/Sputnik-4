@@ -1091,12 +1091,23 @@ const _PM_QUICK_SYMS = ['point','flag','star','benchmark','borehole','warning','
 
 function _parseDMSCoord(str) {
   if (!str) return NaN;
-  str = str.trim().replace(',', '.');
-  if (/^-?[\d.]+$/.test(str.replace(/\s/g, ''))) return parseFloat(str);
-  const neg = /^-|[SsWwЮюЗз]/.test(str.replace(/\d/g, ''));
-  const nums = str.match(/[\d]+(?:\.[\d]+)?/g);
-  if (!nums) return NaN;
-  const val = (parseFloat(nums[0]) || 0) + (parseFloat(nums[1]) || 0) / 60 + (parseFloat(nums[2]) || 0) / 3600;
+  // Normalize: comma → dot decimal, trim
+  str = str.trim().replace(/,(?=\d)/g, '.');
+  // Detect sign (S/W/Ю/З means negative)
+  const neg = /^-|[SsWwЮюЗзYy](?!\w)/.test(str);
+  // Strip all non-numeric except dot and minus, then re-extract numbers
+  const nums = str.match(/-?[\d]+(?:\.[\d]+)?/g);
+  if (!nums || nums.length === 0) return NaN;
+  // If single token and it looks like a decimal degree, return it directly
+  if (nums.length === 1) {
+    const v = parseFloat(nums[0]);
+    return neg && v > 0 ? -v : v;
+  }
+  // DMS: first token = degrees, second = minutes, third (optional) = seconds
+  const d = Math.abs(parseFloat(nums[0]) || 0);
+  const m = parseFloat(nums[1]) || 0;
+  const s = parseFloat(nums[2]) || 0;
+  const val = d + m / 60 + s / 3600;
   return neg ? -val : val;
 }
 
@@ -1241,19 +1252,26 @@ function openCoordMarkerModal(prefillLatlng) {
         </div>
       </div>
       <div id="cm-wgs-fields">
-        <div class="fg">
-          <label>Широта (°N)</label>
-          <input id="cm-lat" type="text" value="${lat0}"
-            placeholder="60.123456 или 60°07′24.42″" oninput="cmUpdatePreview()"
-            style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
-            border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+        <div style="font-size:9px;color:var(--tx3);margin-bottom:6px;line-height:1.5">
+          Принимаемые форматы:<br>
+          Десятичные градусы: <b>60.123456</b><br>
+          Градусы°Минуты′Секунды″: <b>60°07′24.42″</b> или <b>60 07 24.42</b>
         </div>
-        <div class="fg">
-          <label>Долгота (°E)</label>
-          <input id="cm-lon" type="text" value="${lon0}"
-            placeholder="68.654321 или 68°39′15.56″" oninput="cmUpdatePreview()"
-            style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
-            border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+        <div style="display:flex;gap:8px">
+          <div class="fg" style="flex:1">
+            <label>Широта (°N)</label>
+            <input id="cm-lat" type="text" value="${lat0}"
+              placeholder="60.123456 или 60 07 24.42" oninput="cmUpdatePreview()"
+              style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
+              border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+          </div>
+          <div class="fg" style="flex:1">
+            <label>Долгота (°E)</label>
+            <input id="cm-lon" type="text" value="${lon0}"
+              placeholder="68.654321 или 68 39 15.56" oninput="cmUpdatePreview()"
+              style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
+              border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+          </div>
         </div>
       </div>
       <div id="cm-proj-fields" style="display:none">
