@@ -1006,7 +1006,7 @@ function renderLayerGroupsWithSymbols() {
   if (kmlPanelOpen) setTimeout(renderKmlPanel, 50);
 }
 
-// ── Экспорт слоёв в DXF ─────────────────────────────────────
+// ── Экспорт слоёв в DXF / KML ───────────────────────────────
 function openLayerExportDialog() {
   const list = (layers || []).slice();
   if (!list.length) { toast('Нет слоёв для экспорта', 'err'); return; }
@@ -1020,6 +1020,25 @@ function openLayerExportDialog() {
   const body = `
     <div style="display:flex;flex-direction:column;gap:10px">
       <div>
+        <div style="font-weight:600;margin-bottom:6px">Формат</div>
+        <div style="display:flex;gap:6px">
+          <label style="flex:1;display:flex;align-items:center;gap:6px;padding:7px 10px;border:1.5px solid var(--acc);border-radius:var(--rs);cursor:pointer;background:var(--s2)">
+            <input type="radio" name="lex-fmt" value="dxf" checked onchange="lexFmtChange()">
+            <div>
+              <div style="font-weight:600;font-size:12px">DXF</div>
+              <div style="font-size:10px;color:var(--tx3)">AutoCAD, ГСК, МСК</div>
+            </div>
+          </label>
+          <label style="flex:1;display:flex;align-items:center;gap:6px;padding:7px 10px;border:1.5px solid var(--bd);border-radius:var(--rs);cursor:pointer;background:var(--s2)">
+            <input type="radio" name="lex-fmt" value="kml" onchange="lexFmtChange()">
+            <div>
+              <div style="font-weight:600;font-size:12px">KML</div>
+              <div style="font-size:10px;color:var(--tx3)">Google Earth, QGIS</div>
+            </div>
+          </label>
+        </div>
+      </div>
+      <div id="lex-crs-row">
         <div style="font-weight:600;margin-bottom:4px">Система координат</div>
         <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="wgs84"> WGS-84 (градусы)</label>
         <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86" checked> МСК-86 (авто зона по долготе)</label>
@@ -1035,21 +1054,63 @@ function openLayerExportDialog() {
             <button class="btn bs bxs" onclick="document.querySelectorAll('.lex-cb').forEach(c=>c.checked=false)">Никакие</button>
           </div>
         </div>
-        <div style="max-height:280px;overflow:auto;border:1px solid #e5e7eb;border-radius:6px;padding:6px 10px">
+        <div style="max-height:260px;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:6px 10px">
           ${rows}
         </div>
       </div>
     </div>`;
-  showModal('📤 Экспорт слоёв в DXF', body, [
+  showModal('📤 Экспорт слоёв', body, [
     { label: 'Отмена', cls: 'bs', fn: closeModal },
     { label: 'Скачать DXF', cls: 'bp', fn: doLayerExport },
   ]);
+}
+
+function lexFmtChange() {
+  const fmt = document.querySelector('input[name="lex-fmt"]:checked')?.value || 'dxf';
+  const crsRow = document.getElementById('lex-crs-row');
+  if (crsRow) crsRow.style.display = fmt === 'dxf' ? '' : 'none';
+  // Update button label
+  const btn = document.querySelector('#mft .bp');
+  if (btn) btn.textContent = fmt === 'dxf' ? 'Скачать DXF' : 'Скачать KML';
+  // Highlight selected format card
+  document.querySelectorAll('input[name="lex-fmt"]').forEach(r => {
+    const card = r.closest('label');
+    if (card) card.style.borderColor = r.checked ? 'var(--acc)' : 'var(--bd)';
+  });
 }
 
 async function doLayerExport() {
   const ids = Array.from(document.querySelectorAll('.lex-cb'))
     .filter(c => c.checked).map(c => c.value);
   if (!ids.length) { toast('Выберите хотя бы один слой', 'err'); return; }
+  const fmt = document.querySelector('input[name="lex-fmt"]:checked')?.value || 'dxf';
+
+  if (fmt === 'kml') {
+    closeModal();
+    toast('Готовим KML…');
+    try {
+      const r = await fetch(`${API}/layers/export-kml`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ layerIds: ids }),
+      });
+      if (!r.ok) {
+        let msg = 'Ошибка экспорта';
+        try { const j = await r.json(); if (j.error) msg = j.error; } catch (_) {}
+        toast(msg, 'err'); return;
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'layers.kml';
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+      toast('✅ KML сохранён', 'ok');
+    } catch (e) { toast('Ошибка экспорта', 'err'); }
+    return;
+  }
+
+  // DXF export
   const crsEl = document.querySelector('input[name="lex-crs"]:checked');
   const crs = crsEl ? crsEl.value : 'wgs84';
   closeModal();

@@ -251,7 +251,81 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     return 7;
   }
 
-  app.post('/api/layers/export-dxf', wrap((req, res) => {
+  // ── KML export helper ──────────────────────────────────────
+  function buildLayersKML(rows) {
+    const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    function hexToKmlColor(hex, a) {
+      const h = (hex||'#1a56db').replace('#','').padStart(6,'0');
+      const aa = (a||255).toString(16).padStart(2,'0');
+      return `${aa}${h.slice(4,6)}${h.slice(2,4)}${h.slice(0,2)}`;
+    }
+    function ringCoords(ring) {
+      return ring.map(c=>`${c[0]},${c[1]},0`).join(' ');
+    }
+    function geoToKml(geo) {
+      if (!geo) return '';
+      const alt = '<altitudeMode>clampToGround</altitudeMode>';
+      if (geo.type==='Point') {
+        const [ln,lt]=geo.coordinates;
+        return `<Point>${alt}<coordinates>${ln},${lt},0</coordinates></Point>`;
+      }
+      if (geo.type==='LineString') {
+        return `<LineString>${alt}<coordinates>${ringCoords(geo.coordinates)}</coordinates></LineString>`;
+      }
+      if (geo.type==='MultiLineString') {
+        const parts=geo.coordinates.map(l=>`<LineString>${alt}<coordinates>${ringCoords(l)}</coordinates></LineString>`);
+        return `<MultiGeometry>${parts.join('')}</MultiGeometry>`;
+      }
+      if (geo.type==='Polygon') {
+        const outer=`<outerBoundaryIs><LinearRing>${alt}<coordinates>${ringCoords(geo.coordinates[0])}</coordinates></LinearRing></outerBoundaryIs>`;
+        const inner=geo.coordinates.slice(1).map(r=>`<innerBoundaryIs><LinearRing>${alt}<coordinates>${ringCoords(r)}</coordinates></LinearRing></innerBoundaryIs>`).join('');
+        return `<Polygon>${outer}${inner}</Polygon>`;
+      }
+      if (geo.type==='MultiPolygon') {
+        const polys=geo.coordinates.map(poly=>{
+          const outer=`<outerBoundaryIs><LinearRing>${alt}<coordinates>${ringCoords(poly[0])}</coordinates></LinearRing></outerBoundaryIs>`;
+          const inner=poly.slice(1).map(r=>`<innerBoundaryIs><LinearRing>${alt}<coordinates>${ringCoords(r)}</coordinates></LinearRing></innerBoundaryIs>`).join('');
+          return `<Polygon>${outer}${inner}</Polygon>`;
+        });
+        return `<MultiGeometry>${polys.join('')}</MultiGeometry>`;
+      }
+      return '';
+    }
+    const styles = rows.map((r,i)=>{
+      const lc=hexToKmlColor(r.color,255), fc=hexToKmlColor(r.color,80);
+      return `<Style id="s${i}">
+  <IconStyle><color>${lc}</color><scale>0.8</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon></IconStyle>
+  <LineStyle><color>${lc}</color><width>2.5</width></LineStyle>
+  <PolyStyle><color>${fc}</color></PolyStyle>
+  <LabelStyle><color>${lc}</color><scale>0.85</scale></LabelStyle>
+</Style>`;
+    }).join('\n');
+    const folders = rows.map((r,i)=>{
+      let gj; try{gj=JSON.parse(r.geojson);}catch(_){gj=null;}
+      const features=(gj?.features||[gj]).filter(Boolean);
+      const marks=features.map((f,fi)=>{
+        const g=geoToKml(f?.geometry);
+        if(!g)return '';
+        const nm=esc(f?.properties?.name||f?.properties?.Name||`Объект ${fi+1}`);
+        const desc=f?.properties?.description||f?.properties?.Description||'';
+        return `<Placemark><name>${nm}</name>${desc?`<description>${esc(desc)}</description>`:''}<styleUrl>#s${i}</styleUrl>${g}</Placemark>`;
+      }).filter(Boolean).join('\n');
+      return `<Folder><name>${esc(r.name||'Слой')}</name>${marks}</Folder>`;
+    }).join('\n');
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n<name>Экспорт слоёв</name>\n${styles}\n${folders}\n</Document>\n</kml>`;
+  }
+
+  app.post('/api/layers/export-kml', wrap((req, res) => {
+    const { layerIds } = req.body || {};
+    if (!Array.isArray(layerIds) || !layerIds.length)
+      return res.status(400).json({ error: 'layerIds required' });
+    const rows = all(db(), `SELECT id,name,geojson,color FROM kml_layers WHERE id IN (${layerIds.map(()=>'?').join(',')})`, layerIds);
+    if (!rows.length) return res.status(404).json({ error: 'Слои не найдены' });
+    const kml = buildLayersKML(rows);
+    res.setHeader('Content-Type','application/vnd.google-earth.kml+xml; charset=utf-8');
+    res.setHeader('Content-Disposition','attachment; filename="layers.kml"');
+    res.send(kml);
+  }));
     const { layerIds, crs, filename } = req.body || {};
     if (!Array.isArray(layerIds) || !layerIds.length) {
       return res.status(400).json({ error: 'layerIds required' });
