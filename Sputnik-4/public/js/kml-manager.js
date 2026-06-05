@@ -156,8 +156,9 @@ function renderKmlPanel() {
     grouped[l.group_id].push(l);
   });
 
-  let html = `<div style="padding:4px 8px 2px">
-    <button class="btn bs bxs" style="width:100%;justify-content:center" onclick="kmlCreateIconLayer()" title="Создать пустой слой для ручного размещения иконок на карте">📌 Создать слой иконок</button>
+  let html = `<div style="padding:4px 8px 2px;display:flex;gap:4px">
+    <button class="btn bs bxs" style="flex:1;justify-content:center" onclick="kmlCreateIconLayer()" title="Создать пустой слой для ручного размещения иконок на карте">📌 Создать слой</button>
+    <button class="btn bs bxs" style="flex:1;justify-content:center" onclick="openCoordMarkerModal()" title="Поставить метку по введённым координатам">🔢 По координатам</button>
   </div>`;
   kmGroupOrder.forEach(gid => {
     const g = kmGroups[gid];
@@ -1077,6 +1078,305 @@ async function doLayerExport() {
   } catch (e) {
     toast('Ошибка экспорта', 'err');
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// ПОСТАВИТЬ МЕТКУ — ПКМ + ввод координат
+// ═══════════════════════════════════════════════════════════
+
+let _pmSym = 'point';
+let _cmCrs = 'wgs';
+
+const _PM_QUICK_SYMS = ['point','flag','star','benchmark','borehole','warning','camp','picket'];
+
+function _parseDMSCoord(str) {
+  if (!str) return NaN;
+  str = str.trim().replace(',', '.');
+  if (/^-?[\d.]+$/.test(str.replace(/\s/g, ''))) return parseFloat(str);
+  const neg = /^-|[SsWwЮюЗз]/.test(str.replace(/\d/g, ''));
+  const nums = str.match(/[\d]+(?:\.[\d]+)?/g);
+  if (!nums) return NaN;
+  const val = (parseFloat(nums[0]) || 0) + (parseFloat(nums[1]) || 0) / 60 + (parseFloat(nums[2]) || 0) / 3600;
+  return neg ? -val : val;
+}
+
+function _pmSymHtml(containerId, selected) {
+  return _PM_QUICK_SYMS.map(k => {
+    const sym = KML_SYMBOLS[k];
+    if (!sym) return '';
+    const svg = sym.svg.replace(/COLOR/g, 'currentColor');
+    return `<div class="kml-sym-btn ${k === selected ? 'on' : ''}" data-sym="${k}" data-container="${containerId}"
+      onclick="_pmSelSym(this)" title="${sym.label}"
+      style="width:30px;height:30px;padding:3px;cursor:pointer;border-radius:4px">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">${svg}</svg>
+    </div>`;
+  }).join('');
+}
+
+function _pmSelSym(el) {
+  const cid = el.dataset.container;
+  document.querySelectorAll(`.kml-sym-btn[data-container="${cid}"]`).forEach(b => b.classList.remove('on'));
+  el.classList.add('on');
+  _pmSym = el.dataset.sym;
+}
+
+function _pmLayerSelectHtml(pfx) {
+  const globalLayers = layers.filter(l => !l.site_id);
+  return `<select id="${pfx}-layer" onchange="${pfx}LayerChange()"
+    style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);
+    border-radius:var(--rs);background:var(--s2)">
+    <option value="_new">— Новый слой —</option>
+    ${globalLayers.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}
+  </select>
+  <div id="${pfx}-newname-row" style="margin-top:5px">
+    <input id="${pfx}-newname" type="text" placeholder="Мои метки"
+      style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
+      border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+  </div>`;
+}
+
+async function _saveMarkerPoint(lat, lng, name, layerId, newLayerName, color, sym) {
+  let ll;
+  if (layerId === '_new') {
+    const gj = JSON.stringify({ type: 'FeatureCollection', features: [] });
+    const nm = (newLayerName || '').trim() || 'Метки';
+    const r = await fetch(`${API}/layers`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: nm, geojson: gj, color: color || '#e53935', symbol: sym || 'point',
+        visible: 1, group_id: '', line_dash: 'solid' }) });
+    const j = await r.json();
+    ll = { id: j.id, name: nm, geojson: gj, color: color || '#e53935', symbol: sym || 'point',
+      visible: 1, group_id: '', line_dash: 'solid', size: 1, show_labels: 0 };
+    layers.unshift(ll);
+  } else {
+    ll = layers.find(x => x.id === layerId);
+    if (!ll) { toast('Слой не найден', 'err'); return false; }
+  }
+  let gj;
+  try { gj = JSON.parse(ll.geojson); } catch (_) { gj = { type: 'FeatureCollection', features: [] }; }
+  if (!Array.isArray(gj.features)) gj.features = [];
+  const props = { name: (name || '').trim() || 'Метка' };
+  if (color && color !== ll.color) props._color = color;
+  if (sym && sym !== ll.symbol) props._sym = sym;
+  gj.features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: props });
+  const newGJ = JSON.stringify(gj);
+  await fetch(`${API}/layers/${ll.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: ll.name, color: ll.color, visible: ll.visible ? 1 : 0,
+      symbol: ll.symbol || '', group_id: ll.group_id || '', line_dash: ll.line_dash || 'solid',
+      min_zoom: ll.min_zoom || 0, max_zoom: ll.max_zoom || 20, size: ll.size || 1,
+      show_labels: ll.show_labels ? 1 : 0, geojson: newGJ }) });
+  ll.geojson = newGJ;
+  try { renderLayerGroups(); } catch (e) {}
+  setTimeout(bringVolumesToFront, 50);
+  try { if (kmlPanelOpen) renderKmlPanel(); } catch (e) {}
+  try { renderLP(); } catch (e) {}
+  return true;
+}
+
+// ── Метка по клику ПКМ ──────────────────────────────────────
+function openPlaceMarkerModal(latlng) {
+  _pmSym = 'point';
+  showModal('📌 Поставить метку', `
+    <div class="fgr fone">
+      <div class="fg">
+        <label>Название</label>
+        <input id="pm-name" type="text" placeholder="КПП, Скважина, Точка 1..."
+          style="width:100%;box-sizing:border-box;font-size:13px;padding:5px 8px;
+          border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+      </div>
+      <div style="font-size:10px;color:var(--tx3);margin:-4px 0 6px">
+        📍 ${latlng.lat.toFixed(6)}°N, ${latlng.lng.toFixed(6)}°E
+      </div>
+      <div class="fg">
+        <label>Слой</label>
+        ${_pmLayerSelectHtml('pm')}
+      </div>
+      <div class="fg" style="display:flex;align-items:flex-start;gap:14px">
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Цвет</label>
+          <input id="pm-color" type="color" value="#e53935"
+            style="width:44px;height:32px;padding:2px;border:1.5px solid var(--bd);
+            border-radius:var(--rs);cursor:pointer">
+        </div>
+        <div style="flex:1">
+          <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Знак</label>
+          <div style="display:flex;flex-wrap:wrap;gap:3px">${_pmSymHtml('pm', 'point')}</div>
+        </div>
+      </div>
+    </div>`,
+    [
+      { label: 'Отмена', cls: 'bs', fn: closeModal },
+      { label: '📍 Добавить', cls: 'bp', fn: async () => {
+        const name = (document.getElementById('pm-name')?.value || '').trim();
+        const layerId = document.getElementById('pm-layer')?.value;
+        const newName = (document.getElementById('pm-newname')?.value || '').trim();
+        const color = document.getElementById('pm-color')?.value || '#e53935';
+        const ok = await _saveMarkerPoint(latlng.lat, latlng.lng, name, layerId, newName, color, _pmSym);
+        if (ok) { closeModal(); toast('✅ Метка добавлена', 'ok'); }
+      }}
+    ]
+  );
+  setTimeout(() => { const el = document.getElementById('pm-name'); if (el) el.focus(); }, 80);
+}
+
+function pmLayerChange() {
+  const sel = document.getElementById('pm-layer');
+  const row = document.getElementById('pm-newname-row');
+  if (row) row.style.display = sel && sel.value === '_new' ? '' : 'none';
+}
+
+// ── Метка по координатам ────────────────────────────────────
+function openCoordMarkerModal(prefillLatlng) {
+  _pmSym = 'point';
+  _cmCrs = 'wgs';
+  const lat0 = prefillLatlng ? prefillLatlng.lat.toFixed(6) : '';
+  const lon0 = prefillLatlng ? prefillLatlng.lng.toFixed(6) : '';
+  showModal('🔢 Метка по координатам', `
+    <div class="fgr fone">
+      <div class="fg">
+        <label>Система координат</label>
+        <div style="display:flex;gap:4px">
+          <button id="cmb-wgs" class="btn bsm on" onclick="cmSetCrs('wgs')">WGS-84</button>
+          <button id="cmb-msk" class="btn bsm"    onclick="cmSetCrs('msk')">МСК-86</button>
+          <button id="cmb-gsk" class="btn bsm"    onclick="cmSetCrs('gsk')">ГСК-2011</button>
+        </div>
+      </div>
+      <div id="cm-wgs-fields">
+        <div class="fg">
+          <label>Широта (°N)</label>
+          <input id="cm-lat" type="text" value="${lat0}"
+            placeholder="60.123456 или 60°07′24.42″" oninput="cmUpdatePreview()"
+            style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
+            border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+        </div>
+        <div class="fg">
+          <label>Долгота (°E)</label>
+          <input id="cm-lon" type="text" value="${lon0}"
+            placeholder="68.654321 или 68°39′15.56″" oninput="cmUpdatePreview()"
+            style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
+            border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+        </div>
+      </div>
+      <div id="cm-proj-fields" style="display:none">
+        <div class="fg">
+          <label>X — Северная (м)</label>
+          <input id="cm-north" type="text" placeholder="6 630 000.00" oninput="cmUpdatePreview()"
+            style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
+            border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+        </div>
+        <div class="fg">
+          <label>Y — Восточная (м)</label>
+          <input id="cm-east" type="text" placeholder="12 500 000.00" oninput="cmUpdatePreview()"
+            style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
+            border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+        </div>
+        <div id="cm-zone-hint"
+          style="font-size:10px;color:var(--tx3);margin-top:-4px;margin-bottom:2px">
+          Зона определяется автоматически по значению Y
+        </div>
+      </div>
+      <div id="cm-preview"
+        style="font-size:10px;min-height:16px;padding:3px 0;color:var(--tx3)"></div>
+      <div class="fg">
+        <label>Название метки</label>
+        <input id="cm-name" type="text" placeholder="Точка 1, КПП, Скважина..."
+          style="width:100%;box-sizing:border-box;font-size:13px;padding:5px 8px;
+          border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+      </div>
+      <div class="fg">
+        <label>Слой</label>
+        ${_pmLayerSelectHtml('cm')}
+      </div>
+      <div class="fg" style="display:flex;align-items:flex-start;gap:14px">
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Цвет</label>
+          <input id="cm-color" type="color" value="#1a56db"
+            style="width:44px;height:32px;padding:2px;border:1.5px solid var(--bd);
+            border-radius:var(--rs);cursor:pointer">
+        </div>
+        <div style="flex:1">
+          <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Знак</label>
+          <div style="display:flex;flex-wrap:wrap;gap:3px">${_pmSymHtml('cm', 'point')}</div>
+        </div>
+      </div>
+    </div>`,
+    [
+      { label: 'Отмена', cls: 'bs', fn: closeModal },
+      { label: '📍 Добавить', cls: 'bp', fn: async () => {
+        const ll = _cmGetLatlng();
+        if (!ll) { toast('❌ Некорректные координаты', 'err'); return; }
+        const name = (document.getElementById('cm-name')?.value || '').trim();
+        const layerId = document.getElementById('cm-layer')?.value;
+        const newName = (document.getElementById('cm-newname')?.value || '').trim();
+        const color = document.getElementById('cm-color')?.value || '#1a56db';
+        const ok = await _saveMarkerPoint(ll.lat, ll.lng, name, layerId, newName, color, _pmSym);
+        if (ok) {
+          closeModal();
+          toast('✅ Метка добавлена', 'ok');
+          map.flyTo([ll.lat, ll.lng], Math.max(map.getZoom(), 14));
+        }
+      }}
+    ]
+  );
+  setTimeout(() => {
+    const el = _cmCrs === 'wgs' ? document.getElementById('cm-lat') : document.getElementById('cm-north');
+    if (el) el.focus();
+    cmUpdatePreview();
+  }, 80);
+}
+
+function cmSetCrs(crs) {
+  _cmCrs = crs;
+  ['wgs', 'msk', 'gsk'].forEach(c => {
+    const b = document.getElementById('cmb-' + c);
+    if (b) b.classList.toggle('on', c === crs);
+  });
+  const wf = document.getElementById('cm-wgs-fields');
+  const pf = document.getElementById('cm-proj-fields');
+  if (wf) wf.style.display = crs === 'wgs' ? '' : 'none';
+  if (pf) pf.style.display = crs !== 'wgs' ? '' : 'none';
+  cmUpdatePreview();
+}
+
+function _cmGetLatlng() {
+  if (_cmCrs === 'wgs') {
+    const lat = _parseDMSCoord(document.getElementById('cm-lat')?.value || '');
+    const lon = _parseDMSCoord(document.getElementById('cm-lon')?.value || '');
+    if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+    return { lat, lng: lon };
+  }
+  const rawN = (document.getElementById('cm-north')?.value || '').replace(/[\s ]/g, '').replace(',', '.');
+  const rawE = (document.getElementById('cm-east')?.value || '').replace(/[\s ]/g, '').replace(',', '.');
+  const north = parseFloat(rawN), east = parseFloat(rawE);
+  if (isNaN(north) || isNaN(east)) return null;
+  const zone = Math.round(east / 1000000);
+  if (zone < 1 || zone > 60) return null;
+  try {
+    const conv = _cmCrs === 'msk' ? mskToWgs : gskToWgs;
+    const { lat, lon } = conv(north, east, zone);
+    if (isNaN(lat) || isNaN(lon)) return null;
+    return { lat, lng: lon };
+  } catch (_) { return null; }
+}
+
+function cmUpdatePreview() {
+  const el = document.getElementById('cm-preview');
+  if (!el) return;
+  const ll = _cmGetLatlng();
+  if (!ll) { el.textContent = ''; return; }
+  let hint = '';
+  if (_cmCrs !== 'wgs') {
+    const rawE = (document.getElementById('cm-east')?.value || '').replace(/[\s ]/g, '').replace(',', '.');
+    const east = parseFloat(rawE);
+    const zone = isNaN(east) ? '?' : Math.round(east / 1000000);
+    hint = ` · зона ${zone}`;
+  }
+  el.innerHTML = `→ WGS-84${hint}: <b>${ll.lat.toFixed(6)}°N</b> &nbsp; <b>${ll.lng.toFixed(6)}°E</b>`;
+}
+
+function cmLayerChange() {
+  const sel = document.getElementById('cm-layer');
+  const row = document.getElementById('cm-newname-row');
+  if (row) row.style.display = sel && sel.value === '_new' ? '' : 'none';
 }
 
 // ── Инициализация ───────────────────────────────────────────

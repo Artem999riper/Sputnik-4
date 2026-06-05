@@ -57,6 +57,16 @@ function wgsToGsk(lat, lon) {
   return { northing, easting, zone };
 }
 
+function mskToWgs(northing, easting, zone) {
+  const [lon, lat] = proj4(_mskProj(zone), _WGS84, [easting, northing]);
+  return { lat, lon };
+}
+
+function gskToWgs(northing, easting, zone) {
+  const [lon, lat] = proj4(_gskProj(zone), _WGS84, [easting, northing]);
+  return { lat, lon };
+}
+
 // ── Форматирование ─────────────────────────────────────────
 function formatWGS(lat, lon) {
   const latH = lat >= 0 ? 'N' : 'S';

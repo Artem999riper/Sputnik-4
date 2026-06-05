@@ -67,6 +67,9 @@ function onMapRClick(e){
   }
   const hasRuler=rulerPts.length>=2;
   showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
+    {i:'📌',l:'Поставить метку',f:()=>openPlaceMarkerModal(e.latlng)},
+    {i:'🔢',l:'Метка по координатам',f:()=>openCoordMarkerModal(e.latlng)},
+    {sep:true},
     {i:'📍',l:'Отметка высоты (БСВ-77)',f:()=>showElevationAtPoint(e.latlng)},
     {sep:true},
     {i:'📏',l:'Линейка (замер расстояния)',f:startRuler},
