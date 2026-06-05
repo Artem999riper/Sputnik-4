@@ -326,6 +326,8 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.setHeader('Content-Disposition','attachment; filename="layers.kml"');
     res.send(kml);
   }));
+
+  app.post('/api/layers/export-dxf', wrap(async (req, res) => {
     const { layerIds, crs, filename } = req.body || {};
     if (!Array.isArray(layerIds) || !layerIds.length) {
       return res.status(400).json({ error: 'layerIds required' });
