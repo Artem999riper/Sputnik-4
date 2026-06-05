@@ -252,6 +252,33 @@ function openDEMPanel() {
               </button>
             </div>
           </div>
+          <div style="margin-top:5px;border-top:1px solid var(--bd);padding-top:5px">
+            <div style="display:flex;align-items:center;gap:4px">
+              <span style="color:var(--tx3);flex-shrink:0">📁 Папка:</span>
+              <span id="dem-tiles-dir-label" style="flex:1;overflow:hidden;text-overflow:ellipsis;
+                white-space:nowrap;color:var(--tx2);font-family:monospace">—</span>
+              <button onclick="demToggleTilesDirEdit()"
+                style="font-size:9px;padding:1px 7px;background:var(--s3);border:1px solid var(--bd);
+                border-radius:3px;cursor:pointer;color:var(--tx2);white-space:nowrap;flex-shrink:0">
+                ✏️ Изменить
+              </button>
+            </div>
+            <div id="dem-tiles-dir-edit" style="display:none;margin-top:5px">
+              <div style="display:flex;gap:4px">
+                <input id="dem-tiles-dir-input" type="text" placeholder="Например: D:\\DEM_Cache или /mnt/data/dem_tiles"
+                  style="flex:1;font-size:10px;padding:3px 6px;border:1.5px solid var(--bd);
+                  border-radius:3px;background:var(--s1)">
+                <button onclick="demSaveTilesDir()"
+                  style="font-size:9px;padding:2px 10px;background:var(--acc);color:#fff;border:none;
+                  border-radius:3px;cursor:pointer;white-space:nowrap">
+                  Сохранить
+                </button>
+              </div>
+              <div style="font-size:9px;color:var(--tx3);margin-top:3px">
+                Папка будет создана автоматически. Сервер перезапускать не нужно.
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -300,6 +327,7 @@ function openDEMPanel() {
     ]
   );
   setTimeout(demRefreshTileCache, 100);
+  setTimeout(_demLoadTilesDir, 120);
 }
 
 
@@ -703,6 +731,46 @@ async function demDownloadGeoidGrids() {
   } catch(e) {
     toast('❌ Ошибка скачивания: ' + e.message, 'err');
     await demCheckGeoid();
+  }
+}
+
+async function _demLoadTilesDir() {
+  try {
+    const r = await fetch('/api/dem/tiles-dir');
+    const j = await r.json();
+    const lbl = document.getElementById('dem-tiles-dir-label');
+    const inp = document.getElementById('dem-tiles-dir-input');
+    if (lbl) lbl.textContent = j.dir || '—';
+    if (inp) inp.value = j.dir || '';
+  } catch(_) {}
+}
+
+function demToggleTilesDirEdit() {
+  const el = document.getElementById('dem-tiles-dir-edit');
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+async function demSaveTilesDir() {
+  const inp = document.getElementById('dem-tiles-dir-input');
+  const dir = (inp ? inp.value : '').trim();
+  if (!dir) { toast('Введите путь к папке', 'warn'); return; }
+  try {
+    const r = await fetch('/api/dem/tiles-dir', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dir }),
+    });
+    const j = await r.json();
+    if (!r.ok) { toast('❌ ' + (j.error || 'Ошибка'), 'err'); return; }
+    const lbl = document.getElementById('dem-tiles-dir-label');
+    if (lbl) lbl.textContent = j.dir;
+    if (inp) inp.value = j.dir;
+    document.getElementById('dem-tiles-dir-edit').style.display = 'none';
+    toast('✅ Путь сохранён: ' + j.dir, 'ok');
+    await demRefreshTileCache();
+  } catch(e) {
+    toast('❌ ' + e.message, 'err');
   }
 }
 

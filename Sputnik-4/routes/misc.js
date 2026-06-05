@@ -8,6 +8,14 @@ const { trashAndDelete, broadcast } = require('./realtime');
 module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, getBackupSettings, setBackupSettings, performAutoBackup }) => {
   const db = () => getDb();
 
+  // Инициализация пути к dem_tiles из сохранённых настроек
+  if (demProcessor && demProcessor.setDemTilesDir) {
+    try {
+      const saved = get(db(), "SELECT value FROM app_settings WHERE key='dem_tiles_dir'");
+      if (saved) demProcessor.setDemTilesDir(saved.value.replace(/^"|"$/g, ''));
+    } catch(_) {}
+  }
+
   // ── APP SETTINGS (shared key-value store) ──────────────────
   app.get('/api/app-settings/:key', wrap((req, res) => {
     const row = get(db(), 'SELECT value FROM app_settings WHERE key=?', [req.params.key]);
@@ -330,6 +338,28 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     }
     res.json({ deleted });
   });
+
+  // GET /api/dem/tiles-dir — текущий путь к папке тайлов
+  app.get('/api/dem/tiles-dir', (req, res) => {
+    const dir = demProcessor ? demProcessor.getDemTilesDir() : '';
+    res.json({ dir });
+  });
+
+  // PUT /api/dem/tiles-dir — сменить путь, создать папку, сохранить в настройках
+  app.put('/api/dem/tiles-dir', wrap((req, res) => {
+    if (!demProcessor) return res.status(503).json({ error: 'dem-processor не загружен' });
+    const rawDir = (req.body.dir || '').trim();
+    if (!rawDir) return res.status(400).json({ error: 'Путь не указан' });
+    const resolved = path.resolve(rawDir);
+    try {
+      if (!fs.existsSync(resolved)) fs.mkdirSync(resolved, { recursive: true });
+    } catch(e) {
+      return res.status(400).json({ error: `Не удалось создать папку: ${e.message}` });
+    }
+    demProcessor.setDemTilesDir(resolved);
+    run(db(), "INSERT OR REPLACE INTO app_settings(key,value) VALUES('dem_tiles_dir',?)", [resolved]);
+    res.json({ ok: true, dir: resolved });
+  }));
 
   app.get('/api/elevation/point', async (req, res) => {
     const lat = parseFloat(req.query.lat);

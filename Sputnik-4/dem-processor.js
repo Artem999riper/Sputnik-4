@@ -225,14 +225,17 @@ function runGDALProgress(exe, args, onPct) {
 }
 
 // ── Локальные DEM-тайлы ────────────────────────────────────
-const DEM_TILES_DIR = path.join(__dirname, 'dem_tiles');
+let _demTilesDir = path.join(__dirname, 'dem_tiles');
+
+function getDemTilesDir() { return _demTilesDir; }
+function setDemTilesDir(dir) { _demTilesDir = path.resolve(dir); }
 
 function _findLocalTiles() {
-  if (!fs.existsSync(DEM_TILES_DIR)) return [];
+  if (!fs.existsSync(getDemTilesDir())) return [];
   try {
-    return fs.readdirSync(DEM_TILES_DIR)
+    return fs.readdirSync(getDemTilesDir())
       .filter(f => /\.(tif|tiff)$/i.test(f))
-      .map(f => path.join(DEM_TILES_DIR, f));
+      .map(f => path.join(getDemTilesDir(), f));
   } catch(e) { return []; }
 }
 
@@ -245,17 +248,17 @@ function _tileBboxFromName(name) {
 
 // Возвращает локальный тайл, который ПОЛНОСТЬЮ покрывает запрошенный bbox (или null)
 function _findCoveringLocalTile(bbox) {
-  if (!fs.existsSync(DEM_TILES_DIR)) return null;
+  if (!fs.existsSync(getDemTilesDir())) return null;
   const eps = 1e-6;
   let files;
-  try { files = fs.readdirSync(DEM_TILES_DIR).filter(f => /\.tif$/i.test(f)); }
+  try { files = fs.readdirSync(getDemTilesDir()).filter(f => /\.tif$/i.test(f)); }
   catch(_) { return null; }
   for (const f of files) {
     const tb = _tileBboxFromName(f);
     if (!tb) continue;
     if (tb.minLng <= bbox.minLng + eps && tb.maxLng >= bbox.maxLng - eps &&
         tb.minLat <= bbox.minLat + eps && tb.maxLat >= bbox.maxLat - eps) {
-      return path.join(DEM_TILES_DIR, f);
+      return path.join(getDemTilesDir(), f);
     }
   }
   return null;
@@ -418,9 +421,9 @@ print(json.dumps({"values": results, "geoid": corr is not None}))
 
     // Кэшируем вырезку для следующих обращений (тот же кэш, что и у экспорта)
     try {
-      if (!fs.existsSync(DEM_TILES_DIR)) fs.mkdirSync(DEM_TILES_DIR, { recursive: true });
+      if (!fs.existsSync(getDemTilesDir())) fs.mkdirSync(getDemTilesDir(), { recursive: true });
       const cacheKey = [minLng, minLat, maxLng, maxLat].map(v => v.toFixed(3)).join('_');
-      const cacheTif = path.join(DEM_TILES_DIR, `dem_${cacheKey}.tif`);
+      const cacheTif = path.join(getDemTilesDir(), `dem_${cacheKey}.tif`);
       if (!fs.existsSync(cacheTif)) fs.copyFileSync(clipped, cacheTif);
     } catch(_) {}
 
@@ -454,13 +457,13 @@ async function getElevationProfile(points) {
 }
 
 function getDemTilesInfo() {
-  if (!fs.existsSync(DEM_TILES_DIR)) return { dir: DEM_TILES_DIR, tiles: [], exists: false };
+  if (!fs.existsSync(getDemTilesDir())) return { dir: getDemTilesDir(), tiles: [], exists: false };
   try {
-    const tiles = fs.readdirSync(DEM_TILES_DIR)
+    const tiles = fs.readdirSync(getDemTilesDir())
       .filter(f => /\.(tif|tiff)$/i.test(f))
-      .map(f => ({ name: f, size: fs.statSync(path.join(DEM_TILES_DIR, f)).size }));
-    return { dir: DEM_TILES_DIR, tiles, exists: true };
-  } catch(e) { return { dir: DEM_TILES_DIR, tiles: [], exists: true, error: e.message }; }
+      .map(f => ({ name: f, size: fs.statSync(path.join(getDemTilesDir(), f)).size }));
+    return { dir: getDemTilesDir(), tiles, exists: true };
+  } catch(e) { return { dir: getDemTilesDir(), tiles: [], exists: true, error: e.message }; }
 }
 
 // ── Спутник ────────────────────────────────────────────────
@@ -826,9 +829,9 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     // (пропускаем, если территория уже была взята из кэша — не плодим дубликаты)
     let savedCacheTif = null;
     if (!cachedCover) try {
-      if (!fs.existsSync(DEM_TILES_DIR)) fs.mkdirSync(DEM_TILES_DIR, { recursive: true });
+      if (!fs.existsSync(getDemTilesDir())) fs.mkdirSync(getDemTilesDir(), { recursive: true });
       const cacheKey = [minLng, minLat, maxLng, maxLat].map(v => v.toFixed(3)).join('_');
-      const cacheTif = path.join(DEM_TILES_DIR, `dem_${cacheKey}.tif`);
+      const cacheTif = path.join(getDemTilesDir(), `dem_${cacheKey}.tif`);
       if (!fs.existsSync(cacheTif)) fs.copyFileSync(clippedTif, cacheTif);
       savedCacheTif = cacheTif;
     } catch(e) { log.push('Cache skip: ' + e.message.slice(0, 60)); }
@@ -1137,6 +1140,7 @@ async function checkGDAL(){
 module.exports = {
   processDEM, cleanupTmp, checkGDAL,
   getElevationAtPoint, getElevationProfile, getDemTilesInfo, computeGeoidN,
+  getDemTilesDir, setDemTilesDir,
   _downloadGeoidGrids: _ensureGeoidGrids,
   _resetGeoidCheck: () => { _geoidGridsChecked = false; },
 };
