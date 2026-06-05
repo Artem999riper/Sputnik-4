@@ -228,6 +228,7 @@ async function loadAll(){
     if(br.ok)bases=await br.json(); else if(!Array.isArray(bases))bases=[];
     if(lr.ok){
       layers=await lr.json();
+      layers.forEach(l=>{ layerLabels[l.id]=!!l.show_labels; });
     } else if(!Array.isArray(layers))layers=[];
     if(mr.ok)pgkMachinery=await mr.json(); else if(!Array.isArray(pgkMachinery))pgkMachinery=[];
   }catch(e){

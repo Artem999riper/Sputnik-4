@@ -280,11 +280,20 @@ function _updateKmlLabelScale(){
     else{el.style.display='';el.style.fontSize=z<12?'8px':'10px';}
   });
 }
-function toggleLayerLabels(id){
+async function toggleLayerLabels(id){
   layerLabels[id]=!layerLabels[id];
   renderLP();
   renderLayerGroups();
   setTimeout(bringVolumesToFront,50);
+  try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
+  const l=layers.find(x=>x.id===id);
+  if(l){
+    l.show_labels=layerLabels[id]?1:0;
+    await fetch(`${API}/layers/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:l.name,color:l.color,visible:l.visible?1:0,
+        symbol:l.symbol||'',group_id:l.group_id||'',line_dash:l.line_dash||'solid',
+        show_labels:layerLabels[id]?1:0})});
+  }
 }
 function editLayer(id){
   const l=layers.find(x=>x.id===id);if(!l)return;

@@ -123,8 +123,9 @@ function kmlFeatureDivIcon(layerObj, featureProps) {
   return L.divIcon({
     className: '',
     html: `<div style="filter:drop-shadow(0 1px 3px rgba(0,0,0,.4))">${kmlSvgIcon(sym, color, size)}</div>`,
-    iconSize:  [size, size],
-    iconAnchor:[size/2, size/2],
+    iconSize:    [size, size],
+    iconAnchor:  [size/2, size/2],
+    tooltipAnchor: [0, -size/2],
   });
 }
 
