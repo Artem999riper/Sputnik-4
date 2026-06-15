@@ -4,6 +4,155 @@ const { v4: uuid } = require('uuid');
 const { all, get, run } = require('../database');
 const { required, wrap } = require('./validate');
 const { trashAndDelete, broadcast } = require('./realtime');
+const proj4 = require('proj4');
+
+// ── DXF IMPORT HELPERS ─────────────────────────────────────
+const _DXF_WGS84 = '+proj=longlat +datum=WGS84 +no_defs';
+function _dxfMskProj(zone) {
+  const lon_0 = 60.05 + 6 * (zone - 1), x_0 = zone * 1000000 + 500000;
+  return `+proj=tmerc +lat_0=0 +lon_0=${lon_0} +k=1 +x_0=${x_0} +y_0=-5811057.63 +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs`;
+}
+function _dxfGskProj(zone) {
+  const lon_0 = zone * 6 - 3, x_0 = zone * 1000000 + 500000;
+  return `+proj=tmerc +lat_0=0 +lon_0=${lon_0} +k=1 +x_0=${x_0} +y_0=0 +a=6378136.5 +rf=298.2564151 +towgs84=0.013,-0.092,-0.03,-0.001738,0.003559,-0.004263,0.0074 +units=m +no_defs`;
+}
+
+function parseDXF(text) {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const pairs = [];
+  for (let i = 0; i + 1 < lines.length; i += 2) {
+    const code = parseInt(lines[i].trim(), 10);
+    const val  = lines[i + 1] ? lines[i + 1].trim() : '';
+    if (!isNaN(code)) pairs.push([code, val]);
+  }
+
+  const dxfLayers = new Map();
+  let inEntities = false;
+  const ENTITY_TYPES = new Set(['POINT','LINE','LWPOLYLINE','POLYLINE','VERTEX','SEQEND','TEXT','MTEXT','INSERT']);
+  let i = 0;
+  while (i < pairs.length) {
+    const [code, val] = pairs[i];
+    if (code === 0 && val === 'SECTION') {
+      i++;
+      if (pairs[i] && pairs[i][0] === 2) {
+        inEntities = pairs[i][1] === 'ENTITIES';
+        i++;
+      }
+      continue;
+    }
+    if (code === 0 && val === 'ENDSEC') { inEntities = false; i++; continue; }
+    if (!inEntities) { i++; continue; }
+
+    if (code === 0 && ENTITY_TYPES.has(val)) {
+      const type = val;
+      const codes = [];
+      i++;
+      while (i < pairs.length && pairs[i][0] !== 0) { codes.push(pairs[i]); i++; }
+      const layerName = codes.find(([c]) => c === 8)?.[1] || '0';
+      const entity = { type, layer: layerName, codes };
+
+      if (type === 'POLYLINE') {
+        entity.vertices = [];
+        while (i < pairs.length) {
+          if (pairs[i][0] !== 0) { i++; continue; }
+          if (pairs[i][1] === 'VERTEX') {
+            i++;
+            const vc = [];
+            while (i < pairs.length && pairs[i][0] !== 0) { vc.push(pairs[i]); i++; }
+            entity.vertices.push(vc);
+          } else if (pairs[i][1] === 'SEQEND') {
+            i++;
+            while (i < pairs.length && pairs[i][0] !== 0) i++;
+            break;
+          } else { break; }
+        }
+      }
+      if (type !== 'SEQEND' && type !== 'VERTEX') {
+        if (!dxfLayers.has(layerName)) dxfLayers.set(layerName, []);
+        dxfLayers.get(layerName).push(entity);
+      }
+    } else { i++; }
+  }
+  return dxfLayers;
+}
+
+function _dxfFindFirstX(dxfLayers) {
+  for (const entities of dxfLayers.values()) {
+    for (const ent of entities) {
+      const p = ent.codes.find(([c]) => c === 10);
+      if (p) { const x = parseFloat(p[1]); if (isFinite(x) && Math.abs(x) > 1000) return x; }
+    }
+  }
+  return 3500000;
+}
+
+function makeDxfInverseTransform(crs, sampleX) {
+  if (crs === 'wgs84') return (x, y) => [x, y];
+  let zone;
+  if      (crs === 'msk86_z3') zone = 3;
+  else if (crs === 'msk86_z4') zone = 4;
+  else if (crs === 'msk86')    zone = Math.round((sampleX || 3500000) / 1e6);
+  else                          zone = Math.floor((sampleX || 3500000) / 1e6); // gsk2011
+  const projStr = crs === 'gsk2011' ? _dxfGskProj(zone) : _dxfMskProj(zone);
+  return (x, y) => { const [lng, lat] = proj4(projStr, _DXF_WGS84, [x, y]); return [lng, lat]; };
+}
+
+function dxfEntitiesToFeatures(entities, inv) {
+  const features = [];
+  const gF = (c, code) => { const p = c.find(([k]) => k === code); return p ? parseFloat(p[1]) : 0; };
+  const gAll = (c, code) => c.filter(([k]) => k === code).map(([, v]) => parseFloat(v));
+  const gS = (c, code) => { const p = c.find(([k]) => k === code); return p ? p[1] : ''; };
+  const safeInv = (x, y) => { try { const r = inv(x, y); return (isFinite(r[0]) && isFinite(r[1])) ? r : null; } catch (_) { return null; } };
+
+  for (const ent of entities) {
+    const c = ent.codes;
+    const name = gS(c, 1);
+    switch (ent.type) {
+      case 'POINT': case 'INSERT': {
+        const xy = safeInv(gF(c, 10), gF(c, 20));
+        if (xy) features.push({ type:'Feature', geometry:{ type:'Point', coordinates:xy }, properties:{ name } });
+        break;
+      }
+      case 'LINE': {
+        const a = safeInv(gF(c, 10), gF(c, 20)), b = safeInv(gF(c, 11), gF(c, 21));
+        if (a && b) features.push({ type:'Feature', geometry:{ type:'LineString', coordinates:[a, b] }, properties:{ name } });
+        break;
+      }
+      case 'LWPOLYLINE': {
+        const xs = gAll(c, 10), ys = gAll(c, 20);
+        if (xs.length < 2) break;
+        const pts = xs.map((x, idx) => safeInv(x, ys[idx])).filter(Boolean);
+        if (pts.length < 2) break;
+        const closed = !!(gF(c, 70) & 0x01);
+        if (closed && pts.length >= 3) {
+          pts.push(pts[0]);
+          features.push({ type:'Feature', geometry:{ type:'Polygon', coordinates:[pts] }, properties:{ name } });
+        } else {
+          features.push({ type:'Feature', geometry:{ type:'LineString', coordinates:pts }, properties:{ name } });
+        }
+        break;
+      }
+      case 'POLYLINE': {
+        if (!ent.vertices || ent.vertices.length < 2) break;
+        const pts = ent.vertices.map(vc => {
+          const vx = parseFloat(vc.find(([k]) => k === 10)?.[1] || 0);
+          const vy = parseFloat(vc.find(([k]) => k === 20)?.[1] || 0);
+          return safeInv(vx, vy);
+        }).filter(Boolean);
+        if (pts.length < 2) break;
+        const closed = !!(gF(c, 70) & 0x01);
+        if (closed && pts.length >= 3) {
+          pts.push(pts[0]);
+          features.push({ type:'Feature', geometry:{ type:'Polygon', coordinates:[pts] }, properties:{ name } });
+        } else {
+          features.push({ type:'Feature', geometry:{ type:'LineString', coordinates:pts }, properties:{ name } });
+        }
+        break;
+      }
+    }
+  }
+  return features;
+}
 
 module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, getBackupSettings, setBackupSettings, performAutoBackup }) => {
   const db = () => getDb();
@@ -325,6 +474,31 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.setHeader('Content-Type','application/vnd.google-earth.kml+xml; charset=utf-8');
     res.setHeader('Content-Disposition','attachment; filename="layers.kml"');
     res.send(kml);
+  }));
+
+  app.post('/api/layers/import-dxf', wrap((req, res) => {
+    const { dxfText, crs } = req.body || {};
+    if (!dxfText) return res.status(400).json({ error: 'dxfText required' });
+    const dxfLayers = parseDXF(dxfText);
+    if (!dxfLayers.size) return res.status(422).json({ error: 'Нет слоёв в DXF' });
+    const sampleX = _dxfFindFirstX(dxfLayers);
+    let inv;
+    try { inv = makeDxfInverseTransform(crs || 'msk86', sampleX); }
+    catch (e) { return res.status(400).json({ error: 'Неизвестная СК: ' + crs }); }
+    const COLORS = ['#1a56db','#e02424','#057a55','#d97706','#7e3af2','#0694a2'];
+    const created = [];
+    let ci = 0;
+    for (const [layerName, entities] of dxfLayers) {
+      const features = dxfEntitiesToFeatures(entities, inv);
+      if (!features.length) continue;
+      const id = uuid();
+      const color = COLORS[ci++ % COLORS.length];
+      run(db(), 'INSERT INTO kml_layers(id,name,geojson,color,visible,symbol,group_id,line_dash)VALUES(?,?,?,?,1,?,?,?)',
+        [id, layerName, JSON.stringify({ type:'FeatureCollection', features }), color, '', '', 'solid']);
+      created.push({ id, name: layerName, features: features.length });
+    }
+    if (!created.length) return res.status(422).json({ error: 'Нет геометрии в DXF' });
+    res.json({ layers: created });
   }));
 
   app.post('/api/layers/export-dxf', wrap(async (req, res) => {

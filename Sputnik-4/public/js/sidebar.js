@@ -314,8 +314,10 @@ async function deleteLayer(id){
 }
 async function importLayer(evt){
   const file=evt.target.files[0];if(!file)return;
-  const text=await file.text();const name=file.name.replace(/\.(kml|gpx)$/i,'');
+  const text=await file.text();
   const ext=file.name.split('.').pop().toLowerCase();
+  if(ext==='dxf'){await _importDxf(file,text);evt.target.value='';return;}
+  const name=file.name.replace(/\.(kml|gpx)$/i,'');
   let gj=null;
   try{gj=ext==='kml'?kmlToGJ(text):gpxToGJ(text);}catch(e){toast('Ошибка разбора','err');return;}
   if(!gj||!gj.features?.length){toast('Файл пустой','err');return;}
@@ -334,6 +336,41 @@ async function importLayer(evt){
   try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
   toast(`Импортировано: ${gj.features.length} объектов`,'ok');
   evt.target.value='';
+}
+function _showDxfCrsModal(){
+  return new Promise(resolve=>{
+    const body=`
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:12px;color:var(--tx3);margin-bottom:2px">Выберите систему координат DXF-файла:</div>
+        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86" checked> МСК-86 (авто зона по X)</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=66°, фикс.)</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=72°, фикс.)</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="gsk2011"> ГСК-2011</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="wgs84"> WGS-84 (градусы)</label>
+      </div>`;
+    showModal('📥 Импорт DXF',body,[
+      {label:'Отмена',cls:'bs',fn:()=>{closeModal();resolve(null);}},
+      {label:'Импортировать',cls:'bp',fn:()=>{
+        const crs=document.querySelector('input[name="dxf-crs"]:checked')?.value||'msk86';
+        closeModal();resolve(crs);
+      }},
+    ]);
+  });
+}
+async function _importDxf(file,text){
+  const crs=await _showDxfCrsModal();
+  if(!crs)return;
+  let j;
+  try{
+    const r=await fetch(`${API}/layers/import-dxf`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dxfText:text,crs})});
+    j=await r.json();
+    if(!r.ok){toast(j.error||'Ошибка импорта DXF','err');return;}
+  }catch(e){toast('Ошибка импорта DXF','err');return;}
+  const fresh=await fetch(`${API}/layers`).then(r=>r.json()).catch(()=>layers);
+  layers=fresh;renderLP();renderLayerGroups();
+  try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
+  const total=j.layers.reduce((s,l)=>s+l.features,0);
+  toast(`DXF импортирован: ${j.layers.length} сл., ${total} объектов`,'ok');
 }
 function kmlToGJ(kml){
   const doc=new DOMParser().parseFromString(kml,'application/xml'),feats=[];

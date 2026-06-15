@@ -193,7 +193,7 @@ function renderKmlPanel() {
   if (!html) {
     html = `<div class="kml-empty"><div style="font-size:28px;margin-bottom:6px">🗺</div>
       <div>Нет слоёв</div>
-      <div style="font-size:10px;color:var(--tx3);margin-top:4px">Импортируйте KML или GPX</div></div>`;
+      <div style="font-size:10px;color:var(--tx3);margin-top:4px">Импортируйте KML, GPX или DXF</div></div>`;
   }
   list.innerHTML = html;
 }
