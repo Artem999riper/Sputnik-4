@@ -11,6 +11,8 @@ let _epMarker       = null; // маркер позиции при ховере �
 let _epSamples      = [];   // [{lat,lng,distM}, ...] интерполированные точки
 let _epChartSamples = [];   // [{lat,lng,distM,elev}, ...] параллельно данным графика
 let _epUnitLabel    = 'м';  // подпись единиц в тултипе графика (БСВ-77 / WGS84 элл.)
+let _epWaterSpans   = [];   // [{i0,i1,distStart,distEnd,level}, ...] участки пересечения воды (OSM)
+const _epWaterCache = new Map(); // bbox-ключ → массив колец [[lng,lat],...]
 
 // ── Terrarium Terrain-RGB tiles (AWS, бесплатно, без ключа) ──
 // elevation = R*256 + G + B/256 - 32768  (метры)
@@ -219,6 +221,7 @@ async function _epGetGeoidCorrection(lat, lng) {
 // ── Основная функция построения ───────────────────────────
 async function _epBuild() {
   _epSamples = _epInterpolate(_epPts, 150);
+  _epWaterSpans = [];
   _epShowPanel(null);
 
   // 1) Пробуем сервер (ArcticDEM + геоид — точнее Terrarium, без артефактов на воде)
@@ -247,6 +250,7 @@ async function _epBuild() {
     _epUnitLabel = usedBsv77 ? 'м БСВ-77' : 'м WGS84 элл.';
     _epShowPanel(_epChartSamples, usedBsv77);
     _epRenderChart(_epChartSamples);
+    _epMarkWater(); // неблокирующий поиск уреза воды (OSM)
     return;
   }
 
@@ -276,6 +280,7 @@ async function _epBuild() {
   _epUnitLabel = geoidCorr != null ? 'м БСВ-77' : 'м WGS84 элл.';
   _epShowPanel(_epChartSamples, geoidCorr != null);
   _epRenderChart(_epChartSamples);
+  _epMarkWater(); // неблокирующий поиск уреза воды (OSM)
 }
 
 // ── Показать / обновить панель ────────────────────────────
@@ -352,6 +357,43 @@ function _epRenderChart(data) {
     : (d.distM / 1000).toFixed(2) + ' км');
   const values = data.map(d => d.elev);
 
+  // Плагин-оверлей: ориентировочный урез воды по участкам OSM
+  const waterOverlay = {
+    id: 'epWaterOverlay',
+    afterDatasetsDraw(chart) {
+      if (!_epWaterSpans.length) return;
+      const { ctx: c, chartArea: ca, scales } = chart;
+      const xS = scales.x, yS = scales.y;
+      if (!xS || !yS) return;
+      c.save();
+      c.beginPath();
+      c.rect(ca.left, ca.top, ca.right - ca.left, ca.bottom - ca.top);
+      c.clip();
+      for (const sp of _epWaterSpans) {
+        const x0 = xS.getPixelForValue(sp.i0);
+        const x1 = xS.getPixelForValue(sp.i1);
+        const y  = yS.getPixelForValue(sp.level);
+        // полупрозрачная заливка участка
+        c.fillStyle = 'rgba(14,165,233,0.15)';
+        c.fillRect(x0, ca.top, Math.max(2, x1 - x0), ca.bottom - ca.top);
+        // линия уреза
+        c.strokeStyle = '#0ea5e9';
+        c.lineWidth = 1.5;
+        c.beginPath();
+        c.moveTo(x0, y);
+        c.lineTo(x1, y);
+        c.stroke();
+        // подпись
+        c.fillStyle = '#0369a1';
+        c.font = '600 10px sans-serif';
+        c.textAlign = 'left';
+        c.textBaseline = 'bottom';
+        c.fillText(`урез ${sp.level.toFixed(1)}`, x0 + 2, y - 2);
+      }
+      c.restore();
+    },
+  };
+
   _epChart = new Chart(ctx, {
     type: 'line',
     data: {
@@ -367,6 +409,7 @@ function _epRenderChart(data) {
         tension: 0.3,
       }],
     },
+    plugins: [waterOverlay],
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -496,6 +539,114 @@ function closeElevationProfile() {
   _epPts = [];
   _epSamples = [];
   _epChartSamples = [];
+  _epWaterSpans = [];
+}
+
+// ═══════════════════════════════════════════════════════════
+// УРЕЗ ВОДЫ — ориентировочная отметка по данным OSM (Overpass)
+// ═══════════════════════════════════════════════════════════
+
+// ── Запрос водных полигонов OSM в области трассы ───────────
+async function _epFetchWaterPolygons(samples) {
+  if (!samples || samples.length < 2) return [];
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  for (const s of samples) {
+    if (s.lat < minLat) minLat = s.lat;
+    if (s.lat > maxLat) maxLat = s.lat;
+    if (s.lng < minLng) minLng = s.lng;
+    if (s.lng > maxLng) maxLng = s.lng;
+  }
+  const pad = 0.003; // ~300 м запас, чтобы захватить берег
+  minLat -= pad; maxLat += pad; minLng -= pad; maxLng += pad;
+  const bbox = `${minLat.toFixed(5)},${minLng.toFixed(5)},${maxLat.toFixed(5)},${maxLng.toFixed(5)}`;
+
+  const key = bbox;
+  if (_epWaterCache.has(key)) return _epWaterCache.get(key);
+
+  const query =
+    `[out:json][timeout:25];` +
+    `(` +
+      `way["natural"="water"](${bbox});` +
+      `way["landuse"="reservoir"](${bbox});` +
+      `way["waterway"="riverbank"](${bbox});` +
+      `way["water"](${bbox});` +
+    `);` +
+    `out geom;`;
+
+  try {
+    const r = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + encodeURIComponent(query),
+    });
+    if (!r.ok) throw new Error('overpass ' + r.status);
+    const j = await r.json();
+    const rings = [];
+    for (const el of (j.elements || [])) {
+      if (el.type === 'way' && Array.isArray(el.geometry) && el.geometry.length >= 3) {
+        rings.push(el.geometry.map(g => [g.lon, g.lat]));
+      }
+    }
+    _epWaterCache.set(key, rings);
+    return rings;
+  } catch (e) {
+    console.warn('[EP water] Overpass недоступен:', e.message);
+    return [];
+  }
+}
+
+// ── Точка внутри кольца (ray casting), [lng,lat] ──────────
+function _epPointInRing(lng, lat, ring) {
+  let inside = false;
+  for (let i = 0, k = ring.length - 1; i < ring.length; k = i++) {
+    const xi = ring[i][0], yi = ring[i][1];
+    const xk = ring[k][0], yk = ring[k][1];
+    const intersect = ((yi > lat) !== (yk > lat)) &&
+      (lng < (xk - xi) * (lat - yi) / ((yk - yi) || 1e-12) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// ── Сгруппировать непрерывные «водные» участки ────────────
+function _epComputeWaterSpans(rings) {
+  const spans = [];
+  if (!rings.length || !_epChartSamples.length) return spans;
+
+  const flags = _epChartSamples.map(s =>
+    rings.some(ring => _epPointInRing(s.lng, s.lat, ring)));
+
+  let i = 0;
+  while (i < flags.length) {
+    if (!flags[i]) { i++; continue; }
+    let j = i;
+    while (j + 1 < flags.length && flags[j + 1]) j++;
+    // медиана высот участка — устойчивая оценка уровня воды
+    const elevs = _epChartSamples.slice(i, j + 1).map(s => s.elev).sort((a, b) => a - b);
+    const level = elevs[Math.floor(elevs.length / 2)];
+    spans.push({
+      i0: i, i1: j,
+      distStart: _epChartSamples[i].distM,
+      distEnd:   _epChartSamples[j].distM,
+      level,
+    });
+    i = j + 1;
+  }
+  return spans;
+}
+
+// ── Найти воду и обновить график/статистику ───────────────
+async function _epMarkWater() {
+  const rings = await _epFetchWaterPolygons(_epChartSamples);
+  // Профиль мог быть перестроен/закрыт, пока шёл запрос
+  if (!_epChartSamples.length) return;
+  _epWaterSpans = _epComputeWaterSpans(rings);
+  if (!_epWaterSpans.length) return;
+  _epRenderChart(_epChartSamples);
+  const stats = document.getElementById('ep-stats');
+  if (stats && !/пересеч\. воды/.test(stats.innerHTML)) {
+    stats.innerHTML += ` &nbsp;·&nbsp; <span style="color:#0ea5e9">🌊 ${_epWaterSpans.length} пересеч. воды</span>`;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -525,7 +676,8 @@ function _epToCRS(lat, lng, crs) {
   return { x: r.easting, y: r.northing };
 }
 
-function _epBuildDXF({ samples, crs, step, mh, mv }) {
+function _epBuildDXF({ samples, crs, step, mh, mv, waterSpans }) {
+  waterSpans = waterSpans || [];
   const vex = mh / mv;
   const G = (code, val) => code.toString().padStart(3, ' ') + '\n' + val + '\n';
 
@@ -610,6 +762,7 @@ function _epBuildDXF({ samples, crs, step, mh, mv }) {
     { name: 'ПРОФИЛЬ', color: 3, lt: 'CONTINUOUS' },
     { name: 'СЕТКА',   color: 8, lt: 'DASHED'     },
     { name: 'ПОДПИСИ', color: 2, lt: 'CONTINUOUS' },
+    { name: 'УРЕЗ_ВОДЫ', color: 4, lt: 'CONTINUOUS' },
   ];
   s += G(0,'TABLE') + G(2,'LAYER') + G(70, String(layerDefs.length));
   for (const l of layerDefs) {
@@ -693,6 +846,27 @@ function _epBuildDXF({ samples, crs, step, mh, mv }) {
   // Baseline
   s += emitLine(ox, oy, ox + totalDist, oy, 'ПРОФИЛЬ', 3);
 
+  // ── УРЕЗ_ВОДЫ: ориентировочный уровень воды (OSM) ──
+  for (const sp of waterSpans) {
+    const wy = oy + (sp.level - minElev) * vex;
+    // линия уреза в блоке профиля
+    s += emitLine(ox + sp.distStart, wy, ox + sp.distEnd, wy, 'УРЕЗ_ВОДЫ', 4);
+    // подпись над серединой участка
+    const wmid = ox + (sp.distStart + sp.distEnd) / 2;
+    s += emitText(wmid, wy + textH * 0.4, `Урез ${sp.level.toFixed(1)}`, 'УРЕЗ_ВОДЫ', 4, textH * 0.8, 0, 1);
+    // подсветка пересечения на трассе (план)
+    const i0 = Math.max(0, sp.i0|0), i1 = Math.min(crsPts.length - 1, sp.i1|0);
+    if (i1 > i0) {
+      s += G(0,'POLYLINE') + G(8,'УРЕЗ_ВОДЫ') + G(62,'4') + G(66,'1') + G(70,'0')
+         + G(10,'0.000') + G(20,'0.000') + G(30,'0.000');
+      for (let i = i0; i <= i1; i++) {
+        s += G(0,'VERTEX') + G(8,'УРЕЗ_ВОДЫ') + G(62,'4')
+           + G(10,crsPts[i].x.toFixed(3)) + G(20,crsPts[i].y.toFixed(3)) + G(30,'0.000') + G(70,'0');
+      }
+      s += G(0,'SEQEND') + G(8,'УРЕЗ_ВОДЫ');
+    }
+  }
+
   // ── СЕТКА: horizontal elevation grid ───────────────
   const gridStart = Math.floor(minElev / gridStep) * gridStep;
   const gridEnd   = Math.ceil(maxElev / gridStep) * gridStep;
@@ -775,7 +949,7 @@ async function exportProfileDXF() {
   const opts = await _epShowExportModal();
   if (!opts) return;
   try {
-    const dxf = _epBuildDXF({ samples: _epChartSamples, ...opts });
+    const dxf = _epBuildDXF({ samples: _epChartSamples, ...opts, waterSpans: _epWaterSpans });
     const totalKm = (_epChartSamples.at(-1).distM / 1000).toFixed(1);
     _dxfDownload(dxf, `профиль_${totalKm}км.dxf`);
     toast('DXF профиля скачан', 'ok');
