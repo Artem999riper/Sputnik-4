@@ -529,21 +529,56 @@ function _epBuildDXF({ samples, crs, step, mh, mv }) {
   const vex = mh / mv;
   const G = (code, val) => code.toString().padStart(3, ' ') + '\n' + val + '\n';
 
-  // ── CRS anchor point (first sample in chosen CRS) ──────
-  const crsOrigin = _epToCRS(samples[0].lat, samples[0].lng, crs);
+  // ── CRS coordinates for the plan (real coordinates) ─────
+  const crsPts = samples.map(s => _epToCRS(s.lat, s.lng, crs));
 
-  // ── Interpolate elevation at chainage sd ────────────────
-  const interpElev = (sd) => {
-    if (sd <= samples[0].distM) return samples[0].elev;
-    const last = samples.length - 1;
-    if (sd >= samples[last].distM) return samples[last].elev;
+  // ── Chainage per vertex ─────────────────────────────────
+  // For projected CRS (МСК/ГСК) use distance measured in the projection,
+  // so AutoCAD measurements between pegs match the station step exactly
+  // (ground vs grid scale no longer leaks in). For WGS-84 (degrees) fall
+  // back to ground distance.
+  const useGround = (crs === 'wgs84');
+  const chain = [0];
+  for (let i = 1; i < crsPts.length; i++) {
+    if (useGround) {
+      chain[i] = samples[i].distM;
+    } else {
+      const dx = crsPts[i].x - crsPts[i-1].x, dy = crsPts[i].y - crsPts[i-1].y;
+      chain[i] = chain[i-1] + Math.sqrt(dx*dx + dy*dy);
+    }
+  }
+  const totalDist = chain[chain.length - 1];
+
+  // ── Interpolate CRS position + elevation at chainage sd ──
+  const interpAt = (sd) => {
+    if (sd <= chain[0]) return { x: crsPts[0].x, y: crsPts[0].y, elev: samples[0].elev };
+    const last = chain.length - 1;
+    if (sd >= chain[last]) return { x: crsPts[last].x, y: crsPts[last].y, elev: samples[last].elev };
     for (let i = 0; i < last; i++) {
-      if (samples[i].distM <= sd && samples[i+1].distM >= sd) {
-        const frac = (sd - samples[i].distM) / (samples[i+1].distM - samples[i].distM);
-        return samples[i].elev + frac * (samples[i+1].elev - samples[i].elev);
+      if (chain[i] <= sd && chain[i+1] >= sd) {
+        const frac = (sd - chain[i]) / ((chain[i+1] - chain[i]) || 1);
+        return {
+          x:    crsPts[i].x     + frac * (crsPts[i+1].x     - crsPts[i].x),
+          y:    crsPts[i].y     + frac * (crsPts[i+1].y     - crsPts[i].y),
+          elev: samples[i].elev + frac * (samples[i+1].elev - samples[i].elev),
+        };
       }
     }
-    return samples[last].elev;
+    return { x: crsPts[last].x, y: crsPts[last].y, elev: samples[last].elev };
+  };
+  // Unit tangent at chainage sd (for perpendicular station tick)
+  const dirAt = (sd) => {
+    for (let i = 0; i < chain.length - 1; i++) {
+      if (chain[i] <= sd && chain[i+1] >= sd) {
+        const dx = crsPts[i+1].x - crsPts[i].x, dy = crsPts[i+1].y - crsPts[i].y;
+        const len = Math.sqrt(dx*dx + dy*dy) || 1;
+        return { tx: dx/len, ty: dy/len };
+      }
+    }
+    const last = chain.length - 1;
+    const dx = crsPts[last].x - crsPts[last-1].x, dy = crsPts[last].y - crsPts[last-1].y;
+    const len = Math.sqrt(dx*dx + dy*dy) || 1;
+    return { tx: dx/len, ty: dy/len };
   };
 
   // ── Elevation stats ─────────────────────────────────────
@@ -551,7 +586,6 @@ function _epBuildDXF({ samples, crs, step, mh, mv }) {
   const minElev = Math.min(...elevs);
   const maxElev = Math.max(...elevs);
   const elevRange = maxElev - minElev || 1;
-  const totalDist = samples.at(-1).distM;
 
   // ── Auto grid step for elevation ────────────────────────
   const rawGrid = elevRange / 6;
@@ -561,12 +595,11 @@ function _epBuildDXF({ samples, crs, step, mh, mv }) {
   const textH = step * 0.06;
   const tickLen = step * 0.04;
 
-  // ── Layout: profile block + straight plan strip above ───
-  // Anchor the whole drawing to the first CRS point
-  const ox = crsOrigin.x;
-  const oy = crsOrigin.y - elevRange * vex * 2.0;   // profile baseline Y
-  const profTop   = oy + elevRange * vex * 1.1;      // top of profile curve+grid
-  const planLineY = profTop + textH * 7;              // plan strip: straight horizontal line
+  // ── Layout: profile block below the real-coordinate plan ─
+  const ox = crsPts[0].x;                              // profile X origin
+  const minY = Math.min(...crsPts.map(p => p.y));
+  const oy = minY - elevRange * vex * 2.0;             // profile baseline Y
+  const profTop = oy + elevRange * vex * 1.1;          // top of profile curve+grid
 
   let s = '';
 
@@ -624,45 +657,51 @@ function _epBuildDXF({ samples, crs, step, mh, mv }) {
     + G(10,x1.toFixed(3)) + G(20,y1.toFixed(3)) + G(30,'0.000')
     + G(11,x2.toFixed(3)) + G(21,y2.toFixed(3)) + G(31,'0.000');
 
-  // ── ТРАССА: straight horizontal scheme line ─────────────
-  // Drawn as a single line; each station is exactly `step` m apart
-  // in this local frame → AutoCAD measurements give exact values.
-  s += emitLine(ox, planLineY, ox + totalDist, planLineY, 'ТРАССА', 5);
+  // ── ТРАССА: route polyline in real CRS coordinates ──────
+  s += G(0,'POLYLINE') + G(8,'ТРАССА') + G(62,'5') + G(66,'1') + G(70,'0')
+     + G(10,'0.000') + G(20,'0.000') + G(30,'0.000');
+  for (const p of crsPts) {
+    s += G(0,'VERTEX') + G(8,'ТРАССА') + G(62,'5')
+       + G(10,p.x.toFixed(3)) + G(20,p.y.toFixed(3)) + G(30,'0.000') + G(70,'0');
+  }
+  s += G(0,'SEQEND') + G(8,'ТРАССА');
 
   // ── ПИКЕТЫ: station ticks + labels ─────────────────────
+  // Stations are placed by chainage measured in the projection, so the
+  // distance between consecutive pegs on the plan equals `step` exactly.
   const stationDists = [];
   for (let d = 0; d <= totalDist + 1; d += step) stationDists.push(Math.min(d, totalDist));
   if (stationDists.at(-1) < totalDist) stationDists.push(totalDist);
 
   for (const sd of stationDists) {
-    const stationElev = interpElev(sd);
-    const planX = ox + sd; // exact distance along the scheme
+    const { x: px, y: py, elev: stationElev } = interpAt(sd);
+    const { tx, ty } = dirAt(sd);
+    const nx = -ty, ny = tx; // perpendicular-left normal
 
     // Label: "ПКx" or "ПКx+yyy"
     const pk = Math.floor(sd / 1000);
     const rem = Math.round(sd % 1000);
     const label = rem === 0 ? `ПК${pk}` : `ПК${pk}+${String(rem).padStart(3, '0')}`;
 
-    // Vertical tick on plan strip
-    s += emitLine(planX, planLineY - tickLen, planX, planLineY + tickLen, 'ПИКЕТЫ', 2);
-    // Station label above plan line
-    s += emitText(planX, planLineY + tickLen * 2.5, label, 'ПИКЕТЫ', 2, textH, 0, 1);
-    // Elevation label above station label
-    s += emitText(planX, planLineY + tickLen * 2.5 + textH * 1.4,
+    // Perpendicular tick on the real plan trasse
+    s += emitLine(px + nx*tickLen, py + ny*tickLen, px - nx*tickLen, py - ny*tickLen, 'ПИКЕТЫ', 2);
+    s += emitText(px + nx * tickLen * 2.5, py + ny * tickLen * 2.5,
+                  label, 'ПИКЕТЫ', 2, textH, 0, 1);
+    s += emitText(px + nx * tickLen * 2.5, py + ny * tickLen * 2.5 + textH * 1.4,
                   stationElev.toFixed(1) + ' м', 'ПОДПИСИ', 2, textH * 0.75, 0, 1);
 
-    // Profile section: vertical grid line + labels
-    s += emitLine(planX, oy, planX, profTop, 'СЕТКА', 8);
-    s += emitText(planX, oy - textH * 1.5, label, 'ПИКЕТЫ', 2, textH, 0, 1);
-    s += emitText(planX, oy + (stationElev - minElev) * vex + textH * 0.6,
+    // Profile section: vertical grid line + labels (X = chainage)
+    const profX = ox + sd;
+    s += emitLine(profX, oy, profX, profTop, 'СЕТКА', 8);
+    s += emitText(profX, oy - textH * 1.5, label, 'ПИКЕТЫ', 2, textH, 0, 1);
+    s += emitText(profX, oy + (stationElev - minElev) * vex + textH * 0.6,
                   stationElev.toFixed(1), 'ПОДПИСИ', 2, textH * 0.8, 90, 0);
   }
 
-  // ── ПРОФИЛЬ: cross-section curve ───────────────────
+  // ── ПРОФИЛЬ: cross-section curve (X = projected chainage) ─
   for (let i = 0; i < samples.length - 1; i++) {
-    const a = samples[i], b = samples[i + 1];
-    const ax = ox + a.distM, ay = oy + (a.elev - minElev) * vex;
-    const bx = ox + b.distM, by = oy + (b.elev - minElev) * vex;
+    const ax = ox + chain[i],   ay = oy + (samples[i].elev   - minElev) * vex;
+    const bx = ox + chain[i+1], by = oy + (samples[i+1].elev - minElev) * vex;
     s += emitLine(ax, ay, bx, by, 'ПРОФИЛЬ', 3);
   }
   // Baseline
@@ -682,7 +721,8 @@ function _epBuildDXF({ samples, crs, step, mh, mv }) {
   const crsLabel = { wgs84:'WGS-84', msk86:'МСК-86', msk86_z3:'МСК-86 з.3', msk86_z4:'МСК-86 з.4', gsk2011:'ГСК-2011' }[crs] || crs;
   const datum = _epUnitLabel || 'м';
   const totalKm = (totalDist / 1000).toFixed(2);
-  s += emitText(ox, planLineY + tickLen * 2.5 + textH * 3.5,
+  const maxY = Math.max(...crsPts.map(p => p.y));
+  s += emitText(ox, maxY + textH * 3,
     `Продольный профиль | ${totalKm} км | ${datum} | ${crsLabel} | М гор 1:${mh} | М верт 1:${mv} | увел. ${vex.toFixed(1)}×`,
     'ПОДПИСИ', 2, textH * 0.9, 0, 0);
 
