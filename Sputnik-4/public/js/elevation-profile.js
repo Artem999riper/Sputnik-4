@@ -497,3 +497,260 @@ function closeElevationProfile() {
   _epSamples = [];
   _epChartSamples = [];
 }
+
+// ═══════════════════════════════════════════════════════════
+// ЭКСПОРТ ПРОФИЛЯ В DXF
+// ═══════════════════════════════════════════════════════════
+
+const _EP_WGS84 = '+proj=longlat +datum=WGS84 +no_defs';
+const _EP_MSK_Z3 = '+proj=tmerc +lat_0=0 +lon_0=66.05 +k=1 +x_0=3500000 +y_0=-5811057.63 +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs';
+const _EP_MSK_Z4 = '+proj=tmerc +lat_0=0 +lon_0=72.05 +k=1 +x_0=4500000 +y_0=-5811057.63 +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs';
+
+function _epToCRS(lat, lng, crs) {
+  if (crs === 'wgs84') return { x: lng, y: lat };
+  if (crs === 'gsk2011') {
+    const r = wgsToGsk(lat, lng);
+    return { x: r.easting, y: r.northing };
+  }
+  if (crs === 'msk86_z3') {
+    const [x, y] = proj4(_EP_WGS84, _EP_MSK_Z3, [lng, lat]);
+    return { x, y };
+  }
+  if (crs === 'msk86_z4') {
+    const [x, y] = proj4(_EP_WGS84, _EP_MSK_Z4, [lng, lat]);
+    return { x, y };
+  }
+  // msk86 — auto zone
+  const r = wgsToMsk(lat, lng);
+  return { x: r.easting, y: r.northing };
+}
+
+function _epBuildDXF({ samples, crs, step, vex }) {
+  const G = (code, val) => code.toString().padStart(3, ' ') + '\n' + val + '\n';
+
+  // ── CRS coordinates for plan ────────────────────────────
+  const crsPts = samples.map(s => _epToCRS(s.lat, s.lng, crs));
+
+  // ── Elevation stats ─────────────────────────────────────
+  const elevs   = samples.map(s => s.elev);
+  const minElev = Math.min(...elevs);
+  const maxElev = Math.max(...elevs);
+  const elevRange = maxElev - minElev || 1;
+  const totalDist = samples.at(-1).distM;
+
+  // ── Auto grid step for elevation ────────────────────────
+  const rawGrid = elevRange / 6;
+  const gridStep = [1, 2, 5, 10, 25, 50, 100, 250, 500].find(v => v >= rawGrid) || 100;
+
+  // ── Adaptive text height (≈6% of station step) ──────────
+  const textH = step * 0.06;
+  const tickLen = step * 0.04;
+
+  // ── Profile block origin (anchored below plan start) ────
+  // Place profile section below the plan start with clearance
+  const profGap = elevRange * vex * 2.0;
+  const ox = crsPts[0].x;          // profile origin X = plan start X
+  const oy = crsPts[0].y - profGap; // profile origin Y = below plan
+
+  let s = '';
+
+  // ── HEADER ────────────────────────────────────────────
+  s += G(0,'SECTION') + G(2,'HEADER');
+  s += G(9,'$ACADVER')  + G(1,'AC1009');
+  s += G(9,'$INSUNITS') + G(70,'6');
+  s += G(9,'$TEXTSIZE') + G(40, textH.toFixed(3));
+  s += G(0,'ENDSEC');
+
+  // ── TABLES ────────────────────────────────────────────
+  s += G(0,'SECTION') + G(2,'TABLES');
+
+  // LTYPE
+  s += G(0,'TABLE') + G(2,'LTYPE') + G(70,'2');
+  s += G(0,'LTYPE') + G(2,'CONTINUOUS') + G(70,'64') + G(3,'Solid') + G(72,'65') + G(73,'0') + G(40,'0.000');
+  s += G(0,'LTYPE') + G(2,'DASHED')     + G(70,'64') + G(3,'Dashed')+ G(72,'65') + G(73,'2') + G(40,'0.375') + G(49,'0.25') + G(49,'-0.125');
+  s += G(0,'ENDTAB');
+
+  // LAYER
+  const layerDefs = [
+    { name: 'ТРАССА',  color: 5, lt: 'CONTINUOUS' },
+    { name: 'ПИКЕТЫ',  color: 2, lt: 'CONTINUOUS' },
+    { name: 'ПРОФИЛЬ', color: 3, lt: 'CONTINUOUS' },
+    { name: 'СЕТКА',   color: 8, lt: 'DASHED'     },
+    { name: 'ПОДПИСИ', color: 2, lt: 'CONTINUOUS' },
+  ];
+  s += G(0,'TABLE') + G(2,'LAYER') + G(70, String(layerDefs.length));
+  for (const l of layerDefs) {
+    s += G(0,'LAYER') + G(2,l.name) + G(70,'0') + G(62,String(l.color)) + G(6,l.lt);
+  }
+  s += G(0,'ENDTAB');
+
+  // STYLE
+  s += G(0,'TABLE') + G(2,'STYLE') + G(70,'1');
+  s += G(0,'STYLE') + G(2,'STANDARD') + G(70,'0') + G(40,'0.000') + G(41,'1.000')
+     + G(50,'0.0') + G(71,'0') + G(42, textH.toFixed(3)) + G(3,'txt') + G(4,'');
+  s += G(0,'ENDTAB');
+
+  s += G(0,'ENDSEC');
+
+  // ── ENTITIES ─────────────────────────────────────────
+  s += G(0,'SECTION') + G(2,'ENTITIES');
+
+  const emitText = (x, y, txt, layer, color, h, angle, align) => {
+    const xs = x.toFixed(3), ys = y.toFixed(3);
+    return G(0,'TEXT') + G(8,layer) + G(62,String(color))
+         + G(10,xs) + G(20,ys) + G(30,'0.000')
+         + G(40,(h||textH).toFixed(3)) + G(1,txt)
+         + G(50,(angle||0).toFixed(1)) + G(72,String(align||0))
+         + G(11,xs) + G(21,ys) + G(31,'0.000');
+  };
+  const emitLine = (x1,y1,x2,y2,layer,color) =>
+    G(0,'LINE') + G(8,layer) + G(62,String(color))
+    + G(10,x1.toFixed(3)) + G(20,y1.toFixed(3)) + G(30,'0.000')
+    + G(11,x2.toFixed(3)) + G(21,y2.toFixed(3)) + G(31,'0.000');
+
+  // ── ТРАССА: route polyline in CRS ──────────────────
+  s += G(0,'POLYLINE') + G(8,'ТРАССА') + G(62,'5') + G(66,'1') + G(70,'0')
+     + G(10,'0.000') + G(20,'0.000') + G(30,'0.000');
+  for (const p of crsPts) {
+    s += G(0,'VERTEX') + G(8,'ТРАССА') + G(62,'5')
+       + G(10,p.x.toFixed(3)) + G(20,p.y.toFixed(3)) + G(30,'0.000') + G(70,'0');
+  }
+  s += G(0,'SEQEND') + G(8,'ТРАССА');
+
+  // ── ПИКЕТЫ: station ticks + labels ─────────────────
+  // Build list of station distances
+  const stationDists = [];
+  for (let d = 0; d <= totalDist + 1; d += step) stationDists.push(Math.min(d, totalDist));
+  if (stationDists.at(-1) < totalDist) stationDists.push(totalDist);
+
+  for (const sd of stationDists) {
+    // Find nearest sample
+    let best = 0, bestDiff = Infinity;
+    for (let i = 0; i < samples.length; i++) {
+      const diff = Math.abs(samples[i].distM - sd);
+      if (diff < bestDiff) { bestDiff = diff; best = i; }
+    }
+    const px = crsPts[best].x, py = crsPts[best].y;
+
+    // Direction vector along alignment (for perpendicular tick)
+    const next = crsPts[Math.min(best + 1, crsPts.length - 1)];
+    const prev = crsPts[Math.max(best - 1, 0)];
+    const dx = next.x - prev.x, dy = next.y - prev.y;
+    const len = Math.sqrt(dx*dx + dy*dy) || 1;
+    const nx = -dy / len, ny = dx / len; // perpendicular (left)
+
+    // Tick mark
+    s += emitLine(px + nx*tickLen, py + ny*tickLen, px - nx*tickLen, py - ny*tickLen, 'ПИКЕТЫ', 2);
+
+    // Label: "ПКx" or "ПКx+yyy"
+    const pk = Math.floor(sd / 1000);
+    const rem = Math.round(sd % 1000);
+    const label = rem === 0 ? `ПК${pk}` : `ПК${pk}+${String(rem).padStart(3, '0')}`;
+    const labelAngle = (Math.atan2(dy, dx) * 180 / Math.PI + 90) % 360;
+    s += emitText(px + nx * tickLen * 2.5, py + ny * tickLen * 2.5,
+                  label, 'ПИКЕТЫ', 2, textH, 0, 1);
+
+    // Vertical line in profile section at station X position
+    const profX = ox + sd;
+    const profYbot = oy;
+    const profYtop = oy + elevRange * vex * 1.1;
+    s += emitLine(profX, profYbot, profX, profYtop, 'СЕТКА', 8);
+    // Station label below baseline
+    s += emitText(profX, profYbot - textH * 1.5, label, 'ПИКЕТЫ', 2, textH, 0, 1);
+  }
+
+  // ── ПРОФИЛЬ: cross-section curve ───────────────────
+  for (let i = 0; i < samples.length - 1; i++) {
+    const a = samples[i], b = samples[i + 1];
+    const ax = ox + a.distM, ay = oy + (a.elev - minElev) * vex;
+    const bx = ox + b.distM, by = oy + (b.elev - minElev) * vex;
+    s += emitLine(ax, ay, bx, by, 'ПРОФИЛЬ', 3);
+  }
+  // Baseline
+  s += emitLine(ox, oy, ox + totalDist, oy, 'ПРОФИЛЬ', 3);
+
+  // ── СЕТКА: horizontal elevation grid ───────────────
+  const gridStart = Math.floor(minElev / gridStep) * gridStep;
+  const gridEnd   = Math.ceil(maxElev / gridStep) * gridStep;
+  for (let e = gridStart; e <= gridEnd; e += gridStep) {
+    const gy = oy + (e - minElev) * vex;
+    s += emitLine(ox, gy, ox + totalDist, gy, 'СЕТКА', 8);
+    // Elevation label on left
+    s += emitText(ox - textH * 0.5, gy, `${e} м`, 'ПОДПИСИ', 2, textH * 0.8, 0, 2);
+  }
+
+  // ── ПОДПИСИ: title & datum ─────────────────────────
+  const crsLabel = { wgs84:'WGS-84', msk86:'МСК-86', msk86_z3:'МСК-86 з.3', msk86_z4:'МСК-86 з.4', gsk2011:'ГСК-2011' }[crs] || crs;
+  const datum = _epUnitLabel || 'м';
+  const totalKm = (totalDist / 1000).toFixed(2);
+  s += emitText(ox, crsPts[0].y + textH * 3,
+    `Продольный профиль | ${totalKm} км | ${datum} | ${crsLabel} | увел. ${vex}×`,
+    'ПОДПИСИ', 2, textH * 0.9, 0, 0);
+  // Vex note on Y-axis
+  s += emitText(ox - textH * 0.5, oy + elevRange * vex * 0.5,
+    `(×${vex})`, 'ПОДПИСИ', 2, textH * 0.7, 90, 1);
+
+  s += G(0,'ENDSEC');
+  s += G(0,'EOF');
+  return s;
+}
+
+function _epShowExportModal() {
+  return new Promise(resolve => {
+    const body = `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div>
+          <div style="font-weight:600;margin-bottom:6px">Система координат (трасса)</div>
+          <label style="display:block;padding:2px 0"><input type="radio" name="ep-crs" value="msk86" checked> МСК-86 (авто зона)</label>
+          <label style="display:block;padding:2px 0"><input type="radio" name="ep-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=66°)</label>
+          <label style="display:block;padding:2px 0"><input type="radio" name="ep-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=72°)</label>
+          <label style="display:block;padding:2px 0"><input type="radio" name="ep-crs" value="gsk2011"> ГСК-2011</label>
+          <label style="display:block;padding:2px 0"><input type="radio" name="ep-crs" value="wgs84"> WGS-84 (градусы)</label>
+        </div>
+        <div style="display:flex;gap:12px">
+          <div style="flex:1">
+            <div style="font-weight:600;margin-bottom:4px">Шаг пикетов</div>
+            <select id="ep-step" class="form-select" style="width:100%;font-size:12px;padding:4px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+              <option value="100">100 м (ПК1)</option>
+              <option value="200">200 м</option>
+              <option value="500">500 м</option>
+              <option value="1000" selected>1000 м (ПК10)</option>
+            </select>
+          </div>
+          <div style="flex:1">
+            <div style="font-weight:600;margin-bottom:4px">Верт. увеличение</div>
+            <select id="ep-vex" class="form-select" style="width:100%;font-size:12px;padding:4px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+              <option value="5">5×</option>
+              <option value="10" selected>10× (стандарт)</option>
+              <option value="20">20×</option>
+              <option value="50">50×</option>
+            </select>
+          </div>
+        </div>
+      </div>`;
+    showModal('📐 Экспорт профиля в DXF', body, [
+      { label: 'Отмена', cls: 'bs', fn: () => { closeModal(); resolve(null); } },
+      { label: 'Скачать DXF', cls: 'bp', fn: () => {
+        const crs  = document.querySelector('input[name="ep-crs"]:checked')?.value || 'msk86';
+        const step = parseInt(document.getElementById('ep-step').value, 10) || 1000;
+        const vex  = parseFloat(document.getElementById('ep-vex').value) || 10;
+        closeModal(); resolve({ crs, step, vex });
+      }},
+    ]);
+  });
+}
+
+async function exportProfileDXF() {
+  if (!_epChartSamples.length) { toast('Сначала постройте профиль', 'err'); return; }
+  const opts = await _epShowExportModal();
+  if (!opts) return;
+  try {
+    const dxf = _epBuildDXF({ samples: _epChartSamples, ...opts });
+    const totalKm = (_epChartSamples.at(-1).distM / 1000).toFixed(1);
+    _dxfDownload(dxf, `профиль_${totalKm}км.dxf`);
+    toast('DXF профиля скачан', 'ok');
+  } catch (e) {
+    console.error('[EP DXF]', e);
+    toast('Ошибка построения DXF', 'err');
+  }
+}
