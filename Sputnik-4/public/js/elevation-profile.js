@@ -710,9 +710,17 @@ function _epBuildDXF({ samples, crs, step, mh, mv }) {
   s += emitText(ox, crsPts[0].y + textH * 3,
     `Продольный профиль | ${totalKm} км | ${datum} | ${crsLabel} | М гор 1:${mh} | М верт 1:${mv} | увел. ${vex.toFixed(1)}×`,
     'ПОДПИСИ', 2, textH * 0.9, 0, 0);
-  // Scale note on Y-axis
-  s += emitText(ox - textH * 0.5, oy + elevRange * vex * 0.5,
-    `(×${vex.toFixed(1)})`, 'ПОДПИСИ', 2, textH * 0.7, 90, 1);
+
+  // ── Scale labels beside profile (rotated 90°, left margin) ─
+  // Elevation grid labels sit at ox − 0.5·textH (right-aligned); leave gap
+  const scaleMidY = oy + elevRange * vex * 0.5;
+  s += emitText(ox - textH * 5.5, scaleMidY,
+    `М гор 1:${mh}`, 'ПОДПИСИ', 2, textH * 0.85, 90, 1);
+  s += emitText(ox - textH * 7.5, scaleMidY,
+    `М верт 1:${mv}`, 'ПОДПИСИ', 2, textH * 0.85, 90, 1);
+  // Exaggeration factor below the baseline, under station labels
+  s += emitText(ox, oy - textH * 4.5,
+    `Увел. верт. ×${vex.toFixed(1)}`, 'ПОДПИСИ', 2, textH * 0.75, 0, 0);
 
   s += G(0,'ENDSEC');
   s += G(0,'EOF');
