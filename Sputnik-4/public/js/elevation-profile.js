@@ -532,6 +532,38 @@ function _epBuildDXF({ samples, crs, step, mh, mv }) {
   // ── CRS coordinates for plan ────────────────────────────
   const crsPts = samples.map(s => _epToCRS(s.lat, s.lng, crs));
 
+  // Linearly interpolate CRS position and elevation at chainage sd
+  const interpAt = (sd) => {
+    if (sd <= samples[0].distM) return { x: crsPts[0].x, y: crsPts[0].y, elev: samples[0].elev };
+    const last = samples.length - 1;
+    if (sd >= samples[last].distM) return { x: crsPts[last].x, y: crsPts[last].y, elev: samples[last].elev };
+    for (let i = 0; i < last; i++) {
+      if (samples[i].distM <= sd && samples[i+1].distM >= sd) {
+        const frac = (sd - samples[i].distM) / (samples[i+1].distM - samples[i].distM);
+        return {
+          x:    crsPts[i].x     + frac * (crsPts[i+1].x     - crsPts[i].x),
+          y:    crsPts[i].y     + frac * (crsPts[i+1].y     - crsPts[i].y),
+          elev: samples[i].elev + frac * (samples[i+1].elev  - samples[i].elev),
+        };
+      }
+    }
+    return { x: crsPts[last].x, y: crsPts[last].y, elev: samples[last].elev };
+  };
+  // Unit tangent direction at chainage sd (for perpendicular tick)
+  const dirAt = (sd) => {
+    for (let i = 0; i < samples.length - 1; i++) {
+      if (samples[i].distM <= sd && samples[i+1].distM >= sd) {
+        const dx = crsPts[i+1].x - crsPts[i].x, dy = crsPts[i+1].y - crsPts[i].y;
+        const len = Math.sqrt(dx*dx + dy*dy) || 1;
+        return { tx: dx/len, ty: dy/len };
+      }
+    }
+    const last = samples.length - 1;
+    const dx = crsPts[last].x - crsPts[last-1].x, dy = crsPts[last].y - crsPts[last-1].y;
+    const len = Math.sqrt(dx*dx + dy*dy) || 1;
+    return { tx: dx/len, ty: dy/len };
+  };
+
   // ── Elevation stats ─────────────────────────────────────
   const elevs   = samples.map(s => s.elev);
   const minElev = Math.min(...elevs);
@@ -547,11 +579,11 @@ function _epBuildDXF({ samples, crs, step, mh, mv }) {
   const textH = step * 0.06;
   const tickLen = step * 0.04;
 
-  // ── Profile block origin (anchored below plan start) ────
-  // Place profile section below the plan start with clearance
+  // ── Profile block origin (below entire trasse bounding box) ─
   const profGap = elevRange * vex * 2.0;
-  const ox = crsPts[0].x;          // profile origin X = plan start X
-  const oy = crsPts[0].y - profGap; // profile origin Y = below plan
+  const ox   = crsPts[0].x;
+  const minY = Math.min(...crsPts.map(p => p.y));
+  const oy   = minY - profGap;
 
   let s = '';
 
@@ -625,43 +657,28 @@ function _epBuildDXF({ samples, crs, step, mh, mv }) {
   if (stationDists.at(-1) < totalDist) stationDists.push(totalDist);
 
   for (const sd of stationDists) {
-    // Find nearest sample
-    let best = 0, bestDiff = Infinity;
-    for (let i = 0; i < samples.length; i++) {
-      const diff = Math.abs(samples[i].distM - sd);
-      if (diff < bestDiff) { bestDiff = diff; best = i; }
-    }
-    const px = crsPts[best].x, py = crsPts[best].y;
+    const { x: px, y: py, elev: stationElev } = interpAt(sd);
+    const { tx, ty } = dirAt(sd);
+    const nx = -ty, ny = tx; // perpendicular-left normal
 
-    // Direction vector along alignment (for perpendicular tick)
-    const next = crsPts[Math.min(best + 1, crsPts.length - 1)];
-    const prev = crsPts[Math.max(best - 1, 0)];
-    const dx = next.x - prev.x, dy = next.y - prev.y;
-    const len = Math.sqrt(dx*dx + dy*dy) || 1;
-    const nx = -dy / len, ny = dx / len; // perpendicular (left)
-
-    // Tick mark
+    // Tick mark on plan
     s += emitLine(px + nx*tickLen, py + ny*tickLen, px - nx*tickLen, py - ny*tickLen, 'ПИКЕТЫ', 2);
 
     // Label: "ПКx" or "ПКx+yyy"
     const pk = Math.floor(sd / 1000);
     const rem = Math.round(sd % 1000);
     const label = rem === 0 ? `ПК${pk}` : `ПК${pk}+${String(rem).padStart(3, '0')}`;
-    const stationElev = samples[best].elev;
     s += emitText(px + nx * tickLen * 2.5, py + ny * tickLen * 2.5,
                   label, 'ПИКЕТЫ', 2, textH, 0, 1);
-    // Elevation label on plan tick
     s += emitText(px + nx * tickLen * 2.5, py + ny * tickLen * 2.5 + textH * 1.4,
                   stationElev.toFixed(1) + ' м', 'ПОДПИСИ', 2, textH * 0.75, 0, 1);
 
-    // Vertical line in profile section at station X position
-    const profX = ox + sd;
+    // Profile section: vertical grid line + labels
+    const profX    = ox + sd;
     const profYbot = oy;
     const profYtop = oy + elevRange * vex * 1.1;
     s += emitLine(profX, profYbot, profX, profYtop, 'СЕТКА', 8);
-    // Station label below baseline
     s += emitText(profX, profYbot - textH * 1.5, label, 'ПИКЕТЫ', 2, textH, 0, 1);
-    // Elevation label in profile section (rotated, just above curve)
     s += emitText(profX, profYbot + (stationElev - minElev) * vex + textH * 0.6,
                   stationElev.toFixed(1), 'ПОДПИСИ', 2, textH * 0.8, 90, 0);
   }
