@@ -685,6 +685,11 @@ function _epBuildDXF({ samples, crs, step, mh, mv }) {
 
     // Perpendicular tick on the real plan trasse
     s += emitLine(px + nx*tickLen, py + ny*tickLen, px - nx*tickLen, py - ny*tickLen, 'ПИКЕТЫ', 2);
+    // Point entity at station location (for snap/reference in CAD)
+    s += G(0,'POINT') + G(8,'ПИКЕТЫ') + G(62,'2')
+       + G(10,px.toFixed(3)) + G(20,py.toFixed(3)) + G(30,'0.000');
+    // Elevation of the point as additional label directly on the trasse
+    s += emitText(px, py - textH * 1.4, stationElev.toFixed(2), 'ПОДПИСИ', 2, textH * 0.7, 0, 1);
     s += emitText(px + nx * tickLen * 2.5, py + ny * tickLen * 2.5,
                   label, 'ПИКЕТЫ', 2, textH, 0, 1);
     s += emitText(px + nx * tickLen * 2.5, py + ny * tickLen * 2.5 + textH * 1.4,
