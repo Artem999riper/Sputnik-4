@@ -525,7 +525,8 @@ function _epToCRS(lat, lng, crs) {
   return { x: r.easting, y: r.northing };
 }
 
-function _epBuildDXF({ samples, crs, step, vex }) {
+function _epBuildDXF({ samples, crs, step, mh, mv }) {
+  const vex = mh / mv;
   const G = (code, val) => code.toString().padStart(3, ' ') + '\n' + val + '\n';
 
   // ── CRS coordinates for plan ────────────────────────────
@@ -646,9 +647,12 @@ function _epBuildDXF({ samples, crs, step, vex }) {
     const pk = Math.floor(sd / 1000);
     const rem = Math.round(sd % 1000);
     const label = rem === 0 ? `ПК${pk}` : `ПК${pk}+${String(rem).padStart(3, '0')}`;
-    const labelAngle = (Math.atan2(dy, dx) * 180 / Math.PI + 90) % 360;
+    const stationElev = samples[best].elev;
     s += emitText(px + nx * tickLen * 2.5, py + ny * tickLen * 2.5,
                   label, 'ПИКЕТЫ', 2, textH, 0, 1);
+    // Elevation label on plan tick
+    s += emitText(px + nx * tickLen * 2.5, py + ny * tickLen * 2.5 + textH * 1.4,
+                  stationElev.toFixed(1) + ' м', 'ПОДПИСИ', 2, textH * 0.75, 0, 1);
 
     // Vertical line in profile section at station X position
     const profX = ox + sd;
@@ -657,6 +661,9 @@ function _epBuildDXF({ samples, crs, step, vex }) {
     s += emitLine(profX, profYbot, profX, profYtop, 'СЕТКА', 8);
     // Station label below baseline
     s += emitText(profX, profYbot - textH * 1.5, label, 'ПИКЕТЫ', 2, textH, 0, 1);
+    // Elevation label in profile section (rotated, just above curve)
+    s += emitText(profX, profYbot + (stationElev - minElev) * vex + textH * 0.6,
+                  stationElev.toFixed(1), 'ПОДПИСИ', 2, textH * 0.8, 90, 0);
   }
 
   // ── ПРОФИЛЬ: cross-section curve ───────────────────
@@ -684,11 +691,11 @@ function _epBuildDXF({ samples, crs, step, vex }) {
   const datum = _epUnitLabel || 'м';
   const totalKm = (totalDist / 1000).toFixed(2);
   s += emitText(ox, crsPts[0].y + textH * 3,
-    `Продольный профиль | ${totalKm} км | ${datum} | ${crsLabel} | увел. ${vex}×`,
+    `Продольный профиль | ${totalKm} км | ${datum} | ${crsLabel} | М гор 1:${mh} | М верт 1:${mv} | увел. ${vex.toFixed(1)}×`,
     'ПОДПИСИ', 2, textH * 0.9, 0, 0);
-  // Vex note on Y-axis
+  // Scale note on Y-axis
   s += emitText(ox - textH * 0.5, oy + elevRange * vex * 0.5,
-    `(×${vex})`, 'ПОДПИСИ', 2, textH * 0.7, 90, 1);
+    `(×${vex.toFixed(1)})`, 'ПОДПИСИ', 2, textH * 0.7, 90, 1);
 
   s += G(0,'ENDSEC');
   s += G(0,'EOF');
@@ -707,24 +714,21 @@ function _epShowExportModal() {
           <label style="display:block;padding:2px 0"><input type="radio" name="ep-crs" value="gsk2011"> ГСК-2011</label>
           <label style="display:block;padding:2px 0"><input type="radio" name="ep-crs" value="wgs84"> WGS-84 (градусы)</label>
         </div>
-        <div style="display:flex;gap:12px">
+        <div style="display:flex;gap:10px">
           <div style="flex:1">
-            <div style="font-weight:600;margin-bottom:4px">Шаг пикетов</div>
-            <select id="ep-step" class="form-select" style="width:100%;font-size:12px;padding:4px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
-              <option value="100">100 м (ПК1)</option>
-              <option value="200">200 м</option>
-              <option value="500">500 м</option>
-              <option value="1000" selected>1000 м (ПК10)</option>
-            </select>
+            <div style="font-weight:600;margin-bottom:4px">Шаг пикетов, м</div>
+            <input id="ep-step" type="number" min="10" step="10" value="100"
+              style="width:100%;font-size:12px;padding:4px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
           </div>
           <div style="flex:1">
-            <div style="font-weight:600;margin-bottom:4px">Верт. увеличение</div>
-            <select id="ep-vex" class="form-select" style="width:100%;font-size:12px;padding:4px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
-              <option value="5">5×</option>
-              <option value="10" selected>10× (стандарт)</option>
-              <option value="20">20×</option>
-              <option value="50">50×</option>
-            </select>
+            <div style="font-weight:600;margin-bottom:4px">Масштаб гориз. 1:</div>
+            <input id="ep-mh" type="number" min="100" step="100" value="5000"
+              style="width:100%;font-size:12px;padding:4px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+          </div>
+          <div style="flex:1">
+            <div style="font-weight:600;margin-bottom:4px">Масштаб верт. 1:</div>
+            <input id="ep-mv" type="number" min="10" step="10" value="500"
+              style="width:100%;font-size:12px;padding:4px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
           </div>
         </div>
       </div>`;
@@ -732,9 +736,10 @@ function _epShowExportModal() {
       { label: 'Отмена', cls: 'bs', fn: () => { closeModal(); resolve(null); } },
       { label: 'Скачать DXF', cls: 'bp', fn: () => {
         const crs  = document.querySelector('input[name="ep-crs"]:checked')?.value || 'msk86';
-        const step = parseInt(document.getElementById('ep-step').value, 10) || 1000;
-        const vex  = parseFloat(document.getElementById('ep-vex').value) || 10;
-        closeModal(); resolve({ crs, step, vex });
+        const step = Math.max(10,  parseInt(document.getElementById('ep-step').value, 10) || 100);
+        const mh   = Math.max(100, parseInt(document.getElementById('ep-mh').value,   10) || 5000);
+        const mv   = Math.max(10,  parseInt(document.getElementById('ep-mv').value,    10) || 500);
+        closeModal(); resolve({ crs, step, mh, mv });
       }},
     ]);
   });
