@@ -102,9 +102,11 @@ const KML_LINE_STYLES = {
 };
 
 // ── Состояние ───────────────────────────────────────────────
-let kmGroups    = {};
-let kmGroupOrder= [];
-let kmlPanelOpen= false;
+let kmGroups      = {};
+let kmGroupOrder  = [];
+let kmlPanelOpen  = false;
+let _kmlSelectedCat = 'ALL';    // 'ALL' | group_id | 'UNGROUPED'
+let _kmlDisplayMode = 'selected'; // 'selected' | 'all' | 'none'
 
 // ── Утилиты SVG ────────────────────────────────────────────
 function kmlSvgIcon(symbolKey, color, size) {
@@ -146,72 +148,164 @@ function toggleKmlPanel() {
 
 // ── Главный рендер панели ───────────────────────────────────
 function renderKmlPanel() {
-  const list = document.getElementById('kml-panel-body');
-  if (!list) return;
+  _kmlRenderCats();
+  _kmlRenderLayerPane();
+}
 
-  const ungrouped = layers.filter(l => !l.site_id && (!l.group_id || !kmGroups[l.group_id]));
-  const grouped   = {};
-  layers.filter(l => !l.site_id && l.group_id && kmGroups[l.group_id]).forEach(l => {
-    if (!grouped[l.group_id]) grouped[l.group_id] = [];
-    grouped[l.group_id].push(l);
-  });
+// Рендер левой колонки (группы/категории)
+function _kmlRenderCats() {
+  const el = document.getElementById('kml-cats');
+  if (!el) return;
+  const allLayers = layers.filter(l => !l.site_id);
+  const ungrouped = allLayers.filter(l => !l.group_id || !kmGroups[l.group_id]);
+  const totalVis  = allLayers.some(l => l.visible);
+  let html = '';
 
-  let html = `<div style="padding:4px 8px 2px;display:flex;gap:4px">
-    <button class="btn bs bxs" style="flex:1;justify-content:center" onclick="kmlCreateIconLayer()" title="Создать пустой слой для ручного размещения иконок на карте">📌 Создать слой</button>
-    <button class="btn bs bxs" style="flex:1;justify-content:center" onclick="openCoordMarkerModal()" title="Поставить метку по введённым координатам">🔢 По координатам</button>
+  // «Все слои»
+  html += `<div class="kml-cat-row ${_kmlSelectedCat === 'ALL' ? 'active' : ''}" onclick="_kmlSelectCat('ALL')">
+    <input type="checkbox" ${totalVis ? 'checked' : ''} onclick="event.stopPropagation()" onchange="_kmlCatBulkVis('ALL',this.checked)" style="cursor:pointer;flex-shrink:0">
+    <span class="kml-cat-label">🗂 Все слои</span>
+    <span class="kml-cat-count">${allLayers.length}</span>
   </div>`;
+
+  // Группы
   kmGroupOrder.forEach(gid => {
     const g = kmGroups[gid];
     if (!g) return;
-    const gLayers = grouped[gid] || [];
-    const allVis  = gLayers.length > 0 && gLayers.every(l => l.visible);
-    const siteIds = g.site_ids || [];
-    const boundSites = siteIds.length ? sites.filter(s=>siteIds.includes(s.id)) : [];
-    const isActive  = !siteIds.length || (currentObj && siteIds.includes(currentObj.id));
-    const badgeLabel = boundSites.length===1 ? esc(boundSites[0].name) : boundSites.length+' объекта';
-    const siteBadge = boundSites.length
-      ? `<span title="Привязана к: ${boundSites.map(s=>esc(s.name)).join(', ')}" style="font-size:9px;background:${isActive?'var(--acc)':'var(--tx3)'};color:#fff;border-radius:10px;padding:1px 6px;flex-shrink:0;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🏗 ${badgeLabel}</span>`
-      : '';
-    html += `<div class="kml-group" data-gid="${gid}" style="${!isActive?'opacity:.45':''}">
-      <div class="kml-group-hd" onclick="kmlToggleGroup('${gid}')">
-        <span class="kml-group-arrow">${g.collapsed ? '▶' : '▼'}</span>
-        <span class="kml-group-eye ${allVis?'on':''}" onclick="event.stopPropagation();kmlGroupVisToggle('${gid}')">${allVis?'👁':'🚫'}</span>
-        <span class="kml-group-name" ondblclick="event.stopPropagation();kmlRenameGroup('${gid}')">${esc(g.name)}</span>
-        ${siteBadge}
-        <span class="kml-group-count">${gLayers.length}</span>
-        <button class="kml-icon-btn" onclick="event.stopPropagation();kmlGroupCtx(event,'${gid}')">⋯</button>
-      </div>
-      ${g.collapsed ? '' : `<div class="kml-group-body">${gLayers.map(l => kmlLayerRow(l)).join('')}</div>`}
+    const gLayers  = allLayers.filter(l => l.group_id === gid);
+    const anyVis   = gLayers.some(l => l.visible);
+    const siteIds  = g.site_ids || [];
+    const boundSites = siteIds.length ? (typeof sites !== 'undefined' ? sites.filter(s => siteIds.includes(s.id)) : []) : [];
+    const isActive = !siteIds.length || (typeof currentObj !== 'undefined' && currentObj && siteIds.includes(currentObj.id));
+    const siteTip  = boundSites.length ? ` title="Привязана к: ${boundSites.map(s => esc(s.name)).join(', ')}"` : '';
+    html += `<div class="kml-cat-row ${_kmlSelectedCat === gid ? 'active' : ''}"
+        onclick="_kmlSelectCat('${gid}')"
+        oncontextmenu="event.preventDefault();kmlGroupCtx(event,'${gid}')"
+        style="${!isActive ? 'opacity:.5' : ''}"${siteTip}>
+      <input type="checkbox" ${anyVis ? 'checked' : ''} onclick="event.stopPropagation()" onchange="kmlGroupVisToggle('${gid}')" style="cursor:pointer;flex-shrink:0">
+      <span class="kml-cat-label" ondblclick="event.stopPropagation();kmlRenameGroup('${gid}')">📁 ${esc(g.name)}</span>
+      <span class="kml-cat-count">${gLayers.length}</span>
+      <button class="kml-icon-btn" onclick="event.stopPropagation();kmlGroupCtx(event,'${gid}')" title="Меню">⋯</button>
     </div>`;
   });
 
-  if (ungrouped.length) {
-    html += `<div class="kml-ungrouped-hd">📄 Без группы</div>`;
-    html += ungrouped.map(l => kmlLayerRow(l)).join('');
-  }
+  // «Без группы»
+  html += `<div class="kml-cat-row ${_kmlSelectedCat === 'UNGROUPED' ? 'active' : ''}" onclick="_kmlSelectCat('UNGROUPED')">
+    <input type="checkbox" ${ungrouped.some(l => l.visible) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="_kmlCatBulkVis('UNGROUPED',this.checked)" style="cursor:pointer;flex-shrink:0">
+    <span class="kml-cat-label">📄 Без группы</span>
+    <span class="kml-cat-count">${ungrouped.length}</span>
+  </div>`;
 
-  if (!html) {
-    html = `<div class="kml-empty"><div style="font-size:28px;margin-bottom:6px">🗺</div>
-      <div>Нет слоёв</div>
-      <div style="font-size:10px;color:var(--tx3);margin-top:4px">Импортируйте KML, GPX или DXF</div></div>`;
-  }
-  list.innerHTML = html;
+  // Кнопки действий
+  html += `<div class="kml-cat-actions">
+    <button class="btn bs bxs" onclick="kmlCreateGroup()">📁 + Группа</button>
+    <button class="btn bs bxs" onclick="kmlCreateIconLayer()">📌 Создать слой</button>
+    <button class="btn bs bxs" onclick="openCoordMarkerModal()">🔢 По координатам</button>
+  </div>`;
+
+  el.innerHTML = html;
 }
 
-function kmlLayerRow(l) {
-  const lblOn = !!layerLabels[l.id];
-  const sym   = l.symbol || 'point';
-  const svgPrev = kmlSvgIcon(sym, l.color || '#1a56db', 18);
-  return `<div class="kml-layer-row" data-lid="${l.id}" oncontextmenu="event.preventDefault();kmlLayerCtx(event,'${l.id}')">
-    <button class="kml-icon-btn vis ${l.visible?'on':''}" onclick="kmlToggleVis('${l.id}',${l.visible?0:1})">${l.visible?'👁':'🚫'}</button>
-    <div class="kml-sym-preview" onclick="kmlOpenStyleModal('${l.id}')" title="Стиль слоя">${svgPrev}</div>
-    <div class="kml-layer-name" ondblclick="kmlRenameLayer('${l.id}')" title="${esc(l.name)}">${esc(l.name)}</div>
-    <button class="kml-icon-btn ${lblOn?'on':''}" onclick="toggleLayerLabels('${l.id}')" title="Подписи">🏷</button>
-    <button class="kml-icon-btn" onclick="kmlZoomTo('${l.id}')" title="Приблизить">🔍</button>
-    <button class="kml-icon-btn" onclick="kmlOpenFeatureList('${l.id}')" title="Объекты слоя">📋</button>
-    <button class="kml-icon-btn ${_kmlPlacingLayerId===l.id?'on':''}" onclick="kmlStartPlacement('${l.id}')" title="Разместить иконку на карте">📌</button>
-    <button class="kml-icon-btn menu" onclick="kmlLayerCtx(event,'${l.id}')" title="Меню">⋯</button>
-  </div>`;
+// Рендер правой колонки (список слоёв выбранной категории)
+function _kmlRenderLayerPane() {
+  const el = document.getElementById('kml-layers-pane');
+  if (!el) return;
+  const allLayers = layers.filter(l => !l.site_id);
+  let filtered;
+  if (_kmlSelectedCat === 'ALL') {
+    filtered = allLayers;
+  } else if (_kmlSelectedCat === 'UNGROUPED') {
+    filtered = allLayers.filter(l => !l.group_id || !kmGroups[l.group_id]);
+  } else {
+    filtered = allLayers.filter(l => l.group_id === _kmlSelectedCat);
+  }
+
+  if (!filtered.length) {
+    const isEmpty = !allLayers.length;
+    el.innerHTML = `<div class="kml-empty">
+      ${isEmpty
+        ? '<div style="font-size:28px;margin-bottom:6px">🗺</div><div>Нет слоёв</div><div style="font-size:10px;color:var(--tx3);margin-top:4px">Импортируйте KML, GPX или DXF</div>'
+        : '<div style="font-size:24px;margin-bottom:6px">📂</div><div>Нет слоёв в выбранной группе</div>'}
+    </div>`;
+    return;
+  }
+
+  const rows = filtered.map(l => {
+    const lblOn   = !!layerLabels[l.id];
+    const sym     = l.symbol || 'point';
+    const svgPrev = kmlSvgIcon(sym, l.color || '#1a56db', 18);
+    return `<div class="kml-layer-row" data-lid="${l.id}" oncontextmenu="event.preventDefault();kmlLayerCtx(event,'${l.id}')">
+      <input type="checkbox" ${l.visible ? 'checked' : ''} title="${l.visible ? 'Скрыть слой' : 'Показать слой'}"
+        onchange="kmlToggleVis('${l.id}',this.checked?1:0)" onclick="event.stopPropagation()" style="cursor:pointer;flex-shrink:0">
+      <div class="kml-sym-preview" onclick="kmlOpenStyleModal('${l.id}')" title="Стиль слоя">${svgPrev}</div>
+      <div class="kml-layer-name" ondblclick="kmlRenameLayer('${l.id}')" title="${esc(l.name)}">${esc(l.name)}</div>
+      <button class="kml-icon-btn ${lblOn ? 'on' : ''}" onclick="toggleLayerLabels('${l.id}')" title="Подписи">🏷</button>
+      <button class="kml-icon-btn" onclick="kmlZoomTo('${l.id}')" title="Приблизить">🔍</button>
+      <button class="kml-icon-btn" onclick="kmlOpenFeatureList('${l.id}')" title="Объекты слоя">📋</button>
+      <button class="kml-icon-btn ${_kmlPlacingLayerId === l.id ? 'on' : ''}" onclick="kmlStartPlacement('${l.id}')" title="Разместить иконку">📌</button>
+      <button class="kml-icon-btn" onclick="kmlLayerCtx(event,'${l.id}')" title="Меню">⋯</button>
+    </div>`;
+  }).join('');
+
+  const visCount = filtered.filter(l => l.visible).length;
+  el.innerHTML = `<div style="flex:1">${rows}</div>
+    <div class="kml-pane-footer">Показано ${visCount} / ${filtered.length}</div>`;
+}
+
+// Выбрать категорию в левой панели
+function _kmlSelectCat(cat) {
+  _kmlSelectedCat = cat;
+  renderKmlPanel();
+}
+
+// Массовое переключение видимости для категории (чекбокс в левой панели)
+async function _kmlCatBulkVis(cat, vis) {
+  const allLayers = layers.filter(l => !l.site_id);
+  let targets;
+  if (cat === 'ALL') {
+    targets = allLayers;
+  } else if (cat === 'UNGROUPED') {
+    targets = allLayers.filter(l => !l.group_id || !kmGroups[l.group_id]);
+  } else {
+    return;
+  }
+  const v = vis ? 1 : 0;
+  for (const l of targets) await toggleLV(l.id, v);
+  setTimeout(renderKmlPanel, 150);
+}
+
+// Переключение режима отображения (радиокнопки в футере)
+function kmlSetMode(mode) {
+  _kmlDisplayMode = mode;
+  document.querySelectorAll('input[name="kml-mode"]').forEach(r => { r.checked = r.value === mode; });
+  if (mode === 'all')  _kmlCatBulkVis('ALL', true);
+  else if (mode === 'none') _kmlCatBulkVis('ALL', false);
+  else renderKmlPanel();
+}
+
+// Инициализация разделителя колонок
+function _kmlInitSplitter() {
+  const handle = document.getElementById('kml-vsplit');
+  const cats   = document.getElementById('kml-cats');
+  if (!handle || !cats) return;
+  let dragging = false, startX = 0, startW = 0;
+  handle.addEventListener('mousedown', e => {
+    dragging = true; startX = e.clientX; startW = cats.offsetWidth;
+    handle.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const w = Math.max(80, Math.min(startW + (e.clientX - startX), 380));
+    cats.style.width = w + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    document.body.style.userSelect = '';
+  });
 }
 
 // ── Видимость ───────────────────────────────────────────────
@@ -230,7 +324,7 @@ function kmlZoomTo(id) {
 
 // ── Группы ─────────────────────────────────────────────────
 function kmlToggleGroup(gid) {
-  if (kmGroups[gid]) { kmGroups[gid].collapsed = !kmGroups[gid].collapsed; renderKmlPanel(); }
+  _kmlSelectCat(gid);
 }
 async function kmlGroupVisToggle(gid) {
   const gl = layers.filter(l => l.group_id === gid);
@@ -1462,6 +1556,7 @@ function cmLayerChange() {
 async function initKmlManager() {
   await loadKmGroups();
   window.renderLayerGroups = renderLayerGroupsWithSymbols;
+  _kmlInitSplitter();
   setTimeout(() => {
     try { renderLayerGroupsWithSymbols(); } catch(e) {}
   }, 50);

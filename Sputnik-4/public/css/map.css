@@ -6,11 +6,11 @@
 .leaflet-tooltip{pointer-events:none!important}
 
 /* ── KML Manager Panel ── */
-#kml-panel{position:fixed;top:var(--th);right:0;bottom:0;width:268px;background:var(--s);border-left:1.5px solid var(--bd);z-index:1200;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);box-shadow:var(--shl)}
+#kml-panel{position:fixed;top:var(--th);right:0;bottom:0;width:520px;background:var(--s);border-left:1.5px solid var(--bd);z-index:1200;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);box-shadow:var(--shl)}
 #kml-panel.open{transform:translateX(0)}
-body:has(#kml-panel.open) #map{right:268px}
-body:has(#kml-panel.open) #panel{right:268px}
-body:has(#kml-panel.open) #lp{right:275px}
+body:has(#kml-panel.open) #map{right:520px}
+body:has(#kml-panel.open) #panel{right:520px}
+body:has(#kml-panel.open) #lp{right:527px}
 body:has(#kml-panel.open) #workers-page,
 body:has(#kml-panel.open) #machinery-page,
 body:has(#kml-panel.open) #equipment-page,
@@ -20,33 +20,40 @@ body:has(#kml-panel.open) #gtasks-page,
 body:has(#kml-panel.open) #gruz-page,
 body:has(#kml-panel.open) #smg-page,
 body:has(#kml-panel.open) #field-page,
-body:has(#kml-panel.open) #brigades-page{right:268px}
-.kml-panel-hd{display:flex;align-items:center;justify-content:space-between;padding:7px 9px 7px 9px;border-bottom:none;flex-shrink:0;gap:5px;background:var(--s2)}
-.kml-panel-acts{display:flex;align-items:center;gap:4px;padding:0 9px 7px;border-bottom:1.5px solid var(--bd);background:var(--s2);flex-shrink:0}
-.kml-panel-acts>.btn{flex:1;justify-content:center}
+body:has(#kml-panel.open) #brigades-page{right:520px}
+.kml-panel-hd{display:flex;align-items:center;justify-content:space-between;padding:7px 9px;border-bottom:1.5px solid var(--bd);flex-shrink:0;gap:6px;background:var(--s2)}
+.kml-hd-acts{display:flex;align-items:center;gap:4px;flex-shrink:0}
 .kml-panel-close{background:none;border:none;cursor:pointer;font-size:17px;color:var(--tx2);padding:0 4px;border-radius:4px;line-height:1;flex-shrink:0;font-weight:300;transition:all .15s}
 .kml-panel-close:hover{background:var(--redd,#fee2e2);color:#e02424}
-.kml-panel-body{flex:1;overflow-y:auto;padding:4px 0}
-.kml-panel-body::-webkit-scrollbar{width:3px}
-.kml-panel-body::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
-.kml-panel-ft{padding:5px 9px;border-top:1px solid var(--bd);flex-shrink:0;background:var(--s2)}
-.kml-group{margin-bottom:1px}
-.kml-group-hd{display:flex;align-items:center;gap:4px;padding:5px 8px;background:var(--s2);border-bottom:1px solid var(--bd);border-top:1px solid var(--bd);cursor:pointer;user-select:none;font-size:11px;font-weight:700;color:var(--tx2)}
-.kml-group-hd:hover{background:var(--s3)}
-.kml-group-arrow{font-size:9px;color:var(--tx3);flex-shrink:0;width:10px;text-align:center}
-.kml-group-eye{background:none;border:none;cursor:pointer;font-size:12px;padding:0 2px;opacity:.45;flex-shrink:0;line-height:1}
-.kml-group-eye:hover,.kml-group-eye.on{opacity:1}
-.kml-group-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.kml-group-count{font-size:9px;background:var(--bd2);color:var(--tx3);border-radius:8px;padding:1px 5px;flex-shrink:0;font-weight:600}
-.kml-group-body{border-left:2px solid var(--accm);margin-left:14px}
-.kml-ungrouped-hd{font-size:9px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;color:var(--tx3);padding:7px 10px 3px;margin-top:2px}
+/* two-column layout */
+.kml-main{display:flex;flex:1;overflow:hidden;min-height:0}
+.kml-cats{width:185px;min-width:80px;overflow-y:auto;border-right:1.5px solid var(--bd);flex-shrink:0;background:var(--s2)}
+.kml-cats::-webkit-scrollbar{width:3px}.kml-cats::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
+.kml-vsplit{width:4px;cursor:col-resize;background:var(--bd);flex-shrink:0;transition:background .1s}
+.kml-vsplit:hover,.kml-vsplit.dragging{background:var(--acc)}
+.kml-layers-pane{flex:1;overflow-y:auto;min-width:0;display:flex;flex-direction:column}
+.kml-layers-pane::-webkit-scrollbar{width:3px}.kml-layers-pane::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
+/* category rows (left panel) */
+.kml-cat-row{display:flex;align-items:center;gap:6px;padding:5px 7px;cursor:pointer;font-size:11px;border-bottom:1px solid var(--bd);user-select:none;transition:background .1s}
+.kml-cat-row:hover{background:var(--s3)}
+.kml-cat-row.active{background:var(--accl)}
+.kml-cat-row.active .kml-cat-label{font-weight:700;color:var(--acc)}
+.kml-cat-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx)}
+.kml-cat-count{font-size:9px;background:var(--bd2);color:var(--tx3);border-radius:8px;padding:1px 5px;flex-shrink:0;font-weight:600}
+.kml-cat-actions{padding:6px 7px;display:flex;flex-direction:column;gap:3px}
+.kml-cat-actions .btn{width:100%;justify-content:center;font-size:11px}
+/* footer */
+.kml-panel-ft{display:flex;gap:8px;align-items:center;padding:5px 9px;border-top:1px solid var(--bd);flex-shrink:0;background:var(--s2);font-size:11px;flex-wrap:wrap}
+.kml-panel-ft label{display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--tx2)}
+.kml-panel-ft label:has(input:checked){color:var(--acc);font-weight:600}
+.kml-pane-footer{padding:4px 9px;font-size:10px;color:var(--tx3);border-top:1px solid var(--bd);background:var(--s2);flex-shrink:0}
+/* layer rows */
 .kml-layer-row{display:flex;align-items:center;gap:3px;padding:4px 8px;border-bottom:1px solid var(--bd);transition:background .1s}
 .kml-layer-row:hover{background:var(--accl)}
-.kml-layer-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--tx);font-size:11px}
+.kml-layer-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;color:var(--tx);font-size:11px}
 .kml-icon-btn{background:none;border:1px solid transparent;cursor:pointer;font-size:12px;padding:2px 3px;border-radius:3px;color:var(--tx2);opacity:1;flex-shrink:0;transition:all .1s;line-height:1}
 .kml-icon-btn:hover{background:var(--s3);border-color:var(--bd);color:var(--tx)}
 .kml-icon-btn.on{background:var(--accl);border-color:var(--accm);color:var(--acc)}
-.kml-icon-btn.vis.on{background:var(--accl);border-color:var(--accm);color:var(--acc)}
 .kml-sym-preview{width:22px;height:22px;flex-shrink:0;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;transition:background .1s;border:1.5px solid transparent}
 .kml-sym-preview:hover{background:var(--s3);border-color:var(--bd)}
 .kml-sym-btn{width:38px;height:38px;border:2px solid var(--bd);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;background:var(--s2)}
@@ -73,7 +80,7 @@ body:has(#kml-panel.open) #brigades-page{right:268px}
 #ep-panel.open{transform:translateY(0)}
 body:has(#ep-panel.open) #map{bottom:230px;transition:bottom .25s cubic-bezier(.4,0,.2,1)}
 body:has(#ep-panel.open) #coord-widget{bottom:calc(230px + 8px);transition:bottom .25s cubic-bezier(.4,0,.2,1)}
-body:has(#kml-panel.open) #ep-panel{right:268px}
+body:has(#kml-panel.open) #ep-panel{right:520px}
 .ep-hd{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid var(--bd);background:var(--s2);flex-shrink:0;font-size:12px;font-weight:700}
 #ep-stats{flex:1;font-size:11px;color:var(--tx2);font-weight:400}
 .ep-body{flex:1;overflow:hidden;padding:4px 12px 8px;position:relative}

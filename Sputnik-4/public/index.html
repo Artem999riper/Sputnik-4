@@ -478,23 +478,26 @@
 <!-- KML LAYER MANAGER PANEL -->
 <div id="kml-panel">
   <div class="kml-panel-hd">
-    <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0">
-      <span style="font-size:14px;flex-shrink:0">🗂</span>
-      <span style="font-size:12px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Слои карты</span>
+    <span style="font-size:13px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">🗂 Слои карты</span>
+    <div class="kml-hd-acts">
+      <label class="btn bs bxs" style="cursor:pointer" title="Импорт KML/GPX/DXF">
+        📂 Импорт
+        <input type="file" accept=".kml,.gpx,.dxf" style="display:none" onchange="kmlPanelImport(event)">
+      </label>
+      <button class="btn bs bxs" onclick="openLayerExportDialog()" title="Экспорт слоёв в DXF">📤 DXF</button>
+      <button class="kml-panel-close" onclick="toggleKmlPanel()" title="Закрыть">✕</button>
     </div>
-    <button class="kml-panel-close" onclick="toggleKmlPanel()" title="Закрыть">✕</button>
   </div>
-  <div class="kml-panel-acts">
-    <button class="btn bs bxs" onclick="kmlCreateGroup()" title="Создать группу">📁 Группа</button>
-    <label class="btn bp bxs" style="cursor:pointer" title="Импорт KML/GPX">
-      ＋ Импорт
-      <input type="file" accept=".kml,.gpx,.dxf" style="display:none" onchange="kmlPanelImport(event)">
-    </label>
-    <button class="btn bs bxs" onclick="openLayerExportDialog()" title="Экспорт слоёв в DXF">📤 DXF</button>
+  <div class="kml-main">
+    <div class="kml-cats" id="kml-cats"></div>
+    <div class="kml-vsplit" id="kml-vsplit"></div>
+    <div class="kml-layers-pane" id="kml-layers-pane"></div>
   </div>
-  <div id="kml-panel-body" class="kml-panel-body"></div>
   <div class="kml-panel-ft">
-    <div style="font-size:10px;color:var(--tx3)">ПКМ на слое — меню · 2× клик — переименовать</div>
+    <label><input type="radio" name="kml-mode" value="selected" checked onchange="kmlSetMode(this.value)"> Выбранные</label>
+    <label><input type="radio" name="kml-mode" value="all" onchange="kmlSetMode(this.value)"> Показать все</label>
+    <label><input type="radio" name="kml-mode" value="none" onchange="kmlSetMode(this.value)"> Скрыть все</label>
+    <span style="font-size:10px;color:var(--tx3);margin-left:auto">ПКМ — меню · 2× клик — переим.</span>
   </div>
 </div>
 
