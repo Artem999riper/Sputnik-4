@@ -658,11 +658,12 @@ function _epBuildDXF({ samples, crs, step, mh, mv }) {
     + G(11,x2.toFixed(3)) + G(21,y2.toFixed(3)) + G(31,'0.000');
 
   // ── ТРАССА: route polyline in real CRS coordinates ──────
-  s += G(0,'POLYLINE') + G(8,'ТРАССА') + G(62,'5') + G(66,'1') + G(70,'0')
+  s += G(0,'POLYLINE') + G(8,'ТРАССА') + G(62,'5') + G(66,'1') + G(70,'8')
      + G(10,'0.000') + G(20,'0.000') + G(30,'0.000');
-  for (const p of crsPts) {
+  for (let i = 0; i < crsPts.length; i++) {
     s += G(0,'VERTEX') + G(8,'ТРАССА') + G(62,'5')
-       + G(10,p.x.toFixed(3)) + G(20,p.y.toFixed(3)) + G(30,'0.000') + G(70,'0');
+       + G(10,crsPts[i].x.toFixed(3)) + G(20,crsPts[i].y.toFixed(3))
+       + G(30,samples[i].elev.toFixed(3)) + G(70,'0');
   }
   s += G(0,'SEQEND') + G(8,'ТРАССА');
 
