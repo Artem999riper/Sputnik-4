@@ -28,7 +28,7 @@ function parseDXF(text) {
 
   const dxfLayers = new Map();
   let inEntities = false;
-  const ENTITY_TYPES = new Set(['POINT','LINE','LWPOLYLINE','POLYLINE','VERTEX','SEQEND','TEXT','MTEXT','INSERT']);
+  const ENTITY_TYPES = new Set(['POINT','LINE','ARC','LWPOLYLINE','POLYLINE','VERTEX','SEQEND','TEXT','MTEXT','ATTRIB','INSERT']);
   let i = 0;
   while (i < pairs.length) {
     const [code, val] = pairs[i];
@@ -147,6 +147,31 @@ function dxfEntitiesToFeatures(entities, inv) {
         } else {
           features.push({ type:'Feature', geometry:{ type:'LineString', coordinates:pts }, properties:{ name } });
         }
+        break;
+      }
+      case 'ARC': {
+        // Approximate arc as line segments (≤5° per segment)
+        const cx = gF(c, 10), cy = gF(c, 20), r = gF(c, 40);
+        if (r <= 0) break;
+        let a0 = gF(c, 50), a1 = gF(c, 51);
+        if (a1 <= a0) a1 += 360; // arcs are CCW
+        const span = a1 - a0;
+        const nSeg = Math.max(8, Math.ceil(span / 5));
+        const arcPts = [];
+        for (let j = 0; j <= nSeg; j++) {
+          const ang = (a0 + span * j / nSeg) * Math.PI / 180;
+          const xy = safeInv(cx + r * Math.cos(ang), cy + r * Math.sin(ang));
+          if (xy) arcPts.push(xy);
+        }
+        if (arcPts.length >= 2)
+          features.push({ type:'Feature', geometry:{ type:'LineString', coordinates:arcPts }, properties:{ name } });
+        break;
+      }
+      case 'TEXT': case 'MTEXT': case 'ATTRIB': {
+        // Text / block-attribute label → named Point
+        const txt = (gS(c, 1) || '').replace(/\\[pPfFhHwWqQaAlLkKoOcCtTb];?|[{}]/g, '').trim();
+        const xy = safeInv(gF(c, 10), gF(c, 20));
+        if (xy) features.push({ type:'Feature', geometry:{ type:'Point', coordinates:xy }, properties:{ name: txt } });
         break;
       }
     }

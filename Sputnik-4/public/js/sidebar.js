@@ -343,8 +343,8 @@ function _showDxfCrsModal(){
       <div style="display:flex;flex-direction:column;gap:6px">
         <div style="font-size:12px;color:var(--tx3);margin-bottom:2px">Выберите систему координат DXF-файла:</div>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86" checked> МСК-86 (авто зона по X)</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=66°, фикс.)</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=72°, фикс.)</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′, фикс.)</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′, фикс.)</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="gsk2011"> ГСК-2011</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="wgs84"> WGS-84 (градусы)</label>
       </div>`;
