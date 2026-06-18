@@ -107,6 +107,7 @@ let kmGroupOrder  = [];
 let kmlPanelOpen  = false;
 let _kmlSelectedCat = 'ALL';    // 'ALL' | group_id | 'UNGROUPED'
 let _kmlDisplayMode = 'selected'; // 'selected' | 'all' | 'none'
+let _kmlExpanded    = new Set();  // id слоёв, раскрытых в иерархии
 
 // ── Утилиты SVG ────────────────────────────────────────────
 function kmlSvgIcon(symbolKey, color, size) {
@@ -234,17 +235,22 @@ function _kmlRenderLayerPane() {
     const lblOn   = !!layerLabels[l.id];
     const sym     = l.symbol || 'point';
     const svgPrev = kmlSvgIcon(sym, l.color || '#1a56db', 18);
+    const featCnt = _kmlFeatureCount(l);
+    const isExp   = _kmlExpanded.has(l.id);
+    const arrow   = featCnt > 0
+      ? `<span class="kml-exp-arrow" onclick="event.stopPropagation();_kmlToggleExpand('${l.id}')" title="${isExp ? 'Свернуть' : 'Показать объекты'}">${isExp ? '▼' : '▶'}</span>`
+      : `<span class="kml-exp-arrow empty"></span>`;
     return `<div class="kml-layer-row" data-lid="${l.id}" oncontextmenu="event.preventDefault();kmlLayerCtx(event,'${l.id}')">
+      ${arrow}
       <input type="checkbox" ${l.visible ? 'checked' : ''} title="${l.visible ? 'Скрыть слой' : 'Показать слой'}"
         onchange="kmlToggleVis('${l.id}',this.checked?1:0)" onclick="event.stopPropagation()" style="cursor:pointer;flex-shrink:0">
       <div class="kml-sym-preview" onclick="kmlOpenStyleModal('${l.id}')" title="Стиль слоя">${svgPrev}</div>
-      <div class="kml-layer-name" ondblclick="kmlRenameLayer('${l.id}')" title="${esc(l.name)}">${esc(l.name)}</div>
+      <div class="kml-layer-name" onclick="${featCnt > 0 ? `_kmlToggleExpand('${l.id}')` : ''}" ondblclick="kmlRenameLayer('${l.id}')" title="${esc(l.name)}">${esc(l.name)}${featCnt ? ` <span class="kml-feat-badge">${featCnt}</span>` : ''}</div>
       <button class="kml-icon-btn ${lblOn ? 'on' : ''}" onclick="toggleLayerLabels('${l.id}')" title="Подписи">🏷</button>
       <button class="kml-icon-btn" onclick="kmlZoomTo('${l.id}')" title="Приблизить">🔍</button>
-      <button class="kml-icon-btn" onclick="kmlOpenFeatureList('${l.id}')" title="Объекты слоя">📋</button>
       <button class="kml-icon-btn ${_kmlPlacingLayerId === l.id ? 'on' : ''}" onclick="kmlStartPlacement('${l.id}')" title="Разместить иконку">📌</button>
       <button class="kml-icon-btn" onclick="kmlLayerCtx(event,'${l.id}')" title="Меню">⋯</button>
-    </div>`;
+    </div>${isExp ? _kmlFeatureChildRows(l) : ''}`;
   }).join('');
 
   const visCount = filtered.filter(l => l.visible).length;
@@ -256,6 +262,58 @@ function _kmlRenderLayerPane() {
 function _kmlSelectCat(cat) {
   _kmlSelectedCat = cat;
   renderKmlPanel();
+}
+
+// Кол-во объектов в слое
+function _kmlFeatureCount(l) {
+  try {
+    const gj = JSON.parse(l.geojson);
+    return gj.type === 'FeatureCollection' ? (gj.features || []).length : (gj.type === 'Feature' ? 1 : 0);
+  } catch (e) { return 0; }
+}
+
+// Раскрыть/свернуть иерархию объектов слоя
+function _kmlToggleExpand(id) {
+  if (_kmlExpanded.has(id)) _kmlExpanded.delete(id);
+  else _kmlExpanded.add(id);
+  _kmlRenderLayerPane();
+}
+
+// Дочерние строки — объекты слоя в иерархии
+function _kmlFeatureChildRows(l) {
+  let gj;
+  try { gj = JSON.parse(l.geojson); } catch (e) { return ''; }
+  const features = gj.type === 'FeatureCollection' ? gj.features : (gj.type === 'Feature' ? [gj] : []);
+  if (!features.length) {
+    return `<div class="kml-feat-empty">Слой пуст</div>`;
+  }
+  const typeIcon = t => t === 'Point' ? '📍' : t === 'LineString' ? '〰️' : t === 'Polygon' ? '⬡' : '◆';
+  return `<div class="kml-feat-children">` + features.map((f, idx) => {
+    const props    = f.properties || {};
+    const nm       = props.name || props.Name || `Объект ${idx + 1}`;
+    const geomType = f.geometry ? f.geometry.type : '?';
+    const fSym     = props._sym   || l.symbol || 'point';
+    const fColor   = props._color || l.color  || '#1a56db';
+    const isHidden = !!props._hidden;
+    const preview  = geomType === 'Point' ? kmlSvgIcon(fSym, fColor, 16) : `<span style="font-size:13px">${typeIcon(geomType)}</span>`;
+    let coordLabel = '';
+    try {
+      if (geomType === 'Point') { const [lng, lat] = f.geometry.coordinates; coordLabel = `${lat.toFixed(5)}, ${lng.toFixed(5)}`; }
+      else if (geomType === 'LineString') coordLabel = `${f.geometry.coordinates.length} точек`;
+      else if (geomType === 'Polygon')    coordLabel = `${(f.geometry.coordinates[0] || []).length} вершин`;
+    } catch (e) {}
+    return `<div class="kml-feat-row" style="${isHidden ? 'opacity:.45' : ''}">
+      <span class="kml-feat-sym">${preview}</span>
+      <div class="kml-feat-info" onclick="kmlZoomToFeature('${l.id}',${idx})" title="Приблизить">
+        <div class="kml-feat-name">${esc(nm)}</div>
+        ${coordLabel ? `<div class="kml-feat-coord">${esc(coordLabel)}</div>` : ''}
+      </div>
+      <button class="kml-icon-btn" onclick="kmlToggleFeatureVis('${l.id}',${idx})" title="${isHidden ? 'Показать' : 'Скрыть'}">${isHidden ? '🚫' : '👁'}</button>
+      <button class="kml-icon-btn" onclick="kmlZoomToFeature('${l.id}',${idx})" title="Приблизить">🔍</button>
+      <button class="kml-icon-btn" onclick="kmlEditFeature('${l.id}',${idx},'inline')" title="Редактировать">✏️</button>
+      <button class="kml-icon-btn" style="color:var(--red);opacity:.75" onclick="kmlDeleteFeature('${l.id}',${idx},'inline')" title="Удалить">🗑</button>
+    </div>`;
+  }).join('') + `</div>`;
 }
 
 // Массовое переключение видимости для категории (чекбокс в левой панели)
@@ -456,7 +514,7 @@ function kmlLayerCtx(ev, id) {
   const groupItems=(moveToGroupItems.length||removeFromGroupItem.length)?[{sep:true},...moveToGroupItems,...removeFromGroupItem]:[];
   showCtx(cx,cy,[
     {i:'🗺',l:`<b>${esc(l.name)}</b>`,f:null},{sep:true},
-    {i:'📋',l:'Объекты слоя',f:()=>kmlOpenFeatureList(id)},
+    {i:_kmlExpanded.has(id)?'▼':'▶',l:_kmlExpanded.has(id)?'Свернуть объекты':'Показать объекты',f:()=>{if(!_kmlExpanded.has(id))_kmlExpanded.add(id);_kmlRenderLayerPane();}},
     {i:'🎨',l:'Стиль / условный знак',f:()=>kmlOpenStyleModal(id)},
     {i:'✏️',l:'Переименовать',f:()=>kmlRenameLayer(id)},
     {i:'🔍',l:'Приблизить к слою',f:()=>kmlZoomTo(id)},
@@ -707,7 +765,8 @@ function kmlZoomToFeature(layerId, fIdx) {
 }
 
 // ── Редактировать отдельный feature ────────────────────────
-function kmlEditFeature(layerId, fIdx) {
+function kmlEditFeature(layerId, fIdx, mode) {
+  const inline = mode === 'inline';
   const l = layers.find(x => x.id === layerId);
   if (!l) return;
   let gj;
@@ -762,7 +821,7 @@ function kmlEditFeature(layerId, fIdx) {
     </div>`;
 
   showModal(`✏️ Редактировать — ${esc(nm||'Объект')}`, html, [
-    {label:'Отмена',cls:'bs',fn:()=>{closeModal();kmlOpenFeatureList(layerId);}},
+    {label:'Отмена',cls:'bs',fn:()=>{closeModal();if(inline){if(kmlPanelOpen)_kmlRenderLayerPane();}else kmlOpenFeatureList(layerId);}},
     {label:'💾 Сохранить',cls:'bp',fn:async()=>{
       const newNm   = document.getElementById('kfl-nm').value.trim() || nm;
       const newDesc = document.getElementById('kfl-desc').value.trim();
@@ -791,7 +850,8 @@ function kmlEditFeature(layerId, fIdx) {
       renderLayerGroups();
       toast('Сохранено','ok');
       closeModal();
-      kmlOpenFeatureList(layerId);  // возврат к списку
+      if (inline) { if (kmlPanelOpen) _kmlRenderLayerPane(); }
+      else kmlOpenFeatureList(layerId);  // возврат к списку
     }}
   ]);
 }
@@ -837,10 +897,13 @@ async function kmlToggleFeatureVis(layerId, fIdx) {
     const pols = features.filter(f2 => f2.geometry?.type === 'Polygon').length;
     span.innerHTML = `${pts ? `📍 ${pts}  ` : ''}${lns ? `〰️ ${lns}  ` : ''}${pols ? `⬡ ${pols}  ` : ''}${hc ? `🚫 скрыто: ${hc}` : ''}`;
   }
+  // Обновляем иерархию в панели (если слой раскрыт)
+  if (kmlPanelOpen && _kmlExpanded.has(layerId)) _kmlRenderLayerPane();
 }
 
 // ── Удалить отдельный feature ───────────────────────────────
-async function kmlDeleteFeature(layerId, fIdx) {
+async function kmlDeleteFeature(layerId, fIdx, mode) {
+  const inline = mode === 'inline';
   if (!confirm('Удалить этот объект из слоя?')) return;
   const l = layers.find(x => x.id === layerId);
   if (!l) return;
@@ -856,7 +919,8 @@ async function kmlDeleteFeature(layerId, fIdx) {
   l.geojson = newGeojson;
   renderLayerGroups();
   toast('Объект удалён','ok');
-  kmlOpenFeatureList(layerId);  // обновить список
+  if (inline) { if (kmlPanelOpen) _kmlRenderLayerPane(); }
+  else kmlOpenFeatureList(layerId);  // обновить список
 }
 
 // ── Импорт ─────────────────────────────────────────────────
