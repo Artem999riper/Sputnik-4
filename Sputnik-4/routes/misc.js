@@ -97,6 +97,50 @@ function makeDxfInverseTransform(crs, sampleX) {
   return (x, y) => { const [lng, lat] = proj4(projStr, _DXF_WGS84, [x, y]); return [lng, lat]; };
 }
 
+// Раскрыть «bulge» (выпуклость вершины полилинии) в точки дуги.
+// Возвращает промежуточные точки между p1 и p2 (без самих концов).
+function _bulgeArcPoints(x1, y1, x2, y2, bulge) {
+  const theta = 4 * Math.atan(bulge);              // полный угол дуги (со знаком)
+  const dx = x2 - x1, dy = y2 - y1;
+  const chord = Math.hypot(dx, dy);
+  if (chord < 1e-9 || !isFinite(theta) || Math.abs(theta) < 1e-6) return [];
+  const R = chord / (2 * Math.sin(Math.abs(theta) / 2));
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+  const apoth = Math.sqrt(Math.max(0, R * R - (chord / 2) * (chord / 2)));
+  const nx = -dy / chord, ny = dx / chord;         // нормаль к хорде
+  const sign = (bulge > 0 ? 1 : -1) * (Math.abs(theta) > Math.PI ? -1 : 1);
+  const cx = mx + nx * apoth * sign;
+  const cy = my + ny * apoth * sign;
+  let a1 = Math.atan2(y1 - cy, x1 - cx);
+  let a2 = Math.atan2(y2 - cy, x2 - cx);
+  if (bulge > 0 && a2 < a1) a2 += 2 * Math.PI;     // CCW
+  if (bulge < 0 && a2 > a1) a2 -= 2 * Math.PI;     // CW
+  const sweep = a2 - a1;
+  const nSeg = Math.max(2, Math.ceil(Math.abs(sweep) / (5 * Math.PI / 180)));
+  const out = [];
+  for (let k = 1; k < nSeg; k++) {
+    const a = a1 + sweep * k / nSeg;
+    out.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]);
+  }
+  return out;
+}
+
+// Превратить вершины [{x,y,bulge}] в плотную ломаную (в координатах DXF),
+// раскрывая дуги по bulge.
+function _densifyVerts(verts, closed) {
+  const out = [];
+  const n = verts.length;
+  const lim = closed ? n : n - 1;
+  for (let i = 0; i < lim; i++) {
+    const a = verts[i], b = verts[(i + 1) % n];
+    out.push([a.x, a.y]);
+    if (a.bulge && Math.abs(a.bulge) > 1e-9)
+      for (const p of _bulgeArcPoints(a.x, a.y, b.x, b.y, a.bulge)) out.push(p);
+  }
+  if (!closed) out.push([verts[n - 1].x, verts[n - 1].y]);
+  return out;
+}
+
 function dxfEntitiesToFeatures(entities, inv) {
   const features = [];
   const gF = (c, code) => { const p = c.find(([k]) => k === code); return p ? parseFloat(p[1]) : 0; };
@@ -119,11 +163,20 @@ function dxfEntitiesToFeatures(entities, inv) {
         break;
       }
       case 'LWPOLYLINE': {
-        const xs = gAll(c, 10), ys = gAll(c, 20);
-        if (xs.length < 2) break;
-        const pts = xs.map((x, idx) => safeInv(x, ys[idx])).filter(Boolean);
-        if (pts.length < 2) break;
+        // Считываем вершины по порядку, сохраняя bulge (код 42) каждой вершины
+        const verts = [];
+        let cur = null;
+        for (const [k, v] of c) {
+          if (k === 10) { if (cur) verts.push(cur); cur = { x: parseFloat(v), y: 0, bulge: 0 }; }
+          else if (k === 20 && cur) cur.y = parseFloat(v);
+          else if (k === 42 && cur) cur.bulge = parseFloat(v);
+        }
+        if (cur) verts.push(cur);
+        if (verts.length < 2) break;
         const closed = !!(gF(c, 70) & 0x01);
+        const pts = _densifyVerts(verts, closed && verts.length >= 3)
+          .map(([x, y]) => safeInv(x, y)).filter(Boolean);
+        if (pts.length < 2) break;
         if (closed && pts.length >= 3) {
           pts.push(pts[0]);
           features.push({ type:'Feature', geometry:{ type:'Polygon', coordinates:[pts] }, properties:{ name } });
@@ -134,13 +187,15 @@ function dxfEntitiesToFeatures(entities, inv) {
       }
       case 'POLYLINE': {
         if (!ent.vertices || ent.vertices.length < 2) break;
-        const pts = ent.vertices.map(vc => {
-          const vx = parseFloat(vc.find(([k]) => k === 10)?.[1] || 0);
-          const vy = parseFloat(vc.find(([k]) => k === 20)?.[1] || 0);
-          return safeInv(vx, vy);
-        }).filter(Boolean);
-        if (pts.length < 2) break;
+        const verts = ent.vertices.map(vc => ({
+          x: parseFloat(vc.find(([k]) => k === 10)?.[1] || 0),
+          y: parseFloat(vc.find(([k]) => k === 20)?.[1] || 0),
+          bulge: parseFloat(vc.find(([k]) => k === 42)?.[1] || 0),
+        }));
         const closed = !!(gF(c, 70) & 0x01);
+        const pts = _densifyVerts(verts, closed && verts.length >= 3)
+          .map(([x, y]) => safeInv(x, y)).filter(Boolean);
+        if (pts.length < 2) break;
         if (closed && pts.length >= 3) {
           pts.push(pts[0]);
           features.push({ type:'Feature', geometry:{ type:'Polygon', coordinates:[pts] }, properties:{ name } });
