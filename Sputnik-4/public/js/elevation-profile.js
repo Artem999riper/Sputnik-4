@@ -503,21 +503,40 @@ function closeElevationProfile() {
 // ═══════════════════════════════════════════════════════════
 
 const _EP_WGS84 = '+proj=longlat +datum=WGS84 +no_defs';
-const _EP_MSK_Z3 = '+proj=tmerc +lat_0=0 +lon_0=66.05 +k=1 +x_0=3500000 +y_0=-5811057.63 +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs';
-const _EP_MSK_Z4 = '+proj=tmerc +lat_0=0 +lon_0=72.05 +k=1 +x_0=4500000 +y_0=-5811057.63 +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs';
+// Fallback definitions — must match dem.js DEM_PROJECTIONS (рельеф).
+// МСК-86: ЦМ Зона 3 = 72°05′, Зона 4 = 78°05′ (lon_0 = 60.05 + 6*(N-1)).
+const _EP_MSK_Z3 = '+proj=tmerc +lat_0=0 +lon_0=72.05 +k=1 +x_0=3500000 +y_0=-5811057.63 +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs';
+const _EP_MSK_Z4 = '+proj=tmerc +lat_0=0 +lon_0=78.05 +k=1 +x_0=4500000 +y_0=-5811057.63 +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs';
+
+// Use the relief's projection list when available, so the profile and the
+// рельеф export always project to identical coordinates.
+function _epProj4For(crsId, fallback) {
+  if (typeof DEM_PROJECTIONS !== 'undefined') {
+    const p = DEM_PROJECTIONS.find(d => d.id === crsId);
+    if (p && p.proj4) return p.proj4;
+  }
+  return fallback;
+}
 
 function _epToCRS(lat, lng, crs) {
   if (crs === 'wgs84') return { x: lng, y: lat };
   if (crs === 'gsk2011') {
+    // Match the рельеф: use its GK zone definition (GRS80) when available
+    const gkZone = Math.floor(lng / 6) + 1;
+    const p4 = _epProj4For('gsk2011_z' + gkZone, null);
+    if (p4) {
+      const [x, y] = proj4(_EP_WGS84, p4, [lng, lat]);
+      return { x, y };
+    }
     const r = wgsToGsk(lat, lng);
     return { x: r.easting, y: r.northing };
   }
   if (crs === 'msk86_z3') {
-    const [x, y] = proj4(_EP_WGS84, _EP_MSK_Z3, [lng, lat]);
+    const [x, y] = proj4(_EP_WGS84, _epProj4For('msk86_z3', _EP_MSK_Z3), [lng, lat]);
     return { x, y };
   }
   if (crs === 'msk86_z4') {
-    const [x, y] = proj4(_EP_WGS84, _EP_MSK_Z4, [lng, lat]);
+    const [x, y] = proj4(_EP_WGS84, _epProj4For('msk86_z4', _EP_MSK_Z4), [lng, lat]);
     return { x, y };
   }
   // msk86 — auto zone
@@ -755,8 +774,8 @@ function _epShowExportModal() {
         <div>
           <div style="font-weight:600;margin-bottom:6px">Система координат (трасса)</div>
           <label style="display:block;padding:2px 0"><input type="radio" name="ep-crs" value="msk86" checked> МСК-86 (авто зона)</label>
-          <label style="display:block;padding:2px 0"><input type="radio" name="ep-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=66°)</label>
-          <label style="display:block;padding:2px 0"><input type="radio" name="ep-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=72°)</label>
+          <label style="display:block;padding:2px 0"><input type="radio" name="ep-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′)</label>
+          <label style="display:block;padding:2px 0"><input type="radio" name="ep-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′)</label>
           <label style="display:block;padding:2px 0"><input type="radio" name="ep-crs" value="gsk2011"> ГСК-2011</label>
           <label style="display:block;padding:2px 0"><input type="radio" name="ep-crs" value="wgs84"> WGS-84 (градусы)</label>
         </div>
