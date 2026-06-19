@@ -312,9 +312,14 @@ async function deleteLayer(id){
     layers=fresh;renderLP();try{reloadKmlLayers();}catch(e){}
   });
 }
+async function _readFileText(file) {
+  const buf = await file.arrayBuffer();
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+  catch (_) { return new TextDecoder('windows-1251').decode(buf); }
+}
 async function importLayer(evt){
   const file=evt.target.files[0];if(!file)return;
-  const text=await file.text();
+  const text=await _readFileText(file);
   const ext=file.name.split('.').pop().toLowerCase();
   if(ext==='dxf'){await _importDxf(file,text);evt.target.value='';return;}
   if(ext==='csv'||ext==='txt'){await _importCsv(file,text);evt.target.value='';return;}
