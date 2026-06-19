@@ -317,6 +317,7 @@ async function importLayer(evt){
   const text=await file.text();
   const ext=file.name.split('.').pop().toLowerCase();
   if(ext==='dxf'){await _importDxf(file,text);evt.target.value='';return;}
+  if(ext==='csv'||ext==='txt'){await _importCsv(file,text);evt.target.value='';return;}
   const name=file.name.replace(/\.(kml|gpx)$/i,'');
   let gj=null;
   try{gj=ext==='kml'?kmlToGJ(text):gpxToGJ(text);}catch(e){toast('Ошибка разбора','err');return;}
@@ -372,6 +373,248 @@ async function _importDxf(file,text){
   const total=j.layers.reduce((s,l)=>s+l.features,0);
   toast(`DXF импортирован: ${j.layers.length} сл., ${total} объектов`,'ok');
 }
+// ── CSV / TXT импорт точек ──────────────────────────────────
+function _csvAutoDelim(firstLine) {
+  const candidates = [',', ';', '\t', ' '];
+  let best = ',', bestCnt = 0;
+  candidates.forEach(d => {
+    const cnt = firstLine.split(d).length;
+    if (cnt > bestCnt) { bestCnt = cnt; best = d; }
+  });
+  return best;
+}
+
+function _csvSplitLine(line, delim) {
+  // basic CSV split respecting double-quoted fields
+  const cells = []; let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { inQ = !inQ; }
+    else if (ch === delim && !inQ) { cells.push(cur.trim()); cur = ''; }
+    else cur += ch;
+  }
+  cells.push(cur.trim());
+  return cells.map(c => c.replace(/^["']|["']$/g, ''));
+}
+
+function _csvBuildPreviewAndCols(text, delim) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  const rows = lines.slice(0, 7).map(l => _csvSplitLine(l, delim));
+  const maxCols = Math.max(...rows.map(r => r.length));
+  return { rows, maxCols };
+}
+
+function _csvAutoDetectCols(headers) {
+  let nameCol = -1, xCol = -1, yCol = -1;
+  headers.forEach((h, i) => {
+    const lh = h.toLowerCase();
+    if (nameCol < 0 && /имя|name|^id$|точк|пункт|номер|label/.test(lh)) nameCol = i;
+    if (xCol    < 0 && /^x$|север|north|^lat$|широт/.test(lh)) xCol = i;
+    if (yCol    < 0 && /^y$|восток|east|^lon$|долг/.test(lh))  yCol = i;
+  });
+  return { nameCol, xCol: xCol >= 0 ? xCol : (nameCol === 0 ? 1 : 0), yCol: yCol >= 0 ? yCol : (nameCol === 0 ? 2 : 1) };
+}
+
+function _csvRenderPreviewTable(rows, maxCols) {
+  const hdr = `<tr>${rows[0].map((c,i) => `<th style="padding:2px 6px;font-size:10px;border:1px solid var(--bd);background:var(--s2)">Кол.${i+1}<br><span style="font-weight:400;color:var(--acc)">${c||''}</span></th>`).join('')}</tr>`;
+  const body = rows.slice(1, 5).map(r => {
+    const cells = Array.from({length: maxCols}, (_,i) => `<td style="padding:2px 6px;font-size:10px;border:1px solid var(--bd);white-space:nowrap">${r[i]||''}</td>`).join('');
+    return `<tr>${cells}</tr>`;
+  }).join('');
+  return `<table style="border-collapse:collapse;max-width:100%;font-family:monospace">${hdr}${body}</table>`;
+}
+
+function _csvColOptions(rows, hasHeader, maxCols) {
+  const labels = hasHeader && rows[0] ? rows[0].map((h,i) => h || `Кол. ${i+1}`) : Array.from({length:maxCols},(_,i)=>`Кол. ${i+1}`);
+  return labels.map((l,i) => `<option value="${i}">${i+1}: ${l}</option>`).join('');
+}
+
+function _showCsvConfigModal(text, fileName) {
+  return new Promise(resolve => {
+    let delim = _csvAutoDelim(text.split(/\r?\n/)[0] || '');
+    let { rows, maxCols } = _csvBuildPreviewAndCols(text, delim);
+    let hasHeader = rows[0] && rows[0].some(c => isNaN(parseFloat(c.replace(',','.'))));
+    let { nameCol, xCol, yCol } = _csvAutoDetectCols(hasHeader ? rows[0] : []);
+    if (nameCol < 0) nameCol = 0;
+
+    const delimLabel = d => d === '\t' ? 'Tab' : d === ' ' ? 'Пробел' : d;
+    const DELIMS = [',', ';', '\t', ' '];
+
+    function buildBody() {
+      const { rows: r2, maxCols: mc } = _csvBuildPreviewAndCols(text, delim);
+      rows = r2; maxCols = mc;
+      const opts = _csvColOptions(rows, hasHeader, maxCols);
+      const noOpt = `<option value="-1">— Нет —</option>`;
+      const selName = `<select id="csv-col-name" style="width:100%;font-size:12px;padding:3px;border:1px solid var(--bd);border-radius:4px;background:var(--s2);color:var(--tx)">${noOpt}${opts}</select>`;
+      const selX   = `<select id="csv-col-x"    style="width:100%;font-size:12px;padding:3px;border:1px solid var(--bd);border-radius:4px;background:var(--s2);color:var(--tx)">${opts}</select>`;
+      const selY   = `<select id="csv-col-y"    style="width:100%;font-size:12px;padding:3px;border:1px solid var(--bd);border-radius:4px;background:var(--s2);color:var(--tx)">${opts}</select>`;
+      return `
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <div>
+            <div style="font-size:11px;font-weight:700;margin-bottom:5px">Разделитель</div>
+            <div style="display:flex;gap:5px">
+              ${DELIMS.map(d=>`<label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:12px;padding:3px 7px;border:1px solid var(--bd);border-radius:5px;background:${delim===d?'var(--accl)':'var(--s2)'}">
+                <input type="radio" name="csv-delim" value="${d==='	'?'tab':d}" ${delim===d?'checked':''} onchange="_csvDelimChange(this)"> ${delimLabel(d)}
+              </label>`).join('')}
+            </div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="checkbox" id="csv-hdr" ${hasHeader?'checked':''} onchange="_csvHdrChange(this)">
+            Первая строка — заголовки
+          </label>
+          <div>
+            <div style="font-size:11px;font-weight:700;margin-bottom:4px">Предпросмотр</div>
+            <div id="csv-preview" style="overflow-x:auto;max-height:120px;overflow-y:auto">${_csvRenderPreviewTable(rows, maxCols)}</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px">
+            <div>
+              <div style="font-size:11px;font-weight:600;margin-bottom:3px">Имя точки</div>
+              <div id="csv-wrap-name">${selName}</div>
+            </div>
+            <div>
+              <div style="font-size:11px;font-weight:600;margin-bottom:3px">X (Север / Шир.)</div>
+              <div id="csv-wrap-x">${selX}</div>
+            </div>
+            <div>
+              <div style="font-size:11px;font-weight:600;margin-bottom:3px">Y (Восток / Долг.)</div>
+              <div id="csv-wrap-y">${selY}</div>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;margin-bottom:4px">Система координат</div>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86" checked> МСК-86 (авто зона по Y)</label>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′)</label>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′)</label>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="gsk2011"> ГСК-2011</label>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="wgs84"> WGS-84 (широта / долгота)</label>
+          </div>
+        </div>`;
+    }
+
+    function applyColDefaults() {
+      const { rows: r2, maxCols: mc } = _csvBuildPreviewAndCols(text, delim);
+      const detected = _csvAutoDetectCols(hasHeader ? r2[0] : []);
+      nameCol = detected.nameCol >= 0 ? detected.nameCol : 0;
+      xCol = detected.xCol; yCol = detected.yCol;
+      const sName = document.getElementById('csv-col-name');
+      const sX    = document.getElementById('csv-col-x');
+      const sY    = document.getElementById('csv-col-y');
+      if (sName) sName.value = nameCol;
+      if (sX)    sX.value   = xCol;
+      if (sY)    sY.value   = yCol;
+    }
+
+    // exposed to inline handlers
+    window._csvDelimChange = function(el) {
+      delim = el.value === 'tab' ? '\t' : el.value;
+      const { rows: r2, maxCols: mc } = _csvBuildPreviewAndCols(text, delim);
+      rows = r2; maxCols = mc;
+      const prev = document.getElementById('csv-preview');
+      if (prev) prev.innerHTML = _csvRenderPreviewTable(rows, maxCols);
+      const opts = _csvColOptions(rows, hasHeader, maxCols);
+      const noOpt = '<option value="-1">— Нет —</option>';
+      ['csv-wrap-name','csv-wrap-x','csv-wrap-y'].forEach((wid, wi) => {
+        const wrap = document.getElementById(wid);
+        if (!wrap) return;
+        const sel = wrap.querySelector('select');
+        if (!sel) return;
+        sel.innerHTML = (wi === 0 ? noOpt : '') + opts;
+      });
+      applyColDefaults();
+    };
+    window._csvHdrChange = function(el) {
+      hasHeader = el.checked;
+      const { rows: r2, maxCols: mc } = _csvBuildPreviewAndCols(text, delim);
+      rows = r2; maxCols = mc;
+      const opts = _csvColOptions(rows, hasHeader, maxCols);
+      const noOpt = '<option value="-1">— Нет —</option>';
+      ['csv-wrap-name','csv-wrap-x','csv-wrap-y'].forEach((wid, wi) => {
+        const wrap = document.getElementById(wid);
+        if (!wrap) return;
+        const sel = wrap.querySelector('select');
+        if (!sel) return;
+        sel.innerHTML = (wi === 0 ? noOpt : '') + opts;
+      });
+      applyColDefaults();
+    };
+
+    showModal(`📄 Импорт CSV — ${fileName}`, buildBody(), [
+      {label:'Отмена', cls:'bs', fn:()=>{ closeModal(); resolve(null); }},
+      {label:'Импортировать', cls:'bp', fn:()=>{
+        const nc = parseInt(document.getElementById('csv-col-name')?.value ?? -1);
+        const xc = parseInt(document.getElementById('csv-col-x')?.value  ?? 1);
+        const yc = parseInt(document.getElementById('csv-col-y')?.value  ?? 2);
+        const crs = document.querySelector('input[name="csv-crs"]:checked')?.value || 'msk86';
+        const hdr = !!document.getElementById('csv-hdr')?.checked;
+        closeModal();
+        resolve({ delim, hasHeader: hdr, nameCol: nc, xCol: xc, yCol: yc, crs });
+      }},
+    ]);
+    // set select values after modal renders
+    setTimeout(applyColDefaults, 50);
+  });
+}
+
+async function _importCsv(file, text) {
+  const cfg = await _showCsvConfigModal(text, file.name);
+  if (!cfg) return;
+  const { delim, hasHeader, nameCol, xCol, yCol, crs } = cfg;
+
+  const allLines = text.split(/\r?\n/).filter(l => l.trim());
+  const dataLines = hasHeader ? allLines.slice(1) : allLines;
+
+  const features = [];
+  let skipped = 0;
+
+  dataLines.forEach((line, i) => {
+    const cols = _csvSplitLine(line, delim);
+    const rawX = cols[xCol] || '';
+    const rawY = cols[yCol] || '';
+    const nm   = nameCol >= 0 ? (cols[nameCol] || `Точка ${i + 1}`) : `Точка ${i + 1}`;
+
+    const x = parseFloat(rawX.replace(',', '.'));
+    const y = parseFloat(rawY.replace(',', '.'));
+    if (isNaN(x) || isNaN(y)) { skipped++; return; }
+
+    let lat, lng;
+    try {
+      if (crs === 'wgs84') {
+        lat = x; lng = y;
+      } else {
+        const zone = crs === 'msk86_z3' ? 3 : crs === 'msk86_z4' ? 4 : Math.round(y / 1e6);
+        const conv = crs.startsWith('gsk') ? gskToWgs : mskToWgs;
+        const res  = conv(x, y, zone);
+        lat = res.lat; lng = res.lon;
+      }
+    } catch (e) { skipped++; return; }
+
+    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180)
+      { skipped++; return; }
+
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [lng, lat] },
+      properties: { name: nm.trim() || `Точка ${i + 1}` },
+    });
+  });
+
+  if (!features.length) { toast('Нет корректных точек для импорта', 'err'); return; }
+
+  const layerName = file.name.replace(/\.(csv|txt)$/i, '');
+  const color = LCOLORS[layers.length % LCOLORS.length];
+  const gj = JSON.stringify({ type: 'FeatureCollection', features });
+
+  await fetch(`${API}/layers`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: layerName, geojson: gj, color, symbol: 'picket' }),
+  });
+  const fresh = await fetch(`${API}/layers`).then(r => r.json()).catch(() => layers);
+  layers = fresh;
+  renderLP(); renderLayerGroups();
+  try { if (kmlPanelOpen) renderKmlPanel(); } catch (e) {}
+  toast(`CSV импортирован: ${features.length} точек${skipped ? `, пропущено ${skipped}` : ''}`, 'ok');
+}
+
 function kmlToGJ(kml){
   const doc=new DOMParser().parseFromString(kml,'application/xml'),feats=[];
   const pc=s=>s.trim().split(/\s+/).map(c=>{const p=c.split(',');return[parseFloat(p[0]),parseFloat(p[1])];});
