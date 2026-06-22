@@ -653,7 +653,7 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
     '-t_srs', targetSrs,
     ...teArgs,
     '-r','lanczos',
-    '-co','COMPRESS=LZW','-co','TILED=YES',
+    '-co','COMPRESS=LZW','-co','TILED=YES','-co','BIGTIFF=IF_SAFER',
     vrtFile, satTif,
   ]);
 
@@ -818,7 +818,7 @@ async function processDEM({bbox,projId,proj4,epsg,projName,format,
     await runGDALProgress('gdalwarp',[
       '-of','GTiff','-te',String(minLng),String(minLat),String(maxLng),String(maxLat),
       '-te_srs','EPSG:4326','-t_srs','EPSG:4326','-r','bilinear',
-      '-co','COMPRESS=LZW','-co','TILED=YES',srcVrt,clippedTif,
+      '-co','COMPRESS=LZW','-co','TILED=YES','-co','BIGTIFF=IF_SAFER',srcVrt,clippedTif,
     ], pct => onProgress && onProgress(
       Math.round(clipFrom + (clipTo-clipFrom)*pct/100),
       `Загрузка ArcticDEM ${usedRes}... ${pct}%`
@@ -881,7 +881,7 @@ for code in [3855,5773,9518]:
     except: pass
 if not ok: print('GEOID_SKIP'); sys.exit(0)
 s4326=osr.SpatialReference(); s4326.ImportFromEPSG(4326)
-ds=gdal.GetDriverByName('GTiff').Create(r'${dstPath}',cols,rows,1,gdal.GDT_Float32,['COMPRESS=LZW'])
+ds=gdal.GetDriverByName('GTiff').Create(r'${dstPath}',cols,rows,1,gdal.GDT_Float32,['COMPRESS=LZW','BIGTIFF=IF_SAFER'])
 ds.SetGeoTransform(gt); ds.SetProjection(s4326.ExportToWkt())
 ob=ds.GetRasterBand(1); ob.WriteArray(data)
 if nd is not None: ob.SetNoDataValue(nd)
@@ -904,7 +904,7 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
     const targetSrs=proj4?proj4:`EPSG:${epsg||4326}`;
     await runGDAL('gdalwarp',[
       '-of','GTiff','-t_srs',targetSrs,'-r','bilinear',
-      '-co','COMPRESS=LZW','-co','TILED=YES',demTif,reprojTif,
+      '-co','COMPRESS=LZW','-co','TILED=YES','-co','BIGTIFF=IF_SAFER',demTif,reprojTif,
     ]);
     log.push('Reproject OK');
 
@@ -920,7 +920,7 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
     const upTif=path.join(tmpDir,'up.tif');
     try{
       await runGDAL('gdalwarp',['-r','cubicspline','-tr','5','5',
-        '-co','COMPRESS=LZW',filledTif,upTif]);
+        '-co','COMPRESS=LZW','-co','BIGTIFF=IF_SAFER',filledTif,upTif]);
     }catch(e){ fs.copyFileSync(filledTif,upTif); }
     log.push('Upsample OK');
 
