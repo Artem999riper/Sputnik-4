@@ -267,7 +267,8 @@ async function toggleLV(id,vis){
   const l=layers.find(x=>x.id===id);if(!l)return;
   l.visible=vis;
   await fetch(`${API}/layers/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:l.name,color:l.color,visible:vis,symbol:l.symbol||'',group_id:l.group_id||'',line_dash:l.line_dash||'solid'})});
+    body:JSON.stringify({name:l.name,color:l.color,visible:vis,symbol:l.symbol||'',group_id:l.group_id||'',line_dash:l.line_dash||'solid',
+      min_zoom:l.min_zoom,max_zoom:l.max_zoom,size:l.size,show_labels:l.show_labels})});
   renderLP();renderLayerGroups();setTimeout(bringVolumesToFront,50);
   try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
 }
