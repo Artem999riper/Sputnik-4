@@ -1654,6 +1654,7 @@ async function pgkPageMaterials(pb){
   filtered.sort((a,b)=>{
     let va,vb;
     if(_ms==='amount'){va=+a.amount||0;vb=+b.amount||0;}
+    else if(_ms==='weight'){va=+a.weight||0;vb=+b.weight||0;}
     else if(_ms==='base'){va=a.base_name||'';vb=b.base_name||'';}
     else if(_ms==='category'){va=a.category||'';vb=b.category||'';}
     else{va=a[_ms]||'';vb=b[_ms]||'';}
@@ -1706,6 +1707,7 @@ async function pgkPageMaterials(pb){
       <td><span style="background:var(--s3);border:1px solid var(--bd);border-radius:20px;padding:1px 7px;font-size:10px;font-weight:600;color:var(--tx2)">${esc(m.category||'—')}</span></td>
       <td style="color:var(--bpc)">🏕 ${esc(m.base_name||'—')}</td>
       <td style="font-weight:700;color:var(--acc);text-align:right">${m.amount} <span style="font-weight:400;color:var(--tx3)">${esc(m.unit||'шт')}</span></td>
+      <td style="text-align:right;color:var(--tx2)">${m.weight?(+m.weight).toLocaleString('ru')+' <span style="font-weight:400;color:var(--tx3);font-size:10px">кг</span>':'<span style="color:var(--tx3)">—</span>'}</td>
       <td style="text-align:center">
         ${pct!==null?`<div style="display:flex;align-items:center;gap:4px;min-width:70px">
           <div style="flex:1;height:4px;background:var(--s3);border-radius:2px">
@@ -1730,6 +1732,7 @@ async function pgkPageMaterials(pb){
           style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:130px;flex:1"
           oninput="matSearchFilter(this.value)"/>
         <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFBaseM=this.value;renderPGK()">${baseOpts}</select>
+        <button class="btn bs bsm" onclick="pgkImportMaterials()" title="Импорт заявки из Excel">📥 Импорт</button>
         <button class="btn bs bsm" onclick="exportMaterialsExcel()" title="Экспорт в Excel">📤 Excel</button>
         <button class="btn bp bsm" onclick="pgkAddMatGlobal()">＋ Добавить</button>
       </div>
@@ -1748,10 +1751,11 @@ async function pgkPageMaterials(pb){
             ${thSort('category','Группа')}
             ${thSort('base','База')}
             ${thSort('amount','Кол-во')}
+            ${thSort('weight','Вес, кг')}
             <th class="no-sort" style="min-width:80px">Запас</th>
             <th class="no-sort" style="min-width:120px">Примечания</th>
           </tr></thead>
-          <tbody id="pgk-mat-tbody">${rows||`<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--tx3)">Нет материалов</td></tr>`}</tbody>
+          <tbody id="pgk-mat-tbody">${rows||`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx3)">Нет материалов</td></tr>`}</tbody>
         </table>
       </div>
     </div>
@@ -1890,6 +1894,7 @@ function openEditMatModalGlobal(matId){
     </div>
     <div class="fg"><label>Кол-во</label><input id="f-mamt" type="number" value="${m.amount}" step="0.01"></div>
     <div class="fg"><label>Единица</label><input id="f-munit" value="${esc(m.unit||'шт')}"></div>
+    <div class="fg"><label>Вес, кг</label><input id="f-mweight" type="number" value="${m.weight||0}" step="0.01"></div>
     <div class="fg"><label>Минимум</label><input id="f-mmin" type="number" value="${m.min_amount||0}" step="0.01"></div>
     <div class="fg s2"><label>Примечания</label><textarea id="f-mnotes">${esc(m.notes||'')}</textarea></div>
   </div>`,
@@ -1899,10 +1904,11 @@ function openEditMatModalGlobal(matId){
     const category=(document.getElementById('f-mcat').value||'').trim();
     const amount=parseFloat(document.getElementById('f-mamt').value)||0;
     const unit=(document.getElementById('f-munit').value||'шт').trim();
+    const weight=parseFloat(document.getElementById('f-mweight').value)||0;
     const min_amount=parseFloat(document.getElementById('f-mmin').value)||0;
     const notes=(document.getElementById('f-mnotes').value||'').trim();
     await fetch(`${API}/materials/${matId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name,category,amount,unit,min_amount,notes,user_name:un()})});
+      body:JSON.stringify({name,category,amount,unit,weight,min_amount,notes,user_name:un()})});
     closeModal();await loadPGK();await loadAll();toast('Обновлено','ok');
   }}]);
 }
@@ -1926,6 +1932,7 @@ function pgkAddMatGlobal(){
     </div>
     <div class="fg"><label>Кол-во</label><input id="f-mamt" type="number" value="0" step="0.01"></div>
     <div class="fg"><label>Единица</label><input id="f-munit" value="шт"></div>
+    <div class="fg"><label>Вес, кг</label><input id="f-mweight" type="number" value="0" step="0.01"></div>
     <div class="fg"><label>Минимум</label><input id="f-mmin" type="number" value="0" step="0.01"></div>
     <div class="fg s2"><label>Примечания</label><textarea id="f-mnotes"></textarea></div>
   </div>`,
@@ -1937,10 +1944,11 @@ function pgkAddMatGlobal(){
     const category=(document.getElementById('f-mcat').value||'').trim();
     const amount=parseFloat(document.getElementById('f-mamt').value)||0;
     const unit=(document.getElementById('f-munit').value||'шт').trim();
+    const weight=parseFloat(document.getElementById('f-mweight').value)||0;
     const min_amount=parseFloat(document.getElementById('f-mmin').value)||0;
     const notes=(document.getElementById('f-mnotes').value||'').trim();
     await fetch(`${API}/bases/${baseId}/materials`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name,category,amount,unit,min_amount,notes,user_name:un()})});
+      body:JSON.stringify({name,category,amount,unit,weight,min_amount,notes,user_name:un()})});
     closeModal();await loadPGK();await loadAll();toast('Добавлено','ok');
   }}]);
 }
@@ -2129,6 +2137,240 @@ async function pgkImportExecute(){
     toast(`✅ Создано: ${created} · ❌ Ошибок: ${failed}`,'warn');
   }
   window._pgkImportRows=[];
+}
+
+// ═══════════════════════════════════════════════════════════
+// IMPORT MATERIALS FROM EXCEL (заявки)
+// ═══════════════════════════════════════════════════════════
+function pgkImportMaterials(){
+  const baseOpts=`<option value="">— выберите базу —</option>`+bases.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
+  const grpOpts=`<option value="">— без группы —</option>`+(pgkMatGroups||[]).map(g=>`<option value="${esc(g.name)}">${esc(g.name)}</option>`).join('');
+  showModal('📥 Импорт заявки из Excel',`
+    <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">
+      Из заявки берутся <b>наименование</b>, <b>количество</b> и <b>вес</b>. Колонки определяются автоматически — при необходимости поправьте сопоставление ниже. Строки-разделы (без кол-ва и веса) по умолчанию не отмечены.
+    </div>
+    <div class="fgr">
+      <div class="fg"><label>База *</label><select id="mi-base">${baseOpts}</select></div>
+      <div class="fg"><label>Группа</label><select id="mi-cat">${grpOpts}</select></div>
+    </div>
+    <div class="fg s2" style="margin-top:6px">
+      <label>Файл заявки .xlsx / .xls</label>
+      <input type="file" id="mi-file" accept=".xlsx,.xls"
+        style="font-size:11px;padding:4px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);color:var(--tx);width:100%"
+        onchange="pgkMatImportPreview(this)">
+    </div>
+    <div id="mi-preview" style="margin-top:8px"></div>
+  `,[
+    {label:'Отмена',cls:'bs',fn:closeModal},
+    {label:'✅ Импортировать',cls:'bp',fn:pgkMatImportExecute}
+  ]);
+  window._pgkMatImport=null;
+}
+
+function pgkMatImportPreview(input){
+  const file=input.files[0];
+  if(!file)return;
+  const prev=document.getElementById('mi-preview');
+  prev.innerHTML='<div style="font-size:11px;color:var(--tx3)">⏳ Читаю файл...</div>';
+  if(!window.XLSX){
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload=()=>_pgkMatReadFile(file);
+    s.onerror=()=>{prev.innerHTML='<div style="color:#ef4444;font-size:11px">❌ Не удалось загрузить библиотеку чтения xlsx. Проверьте интернет-соединение.</div>';};
+    document.head.appendChild(s);
+  } else {
+    _pgkMatReadFile(file);
+  }
+}
+
+function _pgkMatReadFile(file){
+  const prev=document.getElementById('mi-preview');
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array'});
+      const sheets=wb.SheetNames.map(nm=>({
+        name:nm,
+        data:XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,defval:''})
+      })).filter(s=>s.data.some(r=>r.some(c=>String(c).trim())));
+      if(!sheets.length){prev.innerHTML='<div style="color:#ef4444;font-size:11px">❌ Файл пустой</div>';return;}
+      window._pgkMatImport={sheets,sheetIdx:0,map:null,parsed:[]};
+      _pgkMatRenderPreview();
+    }catch(err){
+      prev.innerHTML=`<div style="color:#ef4444;font-size:11px">❌ Ошибка чтения файла: ${esc(err.message)}</div>`;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ── разбор и сопоставление колонок ──
+function _pgkMatCellNum(v){
+  const s=String(v==null?'':v).replace(',','.');
+  const m=s.match(/-?\d+(?:\.\d+)?/);
+  return m?parseFloat(m[0]):null;
+}
+function _pgkMatUnitFromQty(v){
+  const s=String(v==null?'':v).trim();
+  const m=s.match(/[a-zA-Zа-яёА-ЯЁ.]+\s*$/);
+  return m?m[0].replace(/\.$/,'').trim():'';
+}
+function _pgkMatColCount(data){let n=0;data.forEach(r=>{if(r.length>n)n=r.length;});return n;}
+function _pgkMatFindHeader(data){
+  for(let i=0;i<data.length;i++){
+    if(data[i].some(c=>String(c).toLowerCase().includes('наимен')))return i;
+  }
+  return -1;
+}
+function _pgkMatColLabel(headerRow,c){
+  const h=String(headerRow&&headerRow[c]||'').trim();
+  const letter=String.fromCharCode(65+c);
+  return h?`${letter}: ${h.slice(0,20)}`:`Столбец ${letter}`;
+}
+function _pgkMatColOpts(headerRow,ncol,sel,withNone){
+  let o=withNone?`<option value="-1" ${sel===-1?'selected':''}>—</option>`:'';
+  for(let c=0;c<ncol;c++) o+=`<option value="${c}" ${sel===c?'selected':''}>${esc(_pgkMatColLabel(headerRow,c))}</option>`;
+  return o;
+}
+function _pgkMatAutoMap(data,headerIdx,ncol){
+  const headerRow=headerIdx>=0?data[headerIdx]:null;
+  const map={name:-1,qty:-1,weight:-1,unit:-1};
+  for(let c=0;c<ncol;c++){
+    const h=String(headerRow&&headerRow[c]||'').toLowerCase();
+    if(!h)continue;
+    if(map.name<0&&h.includes('наимен'))map.name=c;
+    else if(map.weight<0&&h.includes('вес'))map.weight=c;
+    else if(map.unit<0&&(h.includes('ед.изм')||h.includes('ед. изм')||h.includes('едизм')))map.unit=c;
+    else if(map.qty<0&&(h.includes('кол-во')||h.includes('кол.во')||h.includes('количество')))map.qty=c;
+  }
+  if(map.name<0)map.name=headerRow?Math.min(1,ncol-1):0;
+  // эвристика: если столбец кол-ва текстовый (там единицы), а правее числовой — сдвигаем
+  const startRow=headerIdx>=0?headerIdx+1:0;
+  const numRatio=(col)=>{
+    let num=0,tot=0;
+    for(let i=startRow;i<data.length;i++){
+      const v=String(data[i][col]==null?'':data[i][col]).trim();
+      if(!v)continue;tot++;if(/\d/.test(v))num++;
+    }
+    return tot?num/tot:0;
+  };
+  if(map.qty>=0&&numRatio(map.qty)<0.4){
+    for(let c=map.qty+1;c<ncol;c++){
+      if(c===map.weight)continue;
+      if(numRatio(c)>=0.6){if(map.unit<0)map.unit=map.qty;map.qty=c;break;}
+    }
+  }
+  return map;
+}
+function _pgkMatParse(data,headerIdx,map){
+  const startRow=headerIdx>=0?headerIdx+1:0;
+  const out=[];
+  for(let i=startRow;i<data.length;i++){
+    const row=data[i]||[];
+    const name=String(map.name>=0?row[map.name]:'').trim();
+    if(!name)continue;
+    const amount=map.qty>=0?(_pgkMatCellNum(row[map.qty])||0):0;
+    const weight=map.weight>=0?(_pgkMatCellNum(row[map.weight])||0):0;
+    let unit='';
+    if(map.unit>=0)unit=String(row[map.unit]||'').trim();
+    if(!unit&&map.qty>=0)unit=_pgkMatUnitFromQty(row[map.qty]);
+    if(!unit)unit='шт';
+    const isSection=amount===0&&weight===0;
+    out.push({name,amount,unit,weight,isSection,checked:!isSection});
+  }
+  return out;
+}
+
+function _pgkMatRenderPreview(){
+  const st=window._pgkMatImport;const prev=document.getElementById('mi-preview');
+  if(!st||!prev)return;
+  const data=st.sheets[st.sheetIdx].data;
+  const ncol=_pgkMatColCount(data);
+  const headerIdx=_pgkMatFindHeader(data);
+  const headerRow=headerIdx>=0?data[headerIdx]:null;
+  if(!st.map)st.map=_pgkMatAutoMap(data,headerIdx,ncol);
+  const map=st.map;
+  st.parsed=_pgkMatParse(data,headerIdx,map);
+  st.headerIdx=headerIdx;
+  const okRows=st.parsed.filter(r=>r.checked);
+  const sectionCnt=st.parsed.filter(r=>r.isSection).length;
+
+  let html='';
+  if(st.sheets.length>1){
+    html+=`<div class="fg s2" style="margin-bottom:6px"><label>Лист</label>
+      <select onchange="_pgkMatSheetChange(this.value)">${st.sheets.map((s,i)=>`<option value="${i}" ${i===st.sheetIdx?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>`;
+  }
+  html+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+    <div class="fg"><label>Наименование</label><select onchange="_pgkMatMapChange()" id="mi-map-name">${_pgkMatColOpts(headerRow,ncol,map.name,false)}</select></div>
+    <div class="fg"><label>Количество</label><select onchange="_pgkMatMapChange()" id="mi-map-qty">${_pgkMatColOpts(headerRow,ncol,map.qty,true)}</select></div>
+    <div class="fg"><label>Вес, кг</label><select onchange="_pgkMatMapChange()" id="mi-map-weight">${_pgkMatColOpts(headerRow,ncol,map.weight,true)}</select></div>
+    <div class="fg"><label>Ед.изм</label><select onchange="_pgkMatMapChange()" id="mi-map-unit">${_pgkMatColOpts(headerRow,ncol,map.unit,true)}</select></div>
+  </div>`;
+  html+=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;color:var(--tx)">
+    К импорту: <span style="color:var(--acc)">${okRows.length}</span> из ${st.parsed.length}
+    ${sectionCnt?`<span style="color:#f59e0b;margin-left:8px">⚠️ строк-разделов: ${sectionCnt} (без галочки)</span>`:''}
+  </div>`;
+  html+=`<div style="max-height:240px;overflow-y:auto;border:1.5px solid var(--bd);border-radius:var(--rs)">
+    <table style="width:100%;font-size:11px;border-collapse:collapse">
+      <thead><tr style="background:var(--s2);position:sticky;top:0">
+        <th style="padding:5px 6px;width:24px"><input type="checkbox" checked onchange="_pgkMatToggleAll(this.checked)"></th>
+        <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--bd)">Наименование</th>
+        <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--bd)">Кол-во</th>
+        <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--bd)">Ед.</th>
+        <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--bd)">Вес, кг</th>
+      </tr></thead><tbody>`;
+  st.parsed.forEach((r,i)=>{
+    html+=`<tr style="border-bottom:1px solid var(--bd);${r.isSection?'opacity:.5;background:var(--s2)':''}">
+      <td style="text-align:center"><input type="checkbox" ${r.checked?'checked':''} onchange="window._pgkMatImport.parsed[${i}].checked=this.checked;_pgkMatUpdCount()"></td>
+      <td style="padding:4px 8px;font-weight:600">${esc(r.name)}</td>
+      <td style="padding:4px 8px;text-align:right">${r.amount||'—'}</td>
+      <td style="padding:4px 8px;color:var(--tx2)">${esc(r.unit||'')}</td>
+      <td style="padding:4px 8px;text-align:right;color:var(--tx2)">${r.weight||'—'}</td>
+    </tr>`;
+  });
+  html+='</tbody></table></div>';
+  prev.innerHTML=html;
+}
+function _pgkMatMapChange(){
+  const st=window._pgkMatImport;if(!st)return;
+  const gv=id=>{const e=document.getElementById(id);return e?parseInt(e.value):-1;};
+  st.map={name:gv('mi-map-name'),qty:gv('mi-map-qty'),weight:gv('mi-map-weight'),unit:gv('mi-map-unit')};
+  _pgkMatRenderPreview();
+}
+function _pgkMatSheetChange(idx){
+  const st=window._pgkMatImport;if(!st)return;
+  st.sheetIdx=parseInt(idx);st.map=null;_pgkMatRenderPreview();
+}
+function _pgkMatToggleAll(on){
+  const st=window._pgkMatImport;if(!st)return;
+  st.parsed.forEach(r=>{r.checked=on;});_pgkMatRenderPreview();
+}
+function _pgkMatUpdCount(){
+  const st=window._pgkMatImport;if(!st)return;
+  const ok=st.parsed.filter(r=>r.checked).length;
+  const el=document.querySelector('#mi-preview span');if(el)el.textContent=ok;
+}
+
+async function pgkMatImportExecute(){
+  const st=window._pgkMatImport;
+  const baseId=((document.getElementById('mi-base')||{}).value||'').trim();
+  const category=((document.getElementById('mi-cat')||{}).value||'').trim();
+  if(!baseId){toast('Выберите базу','err');return;}
+  if(!st||!st.parsed||!st.parsed.length){toast('Сначала выберите файл','err');return;}
+  const rows=st.parsed.filter(r=>r.checked&&r.name);
+  if(!rows.length){toast('Не отмечено ни одной строки','err');return;}
+  closeModal();
+  toast(`⏳ Импортирую ${rows.length} позиций...`,'ok');
+  let created=0,failed=0;
+  for(const r of rows){
+    try{
+      const res=await fetch(`${API}/bases/${baseId}/materials`,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({name:r.name,amount:r.amount,unit:r.unit||'шт',weight:r.weight,category,notes:'',user_name:un()})});
+      if(res.ok)created++;else failed++;
+    }catch(e){failed++;}
+  }
+  await loadPGK();await loadAll();
+  toast(failed?`✅ Создано: ${created} · ❌ Ошибок: ${failed}`:`✅ Импортировано ${created} позиций`,failed?'warn':'ok');
+  window._pgkMatImport=null;
 }
 
 // ═══════════════════════════════════════════════════════════

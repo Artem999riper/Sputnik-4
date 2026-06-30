@@ -157,6 +157,7 @@ async function getDb() {
   ta("ALTER TABLE materials ADD COLUMN initial_amount REAL DEFAULT 0");
   ta("ALTER TABLE materials ADD COLUMN last_act_date TEXT");
   ta("ALTER TABLE materials ADD COLUMN category TEXT DEFAULT ''");
+  ta("ALTER TABLE materials ADD COLUMN weight REAL DEFAULT 0");
   ta(`CREATE TABLE IF NOT EXISTS global_tasks (
     id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT DEFAULT '',
     priority TEXT DEFAULT 'normal', category TEXT DEFAULT 'general',
