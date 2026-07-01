@@ -4,7 +4,14 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ПурГеоКом</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/panel.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/workers.css">
+<link rel="stylesheet" href="css/machinery.css">
+<link rel="stylesheet" href="css/pages.css">
+<link rel="stylesheet" href="css/map.css">
 </head>
 <body>
 
@@ -102,12 +109,15 @@
   <div class="navtabs">
     <div class="nt dash" data-v="dash" onclick="switchView('dash')">📊 Дашборд</div>
     <div class="nt on" data-v="map" onclick="switchView('map')">🗺 Карта</div>
-    <div class="nt pgk" data-v="pgk" onclick="switchView('pgk')">🏢 ПГК</div>
-    <div class="nt kam" data-v="kam" onclick="switchView('kam')">📋 Камеральные</div>
-    <div class="nt smg" data-v="smg" onclick="switchView('smg')">📅 СМГ</div>
-    <div class="nt gruz" data-v="gruz" onclick="switchView('gruz')">🚛 Груз <span id="gruz-notif-badge" style="display:none;background:#d97706;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="gruz-active-badge" style="display:none;background:#1e40af;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="gruz-my-tasks-badge" style="display:none;background:#ef4444;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle" title="Мои незакрытые задачи"></span></div>
+    <div class="nt" data-v="workers" onclick="switchView('workers')">👷 Сотрудники</div>
+    <div class="nt" data-v="machinery" onclick="switchView('machinery')">🚛 Техника</div>
+    <div class="nt" data-v="equipment" onclick="switchView('equipment')">🔩 Оборудование</div>
+    <div class="nt" data-v="materials" onclick="switchView('materials')">📦 Материалы</div>
+    <div class="nt gruz" data-v="gruz" onclick="switchView('gruz')">🚚 Груз <span id="gruz-notif-badge" style="display:none;background:#d97706;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="gruz-active-badge" style="display:none;background:#1e40af;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="gruz-my-tasks-badge" style="display:none;background:#ef4444;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle" title="Мои незакрытые задачи"></span></div>
     <div class="nt gtasks" data-v="gtasks" onclick="switchView('gtasks')">📋 Задачи <span id="gtasks-open-badge" style="display:none;background:#7c3aed;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="notif-badge" style="display:none;background:#ef4444;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span></div>
-
+    <div class="nt" data-v="smg" onclick="switchView('smg')">📅 СМГ</div>
+    <div class="nt field" data-v="field" onclick="switchView('field')">🛰️ Полевые материалы</div>
+    <div class="nt" data-v="brigades" onclick="switchView('brigades')">👥 Бригады</div>
   </div>
   <div class="tdv"></div>
   <div id="gsearch-wrap">
@@ -182,8 +192,6 @@
   <div id="blist" style="overflow-y:auto;max-height:220px;flex-shrink:0"></div>
   <div class="sbft">
     <button class="btn bs bsm" style="justify-content:center" onclick="openGLog()">📋 Журнал</button>
-    <button class="btn bs bsm" style="justify-content:center" onclick="openPersonnelReport()">👷 Отчёт персонала</button>
-    <button class="btn bs bsm" style="justify-content:center" onclick="openMachineryReport()">🚛 Отчёт техника</button>
     <button class="btn bs bsm" style="justify-content:center" onclick="openBackupModal()">💾 Резервные копии</button>
   </div>
 </div>
@@ -224,6 +232,11 @@
 </div>
 
 <div id="map"></div>
+<div id="site-stats-overlay" style="position:fixed;right:0;top:auto;z-index:1050;display:none;
+  background:rgba(255,255,255,.94);border:1.5px solid var(--bd);border-right:none;
+  border-radius:var(--rs) 0 0 var(--rs);box-shadow:var(--shm);
+  padding:10px 12px;min-width:240px;max-width:calc(100vw - 20px);box-sizing:border-box;
+  max-height:40vh;overflow-y:auto;overflow-x:visible;pointer-events:auto;font-size:12px"></div>
 
 <div id="mtb">
   <button class="mt on" id="tool-view" onclick="setTool('view')">👁 Просмотр</button>
@@ -231,6 +244,8 @@
   <button class="mt" id="tool-kml" onclick="toggleKmlPanel()" title="Менеджер слоёв KML/GPX">🗂 Слои</button>
   <div style="width:1px;height:16px;background:rgba(0,0,0,.12);margin:0 2px;flex-shrink:0"></div>
   <button class="mt" id="tool-dem" onclick="openDEMPanel()" title="Выгрузка рельефа ArcticDEM">🏔 Рельеф</button>
+  <div style="width:1px;height:16px;background:rgba(0,0,0,.12);margin:0 2px;flex-shrink:0"></div>
+  <button class="mt" id="tool-elev" onclick="openElevationProfile()" title="Профиль высот по линии">📈 Профиль</button>
 </div>
 <div id="bnr"><span id="bnr-t">Кликните на карту</span>
   <button class="btn bsm" style="border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.15);color:#fff" onclick="cancelMode()">✕</button>
@@ -244,8 +259,8 @@
   <div id="lp-list"></div>
   <div class="lpft">
     <label class="btn bs bsm" style="width:100%;justify-content:center;cursor:pointer">
-      📂 Импорт KML/GPX
-      <input type="file" accept=".kml,.gpx" style="display:none" onchange="importLayer(event)">
+      📂 Импорт KML/GPX/DXF
+      <input type="file" accept=".kml,.gpx,.dxf,.csv,.txt" style="display:none" onchange="importLayer(event)">
     </label>
   </div>
 </div>
@@ -267,6 +282,7 @@
       <div id="mp-exp-drop">
         <button onclick="exportExcel(activeSiteId);toggleMpExport()">📤 Excel</button>
         <button onclick="openHtmlExportModal(activeSiteId);toggleMpExport()">📄 HTML</button>
+        <button onclick="openMapImageExport();toggleMpExport()">🖼 PNG</button>
         <button onclick="exportVolumesDXF(activeSiteId);toggleMpExport()">📐 DXF</button>
       </div>
     </div>
@@ -282,60 +298,20 @@
   <div class="pbody" id="pbody"></div>
 </div>
 
-<!-- PGK PAGE -->
-<div id="pgk-page">
-  <div class="page-inner">
-    <div class="page-side">
-      <h3>ПурГеоКом</h3>
-      <div class="pnav">
-        <div class="pni on" data-pg="workers" onclick="setPGKTab(this)">👷 Сотрудники</div>
-        <div class="pni" data-pg="machinery" onclick="setPGKTab(this)">🚛 Техника</div>
-        <div class="pni" data-pg="equipment" onclick="setPGKTab(this)">🔩 Оборудование</div>
-        <div class="pni" data-pg="materials" onclick="setPGKTab(this)">📦 Материалы</div>
-      </div>
-    </div>
-    <div class="page-body" id="pgk-body"></div>
-  </div>
-</div>
+<!-- BRIGADES PAGE -->
+<div id="brigades-page"></div>
 
-<!-- KAM PAGE -->
-<div id="kam-page">
-  <div class="page-inner">
-    <div class="page-side">
-      <h3>Камеральные</h3>
-      <div id="kam-site-list" class="pnav"></div>
-    </div>
-    <div class="page-body" id="kam-body">
-      <div class="empty"><div class="empty-i">📋</div>Выберите объект слева</div>
-    </div>
-  </div>
-</div>
+<!-- WORKERS PAGE -->
+<div id="workers-page"></div>
 
-<!-- SMG PAGE -->
-<div id="smg-page">
-  <div class="smg-toolbar">
-    <h3>📅 СМГ</h3>
-    <select class="smg-site-sel" id="smg-site-sel" onchange="smgSelectSite(this.value)">
-      <option value="">— Выберите объект —</option>
-    </select>
-    <div class="smg-month-nav">
-      <button onclick="smgPrevMonth()">◀</button>
-      <div class="smg-month-lbl" id="smg-month-lbl">—</div>
-      <button onclick="smgNextMonth()">▶</button>
-    </div>
-    <button class="btn bs bsm" onclick="smgAddRow()">＋ Строка</button>
-    <button class="btn bs bsm" onclick="smgExportExcel()">📤 Excel</button>
-    <div class="smg-legend">
-      <div class="smg-leg-dot" style="background:#bfdbfe"></div><span>План</span>
-      <div class="smg-leg-dot" style="background:#86efac"></div><span>Факт</span>
-      <div class="smg-leg-dot" style="background:#fca5a5"></div><span>Проблема</span>
-      <div class="smg-leg-dot" style="background:#e5e7eb"></div><span>Нет данных</span>
-    </div>
-  </div>
-  <div class="smg-body" id="smg-body">
-    <div class="empty"><div class="empty-i">📅</div>Выберите объект</div>
-  </div>
-</div>
+<!-- MACHINERY PAGE -->
+<div id="machinery-page"></div>
+
+<!-- EQUIPMENT PAGE -->
+<div id="equipment-page"></div>
+
+<!-- MATERIALS PAGE -->
+<div id="materials-page"></div>
 
 <!-- GLOBAL TASKS PAGE -->
 <div id="gtasks-page">
@@ -375,6 +351,34 @@
   </div>
   <div class="gt-body" id="gt-body">
     <div class="empty"><div class="empty-i">📋</div>Загрузка...</div>
+  </div>
+</div>
+
+<!-- SMG PAGE -->
+<div id="smg-page">
+  <div class="smg-toolbar"></div>
+  <div class="smg-body" id="smg-body"><div class="empty"><div class="empty-i">📅</div>Загрузка...</div></div>
+</div>
+
+<!-- FIELD MATERIALS PAGE -->
+<div id="field-page">
+  <div class="field-toolbar">
+    <h3>🛰️ Полевые материалы</h3>
+    <div class="field-tab-buttons">
+      <button class="field-tab-btn on" id="field-tab-btn-by-sites" onclick="switchFieldTab('by-sites')">🏗 По объектам</button>
+      <button class="field-tab-btn" id="field-tab-btn-imports" onclick="switchFieldTab('imports')">📥 Все импорты</button>
+    </div>
+    <button class="btn bp bsm" style="margin-left:auto" onclick="fieldExportExcel()">📊 Excel</button>
+    <button class="btn bp bsm" onclick="fieldExportRefs()">⬇️ Экспорт справочников</button>
+    <input type="file" id="field-spk-input" accept=".spk,.zip" style="display:none">
+  </div>
+  <div class="field-body">
+    <div id="field-tab-by-sites" class="field-tab-pane">
+      <div id="field-by-sites-list"></div>
+    </div>
+    <div id="field-tab-imports" class="field-tab-pane" style="display:none">
+      <div id="field-imports-list" class="field-imports-list"></div>
+    </div>
   </div>
 </div>
 
@@ -433,7 +437,6 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="js/globals.js"></script>
-<script src="js/kameral.js"></script>
 <script src="js/terrain.js"></script>
 <script src="js/map.js"></script>
 <script src="js/sidebar.js"></script>
@@ -441,6 +444,7 @@
 <script src="js/site_tabs.js"></script>
 <script src="js/base_tabs.js"></script>
 <script src="js/pgk.js"></script>
+<script src="js/brigades.js"></script>
 <script src="js/smg.js"></script>
 <script src="js/reports.js"></script>
 <script src="js/materials.js"></script>
@@ -449,8 +453,12 @@
 <script src="js/tasks.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/dem.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="js/html-export.js"></script>
+<script src="js/kameral.js"></script>
 <script src="js/dxf-volumes.js"></script>
+<script src="js/map-image-export.js"></script>
 
 <div id="name-gate" style="display:none">
   <div id="name-gate-box">
@@ -470,28 +478,47 @@
 <!-- KML LAYER MANAGER PANEL -->
 <div id="kml-panel">
   <div class="kml-panel-hd">
-    <div style="display:flex;align-items:center;gap:6px">
-      <span style="font-size:14px">🗂</span>
-      <span style="font-size:12px;font-weight:800">Слои карты</span>
-    </div>
-    <div style="display:flex;align-items:center;gap:4px">
-      <button class="btn bs bxs" onclick="kmlCreateGroup()" title="Создать группу">📁 Группа</button>
-      <label class="btn bp bxs" style="cursor:pointer" title="Импорт KML/GPX">
-        ＋ Импорт
-        <input type="file" accept=".kml,.gpx" style="display:none" onchange="kmlPanelImport(event)">
+    <span style="font-size:13px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">🗂 Слои карты</span>
+    <div class="kml-hd-acts">
+      <label class="btn bs bxs" style="cursor:pointer" title="Импорт KML/GPX/DXF">
+        📂 Импорт
+        <input type="file" accept=".kml,.gpx,.dxf,.csv,.txt" style="display:none" onchange="kmlPanelImport(event)">
       </label>
-      <button class="ph-x" onclick="toggleKmlPanel()">✕</button>
+      <button class="btn bs bxs" onclick="openLayerExportDialog()" title="Экспорт слоёв в DXF">📤 DXF</button>
+      <button class="kml-panel-close" onclick="toggleKmlPanel()" title="Закрыть">✕</button>
     </div>
   </div>
-  <div id="kml-panel-body" class="kml-panel-body"></div>
+  <div class="kml-main">
+    <div class="kml-cats" id="kml-cats"></div>
+    <div class="kml-vsplit" id="kml-vsplit"></div>
+    <div class="kml-layers-pane" id="kml-layers-pane"></div>
+  </div>
   <div class="kml-panel-ft">
-    <div style="font-size:10px;color:var(--tx3)">ПКМ на слое — меню · 2× клик — переименовать</div>
+    <label><input type="radio" name="kml-mode" value="selected" checked onchange="kmlSetMode(this.value)"> Выбранные</label>
+    <label><input type="radio" name="kml-mode" value="all" onchange="kmlSetMode(this.value)"> Показать все</label>
+    <label><input type="radio" name="kml-mode" value="none" onchange="kmlSetMode(this.value)"> Скрыть все</label>
+    <span style="font-size:10px;color:var(--tx3);margin-left:auto">ПКМ — меню · 2× клик — переим.</span>
+  </div>
+</div>
+
+<div id="ep-panel">
+  <div class="ep-hd">
+    <span>📈 Профиль высот</span>
+    <div id="ep-stats"></div>
+    <button class="btn bs bxs" onclick="exportProfileDXF()" title="Скачать профиль в DXF" style="flex-shrink:0">📐 DXF</button>
+    <button class="kml-panel-close" onclick="closeElevationProfile()" title="Закрыть">✕</button>
+  </div>
+  <div class="ep-body">
+    <div id="ep-loading">⏳ Загрузка высот…</div>
+    <canvas id="ep-canvas" style="display:none"></canvas>
   </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="js/coords.js"></script>
 <script src="js/kml-manager.js"></script>
+<script src="js/field.js"></script>
+<script src="js/elevation-profile.js"></script>
 
 </body>
 </html>

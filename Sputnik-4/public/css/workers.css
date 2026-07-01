@@ -1,0 +1,77 @@
+/* ── Personnel report ── */
+#personnel-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow-y:auto}
+#personnel-page.show{display:flex}
+.nt.pers.on{background:#7c3aed}
+.pr-toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--s);border-bottom:1px solid var(--bd);flex-shrink:0;flex-wrap:wrap}
+.pr-body{padding:12px 14px;flex:1}
+.pr-base{background:var(--s);border:1.5px solid var(--bd);border-radius:var(--r);margin-bottom:14px;overflow:hidden}
+.pr-base-hd{background:var(--s2);padding:8px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--bd)}
+.pr-base-hd h3{font-size:13px;font-weight:800;flex:1}
+.pr-worker{display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--bd);font-size:11px}
+.pr-worker:last-child{border-bottom:none}
+.pr-worker:hover{background:var(--s2)}
+.pr-field{width:160px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pr-role{width:130px;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pr-days{width:70px}
+.pr-days .badge{font-size:9px;padding:1px 6px;border-radius:8px;font-weight:700}
+.pr-mach{flex:1;color:var(--tx3);font-size:10px}
+.pr-phone{color:var(--tx3);font-size:10px;white-space:nowrap}
+
+/* ── Worker table ── */
+.wt-outer{display:flex;flex-direction:column;height:100%;margin:-14px -16px}
+.wt-toolbar{display:flex;align-items:center;gap:6px;padding:7px 12px;background:var(--s);border-bottom:1.5px solid var(--bd);flex-wrap:wrap;flex-shrink:0}
+.wt-summary{display:flex;gap:10px;flex-wrap:wrap;padding:4px 12px;background:var(--s2);border-bottom:1px solid var(--bd);font-size:10px;flex-shrink:0}
+.wt-scroll{flex:1;overflow:auto}
+.wt-tbl{width:100%;border-collapse:collapse;font-size:11px;min-width:760px}
+.wt-tbl thead th{position:sticky;top:0;z-index:2;background:var(--s2);padding:6px 10px;text-align:left;font-size:10px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;white-space:nowrap;cursor:pointer;color:var(--tx2);border-bottom:2px solid var(--bd);user-select:none;overflow:hidden}
+.th-rzr{position:absolute;right:0;top:0;width:5px;height:100%;cursor:col-resize;z-index:3;background:transparent}
+.th-rzr:hover,.th-rzr:active{background:var(--acc);opacity:.35}
+.wt-tbl thead th:hover{color:var(--acc)}
+.wt-tbl thead th.wt-asc::after{content:' ▲';color:var(--acc)}
+.wt-tbl thead th.wt-desc::after{content:' ▼';color:var(--acc)}
+.wt-tbl thead th.no-sort{cursor:default}
+.wt-tbl thead th.no-sort:hover{color:var(--tx2)}
+.wt-tbl tbody tr{border-bottom:1px solid var(--bd);cursor:default;transition:background .15s}
+.wt-tbl tbody tr:hover{background:var(--accl)}
+.wt-tbl tbody tr.wt-fired{opacity:.4}
+.wt-tbl tbody tr.lasso-sel{background:rgba(99,102,241,.13)!important;outline:1.5px solid var(--acc);outline-offset:-1px}
+.wt-tbl td{padding:6px 10px;vertical-align:middle}
+.wt-tbl td.td-notes{color:var(--tx3);font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wt-tbl td.td-days{text-align:center;font-weight:700;color:var(--acc)}
+.wt-tbl td.td-link{cursor:pointer}
+.wt-tbl td.td-link:hover{color:var(--acc);text-decoration:underline}
+.wt-tbl td.td-editable{cursor:pointer;position:relative}
+.wt-tbl td.td-editable:hover{outline:1px dashed var(--acc);outline-offset:-2px;background:var(--accl,#eff6ff)}
+.wt-badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:700;white-space:nowrap}
+.wbs-working{background:#dcfce7;color:#15803d;border:1px solid #86efac}
+.wbs-idle{background:#fef9c3;color:#a16207;border:1px solid #fde047}
+.wbs-sick{background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5}
+.wbs-home{background:var(--s3);color:var(--tx2);border:1px solid var(--bd)}
+.wbs-fired{background:#f3f4f6;color:#9ca3af;border:1px solid #d1d5db}
+
+/* ── Worker detail card ── */
+.wdc-hd{display:flex;align-items:flex-start;gap:14px;padding:4px 0 16px;border-bottom:1px solid var(--bd);margin-bottom:14px}
+.wdc-av{width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,var(--acc),var(--bpc));color:#fff;font-size:19px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;letter-spacing:-1px;box-shadow:0 3px 10px rgba(26,86,219,.3)}
+.wdc-info{flex:1;min-width:0}
+.wdc-name{font-size:18px;font-weight:800;color:var(--tx);line-height:1.2;margin-bottom:3px}
+.wdc-role{font-size:12px;color:var(--tx2);margin-bottom:8px}
+.wdc-chips{display:flex;flex-wrap:wrap;gap:5px}
+.wdc-chip{display:inline-flex;align-items:center;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;border:1px solid}
+.wdc-actions{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.wdc-btn{padding:8px 18px!important;font-size:13px!important;border-radius:var(--rs)!important}
+.wdc-tabs{display:flex;border-bottom:2px solid var(--bd);margin-bottom:14px}
+.wdc-tab{background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;padding:7px 14px;font-size:12px;font-weight:600;color:var(--tx3);cursor:pointer;transition:all .15s;font-family:inherit}
+.wdc-tab:hover{color:var(--tx2)}.wdc-tab.on{color:var(--acc);border-bottom-color:var(--acc)}
+.wdc-panel{animation:fadeIn .15s ease both}
+.wdc-row{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px;align-items:flex-start}
+.wdc-row:last-child{border-bottom:none}
+.wdc-lbl{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--tx3);min-width:90px;padding-top:1px;flex-shrink:0}
+.wdc-shift{padding:8px 10px;background:var(--s2);border-radius:var(--rs);margin-bottom:6px;border-left:3px solid var(--acc)}
+.wdc-shift-base{font-size:12px;font-weight:700;color:var(--tx);margin-bottom:2px}
+.wdc-shift-meta{font-size:10px;color:var(--tx3)}.wdc-shift-notes{font-size:11px;color:var(--tx2);margin-top:3px}
+.wdc-vol-site{font-size:11px;font-weight:800;color:var(--acc);margin:10px 0 5px;letter-spacing:.3px}
+.wdc-vol-row{padding:5px 0;border-bottom:1px solid var(--bd);font-size:11px}
+.wdc-vol-row:last-child{border-bottom:none}
+.wdc-vol-val{font-weight:700;color:var(--acc)}
+.wdc-vol-date{font-size:9px;color:var(--tx3);margin-top:1px}
+.wdc-empty{font-size:11px;color:var(--tx3);padding:12px 0;text-align:center}

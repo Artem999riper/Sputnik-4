@@ -356,11 +356,18 @@ async function initApp(){
 let _sseSrc = null;
 let _sseTimer = null;
 let _sseGruzTimer = null;
+let _sseOpened = false;
 function startSseListener(){
   if(typeof EventSource==='undefined')return;
   function connect(){
     try{
       _sseSrc=new EventSource(`${API}/events`);
+      _sseSrc.onopen=function(){
+        // Первое открытие — стартовый loadAll уже выполнен в другом месте.
+        // Любое последующее открытие = переподключение → догоняем пропущенное.
+        if(_sseOpened)_sseResyncAll();
+        _sseOpened=true;
+      };
       _sseSrc.onmessage=function(e){
         let ev; try{ev=JSON.parse(e.data);}catch(_){return;}
         if(ev.type!=='change')return;
@@ -374,6 +381,18 @@ function startSseListener(){
     }catch(e){setTimeout(connect,5000);}
   }
   connect();
+}
+// Возврат вкладки из фона / bfcache: EventSource мог быть заморожен или закрыт,
+// а глобальный layers — устареть. Пересинхронизируемся и при необходимости
+// переоткрываем SSE-соединение.
+if(typeof window!=='undefined'){
+  window.addEventListener('pageshow',function(e){ if(e.persisted)_sseResyncAll(); });
+  document.addEventListener('visibilitychange',function(){
+    if(document.visibilityState==='visible'){
+      if(!_sseSrc){try{startSseListener();}catch(e){}}
+      _sseResyncAll();
+    }
+  });
 }
 function handleSseChange(ev){
   const url=ev.url||'';
@@ -396,11 +415,24 @@ function handleSseChange(ev){
   }
   // Базовые сущности — общий дебаунсированный loadAll
   if(url.match(/\/(sites|bases|layers|pgk|materials|volumes|vol_progress|kameral|remarks|machinery|workers|equipment)/)){
-    if(_sseAllTimer)clearTimeout(_sseAllTimer);
-    _sseAllTimer=setTimeout(function(){try{loadAll&&loadAll();}catch(e){}},900);
+    _sseResyncAll();
   }
 }
 let _sseAllTimer=null;
+// Дебаунсированная полная пересинхронизация: подтягивает свежие данные с сервера.
+// Вызывается как из SSE-событий, так и при (пере)подключении SSE и возврате вкладки —
+// чтобы догнать изменения, пропущенные пока клиент был отключён (SSE не воспроизводит
+// пропущенные события).
+function _sseResyncAll(){
+  if(_sseAllTimer)clearTimeout(_sseAllTimer);
+  _sseAllTimer=setTimeout(async function(){
+    try{if(loadAll)await loadAll();}catch(e){}
+    // После обновления общих данных синхронизируем текущий объект:
+    // видимость объёмов и KML-слоёв хранится в полных данных сайта (/api/sites/:id),
+    // а не в /api/sites, поэтому явно перезагружаем текущий объект
+    try{if(typeof currentObj!=='undefined'&&currentObj&&refreshCurrent)refreshCurrent();}catch(e){}
+  },900);
+}
 
 
 // ═══════════════════════════════════════════════════════════

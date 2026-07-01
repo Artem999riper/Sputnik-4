@@ -57,6 +57,16 @@ function wgsToGsk(lat, lon) {
   return { northing, easting, zone };
 }
 
+function mskToWgs(northing, easting, zone) {
+  const [lon, lat] = proj4(_mskProj(zone), _WGS84, [easting, northing]);
+  return { lat, lon };
+}
+
+function gskToWgs(northing, easting, zone) {
+  const [lon, lat] = proj4(_gskProj(zone), _WGS84, [easting, northing]);
+  return { lat, lon };
+}
+
 // ── Форматирование ─────────────────────────────────────────
 function formatWGS(lat, lon) {
   const latH = lat >= 0 ? 'N' : 'S';
@@ -96,6 +106,7 @@ function initCoordsWidget() {
       <button class="csb"    data-s="gsk" onclick="setCoordSys('gsk')">ГСК-2011</button>
     </div>
     <div id="coord-display">— наведите курсор на карту —</div>
+    <div id="map-scale-display" title="Масштаб карты"></div>
   `;
   document.body.appendChild(wrap);
 
@@ -110,10 +121,10 @@ function initCoordsWidget() {
       border: 1px solid var(--bd);
       border-radius: 7px;
       box-shadow: var(--shm);
-      padding: 5px 10px 5px 8px;
+      padding: 5px 8px 5px 8px;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 5px;
       font-size: 11px;
       color: var(--tx2);
       pointer-events: auto;
@@ -141,10 +152,20 @@ function initCoordsWidget() {
       font-weight: 500;
       color: var(--tx);
       font-variant-numeric: tabular-nums;
-      min-width: 300px;
+      min-width: 240px;
       letter-spacing: 0.01em;
     }
     #coord-display b { font-weight: 700; }
+    #map-scale-display {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--tx);
+      white-space: nowrap;
+      padding-left: 6px;
+      border-left: 1.5px solid var(--bd);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.01em;
+    }
   `;
   document.head.appendChild(style);
   updateCoordWidgetVisibility();
@@ -153,7 +174,8 @@ function initCoordsWidget() {
 function updateCoordWidgetVisibility() {
   const widget = document.getElementById('coord-widget');
   if (!widget) return;
-  const pages = ['pgk-page','kam-page','smg-page','gruz-page','gtasks-page','dash-page'];
+  const pages = ['pgk-page','kam-page','smg-page','gruz-page','gtasks-page','dash-page',
+                  'workers-page','machinery-page','equipment-page','materials-page','field-page','brigades-page'];
   const anyOpen = pages.some(id => {
     const el = document.getElementById(id);
     return el && el.classList.contains('show');
@@ -172,6 +194,16 @@ function setCoordSys(sys) {
   document.querySelectorAll('.csb').forEach(b => b.classList.toggle('on', b.dataset.s === sys));
 }
 
+function _updateMapScale(lat) {
+  const el = document.getElementById('map-scale-display');
+  if (!el || !window.map) return;
+  const zoom = map.getZoom();
+  const useLat = (lat !== undefined) ? lat : map.getCenter().lat;
+  const mPerPx = 156543.03392 * Math.cos(useLat * Math.PI / 180) / Math.pow(2, zoom);
+  const denom = Math.round(mPerPx * 3779.53);
+  el.textContent = `1 : ${denom.toLocaleString('ru')} z${zoom}`;
+}
+
 function onMapMouseMove(e) {
   const disp = document.getElementById('coord-display');
   if (!disp) return;
@@ -183,6 +215,7 @@ function onMapMouseMove(e) {
   } catch(err) {
     disp.textContent = 'Ошибка конвертации';
   }
+  _updateMapScale(lat);
 }
 
 function attachCoordsToMap() {
@@ -191,7 +224,10 @@ function attachCoordsToMap() {
   map.on('mouseout', () => {
     const disp = document.getElementById('coord-display');
     if (disp) disp.innerHTML = '— наведите курсор на карту —';
+    _updateMapScale();
   });
+  map.on('zoomend moveend', () => _updateMapScale());
+  setTimeout(_updateMapScale, 500);
 }
 
 document.addEventListener('DOMContentLoaded', () => {

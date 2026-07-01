@@ -1,0 +1,102 @@
+/* ── Leaflet popups ── */
+.leaflet-popup-content-wrapper{background:var(--s)!important;border:1.5px solid var(--bd)!important;border-radius:9px!important;box-shadow:var(--shl)!important;padding:0!important}
+.leaflet-popup-tip{background:var(--s)!important}.leaflet-popup-content{margin:0!important}
+.popup{padding:10px 12px;min-width:180px}.popup-n{font-size:13px;font-weight:800;margin-bottom:2px}.popup-s{font-size:10px;color:var(--tx2);margin-bottom:6px}
+.mlbl{background:rgba(255,255,255,.96);border:1px solid var(--bd);border-radius:4px;padding:4px 9px;font-size:var(--mlbl-fs,13px);font-weight:600;color:var(--tx);white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.18)}
+.leaflet-tooltip{pointer-events:none!important}
+
+/* ── KML Manager Panel ── */
+#kml-panel{position:fixed;top:var(--th);right:0;bottom:0;width:520px;background:var(--s);border-left:1.5px solid var(--bd);z-index:1200;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);box-shadow:var(--shl)}
+#kml-panel.open{transform:translateX(0)}
+body:has(#kml-panel.open) #map{right:520px}
+body:has(#kml-panel.open) #panel{right:520px}
+body:has(#kml-panel.open) #lp{right:527px}
+body:has(#kml-panel.open) #workers-page,
+body:has(#kml-panel.open) #machinery-page,
+body:has(#kml-panel.open) #equipment-page,
+body:has(#kml-panel.open) #materials-page,
+body:has(#kml-panel.open) #dash-page,
+body:has(#kml-panel.open) #gtasks-page,
+body:has(#kml-panel.open) #gruz-page,
+body:has(#kml-panel.open) #smg-page,
+body:has(#kml-panel.open) #field-page,
+body:has(#kml-panel.open) #brigades-page{right:520px}
+.kml-panel-hd{display:flex;align-items:center;justify-content:space-between;padding:7px 9px;border-bottom:1.5px solid var(--bd);flex-shrink:0;gap:6px;background:var(--s2)}
+.kml-hd-acts{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.kml-panel-close{background:none;border:none;cursor:pointer;font-size:17px;color:var(--tx2);padding:0 4px;border-radius:4px;line-height:1;flex-shrink:0;font-weight:300;transition:all .15s}
+.kml-panel-close:hover{background:var(--redd,#fee2e2);color:#e02424}
+/* two-column layout */
+.kml-main{display:flex;flex:1;overflow:hidden;min-height:0}
+.kml-cats{width:185px;min-width:80px;overflow-y:auto;border-right:1.5px solid var(--bd);flex-shrink:0;background:var(--s2)}
+.kml-cats::-webkit-scrollbar{width:3px}.kml-cats::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
+.kml-vsplit{width:4px;cursor:col-resize;background:var(--bd);flex-shrink:0;transition:background .1s}
+.kml-vsplit:hover,.kml-vsplit.dragging{background:var(--acc)}
+.kml-layers-pane{flex:1;overflow-y:auto;min-width:0;display:flex;flex-direction:column}
+.kml-layers-pane::-webkit-scrollbar{width:3px}.kml-layers-pane::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
+/* category rows (left panel) */
+.kml-cat-row{display:flex;align-items:center;gap:6px;padding:5px 7px;cursor:pointer;font-size:11px;border-bottom:1px solid var(--bd);user-select:none;transition:background .1s}
+.kml-cat-row:hover{background:var(--s3)}
+.kml-cat-row.active{background:var(--accl)}
+.kml-cat-row.active .kml-cat-label{font-weight:700;color:var(--acc)}
+.kml-cat-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx)}
+.kml-cat-count{font-size:9px;background:var(--bd2);color:var(--tx3);border-radius:8px;padding:1px 5px;flex-shrink:0;font-weight:600}
+.kml-cat-actions{padding:6px 7px;display:flex;flex-direction:column;gap:3px}
+.kml-cat-actions .btn{width:100%;justify-content:center;font-size:11px}
+/* footer */
+.kml-panel-ft{display:flex;gap:8px;align-items:center;padding:5px 9px;border-top:1px solid var(--bd);flex-shrink:0;background:var(--s2);font-size:11px;flex-wrap:wrap}
+.kml-panel-ft label{display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--tx2)}
+.kml-panel-ft label:has(input:checked){color:var(--acc);font-weight:600}
+.kml-pane-footer{padding:4px 9px;font-size:10px;color:var(--tx3);border-top:1px solid var(--bd);background:var(--s2);flex-shrink:0}
+/* layer rows */
+.kml-layer-row{display:flex;align-items:center;gap:3px;padding:4px 8px;border-bottom:1px solid var(--bd);transition:background .1s}
+.kml-layer-row:hover{background:var(--accl)}
+.kml-layer-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;color:var(--tx);font-size:11px}
+.kml-icon-btn{background:none;border:1px solid transparent;cursor:pointer;font-size:12px;padding:2px 3px;border-radius:3px;color:var(--tx2);opacity:1;flex-shrink:0;transition:all .1s;line-height:1}
+.kml-icon-btn:hover{background:var(--s3);border-color:var(--bd);color:var(--tx)}
+.kml-icon-btn.on{background:var(--accl);border-color:var(--accm);color:var(--acc)}
+.kml-sym-preview{width:22px;height:22px;flex-shrink:0;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;transition:background .1s;border:1.5px solid transparent}
+.kml-sym-preview:hover{background:var(--s3);border-color:var(--bd)}
+.kml-sym-btn{width:38px;height:38px;border:2px solid var(--bd);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;background:var(--s2)}
+.kml-sym-btn:hover{border-color:var(--acc);background:var(--accl)}
+.kml-sym-btn.on{border-color:var(--acc);background:var(--accl);box-shadow:0 0 0 2px var(--accm)}
+.kml-sym-inner{pointer-events:none}
+.kml-empty{padding:32px 16px;text-align:center;font-size:12px;color:var(--tx3)}
+/* hierarchy — disclosure + object children */
+.kml-exp-arrow{flex-shrink:0;width:13px;text-align:center;font-size:9px;color:var(--tx3);cursor:pointer;user-select:none;line-height:1}
+.kml-exp-arrow:hover{color:var(--acc)}
+.kml-exp-arrow.empty{cursor:default}
+.kml-feat-badge{font-size:9px;background:var(--bd2);color:var(--tx3);border-radius:8px;padding:0 5px;font-weight:600;vertical-align:middle}
+.kml-feat-children{background:var(--s2);border-bottom:1px solid var(--bd)}
+.kml-feat-row{display:flex;align-items:center;gap:5px;padding:3px 8px 3px 30px;border-bottom:1px solid var(--bd);transition:background .1s}
+.kml-feat-row:last-child{border-bottom:none}
+.kml-feat-row:hover{background:var(--accl)}
+.kml-feat-sym{width:18px;height:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.kml-feat-info{flex:1;min-width:0;cursor:pointer}
+.kml-feat-name{font-size:11px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kml-feat-coord{font-size:9px;color:var(--tx3);font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kml-feat-empty{padding:8px 30px;font-size:10px;color:var(--tx3);background:var(--s2);border-bottom:1px solid var(--bd)}
+
+/* ── KML Feature List ── */
+.kfl-header{padding:6px 4px 4px;font-size:11px;color:var(--tx3);border-bottom:1px solid var(--bd);margin-bottom:4px}
+.kfl-list{display:flex;flex-direction:column;gap:0;max-height:60vh;overflow-y:auto}
+.kfl-list::-webkit-scrollbar{width:4px}.kfl-list::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
+.kfl-row{display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--bd);transition:background .1s}
+.kfl-row:hover{background:var(--s2)}
+.kfl-sym{width:28px;height:28px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px}
+.kfl-info{flex:1;min-width:0}
+.kfl-name{font-size:12px;font-weight:600;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kfl-desc{font-size:10px;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+.kfl-coord{font-size:10px;color:var(--tx3);font-family:monospace;margin-top:1px}
+.kfl-actions{display:flex;gap:2px;flex-shrink:0}
+
+/* ── Elevation Profile Panel ── */
+#ep-panel{position:fixed;bottom:0;left:var(--sw);right:0;z-index:1100;background:var(--s);border-top:2px solid var(--bd);box-shadow:0 -4px 16px rgba(0,0,0,.12);transform:translateY(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;height:230px}
+#ep-panel.open{transform:translateY(0)}
+body:has(#ep-panel.open) #map{bottom:230px;transition:bottom .25s cubic-bezier(.4,0,.2,1)}
+body:has(#ep-panel.open) #coord-widget{bottom:calc(230px + 8px);transition:bottom .25s cubic-bezier(.4,0,.2,1)}
+body:has(#kml-panel.open) #ep-panel{right:520px}
+.ep-hd{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid var(--bd);background:var(--s2);flex-shrink:0;font-size:12px;font-weight:700}
+#ep-stats{flex:1;font-size:11px;color:var(--tx2);font-weight:400}
+.ep-body{flex:1;overflow:hidden;padding:4px 12px 8px;position:relative}
+#ep-loading{font-size:12px;color:var(--tx2);padding:24px;text-align:center}
+#ep-canvas{width:100%!important;height:165px!important}

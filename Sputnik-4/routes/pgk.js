@@ -2,6 +2,7 @@ const { v4: uuid } = require('uuid');
 const { all, get, run } = require('../database');
 const { required, wrap } = require('./validate');
 const { trashAndDelete } = require('./realtime');
+const { generateEquipActDocx } = require('./equip_act');
 
 module.exports = (app, getDb, L) => {
   const db = () => getDb();
@@ -123,12 +124,12 @@ module.exports = (app, getDb, L) => {
   app.put('/api/pgk/machinery/:id', wrap((req, res) => {
     const err = required(['name'], req.body);
     if (err) return res.status(400).json({ error: err });
-    const { name, type, vehicle_type, plate_number, base_id, status, lat, lng, drill_id, notes, user_name } = req.body;
+    const { name, type, vehicle_type, plate_number, base_id, status, lat, lng, drill_id, driver_id, notes, user_name } = req.body;
     const d = db();
     const old = get(d, 'SELECT * FROM pgk_machinery WHERE id=?', [req.params.id]);
-    run(d, 'UPDATE pgk_machinery SET name=?,type=?,vehicle_type=?,plate_number=?,base_id=?,status=?,lat=?,lng=?,drill_id=?,notes=? WHERE id=?',
+    run(d, 'UPDATE pgk_machinery SET name=?,type=?,vehicle_type=?,plate_number=?,base_id=?,status=?,lat=?,lng=?,drill_id=?,driver_id=?,notes=? WHERE id=?',
       [name, type || '', vehicle_type || '', plate_number || '', base_id || null, status || 'working',
-       lat || null, lng || null, drill_id || null, notes || '', req.params.id]);
+       lat || null, lng || null, drill_id || null, driver_id || null, notes || '', req.params.id]);
     if (old && (old.lat !== (lat || null) || old.lng !== (lng || null))) {
       const coordStr = lat && lng ? `${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'убрана с карты';
       L(null, base_id || old.base_id || null, 'Техника перемещена', `${name} → ${coordStr}`, user_name || 'Система');
@@ -190,18 +191,27 @@ module.exports = (app, getDb, L) => {
     const err = required(['name'], req.body);
     if (err) return res.status(400).json({ error: err });
     const id = uuid();
-    const { name, type, serial_number, base_id, status, responsible, notes } = req.body;
-    run(db(), 'INSERT INTO pgk_equipment(id,name,type,serial_number,base_id,status,responsible,notes)VALUES(?,?,?,?,?,?,?,?)',
-      [id, name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '']);
+    const { name, type, serial_number, base_id, status, responsible, notes, group_id } = req.body;
+    const d = db();
+    run(d, 'INSERT INTO pgk_equipment(id,name,type,serial_number,base_id,status,responsible,notes,group_id)VALUES(?,?,?,?,?,?,?,?,?)',
+      [id, name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '', group_id || '']);
+    if (responsible) {
+      run(d, 'INSERT INTO equipment_responsible_history(id,equipment_id,responsible)VALUES(?,?,?)', [uuid(), id, responsible]);
+    }
     res.json({ id });
   }));
 
   app.put('/api/pgk/equipment/:id', wrap((req, res) => {
     const err = required(['name'], req.body);
     if (err) return res.status(400).json({ error: err });
-    const { name, type, serial_number, base_id, status, responsible, notes } = req.body;
-    run(db(), 'UPDATE pgk_equipment SET name=?,type=?,serial_number=?,base_id=?,status=?,responsible=?,notes=? WHERE id=?',
-      [name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '', req.params.id]);
+    const { name, type, serial_number, base_id, status, responsible, notes, group_id } = req.body;
+    const d = db();
+    const prev = get(d, 'SELECT responsible FROM pgk_equipment WHERE id=?', [req.params.id]);
+    run(d, 'UPDATE pgk_equipment SET name=?,type=?,serial_number=?,base_id=?,status=?,responsible=?,notes=?,group_id=? WHERE id=?',
+      [name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '', group_id || '', req.params.id]);
+    if (responsible && (!prev || prev.responsible !== responsible)) {
+      run(d, 'INSERT INTO equipment_responsible_history(id,equipment_id,responsible)VALUES(?,?,?)', [uuid(), req.params.id, responsible]);
+    }
     res.json({ success: true });
   }));
 
@@ -209,5 +219,257 @@ module.exports = (app, getDb, L) => {
     const _restore = trashAndDelete(db(), 'pgk_equipment', req.params.id);
     if (!_restore) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true, _restore });
+  }));
+
+  app.put('/api/pgk/equipment/:id/group', wrap((req, res) => {
+    run(db(), 'UPDATE pgk_equipment SET group_id=? WHERE id=?', [req.body.group_id || null, req.params.id]);
+    res.json({ success: true });
+  }));
+
+  app.get('/api/equip_groups', wrap((req, res) =>
+    res.json(all(db(), 'SELECT * FROM equipment_groups ORDER BY sort_order, name'))
+  ));
+  app.post('/api/equip_groups', wrap((req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Название обязательно' });
+    const id = uuid();
+    run(db(), 'INSERT INTO equipment_groups(id,name)VALUES(?,?)', [id, name]);
+    res.json({ id });
+  }));
+  app.put('/api/equip_groups/:id', wrap((req, res) => {
+    run(db(), 'UPDATE equipment_groups SET name=? WHERE id=?', [req.body.name, req.params.id]);
+    res.json({ success: true });
+  }));
+  app.delete('/api/equip_groups/:id', wrap((req, res) => {
+    const d = db();
+    run(d, "UPDATE pgk_equipment SET group_id='' WHERE group_id=?", [req.params.id]);
+    run(d, 'DELETE FROM equipment_groups WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  }));
+
+  app.get('/api/mat_groups', wrap((req, res) =>
+    res.json(all(db(), 'SELECT * FROM materials_groups ORDER BY sort_order, name'))
+  ));
+  app.post('/api/mat_groups', wrap((req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Название обязательно' });
+    const id = uuid();
+    run(db(), 'INSERT INTO materials_groups(id,name)VALUES(?,?)', [id, name]);
+    res.json({ id });
+  }));
+  app.put('/api/mat_groups/:id', wrap((req, res) => {
+    run(db(), 'UPDATE materials_groups SET name=? WHERE id=?', [req.body.name, req.params.id]);
+    res.json({ success: true });
+  }));
+  app.delete('/api/mat_groups/:id', wrap((req, res) => {
+    run(db(), 'DELETE FROM materials_groups WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  }));
+
+  app.get('/api/equip_responsible_history/:id', wrap((req, res) =>
+    res.json(all(db(), 'SELECT * FROM equipment_responsible_history WHERE equipment_id=? ORDER BY assigned_at DESC', [req.params.id]))
+  ));
+  app.post('/api/equip_responsible_history', wrap((req, res) => {
+    const { equipment_id, responsible, notes } = req.body;
+    if (!equipment_id || !responsible) return res.status(400).json({ error: 'equipment_id и responsible обязательны' });
+    const id = uuid();
+    run(db(), 'INSERT INTO equipment_responsible_history(id,equipment_id,responsible,notes)VALUES(?,?,?,?)',
+      [id, equipment_id, responsible, notes || '']);
+    res.json({ id });
+  }));
+
+  // ── FUEL RESERVES ─────────────────────────────────────────
+  app.get('/api/fuel_reserves', wrap((req, res) =>
+    res.json(all(db(), 'SELECT * FROM fuel_reserves ORDER BY base_id, fuel_type'))
+  ));
+  app.post('/api/fuel_reserves/transaction', wrap((req, res) => {
+    const { base_id, fuel_type, delta, notes } = req.body;
+    if (!base_id || !fuel_type) return res.status(400).json({ error: 'base_id и fuel_type обязательны' });
+    const d = db();
+    const existing = get(d, 'SELECT * FROM fuel_reserves WHERE base_id=? AND fuel_type=?', [base_id, fuel_type]);
+    if (existing) {
+      const newAmt = Math.max(0, (existing.amount || 0) + (delta || 0));
+      run(d, "UPDATE fuel_reserves SET amount=?,notes=?,updated_at=datetime('now') WHERE id=?", [newAmt, notes || existing.notes || '', existing.id]);
+      res.json({ id: existing.id, amount: newAmt });
+    } else {
+      const id = uuid();
+      const newAmt = Math.max(0, delta || 0);
+      run(d, "INSERT INTO fuel_reserves(id,base_id,fuel_type,amount,notes)VALUES(?,?,?,?,?)", [id, base_id, fuel_type, newAmt, notes || '']);
+      res.json({ id, amount: newAmt });
+    }
+  }));
+  app.delete('/api/fuel_reserves/:id', wrap((req, res) => {
+    run(db(), 'DELETE FROM fuel_reserves WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  }));
+  app.get('/api/fuel_transactions', wrap((req, res) => {
+    const { base_id, fuel_type } = req.query;
+    let sql = 'SELECT * FROM fuel_transactions WHERE 1=1';
+    const params = [];
+    if (base_id) { sql += ' AND base_id=?'; params.push(base_id); }
+    if (fuel_type) { sql += ' AND fuel_type=?'; params.push(fuel_type); }
+    sql += ' ORDER BY created_at DESC LIMIT 100';
+    res.json(all(db(), sql, params));
+  }));
+  app.post('/api/fuel_transactions', wrap((req, res) => {
+    const { base_id, fuel_type, delta, notes, op_date } = req.body;
+    if (!base_id || !fuel_type || delta === undefined) return res.status(400).json({ error: 'base_id, fuel_type, delta обязательны' });
+    const d = db();
+    const id = uuid();
+    run(d, 'INSERT INTO fuel_transactions(id,base_id,fuel_type,delta,notes,op_date)VALUES(?,?,?,?,?,?)',
+      [id, base_id, fuel_type, delta, notes || '', op_date || new Date().toISOString().split('T')[0]]);
+    // Update reserve
+    const existing = get(d, 'SELECT * FROM fuel_reserves WHERE base_id=? AND fuel_type=?', [base_id, fuel_type]);
+    if (existing) {
+      const newAmt = Math.max(0, (existing.amount || 0) + delta);
+      run(d, "UPDATE fuel_reserves SET amount=?,updated_at=datetime('now') WHERE id=?", [newAmt, existing.id]);
+      res.json({ id, amount: newAmt });
+    } else {
+      const rid = uuid();
+      const newAmt = Math.max(0, delta);
+      run(d, "INSERT INTO fuel_reserves(id,base_id,fuel_type,amount)VALUES(?,?,?,?)", [rid, base_id, fuel_type, newAmt]);
+      res.json({ id, amount: newAmt });
+    }
+  }));
+
+  // ── SPARE PARTS GROUPS ────────────────────────────────────
+  app.get('/api/spare_groups', wrap((req, res) =>
+    res.json(all(db(), 'SELECT * FROM spare_parts_groups ORDER BY sort_order, name'))
+  ));
+  app.post('/api/spare_groups', wrap((req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Название обязательно' });
+    const id = uuid();
+    run(db(), 'INSERT INTO spare_parts_groups(id,name)VALUES(?,?)', [id, name]);
+    res.json({ id });
+  }));
+  app.put('/api/spare_groups/:id', wrap((req, res) => {
+    run(db(), 'UPDATE spare_parts_groups SET name=? WHERE id=?', [req.body.name, req.params.id]);
+    res.json({ success: true });
+  }));
+  app.delete('/api/spare_groups/:id', wrap((req, res) => {
+    const d = db();
+    run(d, 'UPDATE spare_parts SET group_id=NULL WHERE group_id=?', [req.params.id]);
+    run(d, 'DELETE FROM spare_parts_groups WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  }));
+
+  // ── SPARE PARTS ───────────────────────────────────────────
+  app.get('/api/spare_parts', wrap((req, res) =>
+    res.json(all(db(), 'SELECT * FROM spare_parts ORDER BY name'))
+  ));
+  app.post('/api/spare_parts', wrap((req, res) => {
+    const { name, group_id, quantity, unit, location, notes } = req.body;
+    if (!name) return res.status(400).json({ error: 'Название обязательно' });
+    const id = uuid();
+    run(db(), 'INSERT INTO spare_parts(id,group_id,name,quantity,unit,location,notes)VALUES(?,?,?,?,?,?,?)',
+      [id, group_id || null, name, quantity || 0, unit || 'шт', location || '', notes || '']);
+    res.json({ id });
+  }));
+  app.put('/api/spare_parts/:id', wrap((req, res) => {
+    const { name, group_id, quantity, unit, location, notes } = req.body;
+    if (!name) return res.status(400).json({ error: 'Название обязательно' });
+    run(db(), 'UPDATE spare_parts SET name=?,group_id=?,quantity=?,unit=?,location=?,notes=? WHERE id=?',
+      [name, group_id || null, quantity || 0, unit || 'шт', location || '', notes || '', req.params.id]);
+    res.json({ success: true });
+  }));
+  app.delete('/api/spare_parts/:id', wrap((req, res) => {
+    run(db(), 'DELETE FROM spare_parts WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  }));
+
+  // ── BRIGADES (ПГК) ─────────────────────────────────────────
+  app.get('/api/pgk/brigades', wrap((req, res) => {
+    const d = db();
+    const rows = all(d, `
+      SELECT b.*,
+        m.name AS machine_name, m.type AS machine_type,
+        m.plate_number AS machine_plate, m.driver_id AS machine_driver_id,
+        (SELECT GROUP_CONCAT(worker_id) FROM pgk_brigade_members WHERE brigade_id=b.id) AS member_ids,
+        (SELECT GROUP_CONCAT(base_id)   FROM pgk_brigade_bases   WHERE brigade_id=b.id) AS base_ids,
+        (SELECT GROUP_CONCAT(site_id)   FROM pgk_brigade_sites   WHERE brigade_id=b.id) AS site_ids
+      FROM pgk_brigades b
+      LEFT JOIN pgk_machinery m ON m.id = b.machine_id
+      ORDER BY b.name`);
+    rows.forEach(r => {
+      r.member_ids = r.member_ids ? r.member_ids.split(',') : [];
+      r.base_ids   = r.base_ids   ? r.base_ids.split(',')   : [];
+      r.site_ids   = r.site_ids   ? r.site_ids.split(',')   : [];
+    });
+    res.json(rows);
+  }));
+
+  app.post('/api/pgk/brigades', wrap((req, res) => {
+    const err = required(['name'], req.body);
+    if (err) return res.status(400).json({ error: err });
+    const id = uuid();
+    const { name, machine_id, member_ids = [], base_ids = [], site_ids = [], notes } = req.body;
+    const d = db();
+    const tx = d.transaction(() => {
+      run(d, "INSERT INTO pgk_brigades(id,name,machine_id,notes,updated_at) VALUES(?,?,?,?,datetime('now'))",
+        [id, name, machine_id || null, notes || '']);
+      (member_ids || []).filter(Boolean).forEach(wid =>
+        run(d, 'INSERT OR IGNORE INTO pgk_brigade_members(brigade_id,worker_id) VALUES(?,?)', [id, wid]));
+      (base_ids || []).filter(Boolean).forEach(bid =>
+        run(d, 'INSERT OR IGNORE INTO pgk_brigade_bases(brigade_id,base_id) VALUES(?,?)', [id, bid]));
+      (site_ids || []).filter(Boolean).forEach(sid =>
+        run(d, 'INSERT OR IGNORE INTO pgk_brigade_sites(brigade_id,site_id) VALUES(?,?)', [id, sid]));
+    });
+    tx();
+    res.json({ id });
+  }));
+
+  app.put('/api/pgk/brigades/:id', wrap((req, res) => {
+    const err = required(['name'], req.body);
+    if (err) return res.status(400).json({ error: err });
+    const id = req.params.id;
+    const { name, machine_id, member_ids = [], base_ids = [], site_ids = [], notes } = req.body;
+    const d = db();
+    const exists = get(d, 'SELECT id FROM pgk_brigades WHERE id=?', [id]);
+    if (!exists) return res.status(404).json({ error: 'Not found' });
+    const tx = d.transaction(() => {
+      run(d, "UPDATE pgk_brigades SET name=?,machine_id=?,notes=?,updated_at=datetime('now') WHERE id=?",
+        [name, machine_id || null, notes || '', id]);
+      run(d, 'DELETE FROM pgk_brigade_members WHERE brigade_id=?', [id]);
+      run(d, 'DELETE FROM pgk_brigade_bases   WHERE brigade_id=?', [id]);
+      run(d, 'DELETE FROM pgk_brigade_sites   WHERE brigade_id=?', [id]);
+      (member_ids || []).filter(Boolean).forEach(wid =>
+        run(d, 'INSERT OR IGNORE INTO pgk_brigade_members(brigade_id,worker_id) VALUES(?,?)', [id, wid]));
+      (base_ids || []).filter(Boolean).forEach(bid =>
+        run(d, 'INSERT OR IGNORE INTO pgk_brigade_bases(brigade_id,base_id) VALUES(?,?)', [id, bid]));
+      (site_ids || []).filter(Boolean).forEach(sid =>
+        run(d, 'INSERT OR IGNORE INTO pgk_brigade_sites(brigade_id,site_id) VALUES(?,?)', [id, sid]));
+    });
+    tx();
+    res.json({ success: true });
+  }));
+
+  app.delete('/api/pgk/brigades/:id', wrap((req, res) => {
+    const id = req.params.id;
+    const d = db();
+    const row = get(d, 'SELECT * FROM pgk_brigades WHERE id=?', [id]);
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    const tx = d.transaction(() => {
+      run(d, 'DELETE FROM pgk_brigade_members WHERE brigade_id=?', [id]);
+      run(d, 'DELETE FROM pgk_brigade_bases   WHERE brigade_id=?', [id]);
+      run(d, 'DELETE FROM pgk_brigade_sites   WHERE brigade_id=?', [id]);
+      run(d, 'DELETE FROM pgk_brigades        WHERE id=?', [id]);
+    });
+    tx();
+    res.json({ success: true });
+  }));
+
+  // ── АКТ ПРИЁМА-ПЕРЕДАЧИ ОБОРУДОВАНИЯ ──────────────────────
+  app.get('/api/pgk/equipment/act', wrap(async (req, res) => {
+    const responsible = req.query.responsible;
+    if (!responsible) return res.status(400).json({ error: 'responsible обязателен' });
+    const d = db();
+    const items = all(d, "SELECT * FROM pgk_equipment WHERE responsible=? ORDER BY name", [responsible]);
+    if (!items.length) return res.status(404).json({ error: 'У этого сотрудника нет закреплённого оборудования' });
+    const buf = await generateEquipActDocx(responsible, items);
+    const fname = `Акт_${responsible.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.docx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fname)}`);
+    res.send(buf);
   }));
 };

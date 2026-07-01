@@ -158,6 +158,7 @@ async function getDb() {
   ta("ALTER TABLE materials ADD COLUMN initial_amount REAL DEFAULT 0");
   ta("ALTER TABLE materials ADD COLUMN last_act_date TEXT");
   ta("ALTER TABLE materials ADD COLUMN category TEXT DEFAULT ''");
+  ta("ALTER TABLE materials ADD COLUMN weight REAL DEFAULT 0");
   ta(`CREATE TABLE IF NOT EXISTS global_tasks (
     id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT DEFAULT '',
     priority TEXT DEFAULT 'normal', category TEXT DEFAULT 'general',
@@ -189,6 +190,75 @@ async function getDb() {
   ta("ALTER TABLE kml_layers ADD COLUMN max_zoom INTEGER DEFAULT 20");
   ta("ALTER TABLE kml_layers ADD COLUMN size REAL DEFAULT 1");
   ta("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+  ta("ALTER TABLE pgk_machinery ADD COLUMN driver_id TEXT");
+  ta(`CREATE TABLE IF NOT EXISTS fuel_reserves (id TEXT PRIMARY KEY, base_id TEXT NOT NULL, fuel_type TEXT NOT NULL DEFAULT 'Дизельное топливо', amount REAL DEFAULT 0, notes TEXT DEFAULT '', updated_at TEXT DEFAULT (datetime('now')))`);
+  ta(`CREATE TABLE IF NOT EXISTS spare_parts_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, sort_order INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))`);
+  ta(`CREATE TABLE IF NOT EXISTS spare_parts (id TEXT PRIMARY KEY, group_id TEXT, name TEXT NOT NULL, quantity REAL DEFAULT 0, unit TEXT DEFAULT 'шт', location TEXT DEFAULT '', notes TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')))`);
+  ta(`CREATE TABLE IF NOT EXISTS fuel_transactions (id TEXT PRIMARY KEY, base_id TEXT NOT NULL, fuel_type TEXT NOT NULL, delta REAL NOT NULL, notes TEXT DEFAULT '', op_date TEXT, created_at TEXT DEFAULT (datetime('now')))`);
+  ta(`CREATE TABLE IF NOT EXISTS equipment_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, sort_order INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))`);
+  ta(`CREATE TABLE IF NOT EXISTS materials_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, sort_order INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))`);
+  ta(`CREATE TABLE IF NOT EXISTS equipment_responsible_history (id TEXT PRIMARY KEY, equipment_id TEXT NOT NULL, responsible TEXT NOT NULL, assigned_at TEXT DEFAULT (datetime('now')), notes TEXT DEFAULT '')`);
+  ta("ALTER TABLE pgk_equipment ADD COLUMN group_id TEXT DEFAULT ''");
+  ta("ALTER TABLE kml_layers ADD COLUMN show_labels INTEGER DEFAULT 0");
+
+  // ── field_* tables (полевые материалы) ────────────────────
+  ta(`CREATE TABLE IF NOT EXISTS field_boreholes (
+    uuid TEXT PRIMARY KEY,
+    site_id TEXT, volume_id TEXT, vol_progress_id TEXT,
+    lat REAL, lng REAL, kml_point_id TEXT,
+    name TEXT, planned_depth_m REAL, diameter_mm REAL,
+    work_type TEXT, geomorph_desc TEXT, description TEXT,
+    drill_date TEXT, brigade_info TEXT,
+    imported_at TEXT DEFAULT (datetime('now')),
+    imported_from_spk TEXT
+  )`);
+  ta("ALTER TABLE field_boreholes ADD COLUMN volume_id TEXT");
+  ta("ALTER TABLE field_boreholes ADD COLUMN vol_progress_id TEXT");
+  ta(`CREATE TABLE IF NOT EXISTS field_soil_layers (
+    uuid TEXT PRIMARY KEY, borehole_uuid TEXT NOT NULL,
+    order_idx INTEGER DEFAULT 0, soil_type TEXT, state TEXT,
+    description TEXT, depth_m REAL
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_samples (
+    uuid TEXT PRIMARY KEY, layer_uuid TEXT NOT NULL,
+    collection_type TEXT, packaging TEXT, depth_m REAL
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_ugv (
+    uuid TEXT PRIMARY KEY, borehole_uuid TEXT NOT NULL,
+    order_idx INTEGER DEFAULT 0, depth_m REAL
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_mmg (
+    uuid TEXT PRIMARY KEY, borehole_uuid TEXT NOT NULL,
+    order_idx INTEGER DEFAULT 0, top_m REAL, bottom_m REAL, description TEXT
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_photos (
+    uuid TEXT PRIMARY KEY, borehole_uuid TEXT NOT NULL,
+    category TEXT, file_path TEXT, taken_at TEXT
+  )`);
+  ta(`CREATE TABLE IF NOT EXISTS field_imports (
+    id TEXT PRIMARY KEY, filename TEXT,
+    imported_at TEXT DEFAULT (datetime('now')),
+    imported_by TEXT DEFAULT 'Система',
+    manifest_json TEXT, counts_json TEXT,
+    status TEXT DEFAULT 'ok'
+  )`);
+  ta("ALTER TABLE vol_progress ADD COLUMN field_borehole_uuid TEXT");
+
+  // ── Бригады (ПГК) ──────────────────────────────────────────
+  ta(`CREATE TABLE IF NOT EXISTS pgk_brigades (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    machine_id TEXT,
+    notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT
+  )`);
+  ta("CREATE TABLE IF NOT EXISTS pgk_brigade_members (brigade_id TEXT NOT NULL, worker_id TEXT NOT NULL, PRIMARY KEY (brigade_id, worker_id))");
+  ta("CREATE TABLE IF NOT EXISTS pgk_brigade_bases (brigade_id TEXT NOT NULL, base_id TEXT NOT NULL, PRIMARY KEY (brigade_id, base_id))");
+  ta("CREATE TABLE IF NOT EXISTS pgk_brigade_sites (brigade_id TEXT NOT NULL, site_id TEXT NOT NULL, PRIMARY KEY (brigade_id, site_id))");
+  ta("ALTER TABLE field_samples ADD COLUMN depth_top_m REAL");
+  ta("ALTER TABLE field_samples ADD COLUMN depth_bottom_m REAL");
+  ta("ALTER TABLE volumes ADD COLUMN visible INTEGER DEFAULT 1");
 
   return _db;
 }

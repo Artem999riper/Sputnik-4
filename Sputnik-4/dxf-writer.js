@@ -179,4 +179,135 @@ for (let i = 0; i < 32; i++) CP1251_MAP[0x0430 + i] = 0xE0 + i;
 CP1251_MAP[0x0401] = 0xA8;
 CP1251_MAP[0x0451] = 0xB8;
 
-module.exports = { buildDXF, saveDXF };
+// ═══════════════════════════════════════════════════════════
+// buildLayersDXF — экспорт GeoJSON-слоёв в DXF R12
+// layers: [{ name, color?: 1..7, geojson: <stringified or object> }]
+// transform: (lng, lat) => [x, y] в целевой СК
+// ═══════════════════════════════════════════════════════════
+function buildLayersDXF({ layers = [], transform = (lng, lat) => [lng, lat] }) {
+  const sanitizeName = (n) => String(n || 'СЛОЙ')
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    || 'СЛОЙ';
+
+  const seen = new Set();
+  const layerDefs = layers.map((l, i) => {
+    let nm = sanitizeName(l.name || `СЛОЙ_${i + 1}`);
+    let candidate = nm; let k = 1;
+    while (seen.has(candidate)) { candidate = `${nm}_${k++}`; }
+    seen.add(candidate);
+    return { dxfName: candidate, color: Number.isFinite(l.color) ? l.color : 7, gj: l.geojson };
+  });
+
+  let s = '';
+  s += g(0, 'SECTION'); s += g(2, 'HEADER');
+  s += g(9, '$ACADVER'); s += g(1, 'AC1009');
+  s += g(9, '$INSUNITS'); s += g(70, 6);
+  s += g(0, 'ENDSEC');
+
+  s += g(0, 'SECTION'); s += g(2, 'TABLES');
+  s += g(0, 'TABLE'); s += g(2, 'LTYPE'); s += g(70, 1);
+  s += g(0, 'LTYPE'); s += g(2, 'CONTINUOUS'); s += g(70, 64);
+  s += g(3, 'Solid line'); s += g(72, 65); s += g(73, 0); s += g(40, 0.0);
+  s += g(0, 'ENDTAB');
+
+  s += g(0, 'TABLE'); s += g(2, 'LAYER'); s += g(70, layerDefs.length);
+  for (const l of layerDefs) {
+    s += g(0, 'LAYER'); s += g(2, l.dxfName); s += g(70, 0);
+    s += g(62, l.color); s += g(6, 'CONTINUOUS');
+  }
+  s += g(0, 'ENDTAB');
+
+  s += g(0, 'TABLE'); s += g(2, 'STYLE'); s += g(70, 1);
+  s += g(0, 'STYLE'); s += g(2, 'STANDARD'); s += g(70, 0);
+  s += g(40, 0); s += g(41, 1.0); s += g(50, 0); s += g(71, 0);
+  s += g(42, 2.5); s += g(3, 'txt'); s += g(4, '');
+  s += g(0, 'ENDTAB');
+  s += g(0, 'ENDSEC');
+
+  s += g(0, 'SECTION'); s += g(2, 'ENTITIES');
+
+  function tf(c) {
+    const r = transform(c[0], c[1]);
+    return [Number(r[0]) || 0, Number(r[1]) || 0];
+  }
+
+  function emitPoint(layer, c, name) {
+    const [x, y] = tf(c);
+    s += g(0, 'POINT'); s += g(8, layer.dxfName); s += g(62, layer.color);
+    s += g(10, x.toFixed(3)); s += g(20, y.toFixed(3)); s += g(30, '0.000');
+    if (name) {
+      s += g(0, 'TEXT'); s += g(8, layer.dxfName); s += g(62, layer.color);
+      s += g(10, (x + 1).toFixed(3)); s += g(20, (y + 1).toFixed(3)); s += g(30, '0.000');
+      s += g(40, '2.5'); s += g(1, String(name).slice(0, 100));
+    }
+  }
+
+  function emitLine(layer, coords) {
+    for (let i = 0; i < coords.length - 1; i++) {
+      const [x1, y1] = tf(coords[i]);
+      const [x2, y2] = tf(coords[i + 1]);
+      const z1 = isFinite(coords[i][2]) ? coords[i][2] : 0;
+      const z2 = isFinite(coords[i + 1][2]) ? coords[i + 1][2] : 0;
+      s += g(0, 'LINE'); s += g(8, layer.dxfName); s += g(62, layer.color);
+      s += g(10, x1.toFixed(3)); s += g(20, y1.toFixed(3)); s += g(30, z1.toFixed(3));
+      s += g(11, x2.toFixed(3)); s += g(21, y2.toFixed(3)); s += g(31, z2.toFixed(3));
+    }
+  }
+
+  function emitPolygon(layer, rings) {
+    for (const ring of rings) {
+      if (!ring || ring.length < 2) continue;
+      // Используем Z первой точки кольца как высоту полигона (однородная для зоны затопления)
+      const ringZ = isFinite(ring[0]?.[2]) ? ring[0][2] : 0;
+      s += g(0, 'POLYLINE'); s += g(8, layer.dxfName); s += g(62, layer.color);
+      s += g(66, 1); s += g(70, 1); s += g(30, ringZ.toFixed(3));
+      for (const c of ring) {
+        const [x, y] = tf(c);
+        const z = isFinite(c[2]) ? c[2] : ringZ;
+        s += g(0, 'VERTEX'); s += g(8, layer.dxfName);
+        s += g(10, x.toFixed(3)); s += g(20, y.toFixed(3)); s += g(30, z.toFixed(3));
+      }
+      s += g(0, 'SEQEND'); s += g(8, layer.dxfName);
+    }
+  }
+
+  function emitFeature(layer, feature) {
+    if (!feature || !feature.geometry) return;
+    const geom = feature.geometry;
+    const props = feature.properties || {};
+    const name = props.name || props.Name || props.title || '';
+    switch (geom.type) {
+      case 'Point':           emitPoint(layer, geom.coordinates, name); break;
+      case 'MultiPoint':      (geom.coordinates || []).forEach(c => emitPoint(layer, c, name)); break;
+      case 'LineString':      emitLine(layer, geom.coordinates || []); break;
+      case 'MultiLineString': (geom.coordinates || []).forEach(line => emitLine(layer, line)); break;
+      case 'Polygon':         emitPolygon(layer, geom.coordinates || []); break;
+      case 'MultiPolygon':    (geom.coordinates || []).forEach(rings => emitPolygon(layer, rings)); break;
+      case 'GeometryCollection':
+        (geom.geometries || []).forEach(gm => emitFeature(layer, { geometry: gm, properties: props }));
+        break;
+    }
+  }
+
+  for (const layer of layerDefs) {
+    let gj = layer.gj;
+    if (typeof gj === 'string') {
+      try { gj = JSON.parse(gj); } catch (e) { gj = null; }
+    }
+    if (!gj) continue;
+    const features = gj.type === 'FeatureCollection' ? (gj.features || [])
+      : gj.type === 'Feature' ? [gj]
+      : gj.type ? [{ geometry: gj, properties: {} }]
+      : [];
+    features.forEach(f => emitFeature(layer, f));
+  }
+
+  s += g(0, 'ENDSEC');
+  s += g(0, 'EOF');
+  return s;
+}
+
+module.exports = { buildDXF, saveDXF, buildLayersDXF };

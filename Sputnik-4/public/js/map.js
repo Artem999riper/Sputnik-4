@@ -1,15 +1,27 @@
 function initMap(){
-  map=L.map('map',{center:[62,55],zoom:5,zoomControl:false,attributionControl:false});
-  const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OSM',maxZoom:19});
-  const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:19});
+  map=L.map('map',{center:[62,55],zoom:5,zoomControl:false,attributionControl:false,maxZoom:21});
+  const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OSM',maxZoom:21,maxNativeZoom:19});
+  const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:21,maxNativeZoom:17});
+  sat.on('tileerror',function(e){e.tile.style.display='none';});
+  const gsat=L.tileLayer('https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{attribution:'© Google',maxZoom:21,maxNativeZoom:20,subdomains:['0','1','2','3']});
+  gsat.on('tileerror',function(e){e.tile.style.display='none';});
+  const ghyb=L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',{attribution:'© Google',maxZoom:21,maxNativeZoom:20,subdomains:['0','1','2','3']});
+  ghyb.on('tileerror',function(e){e.tile.style.display='none';});
+  const esriStreet=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:21,maxNativeZoom:19});
+  esriStreet.on('tileerror',function(e){e.tile.style.display='none';});
+  const esriTopo=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:21,maxNativeZoom:19});
+  esriTopo.on('tileerror',function(e){e.tile.style.display='none';});
   const topo=L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{attribution:'© OpenTopoMap (CC-BY-SA)',maxZoom:17,subdomains:['a','b','c']});
-  osm.addTo(map);
-  window._mapBaseLayers={'🗺 Карта':osm,'🛰 Спутник':sat,'🗻 Топо':topo};
+  const carto=L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap contributors © CARTO',maxZoom:21,maxNativeZoom:19,subdomains:['a','b','c','d']});
+  const rosreestr=L.tileLayer('https://fsgs.cgkipd.ru/eeko/tile/56/{z}/{x}/{y}.png',{attribution:'© Росреестр / ЦГКИПД',maxZoom:18,maxNativeZoom:18});
+  rosreestr.on('tileerror',function(e){e.tile.style.display='none';});
+  sat.addTo(map);
+  window._mapBaseLayers={'🗺 Карта':osm,'🛰 Спутник':sat,'🛰 Спутник Google':gsat,'🗺 Гибрид Google':ghyb,'🗺 Росреестр':rosreestr,'🗺 Улицы ESRI':esriStreet,'🗻 Топо ESRI':esriTopo,'🗻 Топо':topo,'🌍 Светлая':carto};
   window._mapLayerCtrl=L.control.layers(window._mapBaseLayers,{},{position:'topright'}).addTo(map);
   L.control.zoom({position:'bottomright'}).addTo(map);
   // Pane для точечных объёмов — поверх vpLayers и KML
   map.createPane('volPointsPane');
-  map.getPane('volPointsPane').style.zIndex=450;
+  map.getPane('volPointsPane').style.zIndex=640;
   map.on('click',onMapClick);
   map.on('contextmenu',onMapRClick);
   map.on('zoomend',_updateKmlLabelScale);
@@ -33,6 +45,7 @@ function onMapClick(e){
 }
 function onMapRClick(e){
   e.originalEvent.preventDefault();
+  if(typeof _epActive!=='undefined'&&_epActive){_epFinish(e);return;}
   if(vertexEditLayerId){_handleVertexEditRCM(e);return;}
   if(drawMode){
     showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
@@ -54,6 +67,11 @@ function onMapRClick(e){
   }
   const hasRuler=rulerPts.length>=2;
   showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
+    {i:'📌',l:'Поставить метку',f:()=>openPlaceMarkerModal(e.latlng)},
+    {i:'🔢',l:'Метка по координатам',f:()=>openCoordMarkerModal(e.latlng)},
+    {sep:true},
+    {i:'📍',l:'Отметка высоты (БСВ-77)',f:()=>showElevationAtPoint(e.latlng)},
+    {sep:true},
     {i:'📏',l:'Линейка (замер расстояния)',f:startRuler},
     ...(hasRuler?[{i:'🗑',l:'Убрать линейку',cls:'dan',f:clearRuler}]:[])
   ]);
@@ -173,24 +191,31 @@ function setMachineryFocus(on){
 function switchView(v){
   document.querySelectorAll('.nt').forEach(t=>t.classList.toggle('on',t.dataset.v===v));
   document.getElementById('dash-page').classList.toggle('show',v==='dash');
-
-  document.getElementById('pgk-page').classList.toggle('show',v==='pgk');
-  document.getElementById('kam-page').classList.toggle('show',v==='kam');
-  document.getElementById('smg-page').classList.toggle('show',v==='smg');
+  document.getElementById('workers-page').classList.toggle('show',v==='workers');
+  document.getElementById('machinery-page').classList.toggle('show',v==='machinery');
+  document.getElementById('equipment-page').classList.toggle('show',v==='equipment');
+  document.getElementById('materials-page').classList.toggle('show',v==='materials');
   document.getElementById('gruz-page').classList.toggle('show',v==='gruz');
   document.getElementById('gtasks-page').classList.toggle('show',v==='gtasks');
-  document.getElementById('dash-page').classList.toggle('show',v==='dash');
+  const sp=document.getElementById('smg-page');if(sp)sp.classList.toggle('show',v==='smg');
+  const fp=document.getElementById('field-page');if(fp)fp.classList.toggle('show',v==='field');
+  const bp=document.getElementById('brigades-page');if(bp)bp.classList.toggle('show',v==='brigades');
 
   document.getElementById('sidebar').style.display='flex';
   document.getElementById('mtb').style.display=v==='map'?'flex':'none';
+  if(typeof updateCoordWidgetVisibility==='function')updateCoordWidgetVisibility();
   if(v!=='map'&&_machFocusActive){setMachineryFocus(false);const btn=document.getElementById('tool-machine');if(btn)btn.classList.remove('on');_machFocusActive=false;}
   if(v==='dash'){closePanel();if(typeof loadDashboard==='function')loadDashboard();}
-  if(v==='pgk'){closePanel();if(typeof loadPGK==='function')loadPGK();}
-  if(v==='kam'){closePanel();if(typeof loadKam==='function')loadKam();}
-  if(v==='smg'){closePanel();if(typeof loadSMG==='function')loadSMG();}
+  if(v==='workers'){closePanel();pgkTab='workers';if(typeof loadPGK==='function')loadPGK();}
+  if(v==='machinery'){closePanel();pgkTab='machinery';if(typeof loadPGK==='function')loadPGK();}
+  if(v==='equipment'){closePanel();pgkTab='equipment';if(typeof loadPGK==='function')loadPGK();}
+  if(v==='materials'){closePanel();pgkTab='materials';if(typeof loadPGK==='function')loadPGK();}
   if(v==='gruz'){closePanel();if(typeof loadGruz==='function')loadGruz();}
   if(v==='gtasks'){closePanel();if(typeof loadGTasks==='function')loadGTasks();}
+  if(v==='smg'){closePanel();if(typeof loadSMG==='function')loadSMG();}
+  if(v==='field'){closePanel();if(typeof loadField==='function')loadField();}
   if(v==='pers'){closePanel();if(typeof loadPersonnel==='function')loadPersonnel();}
+  if(v==='brigades'){closePanel();if(typeof loadBrigades==='function')loadBrigades();}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -206,8 +231,7 @@ async function loadAll(){
     if(br.ok)bases=await br.json(); else if(!Array.isArray(bases))bases=[];
     if(lr.ok){
       layers=await lr.json();
-      // Apply local visibility overrides so user-toggled state survives reloads
-      layers.forEach(function(l){ if(layerVisibility.hasOwnProperty(l.id)) l.visible=layerVisibility[l.id]?1:0; });
+      layers.forEach(l=>{ layerLabels[l.id]=!!l.show_labels; });
     } else if(!Array.isArray(layers))layers=[];
     if(mr.ok)pgkMachinery=await mr.json(); else if(!Array.isArray(pgkMachinery))pgkMachinery=[];
   }catch(e){

@@ -1,3 +1,9 @@
+function _getPGKContainer(){
+  const pageId = pgkTab==='workers'?'workers-page':
+                 pgkTab==='machinery'?'machinery-page':
+                 pgkTab==='equipment'?'equipment-page':'materials-page';
+  return document.getElementById(pageId);
+}
 async function loadPGK(){
   const[wr,mr,er,br]=await Promise.all([
     fetch(`${API}/pgk/workers/summary`),fetch(`${API}/pgk/machinery`),
@@ -5,16 +11,18 @@ async function loadPGK(){
   ]);
   pgkWorkers=await wr.json();pgkMachinery=await mr.json();
   pgkEquipment=await er.json();bases=await br.json();
+  [pgkFuelReserves,pgkSpareGroups,pgkSpares,pgkEquipGroups,pgkMatGroups]=await Promise.all([
+    fetch(`${API}/fuel_reserves`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/spare_groups`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/spare_parts`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/equip_groups`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/mat_groups`).then(r=>r.json()).catch(()=>[])
+  ]);
   await renderPGK();
 }
-function setPGKTab(el){
-  document.querySelectorAll('.pni').forEach(n=>n.classList.remove('on'));
-  el.classList.add('on');pgkTab=el.dataset.pg;
-  if(pgkTab!=='workers')window._pgkWSearchVal='';
-  renderPGK();
-}
 async function renderPGK(){
-  const pb=document.getElementById('pgk-body');
+  const pb=_getPGKContainer();
+  if(!pb)return;
   if(pgkTab==='workers')pgkPageWorkers(pb);
   else if(pgkTab==='machinery')pgkPageMachinery(pb);
   else if(pgkTab==='equipment')pgkPageEquipment(pb);
@@ -217,7 +225,7 @@ function pgkPageWorkers(pb){
       <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkWFBase=this.value;renderPGK()">${baseOpts}</select>
       <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkWFRole=this.value;renderPGK()">${roleOpts}</select>
       <div style="margin-left:auto;display:flex;gap:4px;flex-shrink:0">
-        <button class="btn bs bsm" onclick="pgkImportWorkers()" title="Импорт из Excel">📥 Excel</button>
+        <button class="btn bs bsm" onclick="pgkExcelMenu()" title="Импорт / экспорт Excel">📊 Excel</button>
         <button class="btn bp bsm" onclick="pgkAddWorker()">＋ Добавить</button>
       </div>
     </div>
@@ -332,7 +340,7 @@ function workerCtxMenu(ev,wid){
     {i:'✏️',l:'Редактировать',f:()=>pgkEditWorker(wid)},
     {i:'📝',l:'Добавить примечание',f:()=>pgkEditWorkerNotes(wid)},
     {sep:true},
-    {i:'📍',l:'Назначить на базу',f:()=>openStartShiftModal(wid)},
+    {i:'🏕',l:'Начать вахту',f:()=>openStartShiftModal(wid)},
     ...(w.start_date?[{i:'🏁',l:'Завершить вахту',f:()=>openEndShiftModal(wid)}]:[]),
     {sep:true},
     {i:'🔄',l:'Изменить статус ▸',f:()=>{}},
@@ -358,71 +366,97 @@ async function pgkChangeWorkerStatus(wid,status){
   await loadPGK();
 }
 async function openWorkerDetail(wid){
-  // Re-fetch fresh worker data so we always see current start_date/base_id
   try{
     const all=await fetch(`${API}/pgk/workers`).then(r=>r.json());
     const fresh=all.find(x=>x.id===wid);
     if(fresh){const i=pgkWorkers.findIndex(x=>x.id===wid);if(i>=0)pgkWorkers[i]=fresh;}
   }catch(e){}
   const w=pgkWorkers.find(x=>x.id===wid);if(!w)return;
-  const [shifts, volProg] = await Promise.all([
+  const [shifts,volProg]=await Promise.all([
     fetch(`${API}/pgk/workers/${wid}/shifts`).then(r=>r.json()).catch(()=>[]),
     fetch(`${API}/pgk/workers/${wid}/vol_progress`).then(r=>r.json()).catch(()=>[])
   ]);
   const b=bases.find(x=>x.id===w.base_id);
-  const today=new Date().toISOString().split('T')[0];
-  // Group vol_progress by site
+  const parts=w.name.trim().split(/\s+/);
+  const initials=parts.slice(0,2).map(p=>p[0]||'').join('').toUpperCase();
+  const st=w.status||'home';
+  const stStyle={
+    working:'color:var(--grn);background:var(--grnl);border-color:#a7f3d0',
+    home:'color:var(--tx2);background:var(--s3);border-color:var(--bd)',
+    fired:'color:var(--red);background:var(--redl);border-color:#fca5a5'
+  };
+  const onShift=!!w.start_date;
   const vpBySite={};
-  volProg.forEach(function(p){
-    if(!vpBySite[p.site_name])vpBySite[p.site_name]=[];
-    vpBySite[p.site_name].push(p);
-  });
-  const vpTotal=volProg.length;
-  const html=`<div style="margin-bottom:10px">
-    <div style="font-size:14px;font-weight:800">${esc(w.name)}</div>
-    <div style="font-size:11px;color:var(--tx2)">${w.role||'—'}</div>
-    <div style="font-size:10px;margin-top:4px">${WORKER_STATUSES[w.status||'home']||''} ${b?'· 🏕 '+esc(b.name):''}</div>
+  volProg.forEach(p=>{if(!vpBySite[p.site_name])vpBySite[p.site_name]=[];vpBySite[p.site_name].push(p);});
+  const html=`
+  <div class="wdc-hd">
+    <div class="wdc-av">${initials}</div>
+    <div class="wdc-info">
+      <div class="wdc-name">${esc(w.name)}</div>
+      <div class="wdc-role">${esc(w.role||'—')}</div>
+      <div class="wdc-chips">
+        <span class="wdc-chip" style="${stStyle[st]||stStyle.home}">${WORKER_STATUSES[st]||''}</span>
+        ${b?`<span class="wdc-chip" style="color:var(--bpc);background:var(--bpl);border-color:var(--bpb)">🏕 ${esc(b.name)}</span>`:''}
+        ${onShift?`<span class="wdc-chip" style="color:var(--acc);background:var(--accl);border-color:var(--accm)">📅 с ${fmt(w.start_date)}</span>`:''}
+      </div>
+    </div>
   </div>
-  ${w.base_id?`<div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap">
-    <button class="btn bp bsm" onclick="openStartShiftModal('${wid}')">📍 Назначить на базу</button>
-    ${w.start_date?`<button class="btn bs bsm" onclick="openEndShiftModal('${wid}')">🏁 Завершить вахту</button>`:''}
-  </div>`:`<div style="margin-bottom:10px"><button class="btn bp bsm" onclick="openStartShiftModal('${wid}')">📍 Назначить на базу</button></div>`}
-  <h4 style="font-size:11px;font-weight:700;margin-bottom:6px">📋 История вахт (${shifts.length})</h4>
-  ${shifts.map(s=>`<div style="padding:5px 0;border-bottom:1px solid var(--bd);font-size:11px">
-    <div style="font-weight:600">${esc(s.base_name||'—')} · ${s.days||0} дн.</div>
-    <div style="font-size:9px;color:var(--tx3)">${fmt(s.start_date)}${s.end_date?' — '+fmt(s.end_date):''}${s.notes?' · '+esc(s.notes):''}</div>
-  </div>`).join('')||'<div style="font-size:11px;color:var(--tx3)">Нет вахт</div>'}
-  ${vpTotal?`<h4 style="font-size:11px;font-weight:700;margin:10px 0 6px">📐 Выполненные объёмы (${vpTotal} записей)</h4>
-  ${Object.keys(vpBySite).map(sn=>`
-    <div style="font-size:10px;font-weight:700;color:var(--acc);margin:6px 0 3px">🏗 ${esc(sn)}</div>
-    ${vpBySite[sn].map(p=>`<div style="padding:4px 0;border-bottom:1px solid var(--bd);font-size:11px">
-      <div><span style="font-weight:600;color:var(--acc)">${p.completed} ${esc(p.unit)}</span> — ${esc(p.vol_name)}</div>
-      <div style="font-size:9px;color:var(--tx3)">${fmt(p.work_date)}${p.notes?' · '+esc(p.notes):''}</div>
-    </div>`).join('')}
-  `).join('')}`:''}
-  `;
+  <div class="wdc-actions">
+    <button class="btn ${onShift?'bs':'bp'} wdc-btn" onclick="closeModal();openStartShiftModal('${wid}')">
+      🏕 ${onShift?'Переназначить вахту':'Начать вахту'}
+    </button>
+    ${onShift?`<button class="btn bd wdc-btn" onclick="closeModal();openEndShiftModal('${wid}')">🏁 Завершить вахту</button>`:''}
+  </div>
+  <div class="wdc-tabs">
+    <button class="wdc-tab on" onclick="wdcSwitch(this,'main')">Основное</button>
+    <button class="wdc-tab" onclick="wdcSwitch(this,'shifts')">История вахт (${shifts.length})</button>
+    <button class="wdc-tab" onclick="wdcSwitch(this,'vols')">Объёмы (${volProg.length})</button>
+  </div>
+  <div id="wdc-main" class="wdc-panel">
+    ${w.phone?`<div class="wdc-row"><span class="wdc-lbl">Телефон</span><span>${esc(w.phone)}</span></div>`:''}
+    ${w.notes?`<div class="wdc-row"><span class="wdc-lbl">Примечания</span><span style="color:var(--tx2)">${esc(w.notes)}</span></div>`:''}
+    ${!w.phone&&!w.notes?'<div class="wdc-empty">Дополнительная информация не указана</div>':''}
+  </div>
+  <div id="wdc-shifts" class="wdc-panel" style="display:none">
+    ${shifts.length?shifts.map(s=>`<div class="wdc-shift">
+      <div class="wdc-shift-base">${esc(s.base_name||'—')} · <b>${s.days||0} дн.</b></div>
+      <div class="wdc-shift-meta">${fmt(s.start_date)}${s.end_date?' → '+fmt(s.end_date):' — по сей день'}</div>
+      ${s.notes?`<div class="wdc-shift-notes">${esc(s.notes)}</div>`:''}
+    </div>`).join(''):'<div class="wdc-empty">Вахт не было</div>'}
+  </div>
+  <div id="wdc-vols" class="wdc-panel" style="display:none">
+    ${volProg.length?Object.keys(vpBySite).map(sn=>`
+      <div class="wdc-vol-site">🏗 ${esc(sn)}</div>
+      ${vpBySite[sn].map(p=>`<div class="wdc-vol-row">
+        <div><span class="wdc-vol-val">${p.completed} ${esc(p.unit)}</span> — ${esc(p.vol_name)}</div>
+        <div class="wdc-vol-date">${fmt(p.work_date)}${p.notes?' · '+esc(p.notes):''}</div>
+      </div>`).join('')}`).join(''):'<div class="wdc-empty">Нет данных</div>'}
+  </div>`;
   showModal('👤 '+esc(w.name),html,[
     {label:'Закрыть',cls:'bs',fn:closeModal},
     {label:'🗑 Очистить историю',cls:'bd',fn:async()=>{
       if(!confirm('Удалить всю историю вахт и объёмов сотрудника '+w.name+'?'))return;
-      // Delete all shifts (re-fetch to be sure)
       const sh=await fetch(`${API}/pgk/workers/${wid}/shifts`).then(r=>r.json()).catch(()=>[]);
       for(const s2 of sh)await fetch(`${API}/pgk/workers/shifts/${s2.id}`,{method:'DELETE'}).catch(()=>{});
-      // Delete all vol_progress entries (re-fetch to be sure)
       const freshVp=await fetch(`${API}/pgk/workers/${wid}/vol_progress`).then(r=>r.json()).catch(()=>[]);
       for(const vp of freshVp)await fetch(`${API}/vol_progress/${vp.id}`,{method:'DELETE'}).catch(()=>{});
       if(currentObj)await refreshCurrent();
       toast('История очищена','ok');
-      // Reopen modal with fresh empty data
       await openWorkerDetail(wid);
     }},
     {label:'✏️ Редактировать',cls:'bp',fn:()=>{closeModal();pgkEditWorker(wid);}}
   ]);
 }
+function wdcSwitch(el,tabId){
+  document.querySelectorAll('.wdc-tab').forEach(t=>t.classList.remove('on'));
+  document.querySelectorAll('.wdc-panel').forEach(p=>p.style.display='none');
+  el.classList.add('on');
+  const p=document.getElementById('wdc-'+tabId);if(p)p.style.display='block';
+}
 function openStartShiftModal(wid){
   const w=pgkWorkers.find(x=>x.id===wid);if(!w)return;
   const today=new Date().toISOString().split('T')[0];
-  showModal('📍 Назначить на базу — '+esc(w.name),
+  showModal('🏕 Начать вахту — '+esc(w.name),
     `<div class="fgr fone">
       <div class="fg"><label>База</label><select id="f-sb">${bases.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
       <div class="fg"><label>Дата заезда</label><input id="f-sd" type="date" value="${today}"></div>
@@ -482,165 +516,732 @@ async function openEndShiftModal(wid){
     }}]);
 }
 
+// ── MACHINERY PAGE (4 tabs) ────────────────────────────────
 function pgkPageMachinery(pb){
-  const _ms=window._pgkMSort||'name', _ma=window._pgkMAsc!==false;
+  const tab=window._mchTab||'park';
+  const view=window._mchView||'table';
+  pb.innerHTML=`<div class="mch-outer">
+  <div class="mch-topbar">
+    <div class="mch-page-tabs">
+      <button class="mch-page-tab${tab==='park'?' on':''}" onclick="_setMchTab('park')">🚛 Парк <span class="mch-cnt">${pgkMachinery.length}</span></button>
+      <button class="mch-page-tab${tab==='fuel'?' on':''}" onclick="_setMchTab('fuel')">⛽ Топливо</button>
+      <button class="mch-page-tab${tab==='drivers'?' on':''}" onclick="_setMchTab('drivers')">👤 Водители</button>
+      <button class="mch-page-tab${tab==='spares'?' on':''}" onclick="_setMchTab('spares')">🔧 Запчасти <span class="mch-cnt">${pgkSpares.length}</span></button>
+    </div>
+    <div class="mch-topbar-act">
+      ${tab==='park'?`<div class="mch-view-toggle">
+        <button class="btn bsm ${view==='cards'?'bp':'bs'}" onclick="_setMchView('cards')" title="Карточки">⊞ Карточки</button>
+        <button class="btn bsm ${view==='table'?'bp':'bs'}" onclick="_setMchView('table')" title="Список">☰ Список</button>
+      </div><button class="btn bp bsm" onclick="pgkAddMach()">＋ Добавить</button>`:''}
+      ${tab==='fuel'?`<button class="btn bp bsm" onclick="mchFuelRecord()">＋ Записать</button>`:''}
+      ${tab==='spares'?`<button class="btn bs bsm" onclick="mchSpareAddGroup()">＋ Группа</button><button class="btn bp bsm" onclick="mchSpareAdd()">＋ Запчасть</button>`:''}
+      <button class="btn bg bsm" onclick="techExportExcel()" title="Экспорт всей вкладки в Excel">📤 Excel</button>
+    </div>
+  </div>
+  <div id="mch-park" class="mch-panel${tab==='park'?' active':''}">${_mchBuildPark(view)}</div>
+  <div id="mch-fuel" class="mch-panel${tab==='fuel'?' active':''}">${_mchBuildFuel()}</div>
+  <div id="mch-drivers" class="mch-panel${tab==='drivers'?' active':''}">${_mchBuildDrivers()}</div>
+  <div id="mch-spares" class="mch-panel${tab==='spares'?' active':''}">${_mchBuildSpares()}</div>
+  </div>`;
+  if(tab==='park'){const s=window._pgkMSearchVal||'';if(s){const inp=document.getElementById('mch-search');if(inp){inp.value=s;_mchParkSearch(s);}}}
+}
+function _setMchTab(t){window._mchTab=t;const pb=document.getElementById('machinery-page');if(pb)pgkPageMachinery(pb);}
+function _setMchView(v){window._mchView=v;const pb=document.getElementById('machinery-page');if(pb)pgkPageMachinery(pb);}
+function _mchSpareGrp(gid){window._mchSpareGroup=gid;const pb=document.getElementById('machinery-page');if(pb)pgkPageMachinery(pb);}
+
+// ─────────────────────────────────────────────────────────────
+// Excel-экспорт вкладки «Техника» (стиль СМГ)
+// ─────────────────────────────────────────────────────────────
+async function techExportExcel(){
+  if(typeof XLSX==='undefined'){toast('Библиотека XLSX не загружена','err');return;}
+  toast('Готовим Excel…');
+
+  // Подгружаем актуальные топливные операции по всем базам (последние 200 на каждую)
+  let allTxns=[];
+  try{
+    const arr=await Promise.all((bases||[]).map(b=>
+      fetch(`${API}/fuel_transactions?base_id=${encodeURIComponent(b.id)}`).then(r=>r.json()).catch(()=>[])
+    ));
+    arr.forEach((rows,i)=>rows.forEach(t=>allTxns.push({...t,_baseName:(bases[i]||{}).name||t.base_id})));
+    allTxns.sort((a,b)=>(b.created_at||b.op_date||'').localeCompare(a.created_at||a.op_date||''));
+    allTxns=allTxns.slice(0,200);
+  }catch(e){}
+
+  const baseName=id=>((bases||[]).find(b=>b.id===id)||{}).name||'—';
+  const driverNameFor=mid=>{
+    const m=(pgkMachinery||[]).find(x=>x.id===mid);
+    if(!m||!m.driver_id)return '';
+    const w=(pgkWorkers||[]).find(w=>w.id===m.driver_id);
+    return w?w.name:'';
+  };
+
+  // ── Стили (мирроринг СМГ) ──────────────────────────────────
+  const border={
+    top:{style:'thin',color:{rgb:'808080'}},bottom:{style:'thin',color:{rgb:'808080'}},
+    left:{style:'thin',color:{rgb:'808080'}},right:{style:'thin',color:{rgb:'808080'}},
+  };
+  const baseAlign={horizontal:'center',vertical:'center',wrapText:true};
+  const titleStyle={font:{bold:true,sz:14},alignment:baseAlign,fill:{patternType:'solid',fgColor:{rgb:'D9E1F2'}},border};
+  const headerStyle={font:{bold:true,sz:11},alignment:baseAlign,fill:{patternType:'solid',fgColor:{rgb:'BDD7EE'}},border};
+  const groupStyle=fill=>({font:{bold:true,sz:12,color:{rgb:'FFFFFF'}},alignment:baseAlign,fill:{patternType:'solid',fgColor:{rgb:fill}},border});
+  const bodyStyle=alt=>({font:{sz:11},alignment:{horizontal:'left',vertical:'center',wrapText:true},
+    fill:{patternType:'solid',fgColor:{rgb:alt?'DDEBF7':'FFFFFF'}},border});
+
+  function colLetter(c){let s='',n=c;do{s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26)-1;}while(n>=0);return s;}
+  function ref(r,c){return colLetter(c)+(r+1);}
+  function setStyle(ws,cellRef,style){if(!ws[cellRef])ws[cellRef]={t:'s',v:''};ws[cellRef].s=style;}
+  function applyTitleAndHeader(ws,colCount,titleText){
+    setStyle(ws,ref(0,0),titleStyle);
+    for(let c=0;c<colCount;c++)setStyle(ws,ref(2,c),headerStyle);
+  }
+
+  // ── Лист «Парк» ─────────────────────────────────────────────
+  function buildPark(){
+    const cols=['№','Тип','Имя','Гос.номер','База','Статус','Водитель','Заметки'];
+    const aoa=[['Парк техники — '+new Date().toLocaleDateString('ru-RU')],[],cols];
+    const merges=[{s:{r:0,c:0},e:{r:0,c:cols.length-1}}];
+    const groupRows=[];
+    const TYPE_FILL={'ТРЭКОЛ':'00B0F0','БУРЛАК':'00B050','ТАНК':'A6A6A6','ТРОМ':'00B0F0',
+      'ЛЕГКОВАЯ':'A6A6A6','ГРУЗОВАЯ':'FFC000','СНЕГОХОД':'D9E1F2'};
+    let row=3,seq=0;
+    (TRANSPORT_TYPES||[]).forEach(t=>{
+      const items=(pgkMachinery||[]).filter(m=>m.type===t);
+      if(!items.length)return;
+      aoa.push([(MICONS[t]||'🔧')+' '+t]);
+      groupRows.push({r:row,fill:TYPE_FILL[t]||'808080'});
+      merges.push({s:{r:row,c:0},e:{r:row,c:cols.length-1}});
+      row++;
+      items.forEach(m=>{
+        seq++;
+        aoa.push([seq, m.type||'', m.name||'', m.plate_number||'',
+          baseName(m.base_id), SL[m.status]||m.status||'', driverNameFor(m.id), m.notes||'']);
+        row++;
+      });
+    });
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:5},{wch:12},{wch:24},{wch:14},{wch:18},{wch:14},{wch:22},{wch:30}];
+    ws['!merges']=merges;
+    applyTitleAndHeader(ws,cols.length,aoa[0][0]);
+    groupRows.forEach(g=>{for(let c=0;c<cols.length;c++)setStyle(ws,ref(g.r,c),groupStyle(g.fill));});
+    // body zebra
+    let alt=false,prevRow=2;
+    for(let r=3;r<row;r++){
+      if(groupRows.some(g=>g.r===r)){alt=false;continue;}
+      for(let c=0;c<cols.length;c++)setStyle(ws,ref(r,c),bodyStyle(alt));
+      alt=!alt;
+    }
+    return ws;
+  }
+
+  // ── Лист «Топливо» ──────────────────────────────────────────
+  function buildFuel(){
+    const cols=['№','База','Тип топлива','Остаток (л)','Заметки','Обновлено'];
+    const aoa=[['Топливо — остатки и операции'],[],cols];
+    const merges=[{s:{r:0,c:0},e:{r:0,c:cols.length-1}}];
+    let row=3,seq=0;
+    (pgkFuelReserves||[]).forEach(r=>{
+      seq++;
+      aoa.push([seq, baseName(r.base_id), r.fuel_type||'', +(r.amount||0),
+        r.notes||'', (r.updated_at||'').slice(0,16).replace('T',' ')]);
+      row++;
+    });
+    // Раздел «Последние операции»
+    aoa.push([]); row++;
+    aoa.push(['Последние операции']);
+    const opsHeaderRow=row;
+    merges.push({s:{r:row,c:0},e:{r:row,c:cols.length-1}});
+    row++;
+    const opsCols=['Дата','База','Тип','Δ (л)','Заметки',''];
+    aoa.push(opsCols);
+    const opsHdrRow=row;
+    row++;
+    allTxns.forEach(t=>{
+      aoa.push([(t.op_date||t.created_at||'').slice(0,16).replace('T',' '),
+        t._baseName, t.fuel_type||'', +(t.delta||0), t.notes||'', '']);
+      row++;
+    });
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:14},{wch:22},{wch:18},{wch:12},{wch:30},{wch:18}];
+    ws['!merges']=merges;
+    applyTitleAndHeader(ws,cols.length,aoa[0][0]);
+    // зебра для остатков
+    let alt=false;
+    for(let r=3;r<opsHeaderRow;r++){
+      for(let c=0;c<cols.length;c++)setStyle(ws,ref(r,c),bodyStyle(alt));
+      alt=!alt;
+    }
+    // group-row "Последние операции"
+    for(let c=0;c<cols.length;c++)setStyle(ws,ref(opsHeaderRow,c),groupStyle('00B050'));
+    // ops header
+    for(let c=0;c<cols.length;c++)setStyle(ws,ref(opsHdrRow,c),headerStyle);
+    alt=false;
+    for(let r=opsHdrRow+1;r<row;r++){
+      for(let c=0;c<cols.length;c++)setStyle(ws,ref(r,c),bodyStyle(alt));
+      alt=!alt;
+    }
+    return ws;
+  }
+
+  // ── Лист «Запчасти» ─────────────────────────────────────────
+  function buildSpares(){
+    const cols=['№','Название','Кол-во','Ед.','Местоположение','Заметки'];
+    const aoa=[['Запчасти и материалы'],[],cols];
+    const merges=[{s:{r:0,c:0},e:{r:0,c:cols.length-1}}];
+    const groupRows=[];
+    let row=3,seq=0;
+    const groups=[...(pgkSpareGroups||[])].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
+    const ungrouped=(pgkSpares||[]).filter(s=>!s.group_id||!groups.find(g=>g.id===s.group_id));
+    function pushGroup(name,fill,items){
+      if(!items.length)return;
+      aoa.push([name]);
+      groupRows.push({r:row,fill});
+      merges.push({s:{r:row,c:0},e:{r:row,c:cols.length-1}});
+      row++;
+      items.forEach(s=>{seq++;
+        aoa.push([seq, s.name||'', +(s.quantity||0), s.unit||'шт', s.location||'', s.notes||'']);
+        row++;
+      });
+    }
+    groups.forEach((g,i)=>pushGroup('🔧 '+(g.name||'—'), i%2?'00B0F0':'00B050',
+      (pgkSpares||[]).filter(s=>s.group_id===g.id)));
+    pushGroup('Без группы','A6A6A6',ungrouped);
+
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:5},{wch:30},{wch:10},{wch:8},{wch:20},{wch:30}];
+    ws['!merges']=merges;
+    applyTitleAndHeader(ws,cols.length,aoa[0][0]);
+    groupRows.forEach(g=>{for(let c=0;c<cols.length;c++)setStyle(ws,ref(g.r,c),groupStyle(g.fill));});
+    let alt=false;
+    for(let r=3;r<row;r++){
+      if(groupRows.some(g=>g.r===r)){alt=false;continue;}
+      for(let c=0;c<cols.length;c++)setStyle(ws,ref(r,c),bodyStyle(alt));
+      alt=!alt;
+    }
+    return ws;
+  }
+
+  // ── Лист «Водители» ─────────────────────────────────────────
+  function buildDrivers(){
+    const cols=['№','ФИО','Должность','База','Назначенная техника','Статус'];
+    const aoa=[['Водители'],[],cols];
+    const merges=[{s:{r:0,c:0},e:{r:0,c:cols.length-1}}];
+    const drivers=(pgkWorkers||[]).filter(w=>{const r=(w.role||'').toLowerCase();return r.includes('водитель')||r.includes('мбу')||r.includes('пмбу');});
+    let row=3,seq=0;
+    drivers.forEach(w=>{
+      seq++;
+      const mach=(pgkMachinery||[]).find(m=>m.driver_id===w.id);
+      const stRaw=w.start_date?'working':(w.status||'home');
+      aoa.push([seq, w.name||'', w.role||'', baseName(w.base_id),
+        mach?`${MICONS[mach.type]||'🔧'} ${mach.name||''} ${mach.plate_number||''}`.trim():'',
+        WORKER_STATUSES[stRaw]||stRaw]);
+      row++;
+    });
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:5},{wch:24},{wch:16},{wch:18},{wch:30},{wch:14}];
+    ws['!merges']=merges;
+    applyTitleAndHeader(ws,cols.length,aoa[0][0]);
+    let alt=false;
+    for(let r=3;r<row;r++){
+      for(let c=0;c<cols.length;c++)setStyle(ws,ref(r,c),bodyStyle(alt));
+      alt=!alt;
+    }
+    return ws;
+  }
+
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, buildPark(),    'Парк');
+  XLSX.utils.book_append_sheet(wb, buildFuel(),    'Топливо');
+  XLSX.utils.book_append_sheet(wb, buildSpares(),  'Запчасти');
+  XLSX.utils.book_append_sheet(wb, buildDrivers(), 'Водители');
+  const today=new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `Техника_${today}.xlsx`);
+  toast('✓ Excel сохранён','ok');
+}
+
+function _mchBuildPark(view){
+  const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
+  const statLbl={working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'};
   const _mfBase=window._pgkMFBase||'';
   const _mfStatus=window._pgkMFStatus||'';
   const _mfType=window._pgkMFType||'';
-
-  const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
-  const statLbl={working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'};
-
-  const getBase=m=>(bases.find(x=>x.id===m.base_id)||{}).name||'';
-
-  let filtered=[...pgkMachinery].filter(m=>{
-    if(_mfBase&&m.base_id!==_mfBase)return false;
-    if(_mfStatus&&(m.status||'working')!==_mfStatus)return false;
-    if(_mfType&&(m.type||'')!==_mfType)return false;
-    return true;
-  });
-  filtered.sort((a,b)=>{
-    let va,vb;
-    if(_ms==='base'){va=getBase(a);vb=getBase(b);}
-    else{va=a[_ms]||'';vb=b[_ms]||'';}
-    return String(va).localeCompare(String(vb),'ru')*(_ma?1:-1);
-  });
-
-  const thSort=(col,lbl)=>`<th class="${_ms===col?(_ma?'wt-asc':'wt-desc'):''}" onclick="if(window._pgkMSort==='${col}'){window._pgkMAsc=!(window._pgkMAsc!==false);}else{window._pgkMSort='${col}';window._pgkMAsc=true;}renderPGK()">${lbl}</th>`;
 
   const baseOpts=`<option value="">Все базы</option>`+bases.map(b=>`<option value="${b.id}" ${_mfBase===b.id?'selected':''}>${esc(b.name)}</option>`).join('');
   const statOpts=`<option value="">Все статусы</option>`+Object.entries(statLbl).map(([k,v])=>`<option value="${k}" ${_mfStatus===k?'selected':''}>${v}</option>`).join('');
   const types=[...new Set(pgkMachinery.map(m=>m.type).filter(Boolean))].sort();
   const typeOpts=`<option value="">Все типы</option>`+types.map(t=>`<option value="${t}" ${_mfType===t?'selected':''}>${esc(t)}</option>`).join('');
-
-  const byCnt={working:0,idle:0,broken:0};
-  pgkMachinery.forEach(m=>{ byCnt[m.status||'working']=(byCnt[m.status||'working']||0)+1; });
-
+  let filtered=[...pgkMachinery];
+  if(_mfBase)filtered=filtered.filter(m=>m.base_id===_mfBase);
+  if(_mfStatus)filtered=filtered.filter(m=>(m.status||'working')===_mfStatus);
+  if(_mfType)filtered=filtered.filter(m=>(m.type||'')===_mfType);
+  const cnt={working:0,idle:0,broken:0};
+  pgkMachinery.forEach(m=>cnt[m.status||'working']=(cnt[m.status||'working']||0)+1);
+  const statDot={working:'#22c55e',idle:'#f59e0b',broken:'#ef4444'};
+  const toolbar=`<div class="wt-toolbar" style="flex-shrink:0">
+    <input id="mch-search" type="search" placeholder="🔍 Поиск…"
+      style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:150px"
+      oninput="_mchParkSearch(this.value)" />
+    <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFStatus=this.value;_setMchTab('park')">${statOpts}</select>
+    <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFType=this.value;_setMchTab('park')">${typeOpts}</select>
+    <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFBase=this.value;_setMchTab('park')">${baseOpts}</select>
+    <span style="font-size:10px;color:var(--tx3);white-space:nowrap">
+      <span style="color:#15803d">✅ ${cnt.working}</span> · <span style="color:#a16207">⏸ ${cnt.idle}</span> · <span style="color:#b91c1c">🔴 ${cnt.broken}</span>
+    </span>
+  </div>`;
+  if(view==='cards'){
+    const cards=filtered.map(m=>{
+      const b=bases.find(x=>x.id===m.base_id);
+      const driver=pgkWorkers.find(x=>x.id===m.driver_id);
+      const st=m.status||'working';const _id=escAttr(m.id);
+      return `<div class="mch-card" data-search="${esc((m.name+' '+(m.type||'')+' '+(m.plate_number||'')+' '+(b?b.name:'')+' '+(driver?driver.name:'')).toLowerCase())}"
+        onclick="openMachDetail('${_id}')" oncontextmenu="event.preventDefault();machCtxMenu(event,'${_id}')">
+        <div class="mch-card-top"><div class="mch-card-ico">${MICONS[m.type]||'🔧'}</div>
+          <span class="mch-card-stdot" style="background:${statDot[st]||'#9ca3af'}" title="${statLbl[st]||st}"></span></div>
+        <div class="mch-card-name">${esc(m.name)}</div>
+        ${m.plate_number?`<div class="mch-card-plate">${esc(m.plate_number)}</div>`:''}
+        <div class="mch-card-type">${esc(m.type||'—')}</div>
+        <div class="mch-card-chips"><span class="wt-badge ${statCls[st]||'wbs-idle'}" style="font-size:9px">${statLbl[st]||st}</span>
+          ${b?`<span class="mch-card-base">🏕 ${esc(b.name)}</span>`:''}</div>
+        ${driver?`<div class="mch-card-drv">👤 ${esc(driver.name)}</div>`:''}
+      </div>`;
+    }).join('');
+    return toolbar+`<div class="mch-grid" id="mch-park-grid">${filtered.length?cards:'<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--tx3)">Нет техники</div>'}</div>`;
+  }
+  // ── Sortable table view ────────────────────────────────────
+  const _ms=window._mchSort||'name', _ma=window._mchAsc!==false;
+  const getBase=m=>(bases.find(x=>x.id===m.base_id)||{}).name||'';
+  const getDriver=m=>{const w=pgkWorkers.find(x=>x.id===m.driver_id);return w?w.name:'';};
+  const getStatus=m=>statLbl[m.status||'working']||m.status||'';
+  filtered.sort((a,b)=>{
+    let va,vb;
+    if(_ms==='base'){va=getBase(a);vb=getBase(b);}
+    else if(_ms==='driver'){va=getDriver(a);vb=getDriver(b);}
+    else if(_ms==='status'){va=getStatus(a);vb=getStatus(b);}
+    else{va=a[_ms]||'';vb=b[_ms]||'';}
+    return String(va).localeCompare(String(vb),'ru')*(_ma?1:-1);
+  });
+  const thCls=col=>`class="${_ms===col?(_ma?'wt-asc':'wt-desc'):''}"`;
+  const thS=(col,lbl)=>`<th ${thCls(col)} onclick="if(window._mchSort==='${col}'){window._mchAsc=!(window._mchAsc!==false);}else{window._mchSort='${col}';window._mchAsc=true;}const pb2=document.getElementById('machinery-page');if(pb2)pgkPageMachinery(pb2);">${lbl}</th>`;
   const rows=filtered.map((m,i)=>{
     const b=bases.find(x=>x.id===m.base_id);
-    const st=m.status||'working';
-    const _id=escAttr(m.id);
-    return `<tr data-mid="${m.id}"
-      data-search="${esc((m.name+' '+(m.type||'')+' '+(m.plate_number||'')+' '+(m.vehicle_type||'')+' '+(b?b.name:'')+' '+(m.notes||'')).toLowerCase())}"
+    const driver=pgkWorkers.find(x=>x.id===m.driver_id);
+    const st=m.status||'working';const _id=escAttr(m.id);
+    const notesPreview=esc((m.notes||'').replace(/\n/g,' ').slice(0,80));
+    return `<tr data-search="${esc((m.name+' '+(m.type||'')+' '+(m.plate_number||'')+' '+(b?b.name:'')+' '+(driver?driver.name:'')+' '+(m.notes||'')).toLowerCase())}"
       oncontextmenu="event.preventDefault();machCtxMenu(event,'${_id}')">
-      <td style="text-align:center;color:var(--tx3);font-size:10px;font-weight:600">${i+1}</td>
-      <td class="td-link" onclick="openMachDetail('${_id}')"><span style="font-size:15px">${MICONS[m.type]||'🔧'}</span> <span style="font-weight:600">${esc(m.name)}</span></td>
+      <td style="text-align:center;color:var(--tx3);font-size:10px;width:32px">${i+1}</td>
+      <td class="td-link" onclick="openMachDetail('${_id}')"><span style="font-size:14px">${MICONS[m.type]||'🔧'}</span> <b>${esc(m.name)}</b></td>
       <td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','type')">${esc(m.type||'—')}</td>
+      <td>${m.plate_number?`<code style="font-size:11px;background:var(--s2);padding:1px 5px;border-radius:3px">${esc(m.plate_number)}</code>`:'<span style="color:var(--tx3)">—</span>'}</td>
       <td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','status')"><span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span></td>
       <td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','base_id')">${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
-      <td class="td-editable" style="font-size:10px" onclick="pgkCellEdit(event,this,'machinery','${_id}','plate_number')">${esc(m.plate_number||'—')}</td>
-      <td class="td-notes td-editable" title="${esc(m.notes||'')}" onclick="pgkCellEdit(event,this,'machinery','${_id}','notes')">${esc(m.notes||'')}</td>
+      <td>${driver?`👤 ${esc(driver.name)}`:'<span style="color:var(--tx3)">—</span>'}</td>
+      <td class="td-notes td-link" style="color:var(--tx)" title="${notesPreview}" onclick="machNotesModal('${_id}')">${notesPreview||'<span style="color:var(--tx3)">—</span>'}</td>
     </tr>`;
   }).join('');
-
-  pb.innerHTML=`<div class="wt-outer">
-    <div class="wt-toolbar">
-      <span style="font-size:13px;font-weight:800;flex-shrink:0">🚛 Техника</span>
-      <input id="pgk-m-search" type="search" placeholder="🔍 Поиск по названию, номеру…"
-        style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:160px;flex-shrink:0"
-        oninput="pgkMachSearchFilter(this.value)" />
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFStatus=this.value;renderPGK()">${statOpts}</select>
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFType=this.value;renderPGK()">${typeOpts}</select>
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFBase=this.value;renderPGK()">${baseOpts}</select>
-      <div style="margin-left:auto;display:flex;gap:4px;flex-shrink:0">
-        <button class="btn bp bsm" onclick="pgkAddMach()">＋ Добавить</button>
-      </div>
-    </div>
-    <div class="wt-summary">
-      <span>Всего: <b>${pgkMachinery.length}</b></span>
-      <span style="color:#15803d">✅ В работе: <b>${byCnt.working||0}</b></span>
-      <span style="color:#a16207">⏸ Простой: <b>${byCnt.idle||0}</b></span>
-      <span style="color:#b91c1c">🔴 Сломана: <b>${byCnt.broken||0}</b></span>
-      <span style="color:var(--tx3)">На базах: <b>${pgkMachinery.filter(m=>m.base_id).length}</b></span>
-      <span id="mt-shown-count" style="color:var(--acc);margin-left:4px;display:none">Найдено: <b id="mt-shown-n">0</b></span>
-    </div>
-    <div class="wt-scroll">
-      <table class="wt-tbl" style="min-width:700px">
-        <thead><tr>
-          <th class="no-sort" style="width:36px;text-align:center;color:var(--tx3)">#</th>
-          ${thSort('name','Название / Марка')}
-          ${thSort('type','Тип')}
-          ${thSort('status','Статус')}
-          ${thSort('base','База')}
-          ${thSort('plate_number','Номер')}
-          <th class="no-sort" style="min-width:140px">Примечания</th>
-        </tr></thead>
-        <tbody id="mt-tbody">${rows||`<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--tx3)">Нет техники</td></tr>`}</tbody>
-      </table>
-    </div>
-  </div>`;
-
-  const srch=window._pgkMSearchVal||'';
-  if(srch){const inp=document.getElementById('pgk-m-search');if(inp)inp.value=srch;pgkMachSearchFilter(srch);}
+  return toolbar+`<div class="wt-scroll"><table class="wt-tbl" id="mch-park-tbl" style="min-width:720px">
+    <thead><tr>
+      <th class="no-sort" style="width:32px;text-align:center">#</th>
+      ${thS('name','Название')}
+      ${thS('type','Тип')}
+      ${thS('plate_number','Номер')}
+      ${thS('status','Статус')}
+      ${thS('base','База')}
+      ${thS('driver','Водитель')}
+      <th class="no-sort" style="min-width:100px">Примечания</th>
+    </tr></thead>
+    <tbody id="mch-park-tbl-body">${rows||`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx3)">Нет техники</td></tr>`}</tbody>
+  </table></div>`;
+}
+function _mchParkSearch(val){
+  window._pgkMSearchVal=val;const q=val.toLowerCase().trim();
+  document.querySelectorAll('.mch-card[data-search]').forEach(c=>{c.style.display=!q||c.dataset.search.includes(q)?'':'none';});
+  let n=0;
+  document.querySelectorAll('#mch-park-tbl tbody tr[data-search]').forEach(r=>{
+    const show=!q||r.dataset.search.includes(q);
+    r.style.display=show?'':'none';
+    if(show){const c=r.querySelector('td:first-child');if(c)c.textContent=++n;}
+  });
 }
 
-function pgkMachSearchFilter(val){
-  window._pgkMSearchVal=val;
-  const q=val.toLowerCase().trim();
-  const rows=document.querySelectorAll('#mt-tbody tr[data-mid]');
-  let shown=0;
-  rows.forEach(tr=>{const match=!q||tr.dataset.search.includes(q);tr.style.display=match?'':'none';if(match)shown++;});
-  let num=1;
-  rows.forEach(tr=>{if(tr.style.display!=='none'){const c=tr.querySelector('td:first-child');if(c)c.textContent=num++;}});
-  const cw=document.getElementById('mt-shown-count'),cn=document.getElementById('mt-shown-n');
-  if(cw&&cn){if(q){cw.style.display='';cn.textContent=shown;}else{cw.style.display='none';}}
+function machNotesModal(mid){
+  const m=pgkMachinery.find(x=>x.id===mid);if(!m)return;
+  showModal('Примечания — '+esc(m.name),`
+    <div class="fg s2" style="margin:0">
+      <textarea id="mch-notes-ta" rows="6"
+        style="width:100%;font-size:13px;padding:8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);color:var(--tx);resize:vertical;box-sizing:border-box"
+        placeholder="Введите примечание...">${esc(m.notes||'')}</textarea>
+    </div>
+  `,[
+    {label:'Закрыть',cls:'bs',fn:closeModal},
+    {label:'Сохранить',cls:'bp',fn:async()=>{
+      const notes=document.getElementById('mch-notes-ta').value;
+      await fetch(`${API}/pgk/machinery/${mid}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({...m,notes,user_name:un()})});
+      closeModal();await loadPGK();toast('Примечание сохранено','ok');
+    }}
+  ]);
+  setTimeout(()=>{const ta=document.getElementById('mch-notes-ta');if(ta){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);}},50);
+}
+
+function _mchBuildFuel(){
+  const byBase={};
+  pgkFuelReserves.forEach(r=>(byBase[r.base_id]=byBase[r.base_id]||[]).push(r));
+  if(!bases.length)return '<div style="padding:24px;color:var(--tx3)">Нет баз</div>';
+  return `<div class="fuel-wrap">${bases.map(b=>{
+    const rsvs=byBase[b.id]||[];
+    const _bid=escAttr(b.id);
+    return `<div class="fuel-base-card">
+      <div class="fuel-base-head"><span class="fuel-base-name">🏕 ${esc(b.name)}</span>
+        <button class="btn bs bxs" onclick="mchFuelRecord('${_bid}','')">＋ Добавить</button></div>
+      ${rsvs.map(r=>{
+        const _ft=esc(r.fuel_type);
+        return `<div class="fuel-row" onclick="mchFuelCard('${_bid}','${_ft}')" style="cursor:pointer">
+          <span class="fuel-type">${_ft}</span>
+          <span class="fuel-amount"><b>${(+r.amount||0).toLocaleString('ru')}</b> л</span>
+          <button class="btn bs bxs" style="flex-shrink:0" onclick="event.stopPropagation();mchFuelQuick('${_bid}','${_ft}')">＋/－</button>
+        </div>`;
+      }).join('')||'<div style="font-size:11px;color:var(--tx3);padding:6px 0">Нет данных — нажмите ＋ Добавить</div>'}
+    </div>`;
+  }).join('')}</div>`;
+}
+function mchFuelQuick(baseId,fuelType){
+  // Simplified modal: just op type + amount + date + comment
+  const today=new Date().toISOString().split('T')[0];
+  const b=bases.find(x=>x.id===baseId);
+  showModal(`⛽ ${b?esc(b.name):''} — ${fuelType}`,`<div class="fgr">
+    <div class="fg"><label>Операция</label>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px"><input type="radio" name="fq-op" id="fq-in" value="in" checked style="accent-color:var(--grn)"> <span style="color:var(--grn);font-weight:700">▲ Приход</span></label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px"><input type="radio" name="fq-op" id="fq-out" value="out" style="accent-color:var(--red)"> <span style="color:var(--red);font-weight:700">▼ Расход</span></label>
+      </div>
+    </div>
+    <div class="fg s2"><label>Дата</label><input id="fq-date" type="date" value="${today}"></div>
+    <div class="fg"><label>Количество, л</label><input id="fq-amt" type="number" step="any" min="0" placeholder="500" autofocus></div>
+    <div class="fg s2"><label>Комментарий</label><input id="fq-notes" placeholder="Заправка от поставщика…"></div>
+  </div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const amt=parseFloat(v('fq-amt'));
+    if(isNaN(amt)||amt<=0){toast('Введите количество','err');return;}
+    const opIn=document.getElementById('fq-in')&&document.getElementById('fq-in').checked;
+    const delta=opIn?amt:-amt;
+    await fetch(`${API}/fuel_transactions`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({base_id:baseId,fuel_type:fuelType,delta,notes:v('fq-notes'),op_date:v('fq-date')||today})});
+    pgkFuelReserves=await fetch(`${API}/fuel_reserves`).then(r=>r.json()).catch(()=>[]);
+    closeModal();_setMchTab('fuel');toast(delta>0?`+${amt} л — приход`:`${amt} л — расход`,'ok');
+  }}]);
+}
+async function mchFuelCard(baseId,fuelType){
+  const b=bases.find(x=>x.id===baseId);
+  const rsv=pgkFuelReserves.find(r=>r.base_id===baseId&&r.fuel_type===fuelType);
+  const params=new URLSearchParams({base_id:baseId,fuel_type:fuelType});
+  const txns=await fetch(`${API}/fuel_transactions?${params}`).then(r=>r.json()).catch(()=>[]);
+  const histRows=txns.length?txns.map(t=>{
+    const sign=t.delta>0?'+':'';const clr=t.delta>0?'var(--grn)':'var(--red)';
+    return `<tr>
+      <td style="font-size:10px;color:var(--tx3)">${(t.op_date||t.created_at||'').slice(0,10)}</td>
+      <td style="font-weight:700;color:${clr};text-align:right">${sign}${t.delta} л</td>
+      <td style="font-size:10px;color:var(--tx3)">${esc(t.notes||'')}</td>
+    </tr>`;
+  }).join(''):`<tr><td colspan="3" style="text-align:center;padding:16px;color:var(--tx3)">История пуста</td></tr>`;
+  showModal(`⛽ ${b?esc(b.name):''} — ${fuelType}`,`
+    <div style="text-align:center;padding:12px 0 16px;border-bottom:1px solid var(--bd);margin-bottom:12px">
+      <div style="font-size:32px;font-weight:800;color:var(--acc)">${(+(rsv?.amount||0)).toLocaleString('ru')} <span style="font-size:14px;font-weight:400;color:var(--tx3)">л</span></div>
+      <div style="font-size:11px;color:var(--tx3);margin-top:4px">Текущий остаток</div>
+    </div>
+    <div style="font-size:11px;font-weight:700;color:var(--tx3);margin-bottom:8px;letter-spacing:.4px">ИСТОРИЯ ОПЕРАЦИЙ</div>
+    <div style="max-height:280px;overflow-y:auto">
+      <table class="wt-tbl" style="min-width:260px">
+        <thead><tr><th>Дата</th><th style="text-align:right">Количество</th><th>Комментарий</th></tr></thead>
+        <tbody>${histRows}</tbody>
+      </table>
+    </div>`,
+    [{label:'Закрыть',cls:'bs',fn:closeModal},{label:'＋/－ Записать',cls:'bp',fn:()=>{closeModal();mchFuelQuick(baseId,fuelType);}}]);
+}
+function _mchBuildDrivers(){
+  const machByDrv={};pgkMachinery.forEach(m=>{if(m.driver_id)machByDrv[m.driver_id]=m;});
+  let workers=pgkWorkers.filter(w=>{if(w.status==='fired')return false;const r=(w.role||'').toLowerCase();return r.includes('водитель')||r.includes('мбу')||r.includes('пмбу');});
+  const wstCls={'working':'wbs-working','home':'wbs-home'};
+  const wstLbl={'working':'В работе','home':'Дома'};
+  const _ds=window._drvSort||'name';const _da=window._drvAsc!==false;
+  workers=[...workers].sort((a,b)=>{
+    let va,vb;
+    if(_ds==='machine'){va=(machByDrv[a.id]||{}).name||'';vb=(machByDrv[b.id]||{}).name||'';}
+    else if(_ds==='base'){va=(bases.find(x=>x.id===a.base_id)||{}).name||'';vb=(bases.find(x=>x.id===b.base_id)||{}).name||'';}
+    else if(_ds==='status'){va=a.status||'home';vb=b.status||'home';}
+    else{va=a.name||'';vb=b.name||'';}
+    return String(va).localeCompare(String(vb),'ru')*(_da?1:-1);
+  });
+  const th=(col,lbl)=>`<th class="${_ds===col?(_da?'wt-asc':'wt-desc'):''}" onclick="if(window._drvSort==='${col}'){window._drvAsc=!(window._drvAsc!==false);}else{window._drvSort='${col}';window._drvAsc=true;}_setMchTab('drivers')">${lbl}</th>`;
+  const rows=workers.map(w=>{
+    const mach=machByDrv[w.id];const b=bases.find(x=>x.id===w.base_id);
+    const ws=w.status||'home';
+    return `<tr>
+      <td><div style="font-weight:700">${esc(w.name)}</div><div style="font-size:10px;color:var(--tx3)">${esc(w.role||'')}</div></td>
+      <td><span class="wt-badge ${wstCls[ws]||'wbs-home'}" style="font-size:10px">${wstLbl[ws]||ws}</span></td>
+      <td>${mach?`${MICONS[mach.type]||'🔧'} <b>${esc(mach.name)}</b>`:'<span style="color:var(--tx3)">—</span>'}</td>
+      <td>${b?esc(b.name):'<span style="color:var(--tx3)">—</span>'}</td>
+      <td><button class="btn bs bsm" onclick="mchAssignDriver('${escAttr(w.id)}')">🔄 Назначить</button></td>
+    </tr>`;
+  }).join('');
+  return `<div class="wt-scroll"><table class="wt-tbl" style="min-width:600px">
+    <thead><tr>${th('name','Сотрудник')}${th('status','Статус')}${th('machine','Машина')}${th('base','База')}<th class="no-sort">Действия</th></tr></thead>
+    <tbody>${rows||`<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--tx3)">Нет водителей</td></tr>`}</tbody>
+  </table></div>`;
+}
+function _mchBuildSpares(){
+  const selGroup=window._mchSpareGroup;
+  let filtered=selGroup==='__none__'?pgkSpares.filter(s=>!s.group_id):selGroup?pgkSpares.filter(s=>s.group_id===selGroup):[...pgkSpares];
+  const sidebar=`<div class="spare-sidebar">
+    <div class="spare-sidebar-hd">Группы</div>
+    <div class="spare-grp-item${!selGroup?' on':''}" onclick="_mchSpareGrp(null)">Все <span class="mch-cnt" style="background:var(--s3);color:var(--tx3)">${pgkSpares.length}</span></div>
+    <div class="spare-grp-item${selGroup==='__none__'?' on':''}" onclick="_mchSpareGrp('__none__')">Без группы <span class="mch-cnt" style="background:var(--s3);color:var(--tx3)">${pgkSpares.filter(s=>!s.group_id).length}</span></div>
+    ${pgkSpareGroups.map(g=>`<div class="spare-grp-item${selGroup===g.id?' on':''}">
+      <span class="spare-grp-nm" onclick="_mchSpareGrp('${escAttr(g.id)}')">${esc(g.name)} <span class="mch-cnt" style="background:var(--s3);color:var(--tx3)">${pgkSpares.filter(s=>s.group_id===g.id).length}</span></span>
+      <span class="spare-grp-acts">
+        <button class="btn bxs bs" onclick="event.stopPropagation();mchSpareEditGroup('${escAttr(g.id)}')">✏️</button>
+        <button class="btn bxs bd" onclick="event.stopPropagation();mchSpareDelGroup('${escAttr(g.id)}')">🗑</button>
+      </span></div>`).join('')}
+  </div>`;
+  const rows=filtered.map(s=>{
+    const grp=pgkSpareGroups.find(g=>g.id===s.group_id);
+    return `<tr>
+      <td><div style="font-weight:600">${esc(s.name)}</div>${s.notes?`<div style="font-size:10px;color:var(--tx3)">${esc(s.notes)}</div>`:''}</td>
+      <td style="font-weight:700;font-size:14px;color:var(--acc)">${+(s.quantity||0)}</td>
+      <td style="color:var(--tx3)">${esc(s.unit||'шт')}</td>
+      <td>${s.location?esc(s.location):'<span style="color:var(--tx3)">—</span>'}</td>
+      <td>${grp?`<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:var(--s3)">${esc(grp.name)}</span>`:'—'}</td>
+      <td style="white-space:nowrap">
+        <button class="btn bs bxs" onclick="mchSpareEdit('${escAttr(s.id)}')">✏️</button>
+        <button class="btn bd bxs" onclick="mchSpareDel('${escAttr(s.id)}')">🗑</button></td>
+    </tr>`;
+  }).join('');
+  return `<div class="spare-layout">${sidebar}<div class="spare-main">
+    <div class="wt-scroll"><table class="wt-tbl" style="min-width:480px">
+      <thead><tr><th>Название</th><th style="width:70px">Кол-во</th><th style="width:55px">Ед.</th>
+        <th>Хранение</th><th>Группа</th><th class="no-sort" style="width:70px">—</th></tr></thead>
+      <tbody>${rows||`<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--tx3)">Нет запчастей</td></tr>`}</tbody>
+    </table></div></div></div>`;
+}
+
+// ── MACHINERY ACTION FUNCTIONS ─────────────────────────────
+function mchFuelRecord(baseId,fuelType){
+  baseId=baseId||'';fuelType=fuelType||'';
+  const fuelTypes=['Дизельное топливо','Бензин','Масло моторное','Масло трансмиссионное','Антифриз'];
+  const baseOpts=bases.map(b=>`<option value="${b.id}" ${b.id===baseId?'selected':''}>${esc(b.name)}</option>`).join('');
+  const typeOpts=fuelTypes.map(t=>`<option value="${t}" ${t===fuelType?'selected':''}>${esc(t)}</option>`).join('');
+  const today=new Date().toISOString().split('T')[0];
+  showModal('⛽ Приход / Расход топлива',`<div class="fgr">
+    <div class="fg s2"><label>База</label><select id="f-fb">${baseOpts}</select></div>
+    <div class="fg s2"><label>Вид топлива</label><select id="f-ftype">${typeOpts}</select></div>
+    <div class="fg"><label>Тип операции</label>
+      <div style="display:flex;gap:6px;margin-top:4px">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px"><input type="radio" name="f-fop" id="f-fop-in" value="in" checked style="accent-color:var(--grn)"> <span style="color:var(--grn);font-weight:700">▲ Приход</span></label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px"><input type="radio" name="f-fop" id="f-fop-out" value="out" style="accent-color:var(--red)"> <span style="color:var(--red);font-weight:700">▼ Расход</span></label>
+      </div>
+    </div>
+    <div class="fg s2"><label>Дата</label><input id="f-fdate" type="date" value="${today}"></div>
+    <div class="fg"><label>Количество, л</label><input id="f-famt" type="number" step="any" min="0" placeholder="500"></div>
+    <div class="fg s2"><label>Примечание</label><input id="f-fnotes" placeholder="Заправка от поставщика…"></div>
+  </div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'История',cls:'bs',fn:()=>{closeModal();mchFuelHistory(baseId,fuelType);}},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const amt=parseFloat(v('f-famt'));
+    if(isNaN(amt)||amt<=0){toast('Введите положительное количество','err');return;}
+    const opIn=document.getElementById('f-fop-in')&&document.getElementById('f-fop-in').checked;
+    const delta=opIn?amt:-amt;
+    const op_date=v('f-fdate')||today;
+    await fetch(`${API}/fuel_transactions`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({base_id:v('f-fb'),fuel_type:v('f-ftype'),delta,notes:v('f-fnotes'),op_date})});
+    pgkFuelReserves=await fetch(`${API}/fuel_reserves`).then(r=>r.json()).catch(()=>[]);
+    closeModal();_setMchTab('fuel');toast(delta>0?`+${amt} л — приход записан`:`${amt} л — расход записан`,'ok');
+  }}]);
+}
+async function mchFuelHistory(baseId,fuelType){
+  const params=new URLSearchParams();
+  if(baseId)params.set('base_id',baseId);
+  if(fuelType)params.set('fuel_type',fuelType);
+  const txns=await fetch(`${API}/fuel_transactions?${params}`).then(r=>r.json()).catch(()=>[]);
+  const base=bases.find(x=>x.id===baseId);
+  const title=`📋 История — ${base?esc(base.name):'все базы'}${fuelType?' / '+esc(fuelType):''}`;
+  const rows=txns.length?txns.map(t=>{
+    const b=bases.find(x=>x.id===t.base_id);
+    const sign=t.delta>0?'+':'';
+    const clr=t.delta>0?'var(--grn)':'var(--red)';
+    return `<tr>
+      <td style="font-size:10px;color:var(--tx3)">${(t.op_date||t.created_at||'').slice(0,10)}</td>
+      <td>${b?esc(b.name):'—'}</td>
+      <td style="font-size:10px">${esc(t.fuel_type)}</td>
+      <td style="font-weight:700;color:${clr};text-align:right">${sign}${t.delta} л</td>
+      <td style="font-size:10px;color:var(--tx3)">${esc(t.notes||'')}</td>
+    </tr>`;
+  }).join(''):`<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--tx3)">Нет записей</td></tr>`;
+  showModal(title,`<div style="max-height:400px;overflow-y:auto"><table class="wt-tbl" style="min-width:420px">
+    <thead><tr><th>Дата</th><th>База</th><th>Вид</th><th style="text-align:right">Кол-во</th><th>Примечание</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`,[{label:'Закрыть',cls:'bs',fn:closeModal},{label:'+ Запись',cls:'bp',fn:()=>{closeModal();mchFuelRecord(baseId,fuelType);}}]);
+}
+function mchAssignDriver(workerId){
+  const w=pgkWorkers.find(x=>x.id===workerId);if(!w)return;
+  const curMach=pgkMachinery.find(m=>m.driver_id===workerId);
+  const machOpts=`<option value="">— Снять назначение —</option>`+
+    pgkMachinery.map(m=>`<option value="${m.id}" ${m.id===curMach?.id?'selected':''}>${MICONS[m.type]||'🔧'} ${esc(m.name)}</option>`).join('');
+  showModal('👤 Назначить машину — '+esc(w.name),`<div class="fgr fone"><div class="fg"><label>Машина</label><select id="f-mdrv">${machOpts}</select></div></div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const newMid=v('f-mdrv');
+    if(curMach&&curMach.id!==newMid)
+      await fetch(`${API}/pgk/machinery/${curMach.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...curMach,driver_id:null,user_name:un()})});
+    if(newMid){const nm=pgkMachinery.find(x=>x.id===newMid);
+      if(nm)await fetch(`${API}/pgk/machinery/${newMid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...nm,driver_id:workerId,user_name:un()})});}
+    closeModal();await loadPGK();toast('Назначение обновлено','ok');
+  }}]);
+}
+function mchSpareAdd(){
+  const grpOpts=`<option value="">— Без группы —</option>`+pgkSpareGroups.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('');
+  showModal('🔧 Новая запчасть',`<div class="fgr">
+    <div class="fg s2"><label>Название *</label><input id="f-spn" placeholder="Фильтр масляный"></div>
+    <div class="fg"><label>Количество</label><input id="f-spq" type="number" value="0" step="any" min="0"></div>
+    <div class="fg"><label>Единица</label><input id="f-spu" value="шт" placeholder="шт, л, м, кг…"></div>
+    <div class="fg s2"><label>Место хранения</label><input id="f-spl" placeholder="Склад А, Бокс №2…"></div>
+    <div class="fg s2"><label>Группа</label><select id="f-spg">${grpOpts}</select></div>
+    <div class="fg s2"><label>Примечание</label><input id="f-spnote"></div>
+  </div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:async()=>{
+    const name=v('f-spn').trim();if(!name){toast('Введите название','err');return;}
+    await fetch(`${API}/spare_parts`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,quantity:parseFloat(v('f-spq'))||0,unit:v('f-spu')||'шт',location:v('f-spl'),group_id:v('f-spg')||null,notes:v('f-spnote')})});
+    pgkSpares=await fetch(`${API}/spare_parts`).then(r=>r.json()).catch(()=>[]);
+    closeModal();_setMchTab('spares');toast('Добавлено','ok');
+  }}]);
+}
+function mchSpareEdit(id){
+  const s=pgkSpares.find(x=>x.id===id);if(!s)return;
+  const grpOpts=`<option value="">— Без группы —</option>`+pgkSpareGroups.map(g=>`<option value="${g.id}" ${g.id===s.group_id?'selected':''}>${esc(g.name)}</option>`).join('');
+  showModal('✏️ Редактировать запчасть',`<div class="fgr">
+    <div class="fg s2"><label>Название *</label><input id="f-spn" value="${esc(s.name)}"></div>
+    <div class="fg"><label>Количество</label><input id="f-spq" type="number" value="${s.quantity||0}" step="any" min="0"></div>
+    <div class="fg"><label>Единица</label><input id="f-spu" value="${esc(s.unit||'шт')}"></div>
+    <div class="fg s2"><label>Место хранения</label><input id="f-spl" value="${esc(s.location||'')}"></div>
+    <div class="fg s2"><label>Группа</label><select id="f-spg">${grpOpts}</select></div>
+    <div class="fg s2"><label>Примечание</label><input id="f-spnote" value="${esc(s.notes||'')}"></div>
+  </div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const name=v('f-spn').trim();if(!name){toast('Введите название','err');return;}
+    await fetch(`${API}/spare_parts/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,quantity:parseFloat(v('f-spq'))||0,unit:v('f-spu')||'шт',location:v('f-spl'),group_id:v('f-spg')||null,notes:v('f-spnote')})});
+    pgkSpares=await fetch(`${API}/spare_parts`).then(r=>r.json()).catch(()=>[]);
+    closeModal();_setMchTab('spares');toast('Сохранено','ok');
+  }}]);
+}
+async function mchSpareDel(id){
+  if(!confirm('Удалить запчасть?'))return;
+  await fetch(`${API}/spare_parts/${id}`,{method:'DELETE'});
+  pgkSpares=pgkSpares.filter(s=>s.id!==id);_setMchTab('spares');toast('Удалено','ok');
+}
+function mchSpareAddGroup(){
+  showModal('＋ Новая группа',`<div class="fgr fone"><div class="fg"><label>Название *</label><input id="f-sgn" placeholder="Фильтры, Масла, Шины…"></div></div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:async()=>{
+    const name=v('f-sgn').trim();if(!name){toast('Введите название','err');return;}
+    await fetch(`${API}/spare_groups`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    pgkSpareGroups=await fetch(`${API}/spare_groups`).then(r=>r.json()).catch(()=>[]);
+    closeModal();_setMchTab('spares');toast('Группа добавлена','ok');
+  }}]);
+}
+function mchSpareEditGroup(id){
+  const g=pgkSpareGroups.find(x=>x.id===id);if(!g)return;
+  showModal('✏️ Переименовать группу',`<div class="fgr fone"><div class="fg"><label>Название</label><input id="f-sgn" value="${esc(g.name)}"></div></div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const name=v('f-sgn').trim();if(!name){toast('Введите название','err');return;}
+    await fetch(`${API}/spare_groups/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    pgkSpareGroups=await fetch(`${API}/spare_groups`).then(r=>r.json()).catch(()=>[]);
+    closeModal();_setMchTab('spares');toast('Переименовано','ok');
+  }}]);
+}
+async function mchSpareDelGroup(id){
+  const g=pgkSpareGroups.find(x=>x.id===id);if(!g)return;
+  if(!confirm(`Удалить группу "${g.name}"? Запчасти останутся без группы.`))return;
+  await fetch(`${API}/spare_groups/${id}`,{method:'DELETE'});
+  pgkSpareGroups=pgkSpareGroups.filter(x=>x.id!==id);
+  pgkSpares=pgkSpares.map(s=>s.group_id===id?{...s,group_id:null}:s);
+  if(window._mchSpareGroup===id)window._mchSpareGroup=null;
+  _setMchTab('spares');toast('Группа удалена','ok');
 }
 
 async function openMachDetail(mid){
   const m=pgkMachinery.find(x=>x.id===mid);if(!m)return;
   const b=bases.find(x=>x.id===m.base_id);
-  const st={working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'};
-  const drill=pgkMachinery.find(x=>x.id===m.drill_id);
-  const isDrill=DRILL_TYPES.includes(m.type);
-  const transport=isDrill&&m.drill_id?pgkMachinery.find(x=>x.id===m.drill_id):null;
-
-  // Fetch vol_progress for drills
-  let volHtml='';
-  if(isDrill){
-    try{
-      const vp=await fetch(`${API}/pgk/machinery/${mid}/vol_progress`).then(r=>r.json()).catch(()=>[]);
-      if(vp.length){
-        const bySite={};
-        vp.forEach(p=>{if(!bySite[p.site_name])bySite[p.site_name]=[];bySite[p.site_name].push(p);});
-        volHtml=`<h4 style="font-size:11px;font-weight:700;margin:10px 0 6px">📐 Выполненные объёмы (${vp.length} записей)</h4>`+
-          Object.keys(bySite).map(sn=>`<div style="font-size:10px;font-weight:700;color:var(--acc);margin:6px 0 3px">🏗 ${esc(sn)}</div>`+
-            bySite[sn].map(p=>`<div style="padding:4px 0;border-bottom:1px solid var(--bd);font-size:11px"><div><span style="font-weight:600;color:var(--acc)">${p.completed} ${esc(p.unit)}</span> — ${esc(p.vol_name)}</div><div style="font-size:9px;color:var(--tx3)">${fmt(p.work_date)}${p.notes?' · '+esc(p.notes):''}</div></div>`).join('')
-          ).join('');
-      }
-    }catch(e){}
-  }
-
-  const html=`<div style="margin-bottom:12px">
-    <div style="font-size:14px;font-weight:800">${MICONS[m.type]||'🔧'} ${esc(m.name)}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:2px">${esc(m.type||'—')}${m.plate_number?' · '+esc(m.plate_number):''}</div>
-    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-      <span class="wt-badge ${st[m.status||'working']?'wbs-'+(m.status||'working'):'wbs-idle'}">${st[m.status||'working']||m.status}</span>
-      ${b?`<span style="font-size:11px;color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="font-size:11px;color:var(--tx3)">Не на базе</span>'}
+  const driver=pgkWorkers.find(x=>x.id===m.driver_id);
+  const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
+  const statLbl={working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'};
+  const st=m.status||'working';
+  const driverOpts=`<option value="">— не назначен —</option>`+
+    pgkWorkers.filter(w=>{if(w.status==='fired')return false;const r=(w.role||'').toLowerCase();return r.includes('водитель')||r.includes('мбу')||r.includes('пмбу');})
+    .map(w=>`<option value="${escAttr(w.id)}" ${m.driver_id===w.id?'selected':''}>${esc(w.name)}</option>`).join('');
+  const baseOpts=`<option value="">— не назначена —</option>`+bases.map(bx=>`<option value="${bx.id}" ${m.base_id===bx.id?'selected':''}>${esc(bx.name)}</option>`).join('');
+  const html=`
+  <div class="wdc-hd">
+    <div class="mdc-ico">${MICONS[m.type]||'🔧'}</div>
+    <div class="wdc-info">
+      <div class="wdc-name">${esc(m.name)}</div>
+      <div class="wdc-role">${esc(m.type||'—')}${m.plate_number?` · <code style="font-size:11px;background:var(--s3);padding:1px 5px;border-radius:3px">${esc(m.plate_number)}</code>`:''}</div>
     </div>
   </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;font-size:11px">
-    ${m.vehicle_type?`<div><span style="color:var(--tx3)">Тип ТС:</span> ${esc(m.vehicle_type)}</div>`:''}
-    ${isDrill&&transport?`<div><span style="color:var(--tx3)">Транспорт:</span> 🚙 ${esc(transport.name)}</div>`:''}
-    ${!isDrill&&drill?`<div><span style="color:var(--tx3)">Буровая:</span> ⛏ ${esc(drill.name)}</div>`:''}
-    ${m.lat&&m.lng?`<div><span style="color:var(--tx3)">Позиция:</span> ${parseFloat(m.lat).toFixed(5)}, ${parseFloat(m.lng).toFixed(5)}</div>`:''}
+  <div class="mdc-fields">
+    <div class="mdc-row"><span class="mdc-lbl">Гос. номер</span><span class="mdc-val">${m.plate_number?`<code style="background:var(--s3);padding:1px 6px;border-radius:3px;font-size:12px">${esc(m.plate_number)}</code>`:'<span style="color:var(--tx3)">—</span>'}</span></div>
+    <div class="mdc-row"><span class="mdc-lbl">Тип</span><span class="mdc-val">${esc(m.type||'—')}</span></div>
+    <div class="mdc-row"><span class="mdc-lbl">Статус</span><span class="mdc-val">
+      <span class="wt-badge ${statCls[st]||'wbs-idle'}" style="margin-right:8px">${statLbl[st]||st}</span>
+      <select style="font-size:12px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="(async()=>{await pgkQuickStatus('${mid}',this.value);openMachDetail('${mid}');})()">
+        ${Object.entries(statLbl).map(([k,lbl])=>`<option value="${k}" ${k===st?'selected':''}>${lbl}</option>`).join('')}
+      </select>
+    </span></div>
+    <div class="mdc-row"><span class="mdc-lbl">Водитель</span><span class="mdc-val">
+      <select id="mdc-drv-${mid}" style="font-size:12px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);max-width:200px" onchange="mchInlineSetDriver('${mid}',this.value)">${driverOpts}</select>
+    </span></div>
+    <div class="mdc-row"><span class="mdc-lbl">База</span><span class="mdc-val">
+      <select id="mdc-base-${mid}" style="font-size:12px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);max-width:200px" onchange="mchInlineSetBase('${mid}',this.value)">${baseOpts}</select>
+    </span></div>
+    ${m.notes?`<div class="mdc-row"><span class="mdc-lbl">Примечание</span><span class="mdc-val" style="color:var(--tx2)">${esc(m.notes)}</span></div>`:''}
   </div>
-  ${m.notes?`<div style="font-size:11px;color:var(--tx2);background:var(--s2);border-radius:6px;padding:8px 10px;margin-bottom:10px">📝 ${esc(m.notes)}</div>`:''}
-  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-    <button class="btn bp bsm" onclick="pgkAssignMachBaseModal('${mid}')">🏕 Назначить на базу</button>
-    ${m.lat&&m.lng?`<button class="btn bg2 bsm" onclick="closeModal();flyToMach('${mid}')">📍 На карте</button>`:''}
-    <button class="btn bs bsm" onclick="closeModal();showMachHistory('${mid}')">🕐 История</button>
-    ${isDrill?`<button class="btn bs bsm" onclick="closeModal();openDrillStats('${mid}')">📐 Объёмы</button>`:''}
-  </div>
-  <div style="font-size:10px;font-weight:700;color:var(--tx3);margin-bottom:4px">БЫСТРЫЙ СТАТУС</div>
-  <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px">
-    ${Object.entries({working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'}).map(([k,v])=>`<button class="btn bsm ${m.status===k?'bp':'bs'}" onclick="pgkQuickStatus('${mid}','${k}');openMachDetail('${mid}')">${v}</button>`).join('')}
-  </div>
-  ${volHtml}`;
-
+  <div class="wdc-actions" style="margin-top:12px">
+    ${m.lat&&m.lng
+      ? `<button class="btn bg2 wdc-btn" onclick="closeModal();flyToMach('${mid}')">📍 Показать на карте</button>`
+      : `<button class="btn bs wdc-btn" onclick="mchStartPlace('${mid}')">📍 Расставить на карте</button>`}
+    <button class="btn bs wdc-btn" onclick="closeModal();showMachHistory('${mid}')">🕐 История</button>
+    <button class="btn bs wdc-btn" style="color:var(--red);margin-left:auto" onclick="closeModal();pgkDelMach('${mid}')">🗑</button>
+  </div>`;
   showModal((MICONS[m.type]||'🔧')+' '+esc(m.name),html,[
     {label:'Закрыть',cls:'bs',fn:closeModal},
     {label:'✏️ Редактировать',cls:'bp',fn:()=>{closeModal();pgkEditMach(mid);}}
   ]);
+}
+async function mchInlineSetDriver(mid,driverId){
+  const m=pgkMachinery.find(x=>x.id===mid);if(!m)return;
+  // Unassign old driver's other machine if different
+  if(m.driver_id&&m.driver_id!==driverId){
+    // already handled by backend — just send new value
+  }
+  await fetch(`${API}/pgk/machinery/${mid}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({...m,driver_id:driverId||null,user_name:un()})});
+  await loadPGK();toast('Водитель обновлён','ok');
+  openMachDetail(mid);
+}
+async function mchInlineSetBase(mid,baseId){
+  const m=pgkMachinery.find(x=>x.id===mid);if(!m)return;
+  await fetch(`${API}/pgk/machinery/${mid}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({...m,base_id:baseId||null,user_name:un()})});
+  await loadPGK();await loadAll();toast(baseId?'База назначена':'Снята с базы','ok');
+  openMachDetail(mid);
+}
+function mchStartPlace(mid){
+  const m=pgkMachinery.find(x=>x.id===mid);if(!m)return;
+  if(!m.base_id){
+    toast('⚠️ Сначала назначьте базу для этой техники','warn');return;
+  }
+  closeModal();
+  switchView('map');
+  // Use existing startMove mechanism from panel.js
+  if(typeof startMove==='function'){
+    setTimeout(()=>startMove('machine',{mach:m,baseId:m.base_id}),100);
+  }
 }
 
 async function pgkAssignMachBaseModal(mid){
@@ -677,22 +1278,23 @@ function machCtxMenu(ev,mid){
 }
 
 function pgkPageEquipment(pb){
+  const _egGrp=window._pgkEGrp||'';
   const _es=window._pgkESort||'name', _ea=window._pgkEAsc!==false;
   const _efBase=window._pgkEFBase||'';
   const _efStatus=window._pgkEFStatus||'';
-  const _efType=window._pgkEFType||'';
-
   const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
   const statLbl={working:'✅ В работе',idle:'Не используется',broken:'🔴 Неисправно'};
-
   const getBase=e=>(bases.find(x=>x.id===e.base_id)||{}).name||'';
 
   let filtered=[...pgkEquipment].filter(e=>{
+    if(_egGrp==='__none'){if(e.group_id)return false;}
+    else if(_egGrp&&e.group_id!==_egGrp)return false;
     if(_efBase&&e.base_id!==_efBase)return false;
     if(_efStatus&&(e.status||'working')!==_efStatus)return false;
-    if(_efType&&(e.type||'')!==_efType)return false;
     return true;
   });
+  const _q=(window._pgkESearchVal||'').toLowerCase().trim();
+  if(_q)filtered=filtered.filter(e=>(e.name+' '+(e.type||'')+' '+(e.serial_number||'')+' '+(e.responsible||'')+' '+getBase(e)+' '+(e.notes||'')).toLowerCase().includes(_q));
   filtered.sort((a,b)=>{
     let va,vb;
     if(_es==='base'){va=getBase(a);vb=getBase(b);}
@@ -701,116 +1303,308 @@ function pgkPageEquipment(pb){
   });
 
   const thSort=(col,lbl)=>`<th class="${_es===col?(_ea?'wt-asc':'wt-desc'):''}" onclick="if(window._pgkESort==='${col}'){window._pgkEAsc=!(window._pgkEAsc!==false);}else{window._pgkESort='${col}';window._pgkEAsc=true;}renderPGK()">${lbl}</th>`;
-
   const baseOpts=`<option value="">Все базы</option>`+bases.map(b=>`<option value="${b.id}" ${_efBase===b.id?'selected':''}>${esc(b.name)}</option>`).join('');
   const statOpts=`<option value="">Все статусы</option>`+Object.entries(statLbl).map(([k,v])=>`<option value="${k}" ${_efStatus===k?'selected':''}>${v}</option>`).join('');
-  const types=[...new Set(pgkEquipment.map(e=>e.type).filter(Boolean))].sort();
-  const typeOpts=`<option value="">Все типы</option>`+types.map(t=>`<option value="${t}" ${_efType===t?'selected':''}>${esc(t)}</option>`).join('');
-
   const byCnt={working:0,idle:0,broken:0};
   pgkEquipment.forEach(e=>{byCnt[e.status||'working']=(byCnt[e.status||'working']||0)+1;});
+
+  const grpSidebar=`
+    <div class="spare-grp-item${!_egGrp?' on':''}" onclick="window._pgkEGrp='';renderPGK()">
+      <span class="spare-grp-nm">Все</span>
+      <span style="font-size:10px;color:var(--tx3);margin-left:4px">${pgkEquipment.length}</span>
+    </div>
+    <div class="spare-grp-item${_egGrp==='__none'?' on':''}" onclick="window._pgkEGrp='__none';renderPGK()">
+      <span class="spare-grp-nm" style="color:var(--tx3)">Без группы</span>
+      <span style="font-size:10px;color:var(--tx3);margin-left:4px">${pgkEquipment.filter(e=>!e.group_id).length}</span>
+    </div>
+    ${pgkEquipGroups.map(g=>{
+      const cnt=pgkEquipment.filter(e=>e.group_id===g.id).length;
+      const _gid=escAttr(g.id);
+      return `<div class="spare-grp-item${_egGrp===g.id?' on':''}" onclick="window._pgkEGrp='${_gid}';renderPGK()"
+        ondragover="event.preventDefault();this.style.background='var(--accl)'" ondragleave="this.style.background=''" ondrop="equipDropToGroup(event,'${_gid}');this.style.background=''">
+        <span class="spare-grp-nm">${esc(g.name)}</span>
+        <span style="font-size:10px;color:var(--tx3);margin-left:4px">${cnt}</span>
+        <span class="spare-grp-acts">
+          <button class="btn bs bsm" style="padding:1px 5px;font-size:10px" onclick="event.stopPropagation();equipGrpEdit('${_gid}','${esc(g.name).replace(/'/g,"\\'")}')">✏️</button>
+          <button class="btn bs bsm" style="padding:1px 5px;font-size:10px;color:var(--red)" onclick="event.stopPropagation();equipGrpDel('${_gid}')">🗑</button>
+        </span>
+      </div>`;
+    }).join('')}
+    <button class="btn bs bsm" style="width:100%;margin-top:6px;font-size:11px" onclick="equipGrpAdd()">＋ Группа</button>`;
 
   const rows=filtered.map((e,i)=>{
     const b=bases.find(x=>x.id===e.base_id);
     const st=e.status||'working';
     const _id=escAttr(e.id);
-    return `<tr data-eid="${e.id}"
-      data-search="${esc((e.name+' '+(e.type||'')+' '+(e.serial_number||'')+' '+(e.responsible||'')+' '+(b?b.name:'')+' '+(e.notes||'')).toLowerCase())}"
+    return `<tr data-eid="${e.id}" data-search="${esc((e.name+' '+(e.type||'')+' '+(e.serial_number||'')+' '+(e.responsible||'')+' '+getBase(e)+' '+(e.notes||'')).toLowerCase())}" draggable="true"
+      ondragstart="equipDragStart(event,'${_id}')"
       oncontextmenu="event.preventDefault();equipCtxMenu(event,'${_id}')">
-      <td style="text-align:center;color:var(--tx3);font-size:10px;font-weight:600">${i+1}</td>
+      <td style="text-align:center;width:28px;color:var(--tx3);font-size:10px;font-weight:600" class="eq-rownum">${i+1}</td>
       <td class="td-link" style="font-weight:600" onclick="openEquipDetail('${_id}')">🔩 ${esc(e.name)}</td>
       <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','type')">${esc(e.type||'—')}</td>
       <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','status')"><span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span></td>
       <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','base_id')">${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
-      <td class="td-editable" style="font-size:10px" onclick="pgkCellEdit(event,this,'equipment','${_id}','serial_number')">${esc(e.serial_number||'—')}</td>
-      <td class="td-editable" style="font-size:10px" onclick="pgkCellEdit(event,this,'equipment','${_id}','responsible')">${e.responsible?'👤 '+esc(e.responsible):'—'}</td>
-      <td class="td-notes td-editable" title="${esc(e.notes||'')}" onclick="pgkCellEdit(event,this,'equipment','${_id}','notes')">${esc(e.notes||'')}</td>
+      <td style="font-size:10px">${esc(e.serial_number||'—')}</td>
+      <td style="font-size:11px">${e.responsible?'👤 '+esc(e.responsible):'<span style="color:var(--tx3)">—</span>'}</td>
+      <td class="td-notes" title="${esc(e.notes||'')}">${esc(e.notes||'')}</td>
     </tr>`;
   }).join('');
 
-  pb.innerHTML=`<div class="wt-outer">
-    <div class="wt-toolbar">
-      <span style="font-size:13px;font-weight:800;flex-shrink:0">🔩 Оборудование</span>
-      <input id="pgk-e-search" type="search" placeholder="🔍 Поиск по названию, серийному номеру…"
-        style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:160px;flex-shrink:0"
-        oninput="pgkEquipSearchFilter(this.value)" />
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFStatus=this.value;renderPGK()">${statOpts}</select>
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFType=this.value;renderPGK()">${typeOpts}</select>
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFBase=this.value;renderPGK()">${baseOpts}</select>
-      <div style="margin-left:auto;display:flex;gap:4px;flex-shrink:0">
-        <button class="btn bs bsm" onclick="pgkImportEquip()" title="Импорт из Excel">📥 Excel</button>
-        <button class="btn bp bsm" onclick="pgkAddEquip()">＋ Добавить</button>
+  pb.innerHTML=`<div class="spare-layout" style="height:100%">
+    <div class="spare-sidebar">
+      <div class="spare-sidebar-hd">Группы</div>
+      ${grpSidebar}
+    </div>
+    <div class="spare-main">
+      <div class="spare-main-hd">
+        <span style="font-size:13px;font-weight:800;flex-shrink:0">🔩 Оборудование</span>
+        <input id="pgk-e-search" type="search" placeholder="🔍 Поиск…" value="${esc(_q)}"
+          style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:140px;flex:1"
+          oninput="equipSearchFilter(this.value)" />
+        <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFStatus=this.value;renderPGK()">${statOpts}</select>
+        <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFBase=this.value;renderPGK()">${baseOpts}</select>
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          <button class="btn bs bsm" onclick="pgkImportEquip()" title="Импорт из Excel">📥</button>
+          <button class="btn bs bsm" onclick="exportEquipmentExcel()" title="Экспорт в Excel">📤</button>
+          <button class="btn bs bsm" onclick="openEquipActModal()" title="Акт приёма-передачи">📄 Акт</button>
+          <button class="btn bp bsm" onclick="pgkAddEquip()">＋ Добавить</button>
+        </div>
+      </div>
+      <div class="wt-summary" style="padding:4px 12px">
+        <span>Всего: <b>${pgkEquipment.length}</b></span>
+        <span style="color:#15803d">✅ <b>${byCnt.working||0}</b></span>
+        <span style="color:#a16207">⏸ <b>${byCnt.idle||0}</b></span>
+        <span style="color:#b91c1c">🔴 <b>${byCnt.broken||0}</b></span>
+        ${filtered.length<pgkEquipment.length?`<span style="color:var(--acc)">Показано: <b>${filtered.length}</b></span>`:''}
+        <span id="eq-sel-info" style="color:var(--acc);display:none">Выбрано: <b id="eq-sel-cnt">0</b> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="equipMoveSelected()">→ В группу</button> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="document.querySelectorAll('#et-tbody tr.lasso-sel').forEach(r=>r.classList.remove('lasso-sel'));_equipUpdateSelInfo()">✕</button></span>
+      </div>
+      <div class="spare-tbl-wrap">
+        <table class="wt-tbl" style="min-width:600px">
+          <thead><tr>
+            <th class="no-sort" style="width:28px;text-align:center;color:var(--tx3)">#</th>
+            ${thSort('name','Название')}
+            ${thSort('type','Тип')}
+            ${thSort('status','Статус')}
+            ${thSort('base','База')}
+            <th class="no-sort">Серийный №</th>
+            ${thSort('responsible','Ответственный')}
+            <th class="no-sort" style="min-width:120px">Примечания</th>
+          </tr></thead>
+          <tbody id="et-tbody">${rows||`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx3)">Нет оборудования</td></tr>`}</tbody>
+        </table>
       </div>
     </div>
-    <div class="wt-summary">
-      <span>Всего: <b>${pgkEquipment.length}</b></span>
-      <span style="color:#15803d">✅ В работе: <b>${byCnt.working||0}</b></span>
-      <span style="color:#a16207">⏸ Не используется: <b>${byCnt.idle||0}</b></span>
-      <span style="color:#b91c1c">🔴 Неисправно: <b>${byCnt.broken||0}</b></span>
-      <span style="color:var(--tx3)">На базах: <b>${pgkEquipment.filter(e=>e.base_id).length}</b></span>
-      <span id="et-shown-count" style="color:var(--acc);margin-left:4px;display:none">Найдено: <b id="et-shown-n">0</b></span>
-    </div>
-    <div class="wt-scroll">
-      <table class="wt-tbl" style="min-width:700px">
-        <thead><tr>
-          <th class="no-sort" style="width:36px;text-align:center;color:var(--tx3)">#</th>
-          ${thSort('name','Название')}
-          ${thSort('type','Тип')}
-          ${thSort('status','Статус')}
-          ${thSort('base','База')}
-          ${thSort('serial_number','Серийный №')}
-          ${thSort('responsible','Ответственный')}
-          <th class="no-sort" style="min-width:140px">Примечания</th>
-        </tr></thead>
-        <tbody id="et-tbody">${rows||`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx3)">Нет оборудования</td></tr>`}</tbody>
-      </table>
-    </div>
   </div>`;
-
-  const srch=window._pgkESearchVal||'';
-  if(srch){const inp=document.getElementById('pgk-e-search');if(inp)inp.value=srch;pgkEquipSearchFilter(srch);}
+  // Re-apply search filter after render
+  if(_q){setTimeout(()=>equipSearchFilter(_q),0);}
+  // Init lasso selection
+  setTimeout(()=>_initLasso('et-tbody',_equipUpdateSelInfo),0);
 }
 
-function pgkEquipSearchFilter(val){
+function equipSearchFilter(val){
   window._pgkESearchVal=val;
   const q=val.toLowerCase().trim();
-  const rows=document.querySelectorAll('#et-tbody tr[data-eid]');
-  let shown=0;
-  rows.forEach(tr=>{const match=!q||tr.dataset.search.includes(q);tr.style.display=match?'':'none';if(match)shown++;});
-  let num=1;
-  rows.forEach(tr=>{if(tr.style.display!=='none'){const c=tr.querySelector('td:first-child');if(c)c.textContent=num++;}});
-  const cw=document.getElementById('et-shown-count'),cn=document.getElementById('et-shown-n');
-  if(cw&&cn){if(q){cw.style.display='';cn.textContent=shown;}else{cw.style.display='none';}}
+  let n=0;
+  document.querySelectorAll('#et-tbody tr[data-eid]').forEach(tr=>{
+    const show=!q||tr.dataset.search.includes(q);
+    tr.style.display=show?'':'none';
+    if(show){const c=tr.querySelector('.eq-rownum');if(c)c.textContent=++n;}
+  });
+}
+function _equipUpdateSelInfo(){
+  const sel=document.querySelectorAll('#et-tbody tr.lasso-sel');
+  const si=document.getElementById('eq-sel-info');
+  const sc=document.getElementById('eq-sel-cnt');
+  if(si&&sc){si.style.display=sel.length?'':'none';sc.textContent=sel.length;}
+}
+
+// ── Lasso (rubber-band) row selection ─────────────────────
+function _initLasso(tbodyId, onChangeCallback){
+  const tbody=document.getElementById(tbodyId);
+  if(!tbody)return;
+  const scroller=tbody.closest('.spare-tbl-wrap')||tbody.closest('.wt-scroll');
+  if(!scroller)return;
+  let startX,startY,rect,box,dragging=false,startTarget;
+  const overlay=document.createElement('div');
+  overlay.style.cssText='position:fixed;pointer-events:none;border:1.5px dashed var(--acc);background:rgba(99,102,241,.08);z-index:9999;display:none;border-radius:3px';
+  document.body.appendChild(overlay);
+  function rowsInBox(x1,y1,x2,y2){
+    const left=Math.min(x1,x2),top=Math.min(y1,y2),right=Math.max(x1,x2),bot=Math.max(y1,y2);
+    const rows=[...tbody.querySelectorAll('tr[data-eid],tr[data-matid]')].filter(tr=>tr.style.display!=='none');
+    return rows.filter(tr=>{
+      const r=tr.getBoundingClientRect();
+      return r.bottom>top&&r.top<bot&&r.right>left&&r.left<right;
+    });
+  }
+  // Prevent browser DnD from hijacking the lasso gesture
+  tbody.addEventListener('dragstart',e=>{
+    if(startTarget){e.preventDefault();}
+  });
+  scroller.addEventListener('mousedown',e=>{
+    if(e.button!==0)return;
+    const tr=e.target.closest('tr');
+    if(tr&&(tr.dataset.eid||tr.dataset.matid)&&!e.target.closest('button,a,input,select')){
+      startTarget=tr;dragging=false;
+      rect=scroller.getBoundingClientRect();
+      startX=e.clientX;startY=e.clientY;
+      box={x1:startX,y1:startY,x2:startX,y2:startY};
+    }
+  });
+  window.addEventListener('mousemove',e=>{
+    if(!startTarget)return;
+    box.x2=e.clientX;box.y2=e.clientY;
+    const dx=Math.abs(box.x2-box.x1),dy=Math.abs(box.y2-box.y1);
+    if(!dragging&&dx<6&&dy<6)return; // not yet a drag
+    if(!dragging){dragging=true;overlay.style.display='block';e.preventDefault();}
+    overlay.style.left=Math.min(box.x1,box.x2)+'px';
+    overlay.style.top=Math.min(box.y1,box.y2)+'px';
+    overlay.style.width=Math.abs(box.x2-box.x1)+'px';
+    overlay.style.height=Math.abs(box.y2-box.y1)+'px';
+    const hit=new Set(rowsInBox(box.x1,box.y1,box.x2,box.y2));
+    tbody.querySelectorAll('tr.lasso-sel').forEach(r=>{if(!hit.has(r))r.classList.remove('lasso-sel');});
+    hit.forEach(r=>r.classList.add('lasso-sel'));
+    onChangeCallback&&onChangeCallback();
+  });
+  window.addEventListener('mouseup',e=>{
+    if(!startTarget){return;}
+    const wasDragging=dragging;
+    dragging=false;startTarget=null;
+    overlay.style.display='none';
+    if(!wasDragging)return; // plain click — don't change selection
+    onChangeCallback&&onChangeCallback();
+  });
+  // Safety net: browser DnD (if not fully prevented) ends with dragend, not mouseup
+  window.addEventListener('dragend',()=>{
+    if(!startTarget)return;
+    dragging=false;startTarget=null;
+    overlay.style.display='none';
+    onChangeCallback&&onChangeCallback();
+  });
+}
+
+function _equipSelectedIds(){
+  return [...document.querySelectorAll('#et-tbody tr.lasso-sel')].map(tr=>tr.dataset.eid);
+}
+function equipDragStart(ev,eid){
+  const sel=_equipSelectedIds();
+  ev.dataTransfer.setData('text/plain',sel.length?JSON.stringify(sel):JSON.stringify([eid]));
+  ev.dataTransfer.effectAllowed='move';
+}
+async function equipDropToGroup(ev,gid){
+  ev.preventDefault();
+  let ids=[];
+  try{ids=JSON.parse(ev.dataTransfer.getData('text/plain'));}catch(e){return;}
+  await Promise.all(ids.map(id=>fetch(`${API}/pgk/equipment/${id}/group`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({group_id:gid})})));
+  await loadPGK();
+  toast(`Перемещено: ${ids.length}`,'ok');
+}
+async function equipMoveSelected(){
+  const ids=_equipSelectedIds();
+  if(!ids.length)return;
+  const grpOpts=pgkEquipGroups.map(g=>`<option value="${escAttr(g.id)}">${esc(g.name)}</option>`).join('');
+  if(!grpOpts){toast('Сначала создайте группу','warn');return;}
+  showModal('→ Переместить в группу',`<div class="fgr"><div class="fg s2"><label>Группа</label>
+    <select id="f-grp" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+      <option value="">— Без группы —</option>${grpOpts}
+    </select></div></div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Переместить',cls:'bp',fn:async()=>{
+    const gid=v('f-grp')||'';
+    await Promise.all(ids.map(id=>fetch(`${API}/pgk/equipment/${id}/group`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({group_id:gid})})));
+    closeModal();await loadPGK();toast(`Перемещено: ${ids.length}`,'ok');
+  }}]);
+}
+async function equipGrpAdd(){
+  showModal('Новая группа',`<div class="fgr"><div class="fg s2"><label>Название *</label><input id="f-n" placeholder="Геодезия"></div></div>`,
+    [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Создать',cls:'bp',fn:async()=>{
+    const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
+    await fetch(`${API}/equip_groups`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    closeModal();await loadPGK();toast('Группа создана','ok');
+  }}]);
+}
+async function equipGrpEdit(gid,curName){
+  showModal('Переименовать группу',`<div class="fgr"><div class="fg s2"><label>Название *</label><input id="f-n" value="${esc(curName)}"></div></div>`,
+    [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
+    await fetch(`${API}/equip_groups/${gid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    closeModal();await loadPGK();toast('Переименовано','ok');
+  }}]);
+}
+async function equipGrpDel(gid){
+  if(!confirm('Удалить группу? Оборудование станет "без группы".'))return;
+  await fetch(`${API}/equip_groups/${gid}`,{method:'DELETE'});
+  if(window._pgkEGrp===gid)window._pgkEGrp='';
+  await loadPGK();toast('Группа удалена','ok');
 }
 
 async function openEquipDetail(eid){
   const e=pgkEquipment.find(x=>x.id===eid);if(!e)return;
   const b=bases.find(x=>x.id===e.base_id);
+  const grp=pgkEquipGroups.find(g=>g.id===e.group_id);
   const statLbl={working:'✅ В работе',idle:'⏸ Не используется',broken:'🔴 Неисправно'};
-  const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
+  const statClr={working:'var(--grn)',idle:'var(--warn)',broken:'var(--red)'};
   const st=e.status||'working';
-  const html=`<div style="margin-bottom:12px">
-    <div style="font-size:14px;font-weight:800">🔩 ${esc(e.name)}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:2px">${esc(e.type||'—')}${e.serial_number?' · S/N '+esc(e.serial_number):''}</div>
-    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-      <span class="wt-badge ${statCls[st]}">${statLbl[st]||st}</span>
-      ${b?`<span style="font-size:11px;color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="font-size:11px;color:var(--tx3)">Не на базе</span>'}
-      ${e.responsible?`<span style="font-size:11px;color:var(--tx2)">👤 ${esc(e.responsible)}</span>`:''}
+  const initials=e.name.split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()||'?';
+  const _eid=escAttr(eid);
+  function renderEqTab(tab){
+    if(tab==='main'){
+      return `<div class="wdc-panel">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;font-size:12px">
+          <div style="color:var(--tx3)">Тип</div><div>${esc(e.type||'—')}</div>
+          <div style="color:var(--tx3)">Серийный №</div><div style="font-family:monospace">${esc(e.serial_number||'—')}</div>
+          <div style="color:var(--tx3)">База</div><div>${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</div>
+          <div style="color:var(--tx3)">Группа</div><div>${grp?esc(grp.name):'<span style="color:var(--tx3)">—</span>'}</div>
+        </div>
+        ${e.notes?`<div style="font-size:11px;color:var(--tx2);background:var(--s2);border-radius:6px;padding:8px 10px;margin-bottom:12px">📝 ${esc(e.notes)}</div>`:''}
+        <div style="font-size:10px;font-weight:700;color:var(--tx3);margin-bottom:6px">НАЗНАЧИТЬ НА БАЗУ</div>
+        <select style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);margin-bottom:12px" onchange="pgkAssignEquipBase('${_eid}',this.value)">
+          <option value="">— Снять с базы —</option>${bases.map(bx=>`<option value="${bx.id}" ${e.base_id===bx.id?'selected':''}>${esc(bx.name)}</option>`).join('')}
+        </select>
+        <div style="font-size:10px;font-weight:700;color:var(--tx3);margin-bottom:6px">СТАТУС</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          ${Object.entries(statLbl).map(([k,v])=>`<button class="btn bsm ${st===k?'bp':'bs'}" onclick="pgkEquipQuickStatus('${_eid}','${k}');openEquipDetail('${_eid}')">${v}</button>`).join('')}
+        </div>
+      </div>`;
+    }
+    return `<div class="wdc-panel" id="eq-hist-panel">
+      <div style="font-size:11px;color:var(--tx3);margin-bottom:8px">Загрузка...</div>
+    </div>`;
+  }
+  const _tab=window._pgkEqDetailTab||'main';
+  const html=`<div class="wdc-hd">
+    <div class="wdc-av" style="border-radius:var(--rs);font-size:16px">🔩</div>
+    <div class="wdc-info">
+      <div class="wdc-name">${esc(e.name)}</div>
+      <div class="wdc-role">${esc(e.type||'Оборудование')}${e.serial_number?' · S/N '+esc(e.serial_number):''}</div>
+      <div class="wdc-chips">
+        <span class="wt-badge" style="background:${statClr[st]}22;color:${statClr[st]};border-color:${statClr[st]}44">${statLbl[st]}</span>
+        ${b?`<span class="wdc-chip" style="background:var(--s2);border-color:var(--bd);color:var(--bpc)">🏕 ${esc(b.name)}</span>`:''}
+        ${e.responsible?`<span class="wdc-chip" style="background:var(--s2);border-color:var(--bd);color:var(--tx2)">👤 ${esc(e.responsible)}</span>`:''}
+      </div>
     </div>
   </div>
-  ${e.notes?`<div style="font-size:11px;color:var(--tx2);background:var(--s2);border-radius:6px;padding:8px 10px;margin-bottom:10px">📝 ${esc(e.notes)}</div>`:''}
-  <div style="font-size:10px;font-weight:700;color:var(--tx3);margin-bottom:6px">НАЗНАЧИТЬ НА БАЗУ</div>
-  <select id="eq-base-sel" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);margin-bottom:12px" onchange="pgkAssignEquipBase('${eid}',this.value)">
-    <option value="">— Снять с базы —</option>${bases.map(bx=>`<option value="${bx.id}" ${e.base_id===bx.id?'selected':''}>${esc(bx.name)}</option>`).join('')}
-  </select>
-  <div style="font-size:10px;font-weight:700;color:var(--tx3);margin-bottom:4px">БЫСТРЫЙ СТАТУС</div>
-  <div style="display:flex;gap:4px;flex-wrap:wrap">
-    ${Object.entries(statLbl).map(([k,v])=>`<button class="btn bsm ${st===k?'bp':'bs'}" onclick="pgkEquipQuickStatus('${eid}','${k}');openEquipDetail('${eid}')">${v}</button>`).join('')}
-  </div>`;
-  showModal('🔩 '+esc(e.name),html,[
-    {label:'Закрыть',cls:'bs',fn:closeModal},
-    {label:'✏️ Редактировать',cls:'bp',fn:()=>{closeModal();pgkEditEquip(eid);}}
-  ]);
+  <div class="wdc-actions">
+    <button class="btn bp wdc-btn" onclick="closeModal();pgkEditEquip('${_eid}')">✏️ Редактировать</button>
+    <button class="btn bs wdc-btn" onclick="pgkAssignEquipResponsible('${_eid}')">👤 Ответственный</button>
+    <button class="btn bs wdc-btn" style="color:var(--red);margin-left:auto" onclick="closeModal();pgkDelEquip('${_eid}')">🗑</button>
+  </div>
+  <div class="wdc-tabs">
+    <button class="wdc-tab${_tab==='main'?' on':''}" onclick="window._pgkEqDetailTab='main';document.getElementById('eq-tab-main').classList.add('on');document.getElementById('eq-tab-hist').classList.remove('on');document.getElementById('eq-body-main').style.display='';document.getElementById('eq-body-hist').style.display='none';" id="eq-tab-main">Основное</button>
+    <button class="wdc-tab${_tab==='hist'?' on':''}" onclick="window._pgkEqDetailTab='hist';document.getElementById('eq-tab-hist').classList.add('on');document.getElementById('eq-tab-main').classList.remove('on');document.getElementById('eq-body-hist').style.display='';document.getElementById('eq-body-main').style.display='none';loadEquipHistory('${_eid}')" id="eq-tab-hist">История ответственных</button>
+  </div>
+  <div id="eq-body-main" style="display:${_tab==='main'?'':'none'}">${renderEqTab('main')}</div>
+  <div id="eq-body-hist" style="display:${_tab==='hist'?'':'none'}">${renderEqTab('hist')}</div>`;
+  showModal('🔩 '+esc(e.name),html,[{label:'Закрыть',cls:'bs',fn:closeModal}]);
+  if(_tab==='hist')loadEquipHistory(eid);
+}
+
+async function loadEquipHistory(eid){
+  const panel=document.getElementById('eq-body-hist');if(!panel)return;
+  panel.innerHTML='<div class="wdc-panel"><div style="font-size:11px;color:var(--tx3)">Загрузка...</div></div>';
+  const hist=await fetch(`${API}/equip_responsible_history/${eid}`).then(r=>r.json()).catch(()=>[]);
+  if(!hist.length){panel.innerHTML='<div class="wdc-panel"><div style="font-size:11px;color:var(--tx3);padding:12px 0">История пуста</div></div>';return;}
+  panel.innerHTML=`<div class="wdc-panel">${hist.map(h=>`<div class="wdc-shift">
+    <div style="font-size:12px;font-weight:600">👤 ${esc(h.responsible)}</div>
+    <div style="font-size:10px;color:var(--tx3);margin-top:2px">${(h.assigned_at||'').replace('T',' ').slice(0,16)}</div>
+  </div>`).join('')}</div>`;
 }
 
 async function pgkEquipQuickStatus(eid,status){
@@ -840,33 +1634,27 @@ function equipCtxMenu(ev,eid){
 }
 
 async function pgkPageMaterials(pb){
-  // Загружаем все материалы со всех баз
-  const allMats = bases.flatMap(b=>(b.materials||[]).map(m=>({...m,base_name:b.name})));
+  const allMats=bases.flatMap(b=>(b.materials||[]).map(m=>({...m,base_name:b.name})));
+  const _mfGroup=window._pgkMFGroup||'';
+  const _mfBase=window._pgkMFBaseM||'';
+  const _ms=window._pgkMSortM||'name';
+  const _ma=window._pgkMAscM!==false;
+  const _q=(window._pgkMSearchM||'').toLowerCase().trim();
 
-  // Фильтр + поиск
-  const _mfBase   = window._pgkMFBaseM||'';
-  const _mfGroup  = window._pgkMFGroup||'';
-  const _mfSearch = window._pgkMSearchM||'';
-  const _ms = window._pgkMSortM||'name';
-  const _ma = window._pgkMAscM!==false;
+  const lowStock=allMats.filter(m=>m.min_amount>0&&m.amount<m.min_amount).length;
+  const _knownGrpNames=new Set(pgkMatGroups.map(g=>g.name));
 
-  // Собираем уникальные группы
-  const allGroups = [...new Set(allMats.map(m=>m.category||'').filter(Boolean))].sort();
-
-  let filtered = allMats.filter(m=>{
-    if(_mfBase && m.base_id!==_mfBase) return false;
-    if(_mfGroup && (m.category||'')!==_mfGroup) return false;
-    if(_mfSearch){
-      const hay=(m.name+' '+(m.category||'')+' '+(m.base_name||'')+' '+(m.notes||'')).toLowerCase();
-      if(!hay.includes(_mfSearch.toLowerCase())) return false;
-    }
+  let filtered=allMats.filter(m=>{
+    if(_mfGroup==='__none'){if(m.category&&_knownGrpNames.has(m.category))return false;}
+    else if(_mfGroup&&(m.category||'')!==_mfGroup)return false;
+    if(_mfBase&&m.base_id!==_mfBase)return false;
+    if(_q){const hay=(m.name+' '+(m.category||'')+' '+(m.base_name||'')+' '+(m.notes||'')).toLowerCase();if(!hay.includes(_q))return false;}
     return true;
   });
-
-  // Сортировка
   filtered.sort((a,b)=>{
     let va,vb;
     if(_ms==='amount'){va=+a.amount||0;vb=+b.amount||0;}
+    else if(_ms==='weight'){va=+a.weight||0;vb=+b.weight||0;}
     else if(_ms==='base'){va=a.base_name||'';vb=b.base_name||'';}
     else if(_ms==='category'){va=a.category||'';vb=b.category||'';}
     else{va=a[_ms]||'';vb=b[_ms]||'';}
@@ -876,77 +1664,179 @@ async function pgkPageMaterials(pb){
 
   const thSort=(col,lbl)=>`<th class="${_ms===col?(_ma?'wt-asc':'wt-desc'):''}"
     onclick="window._pgkMSortM==='${col}'?(window._pgkMAscM=!(_ma)):(window._pgkMSortM='${col}',window._pgkMAscM=true);renderPGK()">${lbl}</th>`;
-
   const baseOpts=`<option value="">Все базы</option>`+bases.map(b=>`<option value="${b.id}" ${_mfBase===b.id?'selected':''}>${esc(b.name)}</option>`).join('');
-  const groupOpts=`<option value="">Все группы</option>`+allGroups.map(g=>`<option value="${esc(g)}" ${_mfGroup===g?'selected':''}>${esc(g)}</option>`).join('');
 
-  // Итоги
-  const totalPos = allMats.length;
-  const lowStock = allMats.filter(m=>m.min_amount>0&&m.amount<m.min_amount).length;
-  const groups   = [...new Set(allMats.map(m=>m.category||'').filter(Boolean))].length;
+  const grpCounts={};allMats.forEach(m=>{const g=m.category||'__none';grpCounts[g]=(grpCounts[g]||0)+1;});
+  // Count materials that don't belong to any known group
+  const knownNames=new Set(pgkMatGroups.map(g=>g.name));
+  const noneCount=allMats.filter(m=>!m.category||!knownNames.has(m.category)).length;
 
-  const rows = filtered.map((m,i)=>{
-    const pct = m.min_amount>0?Math.min(100,Math.round(m.amount/m.min_amount*100)):null;
-    const low = m.min_amount>0&&m.amount<m.min_amount;
+  const grpSidebar=`
+    <div class="spare-grp-item${!_mfGroup?' on':''}" onclick="window._pgkMFGroup='';renderPGK()">
+      <span class="spare-grp-nm">Все</span>
+      <span style="font-size:10px;color:var(--tx3);margin-left:4px">${allMats.length}</span>
+    </div>
+    <div class="spare-grp-item${_mfGroup==='__none'?' on':''}" onclick="window._pgkMFGroup='__none';renderPGK()">
+      <span class="spare-grp-nm" style="color:var(--tx3)">Без группы</span>
+      <span style="font-size:10px;color:var(--tx3);margin-left:4px">${noneCount}</span>
+    </div>
+    ${pgkMatGroups.map(g=>{
+      const cnt=allMats.filter(m=>m.category===g.name).length;
+      const _gn=escAttr(g.name);const _gid=escAttr(g.id);
+      return `<div class="spare-grp-item${_mfGroup===g.name?' on':''}" onclick="window._pgkMFGroup='${_gn}';renderPGK()"
+        ondragover="event.preventDefault();this.style.background='var(--accl)'" ondragleave="this.style.background=''" ondrop="matDropToGroup(event,'${_gn}');this.style.background=''">
+        <span class="spare-grp-nm">${esc(g.name)}</span>
+        <span style="font-size:10px;color:var(--tx3);margin-left:4px">${cnt}</span>
+        <span class="spare-grp-acts">
+          <button class="btn bs bsm" style="padding:1px 5px;font-size:10px" onclick="event.stopPropagation();matGrpRename('${_gid}','${_gn}')">✏️</button>
+          <button class="btn bs bsm" style="padding:1px 5px;font-size:10px;color:var(--red)" onclick="event.stopPropagation();matGrpDel('${_gid}','${_gn}')">🗑</button>
+        </span>
+      </div>`;
+    }).join('')}
+    <button class="btn bs bsm" style="width:100%;margin-top:6px;font-size:11px" onclick="matGrpAdd()">＋ Группа</button>`;
+
+  const rows=filtered.map((m,i)=>{
+    const pct=m.min_amount>0?Math.min(100,Math.round(m.amount/m.min_amount*100)):null;
+    const low=m.min_amount>0&&m.amount<m.min_amount;
     const _id=escAttr(m.id);
-    return `<tr data-matid="${m.id}"
-      data-search="${esc((m.name+' '+(m.category||'')+' '+(m.base_name||'')+' '+(m.notes||'')).toLowerCase())}"
+    return `<tr data-matid="${m.id}" data-search="${esc((m.name+' '+(m.category||'')+' '+(m.base_name||'')+' '+(m.notes||'')).toLowerCase())}" draggable="true"
+      ondragstart="matDragStart(event,'${_id}')"
       oncontextmenu="event.preventDefault();pgkMatCtxMenu(event,'${_id}')">
-      <td style="text-align:center;color:var(--tx3);font-size:10px;font-weight:600">${i+1}</td>
-      <td class="td-link" style="font-weight:600;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.name)}" onclick="pgkMatDetail('${_id}')">📦 ${esc(m.name)}</td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'material','${_id}','category')"><span style="background:var(--s3);border:1px solid var(--bd);border-radius:20px;padding:1px 7px;font-size:10px;font-weight:600;color:var(--tx2)">${esc(m.category||'—')}</span></td>
+      <td style="text-align:center;width:28px;color:var(--tx3);font-size:10px;font-weight:600" class="mat-rownum">${i+1}</td>
+      <td class="td-link" style="font-weight:600" title="${esc(m.name)}" onclick="pgkMatDetail('${_id}')">📦 ${esc(m.name)}</td>
+      <td><span style="background:var(--s3);border:1px solid var(--bd);border-radius:20px;padding:1px 7px;font-size:10px;font-weight:600;color:var(--tx2)">${esc(m.category||'—')}</span></td>
       <td style="color:var(--bpc)">🏕 ${esc(m.base_name||'—')}</td>
-      <td class="td-editable" style="font-weight:700;color:var(--acc);text-align:right" onclick="pgkCellEdit(event,this,'material','${_id}','amount')">${m.amount} <span style="font-weight:400;color:var(--tx3)">${esc(m.unit||'шт')}</span></td>
+      <td style="font-weight:700;color:var(--acc);text-align:right">${m.amount} <span style="font-weight:400;color:var(--tx3)">${esc(m.unit||'шт')}</span></td>
+      <td style="text-align:right;color:var(--tx2)">${m.weight?(+m.weight).toLocaleString('ru')+' <span style="font-weight:400;color:var(--tx3);font-size:10px">кг</span>':'<span style="color:var(--tx3)">—</span>'}</td>
       <td style="text-align:center">
-        ${pct!==null?`<div style="display:flex;align-items:center;gap:4px;min-width:80px">
+        ${pct!==null?`<div style="display:flex;align-items:center;gap:4px;min-width:70px">
           <div style="flex:1;height:4px;background:var(--s3);border-radius:2px">
             <div style="width:${pct}%;height:4px;background:${low?'var(--red)':pct<50?'#f59e0b':'var(--grn)'};border-radius:2px"></div>
           </div>
           <span style="font-size:9px;color:${low?'var(--red)':'var(--tx3)'};min-width:26px">${pct}%</span>
         </div>`:'<span style="color:var(--tx3);font-size:10px">—</span>'}
       </td>
-      <td class="td-notes td-editable" title="${esc(m.notes||'')}" onclick="pgkCellEdit(event,this,'material','${_id}','notes')">${esc(m.notes||'')}</td>
+      <td class="td-notes" title="${esc(m.notes||'')}">${esc(m.notes||'')}</td>
     </tr>`;
   }).join('');
 
-  pb.innerHTML=`<div class="wt-outer">
-    <div class="wt-toolbar">
-      <span style="font-size:13px;font-weight:800;flex-shrink:0">📦 Материалы</span>
-      <input id="pgk-mat-search" type="search" placeholder="🔍 Поиск…"
-        style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:160px;flex-shrink:0"
-        oninput="window._pgkMSearchM=this.value;renderPGK()"/>
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFGroup=this.value;renderPGK()">${groupOpts}</select>
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFBaseM=this.value;renderPGK()">${baseOpts}</select>
-      <div style="margin-left:auto;display:flex;gap:4px;flex-shrink:0">
-        <button class="btn bs bsm" onclick="pgkManageGroups()">🗂 Группы</button>
+  pb.innerHTML=`<div class="spare-layout" style="height:100%">
+    <div class="spare-sidebar">
+      <div class="spare-sidebar-hd">Группы</div>
+      ${grpSidebar}
+    </div>
+    <div class="spare-main">
+      <div class="spare-main-hd">
+        <span style="font-size:13px;font-weight:800;flex-shrink:0">📦 Материалы</span>
+        <input id="pgk-mat-search" type="search" placeholder="🔍 Поиск…" value="${esc(_q)}"
+          style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:130px;flex:1"
+          oninput="matSearchFilter(this.value)"/>
+        <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFBaseM=this.value;renderPGK()">${baseOpts}</select>
+        <button class="btn bs bsm" onclick="pgkImportMaterials()" title="Импорт заявки из Excel">📥 Импорт</button>
+        <button class="btn bs bsm" onclick="exportMaterialsExcel()" title="Экспорт в Excel">📤 Excel</button>
         <button class="btn bp bsm" onclick="pgkAddMatGlobal()">＋ Добавить</button>
       </div>
-    </div>
-    <div class="wt-summary">
-      <span>Позиций: <b>${totalPos}</b></span>
-      <span>Групп: <b>${groups}</b></span>
-      <span>Баз: <b>${bases.length}</b></span>
-      ${lowStock?`<span style="color:var(--red)">⚠️ Ниже минимума: <b>${lowStock}</b></span>`:''}
-      <span id="pgk-mat-shown" style="color:var(--acc);display:none">Найдено: <b id="pgk-mat-shown-n">0</b></span>
-    </div>
-    <div class="wt-scroll">
-      <table class="wt-tbl" style="min-width:700px">
-        <thead><tr>
-          <th class="no-sort" style="width:36px;text-align:center;color:var(--tx3)">#</th>
-          ${thSort('name','Название')}
-          ${thSort('category','Группа')}
-          ${thSort('base','База')}
-          ${thSort('amount','Кол-во')}
-          <th class="no-sort" style="min-width:100px">Запас</th>
-          <th class="no-sort" style="min-width:120px">Примечания</th>
-        </tr></thead>
-        <tbody id="pgk-mat-tbody">${rows||`<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--tx3)">Нет материалов</td></tr>`}</tbody>
-      </table>
+      <div class="wt-summary" style="padding:4px 12px">
+        <span>Позиций: <b>${allMats.length}</b></span>
+        <span>Баз: <b>${bases.length}</b></span>
+        ${lowStock?`<span style="color:var(--red)">⚠️ Ниже мин: <b>${lowStock}</b></span>`:''}
+        ${filtered.length<allMats.length?`<span style="color:var(--acc)">Показано: <b>${filtered.length}</b></span>`:''}
+        <span id="mat-sel-info" style="color:var(--acc);display:none">Выбрано: <b id="mat-sel-cnt">0</b> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="matMoveSelected()">→ В группу</button> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="document.querySelectorAll('#pgk-mat-tbody tr.lasso-sel').forEach(r=>r.classList.remove('lasso-sel'));_matUpdateSelInfo()">✕</button></span>
+      </div>
+      <div class="spare-tbl-wrap">
+        <table class="wt-tbl" style="min-width:600px">
+          <thead><tr>
+            <th class="no-sort" style="width:28px;text-align:center;color:var(--tx3)">#</th>
+            ${thSort('name','Название')}
+            ${thSort('category','Группа')}
+            ${thSort('base','База')}
+            ${thSort('amount','Кол-во')}
+            ${thSort('weight','Вес, кг')}
+            <th class="no-sort" style="min-width:80px">Запас</th>
+            <th class="no-sort" style="min-width:120px">Примечания</th>
+          </tr></thead>
+          <tbody id="pgk-mat-tbody">${rows||`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx3)">Нет материалов</td></tr>`}</tbody>
+        </table>
+      </div>
     </div>
   </div>`;
+  // Re-apply search filter after render
+  if(_q){setTimeout(()=>matSearchFilter(_q),0);}
+  // Init lasso selection
+  setTimeout(()=>_initLasso('pgk-mat-tbody',_matUpdateSelInfo),0);
+}
 
-  const srch=window._pgkMSearchM||'';
-  if(srch){const inp=document.getElementById('pgk-mat-search');if(inp)inp.value=srch;}
+function matSearchFilter(val){
+  window._pgkMSearchM=val;
+  const q=val.toLowerCase().trim();
+  let n=0;
+  document.querySelectorAll('#pgk-mat-tbody tr[data-matid]').forEach(tr=>{
+    const show=!q||tr.dataset.search.includes(q);
+    tr.style.display=show?'':'none';
+    if(show){const c=tr.querySelector('.mat-rownum');if(c)c.textContent=++n;}
+  });
+}
+function _matUpdateSelInfo(){
+  const sel=document.querySelectorAll('#pgk-mat-tbody tr.lasso-sel');
+  const si=document.getElementById('mat-sel-info'),sc=document.getElementById('mat-sel-cnt');
+  if(si&&sc){si.style.display=sel.length?'':'none';sc.textContent=sel.length;}
+}
+function _matSelectedIds(){return[...document.querySelectorAll('#pgk-mat-tbody tr.lasso-sel')].map(tr=>tr.dataset.matid);}
+function matDragStart(ev,mid){const sel=_matSelectedIds();ev.dataTransfer.setData('text/plain',sel.length?JSON.stringify(sel):JSON.stringify([mid]));ev.dataTransfer.effectAllowed='move';}
+async function matDropToGroup(ev,grpName){
+  ev.preventDefault();
+  let ids=[];try{ids=JSON.parse(ev.dataTransfer.getData('text/plain'));}catch(e){return;}
+  await Promise.all(ids.map(id=>{
+    const b=bases.find(b=>(b.materials||[]).some(m=>m.id===id));
+    const m=b&&(b.materials||[]).find(m=>m.id===id);
+    if(!m)return Promise.resolve();
+    return fetch(`${API}/materials/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...m,category:grpName,user_name:un()})});
+  }));
+  await loadPGK();await loadAll();toast(`Перемещено: ${ids.length}`,'ok');
+}
+async function matMoveSelected(){
+  const ids=_matSelectedIds();if(!ids.length)return;
+  const allGroups=pgkMatGroups.map(g=>g.name);
+  const grpOpts=allGroups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');
+  showModal('→ Переместить в группу',`<div class="fgr">
+    <div class="fg s2"><label>Группа</label>
+      <select id="f-mg" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+        <option value="">— без группы —</option>${grpOpts}
+      </select>
+    </div></div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Переместить',cls:'bp',fn:async()=>{
+    const grp=v('f-mg')||'';
+    await Promise.all(ids.map(id=>{
+      const b=bases.find(b=>(b.materials||[]).some(m=>m.id===id));
+      const m=b&&(b.materials||[]).find(m=>m.id===id);
+      if(!m)return Promise.resolve();
+      return fetch(`${API}/materials/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...m,category:grp,user_name:un()})});
+    }));
+    closeModal();await loadPGK();await loadAll();toast(`Перемещено: ${ids.length}`,'ok');
+  }}]);
+}
+async function matGrpAdd(){
+  showModal('Новая группа',`<div class="fgr"><div class="fg s2"><label>Название</label><input id="f-n" placeholder="Топливо"></div></div>`,
+    [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Создать',cls:'bp',fn:async()=>{
+    const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
+    await fetch(`${API}/mat_groups`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    closeModal();await loadPGK();window._pgkMFGroup=name;toast(`Группа "${name}" создана — перетащите материалы в неё`,'ok');
+  }}]);
+}
+async function matGrpRename(gid,oldName){
+  showModal('Переименовать группу',`<div class="fgr"><div class="fg s2"><label>Новое название</label><input id="f-n" value="${esc(oldName)}"></div></div>`,
+    [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Переименовать',cls:'bp',fn:async()=>{
+    const newName=v('f-n').trim();if(!newName||newName===oldName){closeModal();return;}
+    await fetch(`${API}/mat_groups/${gid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newName})});
+    const toUpdate=bases.flatMap(b=>(b.materials||[]).filter(m=>(m.category||'')===oldName));
+    await Promise.all(toUpdate.map(m=>fetch(`${API}/materials/${m.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...m,category:newName,user_name:un()})})));
+    closeModal();await loadPGK();await loadAll();toast(`Переименовано`,'ok');
+  }}]);
+}
+async function matGrpDel(gid,grpName){
+  if(!confirm(`Удалить группу "${grpName}"? Материалы станут "без группы".`))return;
+  await fetch(`${API}/mat_groups/${gid}`,{method:'DELETE'});
+  if(window._pgkMFGroup===grpName)window._pgkMFGroup='';
+  await loadPGK();toast('Группа удалена','ok');
 }
 
 // Карточка материала
@@ -995,33 +1885,30 @@ function openEditMatModalGlobal(matId){
   const b=bases.find(b=>(b.materials||[]).some(m=>m.id===matId));
   const m=b&&(b.materials||[]).find(m=>m.id===matId);
   if(!m)return;
-  const allGroups=[...new Set(bases.flatMap(b=>(b.materials||[]).map(m=>m.category||'')).filter(Boolean))].sort();
+  const allGroups=pgkMatGroups.map(g=>g.name);
   const groupOpts=`<option value="">— без группы —</option>`+allGroups.map(g=>`<option value="${esc(g)}" ${m.category===g?'selected':''}>${esc(g)}</option>`).join('');
   showModal('✏️ '+esc(m.name),`<div class="fgr">
     <div class="fg s2"><label>Название *</label><input id="f-mn" value="${esc(m.name)}"></div>
     <div class="fg"><label>Группа</label>
-      <div style="display:flex;gap:5px">
-        <select id="f-mcat" style="flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">${groupOpts}</select>
-        <input id="f-mcat-new" placeholder="или новая…" style="flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none">
-      </div>
+      <select id="f-mcat" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">${groupOpts}</select>
     </div>
     <div class="fg"><label>Кол-во</label><input id="f-mamt" type="number" value="${m.amount}" step="0.01"></div>
     <div class="fg"><label>Единица</label><input id="f-munit" value="${esc(m.unit||'шт')}"></div>
+    <div class="fg"><label>Вес, кг</label><input id="f-mweight" type="number" value="${m.weight||0}" step="0.01"></div>
     <div class="fg"><label>Минимум</label><input id="f-mmin" type="number" value="${m.min_amount||0}" step="0.01"></div>
     <div class="fg s2"><label>Примечания</label><textarea id="f-mnotes">${esc(m.notes||'')}</textarea></div>
   </div>`,
   [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
     const name=(document.getElementById('f-mn').value||'').trim();
     if(!name){toast('Введите название','err');return;}
-    const catSel=(document.getElementById('f-mcat').value||'').trim();
-    const catNew=(document.getElementById('f-mcat-new').value||'').trim();
-    const category=catNew||catSel||'';
+    const category=(document.getElementById('f-mcat').value||'').trim();
     const amount=parseFloat(document.getElementById('f-mamt').value)||0;
     const unit=(document.getElementById('f-munit').value||'шт').trim();
+    const weight=parseFloat(document.getElementById('f-mweight').value)||0;
     const min_amount=parseFloat(document.getElementById('f-mmin').value)||0;
     const notes=(document.getElementById('f-mnotes').value||'').trim();
     await fetch(`${API}/materials/${matId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name,category,amount,unit,min_amount,notes,user_name:un()})});
+      body:JSON.stringify({name,category,amount,unit,weight,min_amount,notes,user_name:un()})});
     closeModal();await loadPGK();await loadAll();toast('Обновлено','ok');
   }}]);
 }
@@ -1034,20 +1921,18 @@ async function pgkDelMatGlobal(matId){
 
 // Добавить материал глобально
 function pgkAddMatGlobal(){
-  const allGroups=[...new Set(bases.flatMap(b=>(b.materials||[]).map(m=>m.category||'')).filter(Boolean))].sort();
+  const allGroups=pgkMatGroups.map(g=>g.name);
   const groupOpts=`<option value="">— без группы —</option>`+allGroups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');
   const baseOpts=`<option value="">— выберите базу —</option>`+bases.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
   showModal('＋ Новый материал',`<div class="fgr">
     <div class="fg s2"><label>Название *</label><input id="f-mn" placeholder="Дизельное топливо"></div>
     <div class="fg"><label>База *</label><select id="f-mbase">${baseOpts}</select></div>
     <div class="fg"><label>Группа</label>
-      <div style="display:flex;gap:5px">
-        <select id="f-mcat" style="flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">${groupOpts}</select>
-        <input id="f-mcat-new" placeholder="или новая…" style="flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none">
-      </div>
+      <select id="f-mcat" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">${groupOpts}</select>
     </div>
     <div class="fg"><label>Кол-во</label><input id="f-mamt" type="number" value="0" step="0.01"></div>
     <div class="fg"><label>Единица</label><input id="f-munit" value="шт"></div>
+    <div class="fg"><label>Вес, кг</label><input id="f-mweight" type="number" value="0" step="0.01"></div>
     <div class="fg"><label>Минимум</label><input id="f-mmin" type="number" value="0" step="0.01"></div>
     <div class="fg s2"><label>Примечания</label><textarea id="f-mnotes"></textarea></div>
   </div>`,
@@ -1056,75 +1941,18 @@ function pgkAddMatGlobal(){
     const baseId=(document.getElementById('f-mbase').value||'').trim();
     if(!name){toast('Введите название','err');return;}
     if(!baseId){toast('Выберите базу','err');return;}
-    const catSel=(document.getElementById('f-mcat').value||'').trim();
-    const catNew=(document.getElementById('f-mcat-new').value||'').trim();
-    const category=catNew||catSel||'';
+    const category=(document.getElementById('f-mcat').value||'').trim();
     const amount=parseFloat(document.getElementById('f-mamt').value)||0;
     const unit=(document.getElementById('f-munit').value||'шт').trim();
+    const weight=parseFloat(document.getElementById('f-mweight').value)||0;
     const min_amount=parseFloat(document.getElementById('f-mmin').value)||0;
     const notes=(document.getElementById('f-mnotes').value||'').trim();
     await fetch(`${API}/bases/${baseId}/materials`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name,category,amount,unit,min_amount,notes,user_name:un()})});
+      body:JSON.stringify({name,category,amount,unit,weight,min_amount,notes,user_name:un()})});
     closeModal();await loadPGK();await loadAll();toast('Добавлено','ok');
   }}]);
 }
 
-// Управление группами
-function pgkManageGroups(){
-  const allGroups=[...new Set(bases.flatMap(b=>(b.materials||[]).map(m=>m.category||'')).filter(Boolean))].sort();
-  const counts={};
-  bases.forEach(b=>(b.materials||[]).forEach(m=>{ const g=m.category||''; counts[g]=(counts[g]||0)+1; }));
-  showModal('🗂 Группы материалов',`
-    <div style="font-size:11px;color:var(--tx2);margin-bottom:10px">
-      Группы создаются автоматически при добавлении/редактировании материала.<br>
-      Здесь можно переименовать группу или перенести все позиции в другую.
-    </div>
-    ${allGroups.length?`<div style="border:1.5px solid var(--bd);border-radius:var(--rs);overflow:hidden;margin-bottom:10px">
-      ${allGroups.map(g=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--bd);font-size:12px">
-        <span style="font-size:14px">🗂</span>
-        <span style="flex:1;font-weight:600">${esc(g)}</span>
-        <span style="font-size:10px;color:var(--tx3)">${counts[g]||0} поз.</span>
-        <button class="btn bs bxs" data-grp="${esc(g)}" onclick="pgkRenameGroup(this.dataset.grp)">✏️ Переим.</button>
-      </div>`).join('')}
-    </div>`:'<div style="text-align:center;padding:16px;color:var(--tx3);font-size:12px">Групп пока нет.<br>Создайте их при добавлении материалов.</div>'}
-    <div style="font-size:11px;font-weight:700;margin-bottom:5px">Создать новую группу</div>
-    <div style="display:flex;gap:6px">
-      <input id="f-newgroup" placeholder="Название группы..." style="flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none">
-      <button class="btn bp bsm" onclick="pgkCreateGroup()">＋ Создать</button>
-    </div>`,
-  [{label:'Закрыть',cls:'bs',fn:closeModal}]);
-}
-
-function pgkCreateGroup(){
-  const val=(document.getElementById('f-newgroup')?.value||'').trim();
-  if(!val){toast('Введите название группы','err');return;}
-  // Группа создаётся при следующем добавлении материала — просто уведомляем
-  toast(`Группа "${val}" будет создана при добавлении материала`,'ok');
-  closeModal();
-}
-
-async function pgkRenameGroup(oldName){
-  showModal('✏️ Переименовать группу',`
-    <div style="font-size:11px;color:var(--tx2);margin-bottom:10px">
-      Будет переименовано для всех материалов в группе «${esc(oldName)}»
-    </div>
-    <div class="fg s2">
-      <label>Новое название</label>
-      <input id="f-grpname" value="${esc(oldName)}">
-    </div>`,
-  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Переименовать',cls:'bp',fn:async()=>{
-    const newName=(document.getElementById('f-grpname').value||'').trim();
-    if(!newName||newName===oldName){closeModal();return;}
-    // Обновляем все материалы этой группы
-    const toUpdate=bases.flatMap(b=>(b.materials||[]).filter(m=>(m.category||'')===oldName));
-    await Promise.all(toUpdate.map(m=>
-      fetch(`${API}/materials/${m.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({...m,category:newName,user_name:un()})})
-    ));
-    closeModal();await loadPGK();await loadAll();
-    toast(`Группа переименована: ${toUpdate.length} материалов обновлено`,'ok');
-  }}]);
-}
 
 // Assign base from PGK page dropdowns
 async function pgkAssignWorkerBase(id,baseId){
@@ -1154,6 +1982,17 @@ function pgkAddWorker(){
     <div class="fg s2"><label>База</label><select id="f-b"><option value="">— не назначен —</option>${bases.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
     <div class="fg s2"><label>Примечания</label><textarea id="f-nt"></textarea></div>
   </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:savePGKWorker}]);
+}
+
+function pgkExcelMenu(){
+  showModal('📊 Excel — Сотрудники',
+    '<div style="font-size:13px;color:var(--tx2);text-align:center;padding:8px 0">Что сделать?</div>',
+    [
+      { cls:'bs', label:'Отмена', fn: closeModal },
+      { cls:'bs', label:'📥 Импорт', fn: ()=>{ closeModal(); pgkImportWorkers(); } },
+      { cls:'bp', label:'📤 Экспорт', fn: ()=>{ closeModal(); if(typeof exportPersonnelExcel==='function') exportPersonnelExcel(pgkWorkers); else toast('exportPersonnelExcel не найден','err'); } }
+    ]
+  );
 }
 
 function pgkImportWorkers(){
@@ -1298,6 +2137,240 @@ async function pgkImportExecute(){
     toast(`✅ Создано: ${created} · ❌ Ошибок: ${failed}`,'warn');
   }
   window._pgkImportRows=[];
+}
+
+// ═══════════════════════════════════════════════════════════
+// IMPORT MATERIALS FROM EXCEL (заявки)
+// ═══════════════════════════════════════════════════════════
+function pgkImportMaterials(){
+  const baseOpts=`<option value="">— выберите базу —</option>`+bases.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
+  const grpOpts=`<option value="">— без группы —</option>`+(pgkMatGroups||[]).map(g=>`<option value="${esc(g.name)}">${esc(g.name)}</option>`).join('');
+  showModal('📥 Импорт заявки из Excel',`
+    <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">
+      Из заявки берутся <b>наименование</b>, <b>количество</b> и <b>вес</b>. Колонки определяются автоматически — при необходимости поправьте сопоставление ниже. Строки-разделы (без кол-ва и веса) по умолчанию не отмечены.
+    </div>
+    <div class="fgr">
+      <div class="fg"><label>База *</label><select id="mi-base">${baseOpts}</select></div>
+      <div class="fg"><label>Группа</label><select id="mi-cat">${grpOpts}</select></div>
+    </div>
+    <div class="fg s2" style="margin-top:6px">
+      <label>Файл заявки .xlsx / .xls</label>
+      <input type="file" id="mi-file" accept=".xlsx,.xls"
+        style="font-size:11px;padding:4px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);color:var(--tx);width:100%"
+        onchange="pgkMatImportPreview(this)">
+    </div>
+    <div id="mi-preview" style="margin-top:8px"></div>
+  `,[
+    {label:'Отмена',cls:'bs',fn:closeModal},
+    {label:'✅ Импортировать',cls:'bp',fn:pgkMatImportExecute}
+  ]);
+  window._pgkMatImport=null;
+}
+
+function pgkMatImportPreview(input){
+  const file=input.files[0];
+  if(!file)return;
+  const prev=document.getElementById('mi-preview');
+  prev.innerHTML='<div style="font-size:11px;color:var(--tx3)">⏳ Читаю файл...</div>';
+  if(!window.XLSX){
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload=()=>_pgkMatReadFile(file);
+    s.onerror=()=>{prev.innerHTML='<div style="color:#ef4444;font-size:11px">❌ Не удалось загрузить библиотеку чтения xlsx. Проверьте интернет-соединение.</div>';};
+    document.head.appendChild(s);
+  } else {
+    _pgkMatReadFile(file);
+  }
+}
+
+function _pgkMatReadFile(file){
+  const prev=document.getElementById('mi-preview');
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array'});
+      const sheets=wb.SheetNames.map(nm=>({
+        name:nm,
+        data:XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,defval:''})
+      })).filter(s=>s.data.some(r=>r.some(c=>String(c).trim())));
+      if(!sheets.length){prev.innerHTML='<div style="color:#ef4444;font-size:11px">❌ Файл пустой</div>';return;}
+      window._pgkMatImport={sheets,sheetIdx:0,map:null,parsed:[]};
+      _pgkMatRenderPreview();
+    }catch(err){
+      prev.innerHTML=`<div style="color:#ef4444;font-size:11px">❌ Ошибка чтения файла: ${esc(err.message)}</div>`;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ── разбор и сопоставление колонок ──
+function _pgkMatCellNum(v){
+  const s=String(v==null?'':v).replace(',','.');
+  const m=s.match(/-?\d+(?:\.\d+)?/);
+  return m?parseFloat(m[0]):null;
+}
+function _pgkMatUnitFromQty(v){
+  const s=String(v==null?'':v).trim();
+  const m=s.match(/[a-zA-Zа-яёА-ЯЁ.]+\s*$/);
+  return m?m[0].replace(/\.$/,'').trim():'';
+}
+function _pgkMatColCount(data){let n=0;data.forEach(r=>{if(r.length>n)n=r.length;});return n;}
+function _pgkMatFindHeader(data){
+  for(let i=0;i<data.length;i++){
+    if(data[i].some(c=>String(c).toLowerCase().includes('наимен')))return i;
+  }
+  return -1;
+}
+function _pgkMatColLabel(headerRow,c){
+  const h=String(headerRow&&headerRow[c]||'').trim();
+  const letter=String.fromCharCode(65+c);
+  return h?`${letter}: ${h.slice(0,20)}`:`Столбец ${letter}`;
+}
+function _pgkMatColOpts(headerRow,ncol,sel,withNone){
+  let o=withNone?`<option value="-1" ${sel===-1?'selected':''}>—</option>`:'';
+  for(let c=0;c<ncol;c++) o+=`<option value="${c}" ${sel===c?'selected':''}>${esc(_pgkMatColLabel(headerRow,c))}</option>`;
+  return o;
+}
+function _pgkMatAutoMap(data,headerIdx,ncol){
+  const headerRow=headerIdx>=0?data[headerIdx]:null;
+  const map={name:-1,qty:-1,weight:-1,unit:-1};
+  for(let c=0;c<ncol;c++){
+    const h=String(headerRow&&headerRow[c]||'').toLowerCase();
+    if(!h)continue;
+    if(map.name<0&&h.includes('наимен'))map.name=c;
+    else if(map.weight<0&&h.includes('вес'))map.weight=c;
+    else if(map.unit<0&&(h.includes('ед.изм')||h.includes('ед. изм')||h.includes('едизм')))map.unit=c;
+    else if(map.qty<0&&(h.includes('кол-во')||h.includes('кол.во')||h.includes('количество')))map.qty=c;
+  }
+  if(map.name<0)map.name=headerRow?Math.min(1,ncol-1):0;
+  // эвристика: если столбец кол-ва текстовый (там единицы), а правее числовой — сдвигаем
+  const startRow=headerIdx>=0?headerIdx+1:0;
+  const numRatio=(col)=>{
+    let num=0,tot=0;
+    for(let i=startRow;i<data.length;i++){
+      const v=String(data[i][col]==null?'':data[i][col]).trim();
+      if(!v)continue;tot++;if(/\d/.test(v))num++;
+    }
+    return tot?num/tot:0;
+  };
+  if(map.qty>=0&&numRatio(map.qty)<0.4){
+    for(let c=map.qty+1;c<ncol;c++){
+      if(c===map.weight)continue;
+      if(numRatio(c)>=0.6){if(map.unit<0)map.unit=map.qty;map.qty=c;break;}
+    }
+  }
+  return map;
+}
+function _pgkMatParse(data,headerIdx,map){
+  const startRow=headerIdx>=0?headerIdx+1:0;
+  const out=[];
+  for(let i=startRow;i<data.length;i++){
+    const row=data[i]||[];
+    const name=String(map.name>=0?row[map.name]:'').trim();
+    if(!name)continue;
+    const amount=map.qty>=0?(_pgkMatCellNum(row[map.qty])||0):0;
+    const weight=map.weight>=0?(_pgkMatCellNum(row[map.weight])||0):0;
+    let unit='';
+    if(map.unit>=0)unit=String(row[map.unit]||'').trim();
+    if(!unit&&map.qty>=0)unit=_pgkMatUnitFromQty(row[map.qty]);
+    if(!unit)unit='шт';
+    const isSection=amount===0&&weight===0;
+    out.push({name,amount,unit,weight,isSection,checked:!isSection});
+  }
+  return out;
+}
+
+function _pgkMatRenderPreview(){
+  const st=window._pgkMatImport;const prev=document.getElementById('mi-preview');
+  if(!st||!prev)return;
+  const data=st.sheets[st.sheetIdx].data;
+  const ncol=_pgkMatColCount(data);
+  const headerIdx=_pgkMatFindHeader(data);
+  const headerRow=headerIdx>=0?data[headerIdx]:null;
+  if(!st.map)st.map=_pgkMatAutoMap(data,headerIdx,ncol);
+  const map=st.map;
+  st.parsed=_pgkMatParse(data,headerIdx,map);
+  st.headerIdx=headerIdx;
+  const okRows=st.parsed.filter(r=>r.checked);
+  const sectionCnt=st.parsed.filter(r=>r.isSection).length;
+
+  let html='';
+  if(st.sheets.length>1){
+    html+=`<div class="fg s2" style="margin-bottom:6px"><label>Лист</label>
+      <select onchange="_pgkMatSheetChange(this.value)">${st.sheets.map((s,i)=>`<option value="${i}" ${i===st.sheetIdx?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>`;
+  }
+  html+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+    <div class="fg"><label>Наименование</label><select onchange="_pgkMatMapChange()" id="mi-map-name">${_pgkMatColOpts(headerRow,ncol,map.name,false)}</select></div>
+    <div class="fg"><label>Количество</label><select onchange="_pgkMatMapChange()" id="mi-map-qty">${_pgkMatColOpts(headerRow,ncol,map.qty,true)}</select></div>
+    <div class="fg"><label>Вес, кг</label><select onchange="_pgkMatMapChange()" id="mi-map-weight">${_pgkMatColOpts(headerRow,ncol,map.weight,true)}</select></div>
+    <div class="fg"><label>Ед.изм</label><select onchange="_pgkMatMapChange()" id="mi-map-unit">${_pgkMatColOpts(headerRow,ncol,map.unit,true)}</select></div>
+  </div>`;
+  html+=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;color:var(--tx)">
+    К импорту: <span style="color:var(--acc)">${okRows.length}</span> из ${st.parsed.length}
+    ${sectionCnt?`<span style="color:#f59e0b;margin-left:8px">⚠️ строк-разделов: ${sectionCnt} (без галочки)</span>`:''}
+  </div>`;
+  html+=`<div style="max-height:240px;overflow-y:auto;border:1.5px solid var(--bd);border-radius:var(--rs)">
+    <table style="width:100%;font-size:11px;border-collapse:collapse">
+      <thead><tr style="background:var(--s2);position:sticky;top:0">
+        <th style="padding:5px 6px;width:24px"><input type="checkbox" checked onchange="_pgkMatToggleAll(this.checked)"></th>
+        <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--bd)">Наименование</th>
+        <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--bd)">Кол-во</th>
+        <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--bd)">Ед.</th>
+        <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--bd)">Вес, кг</th>
+      </tr></thead><tbody>`;
+  st.parsed.forEach((r,i)=>{
+    html+=`<tr style="border-bottom:1px solid var(--bd);${r.isSection?'opacity:.5;background:var(--s2)':''}">
+      <td style="text-align:center"><input type="checkbox" ${r.checked?'checked':''} onchange="window._pgkMatImport.parsed[${i}].checked=this.checked;_pgkMatUpdCount()"></td>
+      <td style="padding:4px 8px;font-weight:600">${esc(r.name)}</td>
+      <td style="padding:4px 8px;text-align:right">${r.amount||'—'}</td>
+      <td style="padding:4px 8px;color:var(--tx2)">${esc(r.unit||'')}</td>
+      <td style="padding:4px 8px;text-align:right;color:var(--tx2)">${r.weight||'—'}</td>
+    </tr>`;
+  });
+  html+='</tbody></table></div>';
+  prev.innerHTML=html;
+}
+function _pgkMatMapChange(){
+  const st=window._pgkMatImport;if(!st)return;
+  const gv=id=>{const e=document.getElementById(id);return e?parseInt(e.value):-1;};
+  st.map={name:gv('mi-map-name'),qty:gv('mi-map-qty'),weight:gv('mi-map-weight'),unit:gv('mi-map-unit')};
+  _pgkMatRenderPreview();
+}
+function _pgkMatSheetChange(idx){
+  const st=window._pgkMatImport;if(!st)return;
+  st.sheetIdx=parseInt(idx);st.map=null;_pgkMatRenderPreview();
+}
+function _pgkMatToggleAll(on){
+  const st=window._pgkMatImport;if(!st)return;
+  st.parsed.forEach(r=>{r.checked=on;});_pgkMatRenderPreview();
+}
+function _pgkMatUpdCount(){
+  const st=window._pgkMatImport;if(!st)return;
+  const ok=st.parsed.filter(r=>r.checked).length;
+  const el=document.querySelector('#mi-preview span');if(el)el.textContent=ok;
+}
+
+async function pgkMatImportExecute(){
+  const st=window._pgkMatImport;
+  const baseId=((document.getElementById('mi-base')||{}).value||'').trim();
+  const category=((document.getElementById('mi-cat')||{}).value||'').trim();
+  if(!baseId){toast('Выберите базу','err');return;}
+  if(!st||!st.parsed||!st.parsed.length){toast('Сначала выберите файл','err');return;}
+  const rows=st.parsed.filter(r=>r.checked&&r.name);
+  if(!rows.length){toast('Не отмечено ни одной строки','err');return;}
+  closeModal();
+  toast(`⏳ Импортирую ${rows.length} позиций...`,'ok');
+  let created=0,failed=0;
+  for(const r of rows){
+    try{
+      const res=await fetch(`${API}/bases/${baseId}/materials`,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({name:r.name,amount:r.amount,unit:r.unit||'шт',weight:r.weight,category,notes:'',user_name:un()})});
+      if(res.ok)created++;else failed++;
+    }catch(e){failed++;}
+  }
+  await loadPGK();await loadAll();
+  toast(failed?`✅ Создано: ${created} · ❌ Ошибок: ${failed}`:`✅ Импортировано ${created} позиций`,failed?'warn':'ok');
+  window._pgkMatImport=null;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1484,159 +2557,300 @@ async function pgkDelWorker(id){if(!confirm('Удалить?'))return;await apiD
 
 // ── PGK MACHINERY CRUD ─────────────────────────────────────
 function pgkAddMach(){
+  const baseOpts=`<option value="">— не на базе —</option>`+bases.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
   showModal('Добавить технику',`<div class="fgr">
     <div class="fg s2"><label>Название *</label><input id="f-n" placeholder="ТРЭКОЛ-39294"></div>
-    <div class="fg"><label>Категория</label><select id="f-cat" onchange="pgkMachCatChange()">
-      <option value="transport">🚙 Транспорт</option>
-      <option value="drill">⛏ Буровая установка</option>
-    </select></div>
-    <div class="fg" id="f-tw"><label>Тип</label><select id="f-t">
-      ${TRANSPORT_TYPES.map(t=>`<option>${t}</option>`).join('')}
-    </select></div>
-    <div class="fg"><label>Номер / Серийный №</label><input id="f-pl"></div>
-    <div class="fg s2" id="f-dw" style="display:none"><label>Прикрепить к транспорту</label>
-      <select id="f-dh"><option value="">— не прикреплять —</option>
-        ${pgkMachinery.filter(m=>TRANSPORT_TYPES.includes(m.type)).map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}
-      </select></div>
+    <div class="fg"><label>Тип</label><select id="f-t">${TRANSPORT_TYPES.map(t=>`<option>${t}</option>`).join('')}</select></div>
+    <div class="fg"><label>Гос. номер</label><input id="f-pl" placeholder="А123БВ"></div>
+    <div class="fg s2"><label>База</label><select id="f-b">${baseOpts}</select></div>
     <div class="fg s2"><label>Статус</label><select id="f-st">
-      <option value="working">✅ В работе</option><option value="idle">⏸ Стоит</option><option value="broken">🔴 Сломана</option>
+      <option value="working">✅ В работе</option><option value="idle">⏸ Простой</option><option value="broken">🔴 Сломана</option>
     </select></div>
     <div class="fg s2"><label>Примечания</label><textarea id="f-nt"></textarea></div>
-  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:async()=>{
+  </div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:async()=>{
     const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
-    const cat=v('f-cat'),type=v('f-t');
     await fetch(`${API}/pgk/machinery`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name,type,vehicle_type:cat,drill_id:v('f-dh')||null,plate_number:v('f-pl'),status:v('f-st')||'working',notes:v('f-nt'),user_name:un()})});
-    closeModal();await loadPGK();
-    if(cat==='transport'){toast('⚠️ Не забудьте назначить водителя на технику '+name,'warn');}
-    await loadAll();toast('Добавлено','ok');
+      body:JSON.stringify({name,type:v('f-t'),plate_number:v('f-pl'),base_id:v('f-b')||null,status:v('f-st')||'working',notes:v('f-nt'),user_name:un()})});
+    closeModal();await loadPGK();await loadAll();toast('Добавлено','ok');
   }}]);
-}
-function pgkMachCatChange(){
-  const cat=v('f-cat');
-  const tw=document.getElementById('f-tw');
-  const dw=document.getElementById('f-dw');
-  const ts=document.getElementById('f-t');
-  if(!ts)return;
-  ts.innerHTML=(cat==='drill'?DRILL_TYPES:TRANSPORT_TYPES).map(t=>`<option>${t}</option>`).join('');
-  if(dw)dw.style.display=cat==='drill'?'':'none';
 }
 function pgkEditMach(id){
   const m=pgkMachinery.find(x=>x.id===id);if(!m)return;
-  const isDrill=DRILL_TYPES.includes(m.type);
-  const types=isDrill?DRILL_TYPES:TRANSPORT_TYPES;
-  const transports=pgkMachinery.filter(x=>TRANSPORT_TYPES.includes(x.type));
-  const attachedDrill=!isDrill?pgkMachinery.find(x=>x.drill_id===id&&DRILL_TYPES.includes(x.type)):null;
+  const baseOpts=`<option value="">— не на базе —</option>`+bases.map(b=>`<option value="${b.id}" ${m.base_id===b.id?'selected':''}>${esc(b.name)}</option>`).join('');
+  const driverOpts=`<option value="">— без водителя —</option>`+pgkWorkers.filter(w=>w.status!=='fired').map(w=>`<option value="${w.id}" ${m.driver_id===w.id?'selected':''}>${esc(w.name)}</option>`).join('');
   showModal('Редактировать — '+esc(m.name),`<div class="fgr">
     <div class="fg s2"><label>Название *</label><input id="f-n" value="${esc(m.name)}"></div>
-    <div class="fg"><label>Тип</label><select id="f-t">${types.map(t=>`<option ${m.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
-    <div class="fg"><label>Номер / Серийный №</label><input id="f-pl" value="${esc(m.plate_number||'')}"></div>
+    <div class="fg"><label>Тип</label><select id="f-t">${TRANSPORT_TYPES.map(t=>`<option ${m.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
+    <div class="fg"><label>Гос. номер</label><input id="f-pl" value="${esc(m.plate_number||'')}"></div>
+    <div class="fg s2"><label>База</label><select id="f-b">${baseOpts}</select></div>
+    <div class="fg s2"><label>Водитель</label><select id="f-drv">${driverOpts}</select></div>
     <div class="fg s2"><label>Статус</label><select id="f-st">
       <option value="working" ${m.status==='working'?'selected':''}>✅ В работе</option>
-      <option value="idle" ${m.status==='idle'?'selected':''}>⏸ Стоит</option>
+      <option value="idle" ${m.status==='idle'?'selected':''}>⏸ Простой</option>
       <option value="broken" ${m.status==='broken'?'selected':''}>🔴 Сломана</option>
     </select></div>
-    ${isDrill?`<div class="fg s2"><label>Прикрепить к транспорту</label>
-      <select id="f-dh"><option value="">— не прикреплять —</option>
-        ${transports.map(t=>`<option value="${t.id}" ${m.drill_id===t.id?'selected':''}>${esc(t.name)}</option>`).join('')}
-      </select></div>`:''}
-    ${attachedDrill?`<div style="font-size:10px;color:var(--tx2);margin:4px 0">⛏ Прикреплена: <strong>${esc(attachedDrill.name)}</strong></div>`:''}
     <div class="fg s2"><label>Примечания</label><textarea id="f-nt">${esc(m.notes||'')}</textarea></div>
-  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+  </div>`,
+  [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
     const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
-    const newDrillHost=isDrill?(v('f-dh')||null):m.drill_id;
-    const upd={...m,name,type:v('f-t'),plate_number:v('f-pl'),status:v('f-st')||'working',notes:v('f-nt'),user_name:un()};
-    if(isDrill){upd.drill_id=newDrillHost;if(newDrillHost){const host=pgkMachinery.find(x=>x.id===newDrillHost);if(host)upd.base_id=host.base_id;}}
-    await fetch(`${API}/pgk/machinery/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(upd)});
-    closeModal();await loadPGK();await loadAll();
-    if(!isDrill){
-      const hasDriver=pgkWorkers.some(w=>w.machine_id===id);
-      if(!hasDriver)toast('⚠️ Транспорт '+name+' — водитель не назначен!','warn');
-      else toast('Обновлено','ok');
-    } else toast('Обновлено','ok');
+    await fetch(`${API}/pgk/machinery/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({...m,name,type:v('f-t'),plate_number:v('f-pl'),base_id:v('f-b')||null,driver_id:v('f-drv')||null,status:v('f-st')||'working',notes:v('f-nt'),user_name:un()})});
+    closeModal();await loadPGK();await loadAll();toast('Обновлено','ok');
   }}]);
 }
 
-async function openDrillStats(machId){
-  const m=pgkMachinery.find(x=>x.id===machId);if(!m)return;
-  const volProg=await fetch(`${API}/pgk/machinery/${machId}/vol_progress`).then(r=>r.json()).catch(()=>[]);
-  const bySite={};
-  volProg.forEach(function(p){
-    if(!bySite[p.site_name])bySite[p.site_name]=[];
-    bySite[p.site_name].push(p);
-  });
-  const unitTotals={};
-  volProg.forEach(function(p){const u=p.unit||'шт';unitTotals[u]=(unitTotals[u]||0)+(+p.completed||0);});
-  const totalStr=Object.keys(unitTotals).map(u=>unitTotals[u]+' '+u).join(', ')||'0';
-  const html=`<div style="margin-bottom:10px">
-    <div style="font-size:13px;font-weight:800">⛏️ ${esc(m.name)}</div>
-    <div style="font-size:11px;color:var(--tx2)">${esc(m.type||'')} ${m.plate_number?'· '+m.plate_number:''}</div>
-    <div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">
-      <div style="font-size:11px">Всего записей: <strong>${volProg.length}</strong></div>
-      <div style="font-size:11px;color:var(--acc)">Общий объём: <strong>${totalStr}</strong></div>
-    </div>
-  </div>
-  ${!volProg.length?'<div class="empty">Нет записей объёмов</div>':Object.keys(bySite).map(sn=>`
-    <div style="font-size:10px;font-weight:700;color:var(--acc);margin:8px 0 3px">🏗 ${esc(sn)}</div>
-    ${bySite[sn].map(p=>`<div style="padding:4px 0;border-bottom:1px solid var(--bd);font-size:11px">
-      <div><span style="font-weight:700;color:var(--acc)">${p.completed} ${esc(p.unit)}</span> — ${esc(p.vol_name)}</div>
-      <div style="font-size:9px;color:var(--tx3)">${fmt(p.work_date)}${p.act_number?' · Акт №'+p.act_number:''}${p.notes?' · '+esc(p.notes):''}</div>
-    </div>`).join('')}
-  `).join('')}`;
-  showModal('📐 Объёмы буровой — '+esc(m.name),html,[
-    {label:'Закрыть',cls:'bs',fn:closeModal},
-    {label:'🗑 Очистить историю',cls:'bd',fn:async()=>{
-      if(!confirm('Удалить всю историю объёмов для '+m.name+'?'))return;
-      for(const p of volProg)await fetch(`${API}/vol_progress/${p.id}`,{method:'DELETE'}).catch(()=>{});
-      closeModal();if(currentObj)await refreshCurrent();toast('История объёмов очищена','ok');
-    }}
-  ]);
-}
-async function savePGKMach(id){} // legacy stub
 
 async function pgkDelMach(id){if(!confirm('Удалить?'))return;await apiDelUndo(`/pgk/machinery/${id}`,'Техника удалена',async()=>{await loadPGK();await loadAll();});}
 
 // ── PGK EQUIPMENT CRUD ─────────────────────────────────────
+function _equipFormHtml(e){
+  const grpOpts=`<option value="">— без группы —</option>`+pgkEquipGroups.map(g=>`<option value="${escAttr(g.id)}" ${e&&e.group_id===g.id?'selected':''}>${esc(g.name)}</option>`).join('');
+  const respOpts=`<option value="">— не назначен —</option>`+(pgkWorkers||[]).map(w=>`<option value="${esc(w.name)}" ${e&&e.responsible===w.name?'selected':''}>${esc(w.name)}${w.role?' ('+esc(w.role)+')':''}</option>`).join('');
+  return `<div class="fgr">
+    <div class="fg s2"><label>Название *</label><input id="f-n" value="${esc(e?e.name:'')}"></div>
+    <div class="fg"><label>Тип</label><input id="f-t" value="${esc(e?e.type:'')}"></div>
+    <div class="fg"><label>Серийный №</label><input id="f-sr" value="${esc(e?e.serial_number:'')}"></div>
+    <div class="fg s2"><label>Статус</label><select id="f-st">
+      <option value="working" ${!e||e.status==='working'?'selected':''}>✅ В работе</option>
+      <option value="idle" ${e&&e.status==='idle'?'selected':''}>⏸ Не используется</option>
+      <option value="broken" ${e&&e.status==='broken'?'selected':''}>🔴 Неисправно</option>
+    </select></div>
+    <div class="fg s2"><label>Группа</label><select id="f-grp">${grpOpts}</select></div>
+    <div class="fg s2"><label>База</label><select id="f-b"><option value="">— не назначено —</option>${bases.map(b=>`<option value="${b.id}" ${e&&e.base_id===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}</select></div>
+    <div class="fg s2"><label>Ответственный</label><select id="f-resp">${respOpts}</select></div>
+    <div class="fg s2"><label>Примечания</label><textarea id="f-nt">${esc(e?e.notes:'')}</textarea></div>
+  </div>`;
+}
 function pgkAddEquip(){
-  showModal('Новое оборудование',`<div class="fgr">
-    <div class="fg s2"><label>Название *</label><input id="f-n" placeholder="GPS Trimble R10"></div>
-    <div class="fg"><label>Тип</label><input id="f-t" placeholder="Геодезический прибор"></div>
-    <div class="fg"><label>Серийный №</label><input id="f-sr"></div>
-    <div class="fg s2"><label>Статус</label><select id="f-st"><option value="working">В работе</option><option value="idle">Не используется</option><option value="broken">Неисправно</option></select></div>
-    <div class="fg s2"><label>База</label><select id="f-b"><option value="">— не назначено —</option>${bases.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
-    <div class="fg s2"><label>Ответственный</label><select id="f-resp"><option value="">— не назначен —</option>${(pgkWorkers||[]).map(w=>`<option value="${esc(w.name)}">${esc(w.name)}${w.role?' ('+esc(w.role)+')':''}</option>`).join('')}</select></div>
-    <div class="fg s2"><label>Примечания</label><textarea id="f-nt"></textarea></div>
-  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:savePGKEquip}]);
+  showModal('Новое оборудование',_equipFormHtml(null),[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:savePGKEquip}]);
 }
 function pgkEditEquip(id){
   const e=pgkEquipment.find(x=>x.id===id);if(!e)return;
-  showModal('Редактировать оборудование',`<div class="fgr">
-    <div class="fg s2"><label>Название *</label><input id="f-n" value="${esc(e.name)}"></div>
-    <div class="fg"><label>Тип</label><input id="f-t" value="${esc(e.type||'')}"></div>
-    <div class="fg"><label>Серийный №</label><input id="f-sr" value="${esc(e.serial_number||'')}"></div>
-    <div class="fg s2"><label>Статус</label><select id="f-st"><option value="working" ${e.status==='working'?'selected':''}>В работе</option><option value="idle" ${e.status==='idle'?'selected':''}>Не используется</option><option value="broken" ${e.status==='broken'?'selected':''}>Неисправно</option></select></div>
-    <div class="fg s2"><label>База</label><select id="f-b"><option value="">— не назначено —</option>${bases.map(b=>`<option value="${b.id}" ${e.base_id===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}</select></div>
-    <div class="fg s2"><label>Ответственный</label><select id="f-resp"><option value="">— не назначен —</option>${(pgkWorkers||[]).map(w=>`<option value="${esc(w.name)}" ${e.responsible===w.name?'selected':''}>${esc(w.name)}${w.role?' ('+esc(w.role)+')':''}</option>`).join('')}</select></div>
-    <div class="fg s2"><label>Примечания</label><textarea id="f-nt">${esc(e.notes||'')}</textarea></div>
-  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:()=>savePGKEquip(id)}]);
+  showModal('Редактировать оборудование',_equipFormHtml(e),[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:()=>savePGKEquip(id)}]);
 }
 async function savePGKEquip(id){
   const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
-  const data={name,type:v('f-t'),serial_number:v('f-sr'),status:v('f-st'),base_id:v('f-b')||null,responsible:v('f-resp')||null,notes:v('f-nt')};
+  const data={name,type:v('f-t'),serial_number:v('f-sr'),status:v('f-st'),base_id:v('f-b')||null,responsible:v('f-resp')||'',notes:v('f-nt'),group_id:v('f-grp')||''};
   if(id)await fetch(`${API}/pgk/equipment/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   else  await fetch(`${API}/pgk/equipment`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   closeModal();await loadPGK();toast(id?'Обновлено':'Добавлено','ok');
 }
 async function pgkDelEquip(id){if(!confirm('Удалить?'))return;await apiDelUndo(`/pgk/equipment/${id}`,'Оборудование удалено',loadPGK);}
 
+function exportMaterialsExcel(){
+  const allMats=(bases||[]).flatMap(b=>(b.materials||[]).map(m=>({...m,base_name:b.name})));
+  if(!allMats.length){toast('Нет материалов для экспорта','warn');return;}
+  const wb=XLSX.utils.book_new();
+  const todayDate=new Date();
+  const todayStr=todayDate.toISOString().split('T')[0];
+  const todayFmt=todayDate.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
+
+  const COLS=9;
+  const hdrFill='C3D69B';
+  const rowFill='B9CCE4';
+  const titleFill='D9E1F2';
+  const grpFill='EBF1DE';
+  const lowFill='FFE0E0';
+  const border={top:{style:'medium',color:{rgb:'000000'}},bottom:{style:'medium',color:{rgb:'000000'}},left:{style:'medium',color:{rgb:'000000'}},right:{style:'medium',color:{rgb:'000000'}}};
+  const thinBorder={top:{style:'thin',color:{rgb:'000000'}},bottom:{style:'thin',color:{rgb:'000000'}},left:{style:'thin',color:{rgb:'000000'}},right:{style:'thin',color:{rgb:'000000'}}};
+  const baseAlign={horizontal:'center',vertical:'center',wrapText:true};
+  const leftAlign={horizontal:'left',vertical:'center',wrapText:true};
+
+  function colLetter(c){let s='',n=c;do{s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26)-1;}while(n>=0);return s;}
+  function ref(r,c){return colLetter(c)+(r+1);}
+  function setStyle(cr,st){if(!ws[cr])ws[cr]={t:'s',v:''};ws[cr].s=st;}
+
+  const hdr=['№','Название','Группа','База','Кол-во','Ед.','Минимум','Запас (%)','Примечания'];
+
+  // Build rows grouped by pgkMatGroups then ungrouped
+  const groups=(pgkMatGroups||[]).map(g=>g.name);
+  const allGroups=[...groups,''];
+  const aoa=[['Реестр материалов — '+todayFmt],hdr];
+  const groupRowIdxs=[];
+  const lowRowIdxs=[];
+  let rowNum=0;
+  allGroups.forEach(grpName=>{
+    const mats=allMats.filter(m=>(m.category||'')===(grpName));
+    if(!mats.length)return;
+    const grpLabel=grpName||'Без группы';
+    const grpRowIdx=aoa.length;
+    aoa.push([grpLabel,'','','','','','','','']);
+    groupRowIdxs.push(grpRowIdx);
+    mats.forEach((m,i)=>{
+      const pct=m.min_amount>0?Math.round((m.amount/m.min_amount)*100):null;
+      const pctStr=pct!==null?pct+'%':'—';
+      const dataRowIdx=aoa.length;
+      aoa.push([++rowNum,m.name,m.category||'',m.base_name,m.amount??'',m.unit||'',m.min_amount??'',pctStr,m.notes||'']);
+      if(m.min_amount>0&&m.amount<m.min_amount)lowRowIdxs.push(dataRowIdx);
+    });
+  });
+
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:5},{wch:32},{wch:20},{wch:20},{wch:10},{wch:8},{wch:10},{wch:10},{wch:30}];
+  ws['!rows']=[{hpx:32},{hpx:40}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:COLS-1}}];
+  ws['!views']=[{state:'frozen',xSplit:0,ySplit:2}];
+
+  setStyle(ref(0,0),{font:{name:'Times New Roman',bold:true,sz:14},alignment:{horizontal:'center',vertical:'center'},fill:{patternType:'solid',fgColor:{rgb:titleFill}},border});
+  for(let c=0;c<COLS;c++)setStyle(ref(1,c),{font:{name:'Times New Roman',bold:true,sz:11},alignment:baseAlign,fill:{patternType:'solid',fgColor:{rgb:hdrFill}},border});
+
+  // Style group header rows
+  groupRowIdxs.forEach(gr=>{
+    ws['!merges'].push({s:{r:gr,c:0},e:{r:gr,c:COLS-1}});
+    for(let c=0;c<COLS;c++)setStyle(ref(gr,c),{font:{name:'Times New Roman',bold:true,sz:11},alignment:leftAlign,fill:{patternType:'solid',fgColor:{rgb:grpFill}},border:thinBorder});
+  });
+
+  // Style data rows
+  for(let ri=2;ri<aoa.length;ri++){
+    if(groupRowIdxs.includes(ri))continue;
+    const isLow=lowRowIdxs.includes(ri);
+    const alt=(ri%2===0);
+    const fill=isLow?{patternType:'solid',fgColor:{rgb:lowFill}}:alt?{patternType:'solid',fgColor:{rgb:rowFill}}:{patternType:'solid',fgColor:{rgb:'FFFFFF'}};
+    for(let c=0;c<COLS;c++){
+      const align=(c===1||c===2||c===3||c===8)?leftAlign:baseAlign;
+      setStyle(ref(ri,c),{font:{name:'Times New Roman',sz:11},alignment:align,fill,border:thinBorder});
+    }
+  }
+
+  // Сводный лист по базам
+  const byBase={};
+  allMats.forEach(m=>{const b=m.base_name||'— нет базы —';if(!byBase[b])byBase[b]={total:0,low:0};byBase[b].total++;if(m.min_amount>0&&m.amount<m.min_amount)byBase[b].low++;});
+  const sumAoa=[
+    ['Сводка по базам'],
+    ['База','Позиций','Ниже минимума'],
+    ...Object.entries(byBase).map(([b,s])=>[b,s.total,s.low])
+  ];
+  const sumWs=XLSX.utils.aoa_to_sheet(sumAoa);
+  sumWs['!cols']=[{wch:28},{wch:12},{wch:16}];
+  sumWs['!merges']=[{s:{r:0,c:0},e:{r:0,c:2}}];
+
+  XLSX.utils.book_append_sheet(wb,ws,'Материалы');
+  XLSX.utils.book_append_sheet(wb,sumWs,'По базам');
+  XLSX.writeFile(wb,'Материалы_'+todayStr.replace(/-/g,'_')+'.xlsx');
+  toast('Excel сохранён','ok');
+}
+
+function exportEquipmentExcel(){
+  if(!pgkEquipment||!pgkEquipment.length){toast('Нет оборудования для экспорта','warn');return;}
+  const wb=XLSX.utils.book_new();
+  const todayDate=new Date();
+  const todayStr=todayDate.toISOString().split('T')[0];
+  const todayFmt=todayDate.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
+
+  const COLS=8;
+  const hdrFill='C3D69B';
+  const rowFill='B9CCE4';
+  const titleFill='D9E1F2';
+  const border={top:{style:'medium',color:{rgb:'000000'}},bottom:{style:'medium',color:{rgb:'000000'}},left:{style:'medium',color:{rgb:'000000'}},right:{style:'medium',color:{rgb:'000000'}}};
+  const thinBorder={top:{style:'thin',color:{rgb:'000000'}},bottom:{style:'thin',color:{rgb:'000000'}},left:{style:'thin',color:{rgb:'000000'}},right:{style:'thin',color:{rgb:'000000'}}};
+  const baseAlign={horizontal:'center',vertical:'center',wrapText:true};
+  const leftAlign={horizontal:'left',vertical:'center',wrapText:true};
+
+  const statLbl={working:'В работе',idle:'Не используется',broken:'Неисправно'};
+  const hdr=['№','Название','Тип','Серийный №','Статус','База','Ответственный','Примечания'];
+
+  const aoa=[
+    ['Реестр оборудования — '+todayFmt],
+    hdr,
+    ...pgkEquipment.map((e,i)=>{
+      const b=(bases||[]).find(x=>x.id===e.base_id);
+      const grp=(pgkEquipGroups||[]).find(g=>g.id===e.group_id);
+      return[
+        i+1,
+        (grp?'['+grp.name+'] ':'')+e.name,
+        e.type||'',
+        e.serial_number||'',
+        statLbl[e.status||'working']||e.status||'',
+        b?b.name:'',
+        e.responsible||'',
+        e.notes||''
+      ];
+    })
+  ];
+
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:5},{wch:32},{wch:18},{wch:16},{wch:16},{wch:20},{wch:24},{wch:30}];
+  ws['!rows']=[{hpx:32},{hpx:40}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:COLS-1}}];
+  ws['!views']=[{state:'frozen',xSplit:0,ySplit:2}];
+
+  function colLetter(c){let s='',n=c;do{s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26)-1;}while(n>=0);return s;}
+  function ref(r,c){return colLetter(c)+(r+1);}
+  function setStyle(cr,st){if(!ws[cr])ws[cr]={t:'s',v:''};ws[cr].s=st;}
+
+  setStyle(ref(0,0),{font:{name:'Times New Roman',bold:true,sz:14},alignment:{horizontal:'center',vertical:'center'},fill:{patternType:'solid',fgColor:{rgb:titleFill}},border});
+  for(let c=0;c<COLS;c++)setStyle(ref(1,c),{font:{name:'Times New Roman',bold:true,sz:11},alignment:baseAlign,fill:{patternType:'solid',fgColor:{rgb:hdrFill}},border});
+  pgkEquipment.forEach((_,i)=>{
+    const r=i+2;
+    const fill=i%2===0?{patternType:'solid',fgColor:{rgb:rowFill}}:{patternType:'solid',fgColor:{rgb:'FFFFFF'}};
+    for(let c=0;c<COLS;c++){
+      const align=(c===1||c===2||c===5||c===6||c===7)?leftAlign:baseAlign;
+      setStyle(ref(r,c),{font:{name:'Times New Roman',sz:11},alignment:align,fill,border:thinBorder});
+    }
+  });
+
+  // Сводный лист по ответственным
+  const byResp={};
+  pgkEquipment.forEach(e=>{const r=e.responsible||'— не назначен —';if(!byResp[r])byResp[r]=[];byResp[r].push(e);});
+  const sumAoa=[
+    ['Сводка по ответственным'],
+    ['Ответственный','Кол-во','В работе','Неисправно'],
+    ...Object.entries(byResp).map(([resp,items])=>[
+      resp,items.length,
+      items.filter(e=>(e.status||'working')==='working').length,
+      items.filter(e=>e.status==='broken').length
+    ])
+  ];
+  const sumWs=XLSX.utils.aoa_to_sheet(sumAoa);
+  sumWs['!cols']=[{wch:28},{wch:10},{wch:10},{wch:12}];
+  sumWs['!merges']=[{s:{r:0,c:0},e:{r:0,c:3}}];
+
+  XLSX.utils.book_append_sheet(wb,ws,'Оборудование');
+  XLSX.utils.book_append_sheet(wb,sumWs,'По ответственным');
+  XLSX.writeFile(wb,'Оборудование_'+todayStr.replace(/-/g,'_')+'.xlsx');
+  toast('Excel сохранён','ok');
+}
+
+function openEquipActModal(){
+  const withResp=[...new Set(pgkEquipment.filter(e=>e.responsible).map(e=>e.responsible))].sort();
+  if(!withResp.length){toast('Ни за кем не закреплено оборудование','warn');return;}
+  const opts=withResp.map(r=>`<option value="${esc(r)}">${esc(r)} (${pgkEquipment.filter(e=>e.responsible===r).length} ед.)</option>`).join('');
+  showModal('📄 Акт приёма-передачи',`<div class="fgr">
+    <div class="fg s2"><label>Выберите ответственного</label>
+      <select id="f-act-resp" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">${opts}</select>
+    </div>
+    <div class="fg s2" style="font-size:11px;color:var(--tx3)">Будет сформирован Word-документ со списком оборудования, закреплённого за выбранным сотрудником.</div>
+  </div>`,[
+    {label:'Отмена',cls:'bs',fn:closeModal},
+    {label:'📄 Сформировать',cls:'bp',fn:async()=>{
+      const resp=(document.getElementById('f-act-resp').value||'').trim();
+      if(!resp)return;
+      closeModal();
+      try{
+        const url=`${API}/pgk/equipment/act?responsible=${encodeURIComponent(resp)}`;
+        const r=await fetch(url);
+        if(!r.ok){const e=await r.json().catch(()=>({}));toast(e.error||'Ошибка формирования акта','err');return;}
+        const blob=await r.blob();
+        const a=document.createElement('a');
+        a.href=URL.createObjectURL(blob);
+        a.download=`Акт_${resp.replace(/\s+/g,'_')}_${new Date().toISOString().split('T')[0]}.docx`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        toast('Акт сформирован','ok');
+      }catch(e){toast('Ошибка: '+e.message,'err');}
+    }}
+  ]);
+}
+
 function pgkAssignEquipResponsible(eid){
   const e=pgkEquipment.find(x=>x.id===eid);if(!e)return;
   const opts=`<option value="">— снять ответственного —</option>`+(pgkWorkers||[]).map(w=>`<option value="${esc(w.name)}" ${e.responsible===w.name?'selected':''}>${esc(w.name)}${w.role?' ('+esc(w.role)+')':''}</option>`).join('');
-  showModal('👤 Ответственный за оборудование',`<div class="fgr">
+  showModal('👤 Ответственный',`<div class="fgr">
     <div class="fg s2"><label>Оборудование</label><input disabled value="${esc(e.name)}"></div>
     <div class="fg s2"><label>Ответственный</label><select id="f-resp" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">${opts}</select></div>
   </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
-    const responsible=v('f-resp')||null;
+    const responsible=v('f-resp')||'';
     await fetch(`${API}/pgk/equipment/${eid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...e,responsible})});
     closeModal();await loadPGK();toast('Ответственный обновлён','ok');
   }}]);
@@ -1782,7 +2996,12 @@ async function delMat(id){if(!confirm('Удалить?'))return;await apiDelUndo
 // TRANSFER RESOURCES BETWEEN BASES
 // ═══════════════════════════════════════════════════════════
 function openTransferModal(type, itemId){
-  const otherBases=bases.filter(b=>b.id!==currentObj.id);
+  // find source base for material
+  let sourceBaseId=currentObj?currentObj.id:null;
+  if(type==='material'){
+    for(const b of bases){if((b.materials||[]).some(m=>m.id===itemId)){sourceBaseId=b.id;break;}}
+  }
+  const otherBases=bases.filter(b=>b.id!==sourceBaseId);
   if(!otherBases.length){toast('Нет других баз для перевода','err');return;}
   const labels={worker:'сотрудника',machine:'технику',equipment:'оборудование',material:'материал'};
   const baseOpts=otherBases.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
@@ -1790,50 +3009,53 @@ function openTransferModal(type, itemId){
     <div class="fg"><label>Перевести на базу</label><select id="f-tb">${baseOpts}</select></div>
   </div>`,[
     {label:'Отмена',cls:'bs',fn:closeModal},
-    {label:'Перевести →',cls:'bp',fn:()=>doTransfer(type,itemId,v('f-tb'))}
+    {label:'Перевести →',cls:'bp',fn:()=>doTransfer(type,itemId,v('f-tb'),sourceBaseId)}
   ]);
 }
-async function doTransfer(type, itemId, targetBaseId){
+async function doTransfer(type, itemId, targetBaseId, sourceBaseId){
   if(!targetBaseId){toast('Выберите базу','err');return;}
   const targetBase=bases.find(b=>b.id===targetBaseId);
+  const sourceBase=bases.find(b=>b.id===sourceBaseId)||currentObj||{};
   let endpoint='', body={};
+  const afterDone=async()=>{
+    if(pgkTab==='materials'){await loadPGK();await loadAll();}else{await refreshCurrent();}
+  };
   if(type==='worker'){
-    const w=(currentObj.workers||[]).find(x=>x.id===itemId);
+    const w=pgkWorkers.find(x=>x.id===itemId)||(currentObj&&(currentObj.workers||[]).find(x=>x.id===itemId));
     if(!w)return;
     endpoint=`${API}/pgk/workers/${itemId}`;
     body={...w,base_id:targetBaseId,user_name:un()};
   } else if(type==='machine'){
-    const m=(currentObj.machinery||[]).find(x=>x.id===itemId);
+    const m=pgkMachinery.find(x=>x.id===itemId)||(currentObj&&(currentObj.machinery||[]).find(x=>x.id===itemId));
     if(!m)return;
     endpoint=`${API}/pgk/machinery/${itemId}`;
     body={...m,base_id:targetBaseId,user_name:un()};
   } else if(type==='equipment'){
-    const e=(currentObj.equipment||[]).find(x=>x.id===itemId);
+    const e=pgkEquipment.find(x=>x.id===itemId)||(currentObj&&(currentObj.equipment||[]).find(x=>x.id===itemId));
     if(!e)return;
     endpoint=`${API}/pgk/equipment/${itemId}`;
     body={...e,base_id:targetBaseId};
   } else if(type==='material'){
-    const m=(currentObj.materials||[]).find(x=>x.id===itemId);
+    let m=null;
+    for(const b of bases){m=(b.materials||[]).find(x=>x.id===itemId);if(m)break;}
+    if(!m&&currentObj)m=(currentObj.materials||[]).find(x=>x.id===itemId);
     if(!m)return;
-    // Check if same-name material exists on target base
     const targetBaseData=await fetch(`${API}/bases/${targetBaseId}`).then(r=>r.json()).catch(()=>null);
     const existing=targetBaseData&&(targetBaseData.materials||[]).find(x=>x.name.trim().toLowerCase()===m.name.trim().toLowerCase()&&x.unit===m.unit);
     if(existing){
-      // Merge: add amounts + log as приход
       await fetch(`${API}/materials/${existing.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({...existing,amount:existing.amount+m.amount,user_name:un()})});
       await fetch(`${API}/materials/${existing.id}/actualize`,{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({new_amount:existing.amount+m.amount,act_date:new Date().toISOString().split('T')[0],
-          notes:'Приход при переводе с базы '+esc(currentObj.name||'')+': +'+m.amount+' '+m.unit,user_name:un()})});
+          notes:'Приход при переводе с базы '+esc(sourceBase.name||'')+': +'+m.amount+' '+m.unit,user_name:un()})});
     } else {
-      // Create new on target base
       await fetch(`${API}/bases/${targetBaseId}/materials`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...m,user_name:un()})});
     }
     await fetch(`${API}/materials/${itemId}`,{method:'DELETE'});
-    closeModal();await refreshCurrent();toast(`Переведено на базу ${esc(targetBase?.name||'')}${existing?' (объединено с существующей позицией)':''}`, 'ok');return;
+    closeModal();await afterDone();toast(`Переведено на базу ${esc(targetBase?.name||'')}${existing?' (объединено)':''}`, 'ok');return;
   }
   await fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  closeModal();await refreshCurrent();toast(`Переведено на базу ${esc(targetBase?.name||'')}`, 'ok');
+  closeModal();await afterDone();toast(`Переведено на базу ${esc(targetBase?.name||'')}`, 'ok');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2146,7 +3368,7 @@ function undoDrawPt(){if(!drawPts.length){toast('Нет точек','err');retur
 async function finishDraw(){
   if(!drawMode||!drawPts.length){cancelDraw();return;}
   const pts=drawPts;let gj;
-  if(drawMode==='points'){gj={type:'FeatureCollection',features:pts.map((p,i)=>({type:'Feature',geometry:{type:'Point',coordinates:[p[1],p[0]]},properties:drawPtNames[i]?{name:drawPtNames[i]}:{}}))}}
+  if(drawMode==='points'){gj={type:'FeatureCollection',features:pts.map((p,i)=>({type:'Feature',geometry:{type:'Point',coordinates:[p[1],p[0]]},properties:{...(drawPtNames[i]?{name:drawPtNames[i]}:{}),sem:{type:'borehole',data:{label:drawPtNames[i]||''}}}}))};}
   else if(drawMode==='polygon'){const cl=[...pts,pts[0]];gj={type:'Feature',geometry:{type:'Polygon',coordinates:[cl.map(p=>[p[1],p[0]])]},properties:{}};}
   else{gj={type:'Feature',geometry:{type:'LineString',coordinates:pts.map(p=>[p[1],p[0]])},properties:{}};}
   const sid=drawSiteId;

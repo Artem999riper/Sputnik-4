@@ -15,7 +15,7 @@ function openVolCommentModal(volId){
 
 let vertexEditLayerId=null, vertexEditMarkers=[];
 // State shared with RCM handler
-let _veCoords=null, _veGJ=null, _veId=null, _veIsVP=false, _veColor='#1a56db', _veUpdatePreview=null;
+let _veCoords=null, _veGJ=null, _veId=null, _veIsVP=false, _veColor='#1a56db', _veUpdatePreview=null, _veRingRef=null, _veGeomRef=null;
 
 function startVolVertexEdit(volId){
   const vol=(currentObj?.volumes||[]).find(v=>v.id===volId);
@@ -30,7 +30,7 @@ function startVolVertexEdit(volId){
     if(!geom)return;
     if(geom.type==='Point'){coords.push(geom.coordinates);}
     else if(geom.type==='LineString'){geom.coordinates.forEach(c=>coords.push(c));}
-    else if(geom.type==='Polygon'){if(geom.coordinates[0])geom.coordinates[0].forEach(c=>coords.push(c));}
+    else if(geom.type==='Polygon'){if(geom.coordinates[0]){_veGeomRef=geom;_veRingRef=geom.coordinates[0];geom.coordinates[0].forEach(c=>coords.push(c));}}
     else if(geom.type==='MultiPolygon'){geom.coordinates.forEach(poly=>{if(poly[0])poly[0].forEach(c=>coords.push(c));});}
     else if(geom.type==='FeatureCollection'){(geom.features||[]).forEach(f=>extractCoords(f.geometry));}
     else if(geom.type==='Feature'){extractCoords(geom.geometry);}
@@ -69,7 +69,7 @@ function _addVertexMarker(c, volId, gj, coords, updatePreview, isVP){
   });
   mk.on('dblclick',function(){
     const idx=coords.indexOf(c);
-    if(idx>-1&&coords.length>3){coords.splice(idx,1);}
+    if(idx>-1&&coords.length>3){coords.splice(idx,1);if(_veRingRef){const ri=_veRingRef.indexOf(c);if(ri>-1)_veRingRef.splice(ri,1);}}
     updatePreview();
     if(!isVP) saveVertexEdit(volId,gj); else _saveVpVertex(volId,gj);
     try{map.removeLayer(mk);}catch(e){}
@@ -82,7 +82,18 @@ function _addVertexMarker(c, volId, gj, coords, updatePreview, isVP){
   return mk;
 }
 
+// Перестроить ring внутри _veGJ из _veCoords (для splice-операций — drag мутирует in-place).
+// Идемпотентен и безопасен: вызывается из меню перед preview и внутри _saveVpVertex.
+function _rebuildVpRingFromCoords(){
+  if(!_veCoords||!_veGeomRef||_veCoords.length<3)return;
+  const ring=_veCoords.map(function(c){return[c[0],c[1]];});
+  const f=ring[0],l=ring[ring.length-1];
+  if(f[0]!==l[0]||f[1]!==l[1])ring.push([f[0],f[1]]);
+  _veGeomRef.coordinates[0]=ring;
+}
+
 async function _saveVpVertex(factId, gj){
+  _rebuildVpRingFromCoords();
   const idx=(currentObj&&currentObj.vol_progress||[]).findIndex(x=>x.id===factId);
   await fetch(`${API}/vol_progress/${factId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({geojson:JSON.stringify(gj)})}).catch(()=>{});
@@ -92,6 +103,13 @@ async function _saveVpVertex(factId, gj){
 
 async function saveVertexEdit(volId,gj){
   const vol=(currentObj?.volumes||[]).find(v=>v.id===volId);if(!vol)return;
+  // Rebuild polygon ring directly from _veCoords (fresh arrays, properly closed)
+  if(_veCoords&&_veGeomRef&&_veCoords.length>=3){
+    const ring=_veCoords.map(function(c){return[c[0],c[1]];});
+    const f=ring[0],l=ring[ring.length-1];
+    if(f[0]!==l[0]||f[1]!==l[1])ring.push([f[0],f[1]]);
+    _veGeomRef.coordinates[0]=ring;
+  }
   const r=await fetch(`${API}/volumes/${volId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({...vol,geojson:JSON.stringify(gj)})});
   if(!r.ok){toast('Ошибка сохранения','err');return;}
@@ -106,7 +124,7 @@ function stopVertexEdit(){
   });
   vertexEditMarkers=[];
   vertexEditLayerId=null;
-  _veCoords=null; _veGJ=null; _veId=null; _veIsVP=false; _veUpdatePreview=null;
+  _veCoords=null; _veGJ=null; _veId=null; _veIsVP=false; _veUpdatePreview=null; _veRingRef=null; _veGeomRef=null;
   if(currentObj){
     refreshCurrent().then(function(){
       renderVolumesOnMap(currentObj.volumes||[]);
@@ -123,10 +141,10 @@ function _handleVertexEditRCM(e){
   const cx=e.originalEvent.clientX, cy=e.originalEvent.clientY;
   showCtx(cx,cy,[
     {i:'✅',l:'Закончить редактирование',f:function(){
-      if(_veIsVP){stopVertexEdit();}
+      if(_veIsVP){_saveVpVertex(_veId,_veGJ).then(stopVertexEdit);}
       else{saveVertexEdit(_veId,_veGJ).then(stopVertexEdit);}
     }},
-    {i:'❌',l:'Удалить ближайшую вершину',f:function(){
+    {i:'❌',l:'Удалить ближайшую вершину',f:async function(){
       if(!_veCoords||_veCoords.length<=3){toast('Минимум 3 вершины','err');return;}
       let bestMk=null,bestDist=Infinity;
       vertexEditMarkers.forEach(function(mk){
@@ -138,14 +156,15 @@ function _handleVertexEditRCM(e){
       if(!bestMk)return;
       const ll=bestMk.getLatLng();
       const idx=_veCoords.findIndex(c=>Math.abs(c[0]-ll.lng)<1e-9&&Math.abs(c[1]-ll.lat)<1e-9);
-      if(idx>-1)_veCoords.splice(idx,1);
+      if(idx>-1){const rc=_veCoords[idx];_veCoords.splice(idx,1);if(_veRingRef){const ri=_veRingRef.indexOf(rc);if(ri>-1)_veRingRef.splice(ri,1);}}
       try{map.removeLayer(bestMk);}catch(ex){}
       const mi=vertexEditMarkers.indexOf(bestMk);
       if(mi>-1)vertexEditMarkers.splice(mi,1);
+      _rebuildVpRingFromCoords();
       if(_veUpdatePreview)_veUpdatePreview();
-      if(_veIsVP)_saveVpVertex(_veId,_veGJ); else saveVertexEdit(_veId,_veGJ);
+      if(_veIsVP) await _saveVpVertex(_veId,_veGJ); else { await saveVertexEdit(_veId,_veGJ); if(currentObj) renderVolumesOnMap(currentObj.volumes||[]); }
     }},
-    {i:'➕',l:'Добавить вершину здесь',f:function(){
+    {i:'➕',l:'Добавить вершину здесь',f:async function(){
       if(!_veCoords||!_veGJ)return;
       const T=clickPx;
       let bestSeg=-1,bestDist=Infinity;
@@ -162,9 +181,11 @@ function _handleVertexEditRCM(e){
       if(bestSeg<0)return;
       const newC=[e.latlng.lng,e.latlng.lat];
       _veCoords.splice(bestSeg+1,0,newC);
+      if(_veRingRef)_veRingRef.splice(bestSeg+1,0,newC);
       _addVertexMarker(newC,_veId,_veGJ,_veCoords,_veUpdatePreview,_veIsVP);
+      _rebuildVpRingFromCoords();
       if(_veUpdatePreview)_veUpdatePreview();
-      if(_veIsVP)_saveVpVertex(_veId,_veGJ); else saveVertexEdit(_veId,_veGJ);
+      if(_veIsVP) await _saveVpVertex(_veId,_veGJ); else { await saveVertexEdit(_veId,_veGJ); if(currentObj) renderVolumesOnMap(currentObj.volumes||[]); }
     }}
   ]);
 }
@@ -181,7 +202,7 @@ async function startVpVertexEdit(factId){
     if(!geom)return;
     if(geom.type==='Point'){coords.push(geom.coordinates);}
     else if(geom.type==='LineString'){geom.coordinates.forEach(c=>coords.push(c));}
-    else if(geom.type==='Polygon'){if(geom.coordinates[0])geom.coordinates[0].forEach(c=>coords.push(c));}
+    else if(geom.type==='Polygon'){if(geom.coordinates[0]){_veGeomRef=geom;geom.coordinates[0].forEach(c=>coords.push(c));}}
     else if(geom.type==='FeatureCollection'){(geom.features||[]).forEach(f=>extractVpCoords(f.geometry));}
     else if(geom.type==='Feature'){extractVpCoords(geom.geometry);}
   }

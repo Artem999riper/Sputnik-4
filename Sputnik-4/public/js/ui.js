@@ -322,13 +322,15 @@ async function loadDash(){
   const el=document.getElementById('dash-content');
   el.innerHTML='<div style="font-size:13px;color:var(--tx3);padding:20px">Загрузка...</div>';
   try{
-    const[sr,br,mr,wr,tr]=await Promise.all([
+    const[sr,br,mr,wr,tr,demCntRow]=await Promise.all([
       fetch(`${API}/sites`).then(r=>r.json()),
       fetch(`${API}/bases`).then(r=>r.json()),
       fetch(`${API}/pgk/machinery`).then(r=>r.json()),
       fetch(`${API}/pgk/workers`).then(r=>r.json()),
       fetch(`${API}/log`).then(r=>r.json()),
+      fetch(`${API}/settings/dem_export_count`).then(r=>r.json()).catch(()=>({value:'0'})),
     ]);
+    const demExportCount=parseInt(demCntRow.value)||0;
     const today=new Date().toISOString().split('T')[0];
     const in3d=new Date(Date.now()+3*86400000).toISOString().split('T')[0];
 
@@ -392,6 +394,7 @@ async function loadDash(){
         <div class="dash-stat"><div class="dash-stat-icon" style="background:var(--bpl)">🏕</div><div><div class="dash-stat-val">${br.length}</div><div class="dash-stat-lbl">Баз развёрнуто</div></div></div>
         <div class="dash-stat"><div class="dash-stat-icon" style="background:var(--orgl)">👷</div><div><div class="dash-stat-val">${totalWorkers}</div><div class="dash-stat-lbl">Людей на объектах</div></div></div>
         <div class="dash-stat"><div class="dash-stat-icon" style="background:var(--grnl)">🚛</div><div><div class="dash-stat-val">${workingMach}<span style="font-size:14px;color:var(--tx3)">/${mr.length}</span></div><div class="dash-stat-lbl">Техники в работе</div></div></div>
+        <div class="dash-stat"><div class="dash-stat-icon" style="background:var(--orgl)">🗻</div><div><div class="dash-stat-val">${demExportCount}</div><div class="dash-stat-lbl">Выгрузок рельефа</div></div></div>
       </div>
       <div class="dash-card">
         <h3>📋 Активные объекты</h3>

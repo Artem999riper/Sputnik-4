@@ -48,6 +48,50 @@ const KML_SYMBOLS = {
     svg:`<circle cx="12" cy="12" r="9" fill="none" stroke="COLOR" stroke-width="2"/><text x="12" y="17" text-anchor="middle" font-size="12" font-weight="bold" fill="COLOR" font-family="Arial">H</text>` },
   fuel:           { label:'Топливо / АЗС',           group:'Инфраструктура',
     svg:`<rect x="7" y="4" width="8" height="12" fill="none" stroke="COLOR" stroke-width="2"/><rect x="9" y="6" width="4" height="3" fill="COLOR" fill-opacity="0.5"/><line x1="11" y1="16" x2="11" y2="20" stroke="COLOR" stroke-width="2"/><line x1="15" y1="8" x2="17" y2="8" stroke="COLOR" stroke-width="2"/><line x1="17" y1="8" x2="17" y2="14" stroke="COLOR" stroke-width="2"/><circle cx="17" cy="15" r="1.5" fill="COLOR"/>` },
+  parking:        { label:'Парковка',                group:'Инфраструктура',
+    svg:`<rect x="4" y="4" width="16" height="16" fill="none" stroke="COLOR" stroke-width="2" rx="2"/><path d="M9 8 L9 16 M9 8 L14 8 Q17 8 17 11 Q17 14 14 14 L9 14" fill="none" stroke="COLOR" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` },
+  bridge:         { label:'Мост',                    group:'Инфраструктура',
+    svg:`<path d="M3 15 Q8 7 12 14 Q16 21 21 15" fill="none" stroke="COLOR" stroke-width="2.5"/><line x1="3" y1="15" x2="21" y2="15" stroke="COLOR" stroke-width="1.5"/><line x1="3" y1="13" x2="3" y2="17" stroke="COLOR" stroke-width="2"/><line x1="21" y1="13" x2="21" y2="17" stroke="COLOR" stroke-width="2"/>` },
+  power_line:     { label:'ЛЭП / Опора',             group:'Инфраструктура',
+    svg:`<line x1="12" y1="3" x2="12" y2="21" stroke="COLOR" stroke-width="2"/><line x1="4" y1="8" x2="20" y2="8" stroke="COLOR" stroke-width="2"/><line x1="4" y1="8" x2="12" y2="5" stroke="COLOR" stroke-width="1.5"/><line x1="20" y1="8" x2="12" y2="5" stroke="COLOR" stroke-width="1.5"/><line x1="5" y1="13" x2="19" y2="13" stroke="COLOR" stroke-width="1.5"/><line x1="5" y1="13" x2="12" y2="10" stroke="COLOR" stroke-width="1.5"/><line x1="19" y1="13" x2="12" y2="10" stroke="COLOR" stroke-width="1.5"/>` },
+  warehouse:      { label:'Склад / Ангар',            group:'Инфраструктура',
+    svg:`<rect x="3" y="10" width="18" height="10" fill="none" stroke="COLOR" stroke-width="2"/><path d="M3 10 Q12 3 21 10" fill="none" stroke="COLOR" stroke-width="2"/><line x1="10" y1="20" x2="10" y2="14" stroke="COLOR" stroke-width="1.5"/><line x1="14" y1="20" x2="14" y2="14" stroke="COLOR" stroke-width="1.5"/><line x1="10" y1="14" x2="14" y2="14" stroke="COLOR" stroke-width="1.5"/>` },
+  checkpoint:     { label:'КПП',                     group:'Охрана',
+    svg:`<rect x="4" y="3" width="4" height="18" fill="COLOR" fill-opacity="0.4" stroke="COLOR" stroke-width="1.5" rx="1"/><rect x="8" y="7" width="12" height="4" fill="COLOR" fill-opacity="0.8" stroke="COLOR" stroke-width="1.5" rx="1"/><line x1="8" y1="9" x2="4" y2="9" stroke="COLOR" stroke-width="1"/><text x="14" y="16" text-anchor="middle" font-size="6" font-weight="bold" fill="COLOR" font-family="Arial">КПП</text>` },
+  guard_post:     { label:'Пост охраны',              group:'Охрана',
+    svg:`<rect x="6" y="9" width="12" height="11" fill="none" stroke="COLOR" stroke-width="2"/><path d="M4 11 L12 4 L20 11" fill="none" stroke="COLOR" stroke-width="2"/><rect x="9" y="13" width="6" height="7" fill="none" stroke="COLOR" stroke-width="1.5"/>` },
+  barrier:        { label:'Шлагбаум',                group:'Охрана',
+    svg:`<rect x="4" y="10" width="3" height="12" fill="COLOR" fill-opacity="0.5" stroke="COLOR" stroke-width="1.5" rx="1"/><line x1="7" y1="12" x2="20" y2="9" stroke="COLOR" stroke-width="3" stroke-linecap="round"/><circle cx="20" cy="9" r="2" fill="COLOR"/>` },
+  camera:         { label:'Камера наблюдения',        group:'Охрана',
+    svg:`<rect x="3" y="8" width="13" height="9" fill="none" stroke="COLOR" stroke-width="2" rx="1"/><path d="M16 11 L21 8 L21 16 L16 13 Z" fill="COLOR" fill-opacity="0.3" stroke="COLOR" stroke-width="1.5"/><circle cx="9" cy="12" r="2.5" fill="none" stroke="COLOR" stroke-width="1.5"/>` },
+  warning:        { label:'Предупреждение',           group:'Охрана',
+    svg:`<polygon points="12,3 22,20 2,20" fill="none" stroke="COLOR" stroke-width="2.5"/><line x1="12" y1="9" x2="12" y2="15" stroke="COLOR" stroke-width="2.5" stroke-linecap="round"/><circle cx="12" cy="18" r="1.5" fill="COLOR"/>` },
+  forbidden:      { label:'Запретная зона',           group:'Охрана',
+    svg:`<circle cx="12" cy="12" r="9" fill="none" stroke="COLOR" stroke-width="2.5"/><line x1="5.4" y1="5.4" x2="18.6" y2="18.6" stroke="COLOR" stroke-width="2.5"/>` },
+  antenna:        { label:'Антенна / Вышка связи',    group:'Связь',
+    svg:`<line x1="12" y1="22" x2="12" y2="10" stroke="COLOR" stroke-width="2.5" stroke-linecap="round"/><path d="M8 14 Q12 8 16 14" fill="none" stroke="COLOR" stroke-width="2"/><path d="M5 18 Q12 6 19 18" fill="none" stroke="COLOR" stroke-width="1.5"/><line x1="9" y1="22" x2="15" y2="22" stroke="COLOR" stroke-width="2"/>` },
+  repeater:       { label:'Ретранслятор',             group:'Связь',
+    svg:`<rect x="9" y="14" width="6" height="8" fill="none" stroke="COLOR" stroke-width="2"/><line x1="12" y1="14" x2="12" y2="10" stroke="COLOR" stroke-width="2"/><path d="M8 12 Q12 6 16 12" fill="none" stroke="COLOR" stroke-width="2"/><path d="M6 14 Q12 4 18 14" fill="none" stroke="COLOR" stroke-width="1.5"/>` },
+  water_body:     { label:'Водоём / Река',             group:'Природа',
+    svg:`<path d="M3 10 Q6 7 9 10 Q12 13 15 10 Q18 7 21 10" fill="none" stroke="COLOR" stroke-width="2.5"/><path d="M3 16 Q6 13 9 16 Q12 19 15 16 Q18 13 21 16" fill="none" stroke="COLOR" stroke-width="2"/>` },
+  swamp:          { label:'Болото',                   group:'Природа',
+    svg:`<line x1="3" y1="8" x2="21" y2="8" stroke="COLOR" stroke-width="2"/><line x1="3" y1="12" x2="21" y2="12" stroke="COLOR" stroke-width="1" stroke-dasharray="2 3"/><line x1="6" y1="8" x2="6" y2="19" stroke="COLOR" stroke-width="1.5"/><line x1="10" y1="8" x2="10" y2="16" stroke="COLOR" stroke-width="1.5"/><line x1="14" y1="8" x2="14" y2="19" stroke="COLOR" stroke-width="1.5"/><line x1="18" y1="8" x2="18" y2="16" stroke="COLOR" stroke-width="1.5"/>` },
+  forest:         { label:'Лес',                      group:'Природа',
+    svg:`<circle cx="12" cy="9" r="5" fill="COLOR" fill-opacity="0.3" stroke="COLOR" stroke-width="2"/><circle cx="7" cy="13" r="4" fill="COLOR" fill-opacity="0.3" stroke="COLOR" stroke-width="1.5"/><circle cx="17" cy="13" r="4" fill="COLOR" fill-opacity="0.3" stroke="COLOR" stroke-width="1.5"/><line x1="12" y1="14" x2="12" y2="21" stroke="COLOR" stroke-width="2.5"/>` },
+  hill:           { label:'Холм / Гора',              group:'Природа',
+    svg:`<path d="M2 20 L12 4 L22 20 Z" fill="none" stroke="COLOR" stroke-width="2.5"/><path d="M8 20 L14 11 L20 20" fill="COLOR" fill-opacity="0.2" stroke="COLOR" stroke-width="1.5"/>` },
+  triangle_up:    { label:'Треугольник',              group:'Базовые фигуры',
+    svg:`<polygon points="12,3 22,21 2,21" fill="COLOR" fill-opacity="0.8" stroke="COLOR" stroke-width="1.5"/>` },
+  triangle_down:  { label:'Треугольник (↓)',          group:'Базовые фигуры',
+    svg:`<polygon points="12,21 2,3 22,3" fill="COLOR" fill-opacity="0.8" stroke="COLOR" stroke-width="1.5"/>` },
+  hexagon:        { label:'Шестиугольник',            group:'Базовые фигуры',
+    svg:`<polygon points="12,3 20,7.5 20,16.5 12,21 4,16.5 4,7.5" fill="COLOR" fill-opacity="0.3" stroke="COLOR" stroke-width="2.5"/>` },
+  cross:          { label:'Крест',                    group:'Базовые фигуры',
+    svg:`<line x1="12" y1="3" x2="12" y2="21" stroke="COLOR" stroke-width="3" stroke-linecap="round"/><line x1="3" y1="12" x2="21" y2="12" stroke="COLOR" stroke-width="3" stroke-linecap="round"/>` },
+  arrow_up:       { label:'Стрелка вверх',            group:'Базовые фигуры',
+    svg:`<path d="M12 3 L18 12 L14 12 L14 21 L10 21 L10 12 L6 12 Z" fill="COLOR" fill-opacity="0.8" stroke="COLOR" stroke-width="1.5"/>` },
+  circle_empty:   { label:'Окружность',               group:'Базовые фигуры',
+    svg:`<circle cx="12" cy="12" r="8" fill="none" stroke="COLOR" stroke-width="3"/>` },
 };
 
 const KML_LINE_STYLES = {
@@ -58,9 +102,12 @@ const KML_LINE_STYLES = {
 };
 
 // ── Состояние ───────────────────────────────────────────────
-let kmGroups    = {};
-let kmGroupOrder= [];
-let kmlPanelOpen= false;
+let kmGroups      = {};
+let kmGroupOrder  = [];
+let kmlPanelOpen  = false;
+let _kmlSelectedCat = 'ALL';    // 'ALL' | group_id | 'UNGROUPED'
+let _kmlDisplayMode = 'selected'; // 'selected' | 'all' | 'none'
+let _kmlExpanded    = new Set();  // id слоёв, раскрытых в иерархии
 
 // ── Утилиты SVG ────────────────────────────────────────────
 function kmlSvgIcon(symbolKey, color, size) {
@@ -74,13 +121,14 @@ function kmlSvgIcon(symbolKey, color, size) {
 function kmlFeatureDivIcon(layerObj, featureProps) {
   const sym   = (featureProps && featureProps._sym)   || layerObj.symbol || 'point';
   const color = (featureProps && featureProps._color) || layerObj.color  || '#1a56db';
-  const scale = layerObj.size != null ? layerObj.size : 1;
+  const scale = featureProps?._size != null ? featureProps._size : (layerObj.size != null ? layerObj.size : 1);
   const size  = Math.round(28 * scale);
   return L.divIcon({
     className: '',
     html: `<div style="filter:drop-shadow(0 1px 3px rgba(0,0,0,.4))">${kmlSvgIcon(sym, color, size)}</div>`,
-    iconSize:  [size, size],
-    iconAnchor:[size/2, size/2],
+    iconSize:    [size, size],
+    iconAnchor:  [size/2, size/2],
+    tooltipAnchor: [0, -size/2],
   });
 }
 
@@ -101,68 +149,221 @@ function toggleKmlPanel() {
 
 // ── Главный рендер панели ───────────────────────────────────
 function renderKmlPanel() {
-  const list = document.getElementById('kml-panel-body');
-  if (!list) return;
+  _kmlRenderCats();
+  _kmlRenderLayerPane();
+}
 
-  const ungrouped = layers.filter(l => !l.site_id && (!l.group_id || !kmGroups[l.group_id]));
-  const grouped   = {};
-  layers.filter(l => !l.site_id && l.group_id && kmGroups[l.group_id]).forEach(l => {
-    if (!grouped[l.group_id]) grouped[l.group_id] = [];
-    grouped[l.group_id].push(l);
-  });
-
+// Рендер левой колонки (группы/категории)
+function _kmlRenderCats() {
+  const el = document.getElementById('kml-cats');
+  if (!el) return;
+  const allLayers = layers.filter(l => !l.site_id);
+  const ungrouped = allLayers.filter(l => !l.group_id || !kmGroups[l.group_id]);
+  const totalVis  = allLayers.some(l => l.visible);
   let html = '';
+
+  // «Все слои»
+  html += `<div class="kml-cat-row ${_kmlSelectedCat === 'ALL' ? 'active' : ''}" onclick="_kmlSelectCat('ALL')">
+    <input type="checkbox" ${totalVis ? 'checked' : ''} onclick="event.stopPropagation()" onchange="_kmlCatBulkVis('ALL',this.checked)" style="cursor:pointer;flex-shrink:0">
+    <span class="kml-cat-label">🗂 Все слои</span>
+    <span class="kml-cat-count">${allLayers.length}</span>
+  </div>`;
+
+  // Группы
   kmGroupOrder.forEach(gid => {
     const g = kmGroups[gid];
     if (!g) return;
-    const gLayers = grouped[gid] || [];
-    const allVis  = gLayers.length > 0 && gLayers.every(l => l.visible);
-    const siteIds = g.site_ids || [];
-    const boundSites = siteIds.length ? sites.filter(s=>siteIds.includes(s.id)) : [];
-    const isActive  = !siteIds.length || (currentObj && siteIds.includes(currentObj.id));
-    const badgeLabel = boundSites.length===1 ? esc(boundSites[0].name) : boundSites.length+' объекта';
-    const siteBadge = boundSites.length
-      ? `<span title="Привязана к: ${boundSites.map(s=>esc(s.name)).join(', ')}" style="font-size:9px;background:${isActive?'var(--acc)':'var(--tx3)'};color:#fff;border-radius:10px;padding:1px 6px;flex-shrink:0;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🏗 ${badgeLabel}</span>`
-      : '';
-    html += `<div class="kml-group" data-gid="${gid}" style="${!isActive?'opacity:.45':''}">
-      <div class="kml-group-hd" onclick="kmlToggleGroup('${gid}')">
-        <span class="kml-group-arrow">${g.collapsed ? '▶' : '▼'}</span>
-        <span class="kml-group-eye ${allVis?'on':''}" onclick="event.stopPropagation();kmlGroupVisToggle('${gid}')">${allVis?'👁':'🚫'}</span>
-        <span class="kml-group-name" ondblclick="event.stopPropagation();kmlRenameGroup('${gid}')">${esc(g.name)}</span>
-        ${siteBadge}
-        <span class="kml-group-count">${gLayers.length}</span>
-        <button class="kml-icon-btn" onclick="event.stopPropagation();kmlGroupCtx(event,'${gid}')">⋯</button>
-      </div>
-      ${g.collapsed ? '' : `<div class="kml-group-body">${gLayers.map(l => kmlLayerRow(l)).join('')}</div>`}
+    const gLayers  = allLayers.filter(l => l.group_id === gid);
+    const anyVis   = gLayers.some(l => l.visible);
+    const siteIds  = g.site_ids || [];
+    const boundSites = siteIds.length ? (typeof sites !== 'undefined' ? sites.filter(s => siteIds.includes(s.id)) : []) : [];
+    const isActive = !siteIds.length || (typeof currentObj !== 'undefined' && currentObj && siteIds.includes(currentObj.id));
+    const siteTip  = boundSites.length ? ` title="Привязана к: ${boundSites.map(s => esc(s.name)).join(', ')}"` : '';
+    html += `<div class="kml-cat-row ${_kmlSelectedCat === gid ? 'active' : ''}"
+        onclick="_kmlSelectCat('${gid}')"
+        oncontextmenu="event.preventDefault();kmlGroupCtx(event,'${gid}')"
+        style="${!isActive ? 'opacity:.5' : ''}"${siteTip}>
+      <input type="checkbox" ${anyVis ? 'checked' : ''} onclick="event.stopPropagation()" onchange="kmlGroupVisToggle('${gid}')" style="cursor:pointer;flex-shrink:0">
+      <span class="kml-cat-label" ondblclick="event.stopPropagation();kmlRenameGroup('${gid}')">📁 ${esc(g.name)}</span>
+      <span class="kml-cat-count">${gLayers.length}</span>
+      <button class="kml-icon-btn" onclick="event.stopPropagation();kmlGroupCtx(event,'${gid}')" title="Меню">⋯</button>
     </div>`;
   });
 
-  if (ungrouped.length) {
-    html += `<div class="kml-ungrouped-hd">📄 Без группы</div>`;
-    html += ungrouped.map(l => kmlLayerRow(l)).join('');
-  }
+  // «Без группы»
+  html += `<div class="kml-cat-row ${_kmlSelectedCat === 'UNGROUPED' ? 'active' : ''}" onclick="_kmlSelectCat('UNGROUPED')">
+    <input type="checkbox" ${ungrouped.some(l => l.visible) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="_kmlCatBulkVis('UNGROUPED',this.checked)" style="cursor:pointer;flex-shrink:0">
+    <span class="kml-cat-label">📄 Без группы</span>
+    <span class="kml-cat-count">${ungrouped.length}</span>
+  </div>`;
 
-  if (!html) {
-    html = `<div class="kml-empty"><div style="font-size:28px;margin-bottom:6px">🗺</div>
-      <div>Нет слоёв</div>
-      <div style="font-size:10px;color:var(--tx3);margin-top:4px">Импортируйте KML или GPX</div></div>`;
-  }
-  list.innerHTML = html;
+  // Кнопки действий
+  html += `<div class="kml-cat-actions">
+    <button class="btn bs bxs" onclick="kmlCreateGroup()">📁 + Группа</button>
+    <button class="btn bs bxs" onclick="kmlCreateIconLayer()">📌 Создать слой</button>
+    <button class="btn bs bxs" onclick="openCoordMarkerModal()">🔢 По координатам</button>
+  </div>`;
+
+  el.innerHTML = html;
 }
 
-function kmlLayerRow(l) {
-  const lblOn = !!layerLabels[l.id];
-  const sym   = l.symbol || 'point';
-  const svgPrev = kmlSvgIcon(sym, l.color || '#1a56db', 18);
-  return `<div class="kml-layer-row" data-lid="${l.id}" oncontextmenu="event.preventDefault();kmlLayerCtx(event,'${l.id}')">
-    <button class="kml-icon-btn vis ${l.visible?'on':''}" onclick="kmlToggleVis('${l.id}',${l.visible?0:1})">${l.visible?'👁':'🚫'}</button>
-    <div class="kml-sym-preview" onclick="kmlOpenStyleModal('${l.id}')" title="Стиль слоя">${svgPrev}</div>
-    <div class="kml-layer-name" ondblclick="kmlRenameLayer('${l.id}')" title="${esc(l.name)}">${esc(l.name)}</div>
-    <button class="kml-icon-btn ${lblOn?'on':''}" onclick="toggleLayerLabels('${l.id}')" title="Подписи">🏷</button>
-    <button class="kml-icon-btn" onclick="kmlZoomTo('${l.id}')" title="Приблизить">🔍</button>
-    <button class="kml-icon-btn" onclick="kmlOpenFeatureList('${l.id}')" title="Объекты слоя">📋</button>
-    <button class="kml-icon-btn menu" onclick="kmlLayerCtx(event,'${l.id}')" title="Меню">⋯</button>
-  </div>`;
+// Рендер правой колонки (список слоёв выбранной категории)
+function _kmlRenderLayerPane() {
+  const el = document.getElementById('kml-layers-pane');
+  if (!el) return;
+  const allLayers = layers.filter(l => !l.site_id);
+  let filtered;
+  if (_kmlSelectedCat === 'ALL') {
+    filtered = allLayers;
+  } else if (_kmlSelectedCat === 'UNGROUPED') {
+    filtered = allLayers.filter(l => !l.group_id || !kmGroups[l.group_id]);
+  } else {
+    filtered = allLayers.filter(l => l.group_id === _kmlSelectedCat);
+  }
+
+  if (!filtered.length) {
+    const isEmpty = !allLayers.length;
+    el.innerHTML = `<div class="kml-empty">
+      ${isEmpty
+        ? '<div style="font-size:28px;margin-bottom:6px">🗺</div><div>Нет слоёв</div><div style="font-size:10px;color:var(--tx3);margin-top:4px">Импортируйте KML, GPX или DXF</div>'
+        : '<div style="font-size:24px;margin-bottom:6px">📂</div><div>Нет слоёв в выбранной группе</div>'}
+    </div>`;
+    return;
+  }
+
+  const rows = filtered.map(l => {
+    const lblOn   = !!layerLabels[l.id];
+    const sym     = l.symbol || 'point';
+    const svgPrev = kmlSvgIcon(sym, l.color || '#1a56db', 18);
+    const featCnt = _kmlFeatureCount(l);
+    const isExp   = _kmlExpanded.has(l.id);
+    const arrow   = featCnt > 0
+      ? `<span class="kml-exp-arrow" onclick="event.stopPropagation();_kmlToggleExpand('${l.id}')" title="${isExp ? 'Свернуть' : 'Показать объекты'}">${isExp ? '▼' : '▶'}</span>`
+      : `<span class="kml-exp-arrow empty"></span>`;
+    return `<div class="kml-layer-row" data-lid="${l.id}" oncontextmenu="event.preventDefault();kmlLayerCtx(event,'${l.id}')">
+      ${arrow}
+      <input type="checkbox" ${l.visible ? 'checked' : ''} title="${l.visible ? 'Скрыть слой' : 'Показать слой'}"
+        onchange="kmlToggleVis('${l.id}',this.checked?1:0)" onclick="event.stopPropagation()" style="cursor:pointer;flex-shrink:0">
+      <div class="kml-sym-preview" onclick="kmlOpenStyleModal('${l.id}')" title="Стиль слоя">${svgPrev}</div>
+      <div class="kml-layer-name" onclick="${featCnt > 0 ? `_kmlToggleExpand('${l.id}')` : ''}" ondblclick="kmlRenameLayer('${l.id}')" title="${esc(l.name)}">${esc(l.name)}${featCnt ? ` <span class="kml-feat-badge">${featCnt}</span>` : ''}</div>
+      <button class="kml-icon-btn ${lblOn ? 'on' : ''}" onclick="toggleLayerLabels('${l.id}')" title="Подписи">🏷</button>
+      <button class="kml-icon-btn" onclick="kmlZoomTo('${l.id}')" title="Приблизить">🔍</button>
+      <button class="kml-icon-btn ${_kmlPlacingLayerId === l.id ? 'on' : ''}" onclick="kmlStartPlacement('${l.id}')" title="Разместить иконку">📌</button>
+      <button class="kml-icon-btn" onclick="kmlLayerCtx(event,'${l.id}')" title="Меню">⋯</button>
+    </div>${isExp ? _kmlFeatureChildRows(l) : ''}`;
+  }).join('');
+
+  const visCount = filtered.filter(l => l.visible).length;
+  el.innerHTML = `<div style="flex:1">${rows}</div>
+    <div class="kml-pane-footer">Показано ${visCount} / ${filtered.length}</div>`;
+}
+
+// Выбрать категорию в левой панели
+function _kmlSelectCat(cat) {
+  _kmlSelectedCat = cat;
+  renderKmlPanel();
+}
+
+// Кол-во объектов в слое
+function _kmlFeatureCount(l) {
+  try {
+    const gj = JSON.parse(l.geojson);
+    return gj.type === 'FeatureCollection' ? (gj.features || []).length : (gj.type === 'Feature' ? 1 : 0);
+  } catch (e) { return 0; }
+}
+
+// Раскрыть/свернуть иерархию объектов слоя
+function _kmlToggleExpand(id) {
+  if (_kmlExpanded.has(id)) _kmlExpanded.delete(id);
+  else _kmlExpanded.add(id);
+  _kmlRenderLayerPane();
+}
+
+// Дочерние строки — объекты слоя в иерархии
+function _kmlFeatureChildRows(l) {
+  let gj;
+  try { gj = JSON.parse(l.geojson); } catch (e) { return ''; }
+  const features = gj.type === 'FeatureCollection' ? gj.features : (gj.type === 'Feature' ? [gj] : []);
+  if (!features.length) {
+    return `<div class="kml-feat-empty">Слой пуст</div>`;
+  }
+  const typeIcon = t => t === 'Point' ? '📍' : t === 'LineString' ? '〰️' : t === 'Polygon' ? '⬡' : '◆';
+  return `<div class="kml-feat-children">` + features.map((f, idx) => {
+    const props    = f.properties || {};
+    const nm       = props.name || props.Name || `Объект ${idx + 1}`;
+    const geomType = f.geometry ? f.geometry.type : '?';
+    const fSym     = props._sym   || l.symbol || 'point';
+    const fColor   = props._color || l.color  || '#1a56db';
+    const isHidden = !!props._hidden;
+    const preview  = geomType === 'Point' ? kmlSvgIcon(fSym, fColor, 16) : `<span style="font-size:13px">${typeIcon(geomType)}</span>`;
+    let coordLabel = '';
+    try {
+      if (geomType === 'Point') { const [lng, lat] = f.geometry.coordinates; coordLabel = `${lat.toFixed(5)}, ${lng.toFixed(5)}`; }
+      else if (geomType === 'LineString') coordLabel = `${f.geometry.coordinates.length} точек`;
+      else if (geomType === 'Polygon')    coordLabel = `${(f.geometry.coordinates[0] || []).length} вершин`;
+    } catch (e) {}
+    return `<div class="kml-feat-row" style="${isHidden ? 'opacity:.45' : ''}">
+      <span class="kml-feat-sym">${preview}</span>
+      <div class="kml-feat-info" onclick="kmlZoomToFeature('${l.id}',${idx})" title="Приблизить">
+        <div class="kml-feat-name">${esc(nm)}</div>
+        ${coordLabel ? `<div class="kml-feat-coord">${esc(coordLabel)}</div>` : ''}
+      </div>
+      <button class="kml-icon-btn" onclick="kmlToggleFeatureVis('${l.id}',${idx})" title="${isHidden ? 'Показать' : 'Скрыть'}">${isHidden ? '🚫' : '👁'}</button>
+      <button class="kml-icon-btn" onclick="kmlZoomToFeature('${l.id}',${idx})" title="Приблизить">🔍</button>
+      <button class="kml-icon-btn" onclick="kmlEditFeature('${l.id}',${idx},'inline')" title="Редактировать">✏️</button>
+      <button class="kml-icon-btn" style="color:var(--red);opacity:.75" onclick="kmlDeleteFeature('${l.id}',${idx},'inline')" title="Удалить">🗑</button>
+    </div>`;
+  }).join('') + `</div>`;
+}
+
+// Массовое переключение видимости для категории (чекбокс в левой панели)
+async function _kmlCatBulkVis(cat, vis) {
+  const allLayers = layers.filter(l => !l.site_id);
+  let targets;
+  if (cat === 'ALL') {
+    targets = allLayers;
+  } else if (cat === 'UNGROUPED') {
+    targets = allLayers.filter(l => !l.group_id || !kmGroups[l.group_id]);
+  } else {
+    return;
+  }
+  const v = vis ? 1 : 0;
+  for (const l of targets) await toggleLV(l.id, v);
+  setTimeout(renderKmlPanel, 150);
+}
+
+// Переключение режима отображения (радиокнопки в футере)
+function kmlSetMode(mode) {
+  _kmlDisplayMode = mode;
+  document.querySelectorAll('input[name="kml-mode"]').forEach(r => { r.checked = r.value === mode; });
+  if (mode === 'all')  _kmlCatBulkVis('ALL', true);
+  else if (mode === 'none') _kmlCatBulkVis('ALL', false);
+  else renderKmlPanel();
+}
+
+// Инициализация разделителя колонок
+function _kmlInitSplitter() {
+  const handle = document.getElementById('kml-vsplit');
+  const cats   = document.getElementById('kml-cats');
+  if (!handle || !cats) return;
+  let dragging = false, startX = 0, startW = 0;
+  handle.addEventListener('mousedown', e => {
+    dragging = true; startX = e.clientX; startW = cats.offsetWidth;
+    handle.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const w = Math.max(80, Math.min(startW + (e.clientX - startX), 380));
+    cats.style.width = w + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    document.body.style.userSelect = '';
+  });
 }
 
 // ── Видимость ───────────────────────────────────────────────
@@ -181,7 +382,7 @@ function kmlZoomTo(id) {
 
 // ── Группы ─────────────────────────────────────────────────
 function kmlToggleGroup(gid) {
-  if (kmGroups[gid]) { kmGroups[gid].collapsed = !kmGroups[gid].collapsed; renderKmlPanel(); }
+  _kmlSelectCat(gid);
 }
 async function kmlGroupVisToggle(gid) {
   const gl = layers.filter(l => l.group_id === gid);
@@ -313,7 +514,7 @@ function kmlLayerCtx(ev, id) {
   const groupItems=(moveToGroupItems.length||removeFromGroupItem.length)?[{sep:true},...moveToGroupItems,...removeFromGroupItem]:[];
   showCtx(cx,cy,[
     {i:'🗺',l:`<b>${esc(l.name)}</b>`,f:null},{sep:true},
-    {i:'📋',l:'Объекты слоя',f:()=>kmlOpenFeatureList(id)},
+    {i:_kmlExpanded.has(id)?'▼':'▶',l:_kmlExpanded.has(id)?'Свернуть объекты':'Показать объекты',f:()=>{if(!_kmlExpanded.has(id))_kmlExpanded.add(id);_kmlRenderLayerPane();}},
     {i:'🎨',l:'Стиль / условный знак',f:()=>kmlOpenStyleModal(id)},
     {i:'✏️',l:'Переименовать',f:()=>kmlRenameLayer(id)},
     {i:'🔍',l:'Приблизить к слою',f:()=>kmlZoomTo(id)},
@@ -428,10 +629,10 @@ function kmlOpenFeatureList(id) {
   const features = gj.type === 'FeatureCollection' ? gj.features : [gj];
   if (!features.length) { toast('Слой пустой', 'err'); return; }
 
-  // Считаем типы
   const pts  = features.filter(f => f.geometry && f.geometry.type === 'Point').length;
   const lns  = features.filter(f => f.geometry && f.geometry.type === 'LineString').length;
   const pols = features.filter(f => f.geometry && f.geometry.type === 'Polygon').length;
+  const hiddenCount = features.filter(f => f.properties?._hidden).length;
 
   const typeIcon = geomType => geomType === 'Point' ? '📍' : geomType === 'LineString' ? '〰️' : '⬡';
 
@@ -441,9 +642,9 @@ function kmlOpenFeatureList(id) {
     const desc     = props.description || props.desc || '';
     const fSym     = props._sym   || l.symbol  || 'point';
     const fColor   = props._color || l.color   || '#1a56db';
+    const isHidden = !!props._hidden;
     const geomType = f.geometry ? f.geometry.type : '?';
     const preview  = geomType === 'Point' ? kmlSvgIcon(fSym, fColor, 20) : typeIcon(geomType);
-    // Координаты для отображения
     let coordLabel = '';
     try {
       if (geomType === 'Point') {
@@ -456,7 +657,7 @@ function kmlOpenFeatureList(id) {
       }
     } catch(e) {}
 
-    return `<div class="kfl-row" data-fidx="${idx}">
+    return `<div class="kfl-row" data-fidx="${idx}" data-name="${esc(nm.toLowerCase())}" style="${isHidden?'opacity:.45':''}">
       <div class="kfl-sym">${preview}</div>
       <div class="kfl-info">
         <div class="kfl-name">${esc(nm)}</div>
@@ -464,6 +665,7 @@ function kmlOpenFeatureList(id) {
         <div class="kfl-coord">${esc(coordLabel)}</div>
       </div>
       <div class="kfl-actions">
+        <button class="kml-icon-btn kfl-vis-btn" onclick="kmlToggleFeatureVis('${id}',${idx})" title="${isHidden?'Показать объект':'Скрыть объект'}">${isHidden?'👁':'🚫'}</button>
         <button class="kml-icon-btn" onclick="kmlZoomToFeature('${id}',${idx})" title="Приблизить">🔍</button>
         <button class="kml-icon-btn" onclick="kmlEditFeature('${id}',${idx})" title="Редактировать">✏️</button>
         <button class="kml-icon-btn" style="color:var(--red);opacity:.7" onclick="kmlDeleteFeature('${id}',${idx})" title="Удалить">🗑</button>
@@ -473,14 +675,70 @@ function kmlOpenFeatureList(id) {
 
   const html = `
     <div class="kfl-header">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+        <input id="kfl-search" type="text" placeholder="Поиск по названию…"
+          style="flex:1;padding:5px 8px;border:1px solid var(--bd);border-radius:5px;background:var(--bg);color:var(--tx);font-size:13px"
+          oninput="kflSearch(this.value)">
+        <button class="btn bs" style="font-size:12px;padding:4px 8px;white-space:nowrap"
+          title="Показать все объекты" onclick="kmlSetAllFeaturesVis('${id}',false)">👁 Все</button>
+        <button class="btn bs" style="font-size:12px;padding:4px 8px;white-space:nowrap"
+          title="Скрыть все объекты" onclick="kmlSetAllFeaturesVis('${id}',true)">🚫 Все</button>
+      </div>
       <span style="font-size:11px;color:var(--tx3)">
-        ${pts ? `📍 ${pts} точек  ` : ''}${lns ? `〰️ ${lns} линий  ` : ''}${pols ? `⬡ ${pols} полигонов` : ''}
+        ${pts ? `📍 ${pts}  ` : ''}${lns ? `〰️ ${lns}  ` : ''}${pols ? `⬡ ${pols}  ` : ''}${hiddenCount ? `🚫 скрыто: ${hiddenCount}` : ''}
       </span>
     </div>
-    <div class="kfl-list">${rowsHtml}</div>`;
+    <div class="kfl-list" id="kfl-list">${rowsHtml}</div>`;
 
   showModal(`📋 Объекты слоя — ${esc(l.name)}`, html,
     [{label:'Закрыть',cls:'bs',fn:closeModal}]);
+}
+
+function kflSearch(query) {
+  const q = (query || '').toLowerCase().trim();
+  document.querySelectorAll('#kfl-list .kfl-row').forEach(row => {
+    const nm = row.dataset.name || '';
+    row.style.display = (!q || nm.includes(q)) ? '' : 'none';
+  });
+}
+
+async function kmlSetAllFeaturesVis(layerId, hidden) {
+  const l = layers.find(x => x.id === layerId);
+  if (!l) return;
+  let gj;
+  try { gj = JSON.parse(l.geojson); } catch(e) { return; }
+  const features = gj.type === 'FeatureCollection' ? gj.features : [gj];
+  features.forEach(f => {
+    if (!f.properties) f.properties = {};
+    if (hidden) f.properties._hidden = true;
+    else delete f.properties._hidden;
+  });
+  const newGeojson = JSON.stringify(gj);
+  l.geojson = newGeojson;
+  await fetch(`${API}/layers/${layerId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: l.name, color: l.color, visible: l.visible ? 1 : 0,
+      symbol: l.symbol||'', group_id: l.group_id||'', line_dash: l.line_dash||'solid',
+      min_zoom: l.min_zoom||0, max_zoom: l.max_zoom||20, size: l.size||1,
+      geojson: newGeojson }),
+  });
+  renderLayerGroupsWithSymbols();
+  // Обновляем все строки в модалке без пересоздания
+  document.querySelectorAll('#kfl-list .kfl-row').forEach(row => {
+    row.style.opacity = hidden ? '0.45' : '';
+    const btn = row.querySelector('.kfl-vis-btn');
+    if (btn) { btn.textContent = hidden ? '👁' : '🚫'; btn.title = hidden ? 'Показать объект' : 'Скрыть объект'; }
+  });
+  // Обновляем счётчик скрытых
+  const total = features.length;
+  const span = document.querySelector('.kfl-header span');
+  if (span) {
+    const pts  = features.filter(f => f.geometry?.type === 'Point').length;
+    const lns  = features.filter(f => f.geometry?.type === 'LineString').length;
+    const pols = features.filter(f => f.geometry?.type === 'Polygon').length;
+    span.innerHTML = `${pts ? `📍 ${pts}  ` : ''}${lns ? `〰️ ${lns}  ` : ''}${pols ? `⬡ ${pols}  ` : ''}${hidden ? `🚫 скрыто: ${total}` : ''}`;
+  }
 }
 
 // ── Приблизить к конкретному feature ───────────────────────
@@ -507,7 +765,8 @@ function kmlZoomToFeature(layerId, fIdx) {
 }
 
 // ── Редактировать отдельный feature ────────────────────────
-function kmlEditFeature(layerId, fIdx) {
+function kmlEditFeature(layerId, fIdx, mode) {
+  const inline = mode === 'inline';
   const l = layers.find(x => x.id === layerId);
   if (!l) return;
   let gj;
@@ -522,6 +781,7 @@ function kmlEditFeature(layerId, fIdx) {
   const isPoint  = geomType === 'Point';
   const fSym     = props._sym   || l.symbol  || 'point';
   const fColor   = props._color || l.color   || '#1a56db';
+  const fSize    = props._size  != null ? props._size : (l.size != null ? l.size : 1);
 
   // Строим сетку символов для выбора
   const symGroups = {};
@@ -548,31 +808,38 @@ function kmlEditFeature(layerId, fIdx) {
     <div class="fgr">
       <div class="fg"><label>Название</label><input id="kfl-nm" value="${esc(nm)}"></div>
       <div class="fg"><label>Описание</label><textarea id="kfl-desc" rows="2" style="width:100%;resize:vertical">${esc(desc)}</textarea></div>
-      ${isPoint ? `<div class="fg"><label>Цвет объекта</label>
+      <div class="fg"><label>Цвет объекта</label>
         <input type="color" id="kfl-color" value="${fColor}" style="width:50px;height:32px;border:1.5px solid var(--bd);border-radius:5px;cursor:pointer;padding:2px"
           oninput="document.querySelectorAll('[id^=kfl-sp-]').forEach(el=>{const k=el.id.replace('kfl-sp-','');el.innerHTML=kmlSvgIcon(k,this.value,20);})">
         <span style="font-size:10px;color:var(--tx3);margin-left:6px">Переопределяет цвет слоя для этого объекта</span>
+      </div>
+      ${isPoint ? `<div class="fg"><label>Размер знака: <b id="kfl-szv">${fSize.toFixed(1)}×</b></label>
+        <input type="range" id="kfl-size" min="0.3" max="4" step="0.1" value="${fSize}"
+          oninput="document.getElementById('kfl-szv').textContent=parseFloat(this.value).toFixed(1)+'×'">
       </div>` : ''}
       ${symGrid}
     </div>`;
 
   showModal(`✏️ Редактировать — ${esc(nm||'Объект')}`, html, [
-    {label:'Отмена',cls:'bs',fn:()=>{closeModal();kmlOpenFeatureList(layerId);}},
+    {label:'Отмена',cls:'bs',fn:()=>{closeModal();if(inline){if(kmlPanelOpen)_kmlRenderLayerPane();}else kmlOpenFeatureList(layerId);}},
     {label:'💾 Сохранить',cls:'bp',fn:async()=>{
       const newNm   = document.getElementById('kfl-nm').value.trim() || nm;
       const newDesc = document.getElementById('kfl-desc').value.trim();
-      const newColor= isPoint ? document.getElementById('kfl-color').value : null;
+      const newColor= document.getElementById('kfl-color').value;
       const symEl   = isPoint ? document.querySelector('.kfl-sym-sel.on') : null;
       const newSym  = symEl ? symEl.dataset.sym : (isPoint ? fSym : null);
+      const newSize = isPoint ? parseFloat(document.getElementById('kfl-size').value) : null;
 
       // Обновляем properties в GeoJSON
       if (!f.properties) f.properties = {};
       f.properties.name = newNm;
       if (newDesc) f.properties.description = newDesc; else delete f.properties.description;
-      if (isPoint && newColor && newColor !== l.color) f.properties._color = newColor;
+      if (newColor && newColor !== l.color) f.properties._color = newColor;
       else delete f.properties._color;
       if (isPoint && newSym && newSym !== l.symbol) f.properties._sym = newSym;
       else delete f.properties._sym;
+      if (isPoint && newSize != null && Math.abs(newSize - (l.size ?? 1)) > 0.05) f.properties._size = newSize;
+      else delete f.properties._size;
 
       // Сохраняем весь слой обратно
       const newGeojson = JSON.stringify(gj);
@@ -583,14 +850,60 @@ function kmlEditFeature(layerId, fIdx) {
       renderLayerGroups();
       toast('Сохранено','ok');
       closeModal();
-      kmlOpenFeatureList(layerId);  // возврат к списку
+      if (inline) { if (kmlPanelOpen) _kmlRenderLayerPane(); }
+      else kmlOpenFeatureList(layerId);  // возврат к списку
     }}
   ]);
 }
 function kflSelectSym(el){document.querySelectorAll('.kfl-sym-sel').forEach(b=>b.classList.remove('on'));el.classList.add('on');}
 
+// ── Скрыть/показать отдельный feature ──────────────────────
+async function kmlToggleFeatureVis(layerId, fIdx) {
+  const l = layers.find(x => x.id === layerId);
+  if (!l) return;
+  let gj;
+  try { gj = JSON.parse(l.geojson); } catch(e) { return; }
+  const features = gj.type === 'FeatureCollection' ? gj.features : [gj];
+  const f = features[fIdx];
+  if (!f) return;
+  if (!f.properties) f.properties = {};
+  const nowHidden = !f.properties._hidden;
+  if (nowHidden) f.properties._hidden = true;
+  else delete f.properties._hidden;
+  const newGeojson = JSON.stringify(gj);
+  l.geojson = newGeojson;
+  await fetch(`${API}/layers/${layerId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: l.name, color: l.color, visible: l.visible ? 1 : 0,
+      symbol: l.symbol||'', group_id: l.group_id||'', line_dash: l.line_dash||'solid',
+      min_zoom: l.min_zoom||0, max_zoom: l.max_zoom||20, size: l.size||1,
+      geojson: newGeojson }),
+  });
+  renderLayerGroupsWithSymbols();
+  // Обновляем только строку в модалке без пересоздания (сохраняет позицию скролла)
+  const row = document.querySelector(`.kfl-row[data-fidx="${fIdx}"]`);
+  if (row) {
+    row.style.opacity = nowHidden ? '0.45' : '';
+    const btn = row.querySelector('.kfl-vis-btn');
+    if (btn) { btn.textContent = nowHidden ? '👁' : '🚫'; btn.title = nowHidden ? 'Показать объект' : 'Скрыть объект'; }
+  }
+  // Обновляем счётчик скрытых в заголовке
+  const span = document.querySelector('.kfl-header span');
+  if (span) {
+    const hc = features.filter(f2 => f2.properties?._hidden).length;
+    const pts = features.filter(f2 => f2.geometry?.type === 'Point').length;
+    const lns = features.filter(f2 => f2.geometry?.type === 'LineString').length;
+    const pols = features.filter(f2 => f2.geometry?.type === 'Polygon').length;
+    span.innerHTML = `${pts ? `📍 ${pts}  ` : ''}${lns ? `〰️ ${lns}  ` : ''}${pols ? `⬡ ${pols}  ` : ''}${hc ? `🚫 скрыто: ${hc}` : ''}`;
+  }
+  // Обновляем иерархию в панели (если слой раскрыт)
+  if (kmlPanelOpen && _kmlExpanded.has(layerId)) _kmlRenderLayerPane();
+}
+
 // ── Удалить отдельный feature ───────────────────────────────
-async function kmlDeleteFeature(layerId, fIdx) {
+async function kmlDeleteFeature(layerId, fIdx, mode) {
+  const inline = mode === 'inline';
   if (!confirm('Удалить этот объект из слоя?')) return;
   const l = layers.find(x => x.id === layerId);
   if (!l) return;
@@ -606,13 +919,147 @@ async function kmlDeleteFeature(layerId, fIdx) {
   l.geojson = newGeojson;
   renderLayerGroups();
   toast('Объект удалён','ok');
-  kmlOpenFeatureList(layerId);  // обновить список
+  if (inline) { if (kmlPanelOpen) _kmlRenderLayerPane(); }
+  else kmlOpenFeatureList(layerId);  // обновить список
 }
 
 // ── Импорт ─────────────────────────────────────────────────
 function kmlPanelImport(evt) {
   importLayer(evt);
   setTimeout(renderKmlPanel, 500);
+}
+
+// ══════════════════════════════════════════════════════════════
+// ИКОНКИ — создание слоя и размещение на карте
+// ══════════════════════════════════════════════════════════════
+
+// Глобальный ID слоя, в который сейчас размещаем иконки
+let _kmlPlacingLayerId = null;
+let _kmlPlacementHandler = null;
+let _kmlPlacementEscHandler = null;
+
+async function kmlCreateIconLayer() {
+  showModal('Новый слой иконок',
+    `<div class="fg"><label>Название</label><input id="kml-icon-nm" placeholder="КПП, Посты охраны…"></div>
+     <div class="fg"><label>Цвет по умолчанию</label>
+       <input type="color" id="kml-icon-col" value="#e53935" style="width:50px;height:32px;border:1.5px solid var(--bd);border-radius:5px;cursor:pointer;padding:2px">
+     </div>`,
+    [
+      {label:'Отмена',cls:'bs',fn:closeModal},
+      {label:'Создать',cls:'bp',fn:async()=>{
+        const nm = document.getElementById('kml-icon-nm').value.trim();
+        if (!nm) return toast('Укажите название','warn');
+        const col = document.getElementById('kml-icon-col').value;
+        closeModal();
+        const emptyGJ = JSON.stringify({type:'FeatureCollection',features:[]});
+        const r = await fetch(`${API}/layers`,{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({name:nm,geojson:emptyGJ,color:col,symbol:'star',visible:1,
+            group_id:'',line_dash:'solid',min_zoom:null,max_zoom:null,size:1})});
+        const {id} = await r.json();
+        layers.unshift({id,name:nm,geojson:emptyGJ,color:col,symbol:'star',visible:1,
+          group_id:'',line_dash:'solid',min_zoom:null,max_zoom:null,size:1});
+        renderKmlPanel();
+        renderLayerGroups();
+        toast('Слой создан. Нажмите 📌 на слое для размещения иконок.','ok');
+      }}
+    ]);
+}
+
+function kmlStartPlacement(layerId) {
+  if (_kmlPlacingLayerId === layerId) { kmlCancelPlacement(); return; }
+  kmlCancelPlacement();
+  _kmlPlacingLayerId = layerId;
+  const l = layers.find(x=>x.id===layerId);
+  map.getContainer().style.cursor = 'crosshair';
+  toast(`📌 Кликните на карту для размещения иконки в «${l?.name||'слой'}». ESC — отмена`,'ok');
+  renderKmlPanel();
+
+  _kmlPlacementHandler = async function(e) {
+    const {lat,lng} = e.latlng;
+    kmlCancelPlacement();
+    // Открыть модалку для настройки иконки
+    const ll = layers.find(x=>x.id===layerId);
+    if (!ll) return;
+    let gj;
+    try { gj = JSON.parse(ll.geojson); } catch(err) { gj={type:'FeatureCollection',features:[]}; }
+    if (gj.type !== 'FeatureCollection') gj = {type:'FeatureCollection',features:gj.type==='Feature'?[gj]:[]};
+
+    const defColor = ll.color || '#e53935';
+    const defSym   = ll.symbol || 'star';
+    const symGroups = {};
+    Object.entries(KML_SYMBOLS).forEach(([k,s])=>{
+      if(!symGroups[s.group])symGroups[s.group]=[];
+      symGroups[s.group].push({key:k,...s});
+    });
+    const symGrid = Object.entries(symGroups).map(([grpNm,syms])=>`
+      <div style="margin-bottom:8px">
+        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--tx3);margin-bottom:4px">${grpNm}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${syms.map(s=>`<div class="kml-sym-btn kfl-sym-sel ${s.key===defSym?'on':''}" data-sym="${s.key}" onclick="kflSelectSym(this)" title="${s.label}">
+            <div id="kfl-sp-${s.key}">${kmlSvgIcon(s.key,defColor,20)}</div></div>`).join('')}
+        </div>
+      </div>`).join('');
+
+    showModal('📌 Разместить иконку',`
+      <div class="fgr">
+        <div class="fg"><label>Название</label><input id="kpl-nm" placeholder="КПП №1…"></div>
+        <div class="fg"><label>Цвет</label>
+          <input type="color" id="kpl-color" value="${defColor}" style="width:50px;height:32px;border:1.5px solid var(--bd);border-radius:5px;cursor:pointer;padding:2px"
+            oninput="document.querySelectorAll('[id^=kfl-sp-]').forEach(el=>{const k=el.id.replace('kfl-sp-','');el.innerHTML=kmlSvgIcon(k,this.value,20);})">
+        </div>
+        <div class="fg"><label>Размер: <b id="kpl-szv">1.0×</b></label>
+          <input type="range" id="kpl-size" min="0.3" max="4" step="0.1" value="1"
+            oninput="document.getElementById('kpl-szv').textContent=parseFloat(this.value).toFixed(1)+'×'">
+        </div>
+        <div style="margin-top:8px">
+          <label style="font-size:11px;font-weight:600;display:block;margin-bottom:6px">Условный знак</label>
+          <div id="kpl-sym-grid" style="max-height:220px;overflow-y:auto">${symGrid}</div>
+        </div>
+      </div>`,
+      [
+        {label:'Отмена',cls:'bs',fn:()=>{closeModal();kmlStartPlacement(layerId);}},
+        {label:'💾 Разместить',cls:'bp',fn:async()=>{
+          const nm   = document.getElementById('kpl-nm').value.trim();
+          const col  = document.getElementById('kpl-color').value;
+          const sz   = parseFloat(document.getElementById('kpl-size').value);
+          const symEl= document.querySelector('.kfl-sym-sel.on');
+          const sym  = symEl ? symEl.dataset.sym : defSym;
+
+          const props = {name: nm || 'Иконка'};
+          if (col !== ll.color) props._color = col;
+          if (sym !== ll.symbol) props._sym = sym;
+          if (Math.abs(sz - (ll.size ?? 1)) > 0.05) props._size = sz;
+
+          gj.features.push({
+            type:'Feature',
+            geometry:{type:'Point',coordinates:[lng,lat]},
+            properties:props,
+          });
+          const newGeojson = JSON.stringify(gj);
+          await fetch(`${API}/layers/${layerId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({name:ll.name,color:ll.color,visible:ll.visible?1:0,
+              symbol:ll.symbol||'',group_id:ll.group_id||'',line_dash:ll.line_dash||'solid',
+              min_zoom:ll.min_zoom||null,max_zoom:ll.max_zoom||null,size:ll.size||1,geojson:newGeojson})});
+          ll.geojson = newGeojson;
+          renderLayerGroups();
+          toast('Иконка размещена','ok');
+          closeModal();
+        }}
+      ]);
+  };
+  map.once('click', _kmlPlacementHandler);
+
+  _kmlPlacementEscHandler = (e)=>{ if(e.key==='Escape') kmlCancelPlacement(); };
+  document.addEventListener('keydown', _kmlPlacementEscHandler);
+}
+
+function kmlCancelPlacement() {
+  if (!_kmlPlacingLayerId) return;
+  _kmlPlacingLayerId = null;
+  map.getContainer().style.cursor = '';
+  if (_kmlPlacementHandler) { map.off('click', _kmlPlacementHandler); _kmlPlacementHandler = null; }
+  if (_kmlPlacementEscHandler) { document.removeEventListener('keydown', _kmlPlacementEscHandler); _kmlPlacementEscHandler = null; }
+  renderKmlPanel();
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -624,15 +1071,14 @@ function renderLayerGroupsWithSymbols() {
     if (!k.startsWith('s_')) { try { map.removeLayer(lGroups[k]); } catch(e) {} delete lGroups[k]; }
   });
 
-  // Создаём pane с низким z-index (ниже overlayPane=400, ниже объёмов)
+  // kmlPane ниже overlayPane (400) — KML визуально под объёмами
   if (!map.getPane('kmlPane')) {
     map.createPane('kmlPane');
-    map.getPane('kmlPane').style.zIndex = 200;   // ниже tilePane(200)?  нет — ниже overlayPane(400)
     map.getPane('kmlPane').style.pointerEvents = 'auto';
   }
-  // Убедимся что pane для объёмов выше
-  if (map.getPane('overlayPane'))  map.getPane('overlayPane').style.zIndex  = 400;
-  if (map.getPane('volPointsPane'))map.getPane('volPointsPane').style.zIndex = 450;
+  map.getPane('kmlPane').style.zIndex = 300;
+  if (map.getPane('overlayPane'))  map.getPane('overlayPane').style.zIndex  = 620;
+  if (map.getPane('volPointsPane'))map.getPane('volPointsPane').style.zIndex = 640;
 
   layers.filter(l => l.visible && !l.site_id).forEach(l => {
     // If the layer's group is bound to a specific site, only show when that site is active
@@ -644,7 +1090,11 @@ function renderLayerGroupsWithSymbols() {
       }
     }
     try {
-      const gj       = JSON.parse(l.geojson);
+      const gjRaw    = JSON.parse(l.geojson);
+      // Скрытые объекты слоя не рендерим
+      const gj = gjRaw.type === 'FeatureCollection'
+        ? { ...gjRaw, features: (gjRaw.features || []).filter(f => !f.properties?._hidden) }
+        : gjRaw;
       const showLabels = !!layerLabels[l.id];
       const color    = l.color     || '#1a56db';
       const dash     = l.line_dash || 'solid';
@@ -652,11 +1102,12 @@ function renderLayerGroupsWithSymbols() {
 
       const g = L.geoJSON(gj, {
         pane: 'kmlPane',
-        style: () => ({ color, weight:2.5, opacity:.85, fillOpacity:.2, dashArray:dashArr }),
+        renderer: getCanvasRenderer('kmlPane'),
+        style: (f) => ({ color: f?.properties?._color || color, weight:2.5, opacity:.85, fillOpacity:.2, dashArray:dashArr }),
         pointToLayer: (f, ll) => {
-          // feature-level переопределение символа/цвета
+          // Точки — в markerPane (z-600), иначе markerPane перехватывает события
           const icon = kmlFeatureDivIcon(l, f.properties);
-          return L.marker(ll, { icon, pane:'kmlPane' });
+          return L.marker(ll, { icon });
         },
         onEachFeature: (f, layer) => {
           const nm = f.properties?.name || f.properties?.Name || '';
@@ -675,12 +1126,16 @@ function renderLayerGroupsWithSymbols() {
                 coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
               }
             } catch(e) {}
+            const fIdx = gjRaw.features ? gjRaw.features.indexOf(f) : -1;
             showCtx(cx, cy, [
-              {i:'🗺',l:`<b>${esc(featureName)}</b> <span style="color:var(--tx3);font-weight:400">${esc(l.name)}</span>`,f:null},{sep:true},
+              {i:'🗺',l:`<b>${esc(featureName)}</b> <span style="color:var(--tx3);font-weight:400">${esc(l.name)}</span>`,f:null,html:true},{sep:true},
+              {i:'📍',l:'Отметка высоты (БСВ-77)',f:()=>showElevationAtPoint(ev.latlng)},
+              {sep:true},
               {i:'🔍',l:'Приблизить',f:()=>{
                 try { map.flyToBounds(layer.getBounds ? layer.getBounds() : L.latLngBounds([[layer.getLatLng().lat,layer.getLatLng().lng]]), {padding:[60,60]}); }
                 catch(e){ try{map.flyTo(layer.getLatLng(),16);}catch(e2){} }
               }},
+              ...(fIdx>=0?[{i:'✏️',l:'Редактировать объект',f:()=>kmlEditFeature(l.id,fIdx)}]:[]),
               ...(coordStr?[{i:'📋',l:'Копировать координаты',f:()=>{navigator.clipboard.writeText(coordStr).then(()=>toast('Скопировано','ok'));}}]:[]),
               {sep:true},
               {i:'🎨',l:'Стиль слоя',f:()=>kmlOpenStyleModal(l.id)},
@@ -709,10 +1164,463 @@ function renderLayerGroupsWithSymbols() {
   if (kmlPanelOpen) setTimeout(renderKmlPanel, 50);
 }
 
+// ── Экспорт слоёв в DXF / KML ───────────────────────────────
+function openLayerExportDialog() {
+  const list = (layers || []).slice();
+  if (!list.length) { toast('Нет слоёв для экспорта', 'err'); return; }
+  const rows = list.map(l => `
+    <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer">
+      <input type="checkbox" class="lex-cb" value="${l.id}" ${l.visible ? 'checked' : ''}>
+      <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${l.color || '#666'};flex-shrink:0"></span>
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(l.name || '').replace(/[<>&]/g, '')}</span>
+    </label>
+  `).join('');
+  const body = `
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div>
+        <div style="font-weight:600;margin-bottom:6px">Формат</div>
+        <div style="display:flex;gap:6px">
+          <label style="flex:1;display:flex;align-items:center;gap:6px;padding:7px 10px;border:1.5px solid var(--acc);border-radius:var(--rs);cursor:pointer;background:var(--s2)">
+            <input type="radio" name="lex-fmt" value="dxf" checked onchange="lexFmtChange()">
+            <div>
+              <div style="font-weight:600;font-size:12px">DXF</div>
+              <div style="font-size:10px;color:var(--tx3)">AutoCAD, ГСК, МСК</div>
+            </div>
+          </label>
+          <label style="flex:1;display:flex;align-items:center;gap:6px;padding:7px 10px;border:1.5px solid var(--bd);border-radius:var(--rs);cursor:pointer;background:var(--s2)">
+            <input type="radio" name="lex-fmt" value="kml" onchange="lexFmtChange()">
+            <div>
+              <div style="font-weight:600;font-size:12px">KML</div>
+              <div style="font-size:10px;color:var(--tx3)">Google Earth, QGIS</div>
+            </div>
+          </label>
+        </div>
+      </div>
+      <div id="lex-crs-row">
+        <div style="font-weight:600;margin-bottom:4px">Система координат</div>
+        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="wgs84"> WGS-84 (градусы)</label>
+        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86" checked> МСК-86 (авто зона по долготе)</label>
+        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=66°, фиксированная)</label>
+        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=72°, фиксированная)</label>
+        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="gsk2011"> ГСК-2011 (6° зоны)</label>
+      </div>
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <div style="font-weight:600">Слои (${list.length})</div>
+          <div>
+            <button class="btn bs bxs" onclick="document.querySelectorAll('.lex-cb').forEach(c=>c.checked=true)">Все</button>
+            <button class="btn bs bxs" onclick="document.querySelectorAll('.lex-cb').forEach(c=>c.checked=false)">Никакие</button>
+          </div>
+        </div>
+        <div style="max-height:260px;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:6px 10px">
+          ${rows}
+        </div>
+      </div>
+    </div>`;
+  showModal('📤 Экспорт слоёв', body, [
+    { label: 'Отмена', cls: 'bs', fn: closeModal },
+    { label: 'Скачать DXF', cls: 'bp', fn: doLayerExport },
+  ]);
+}
+
+function lexFmtChange() {
+  const fmt = document.querySelector('input[name="lex-fmt"]:checked')?.value || 'dxf';
+  const crsRow = document.getElementById('lex-crs-row');
+  if (crsRow) crsRow.style.display = fmt === 'dxf' ? '' : 'none';
+  // Update button label
+  const btn = document.querySelector('#mft .bp');
+  if (btn) btn.textContent = fmt === 'dxf' ? 'Скачать DXF' : 'Скачать KML';
+  // Highlight selected format card
+  document.querySelectorAll('input[name="lex-fmt"]').forEach(r => {
+    const card = r.closest('label');
+    if (card) card.style.borderColor = r.checked ? 'var(--acc)' : 'var(--bd)';
+  });
+}
+
+async function doLayerExport() {
+  const ids = Array.from(document.querySelectorAll('.lex-cb'))
+    .filter(c => c.checked).map(c => c.value);
+  if (!ids.length) { toast('Выберите хотя бы один слой', 'err'); return; }
+  const fmt = document.querySelector('input[name="lex-fmt"]:checked')?.value || 'dxf';
+
+  if (fmt === 'kml') {
+    closeModal();
+    toast('Готовим KML…');
+    try {
+      const r = await fetch(`${API}/layers/export-kml`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ layerIds: ids }),
+      });
+      if (!r.ok) {
+        let msg = 'Ошибка экспорта';
+        try { const j = await r.json(); if (j.error) msg = j.error; } catch (_) {}
+        toast(msg, 'err'); return;
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'layers.kml';
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+      toast('✅ KML сохранён', 'ok');
+    } catch (e) { toast('Ошибка экспорта', 'err'); }
+    return;
+  }
+
+  // DXF export
+  const crsEl = document.querySelector('input[name="lex-crs"]:checked');
+  const crs = crsEl ? crsEl.value : 'wgs84';
+  closeModal();
+  toast('Готовим DXF…');
+  try {
+    const r = await fetch(`${API}/layers/export-dxf`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ layerIds: ids, crs }),
+    });
+    if (!r.ok) {
+      let msg = 'Ошибка экспорта';
+      try { const j = await r.json(); if (j.error) msg = j.error; } catch (e) {}
+      toast(msg, 'err');
+      return;
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `layers_${crs}.dxf`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+    toast('DXF сохранён', 'ok');
+  } catch (e) {
+    toast('Ошибка экспорта', 'err');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// ПОСТАВИТЬ МЕТКУ — ПКМ + ввод координат
+// ═══════════════════════════════════════════════════════════
+
+let _pmSym = 'point';
+let _cmCrs = 'wgs';
+
+const _PM_QUICK_SYMS = ['point','flag','star','benchmark','borehole','warning','camp','picket'];
+
+function _parseDMSCoord(str) {
+  if (!str) return NaN;
+  // Normalize: comma → dot decimal, trim
+  str = str.trim().replace(/,(?=\d)/g, '.');
+  // Detect sign (S/W/Ю/З means negative)
+  const neg = /^-|[SsWwЮюЗзYy](?!\w)/.test(str);
+  // Strip all non-numeric except dot and minus, then re-extract numbers
+  const nums = str.match(/-?[\d]+(?:\.[\d]+)?/g);
+  if (!nums || nums.length === 0) return NaN;
+  // If single token and it looks like a decimal degree, return it directly
+  if (nums.length === 1) {
+    const v = parseFloat(nums[0]);
+    return neg && v > 0 ? -v : v;
+  }
+  // DMS: first token = degrees, second = minutes, third (optional) = seconds
+  const d = Math.abs(parseFloat(nums[0]) || 0);
+  const m = parseFloat(nums[1]) || 0;
+  const s = parseFloat(nums[2]) || 0;
+  const val = d + m / 60 + s / 3600;
+  return neg ? -val : val;
+}
+
+function _pmSymHtml(containerId, selected) {
+  return _PM_QUICK_SYMS.map(k => {
+    const sym = KML_SYMBOLS[k];
+    if (!sym) return '';
+    const svg = sym.svg.replace(/COLOR/g, 'currentColor');
+    return `<div class="kml-sym-btn ${k === selected ? 'on' : ''}" data-sym="${k}" data-container="${containerId}"
+      onclick="_pmSelSym(this)" title="${sym.label}"
+      style="width:30px;height:30px;padding:3px;cursor:pointer;border-radius:4px">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">${svg}</svg>
+    </div>`;
+  }).join('');
+}
+
+function _pmSelSym(el) {
+  const cid = el.dataset.container;
+  document.querySelectorAll(`.kml-sym-btn[data-container="${cid}"]`).forEach(b => b.classList.remove('on'));
+  el.classList.add('on');
+  _pmSym = el.dataset.sym;
+}
+
+function _pmLayerSelectHtml(pfx) {
+  const globalLayers = layers.filter(l => !l.site_id);
+  return `<select id="${pfx}-layer" onchange="${pfx}LayerChange()"
+    style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);
+    border-radius:var(--rs);background:var(--s2)">
+    <option value="_new">— Новый слой —</option>
+    ${globalLayers.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}
+  </select>
+  <div id="${pfx}-newname-row" style="margin-top:5px">
+    <input id="${pfx}-newname" type="text" placeholder="Мои метки"
+      style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
+      border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+  </div>`;
+}
+
+async function _saveMarkerPoint(lat, lng, name, layerId, newLayerName, color, sym) {
+  let ll;
+  if (layerId === '_new') {
+    const gj = JSON.stringify({ type: 'FeatureCollection', features: [] });
+    const nm = (newLayerName || '').trim() || 'Метки';
+    const r = await fetch(`${API}/layers`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: nm, geojson: gj, color: color || '#e53935', symbol: sym || 'point',
+        visible: 1, group_id: '', line_dash: 'solid' }) });
+    const j = await r.json();
+    ll = { id: j.id, name: nm, geojson: gj, color: color || '#e53935', symbol: sym || 'point',
+      visible: 1, group_id: '', line_dash: 'solid', size: 1, show_labels: 0 };
+    layers.unshift(ll);
+  } else {
+    ll = layers.find(x => x.id === layerId);
+    if (!ll) { toast('Слой не найден', 'err'); return false; }
+  }
+  let gj;
+  try { gj = JSON.parse(ll.geojson); } catch (_) { gj = { type: 'FeatureCollection', features: [] }; }
+  if (!Array.isArray(gj.features)) gj.features = [];
+  const props = { name: (name || '').trim() || 'Метка' };
+  if (color && color !== ll.color) props._color = color;
+  if (sym && sym !== ll.symbol) props._sym = sym;
+  gj.features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: props });
+  const newGJ = JSON.stringify(gj);
+  await fetch(`${API}/layers/${ll.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: ll.name, color: ll.color, visible: ll.visible ? 1 : 0,
+      symbol: ll.symbol || '', group_id: ll.group_id || '', line_dash: ll.line_dash || 'solid',
+      min_zoom: ll.min_zoom || 0, max_zoom: ll.max_zoom || 20, size: ll.size || 1,
+      show_labels: ll.show_labels ? 1 : 0, geojson: newGJ }) });
+  ll.geojson = newGJ;
+  try { renderLayerGroups(); } catch (e) {}
+  setTimeout(bringVolumesToFront, 50);
+  try { if (kmlPanelOpen) renderKmlPanel(); } catch (e) {}
+  try { renderLP(); } catch (e) {}
+  return true;
+}
+
+// ── Метка по клику ПКМ ──────────────────────────────────────
+function openPlaceMarkerModal(latlng) {
+  _pmSym = 'point';
+  showModal('📌 Поставить метку', `
+    <div class="fgr fone">
+      <div class="fg">
+        <label>Название</label>
+        <input id="pm-name" type="text" placeholder="КПП, Скважина, Точка 1..."
+          style="width:100%;box-sizing:border-box;font-size:13px;padding:5px 8px;
+          border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+      </div>
+      <div style="font-size:10px;color:var(--tx3);margin:-4px 0 6px">
+        📍 ${latlng.lat.toFixed(6)}°N, ${latlng.lng.toFixed(6)}°E
+      </div>
+      <div class="fg">
+        <label>Слой</label>
+        ${_pmLayerSelectHtml('pm')}
+      </div>
+      <div class="fg" style="display:flex;align-items:flex-start;gap:14px">
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Цвет</label>
+          <input id="pm-color" type="color" value="#e53935"
+            style="width:44px;height:32px;padding:2px;border:1.5px solid var(--bd);
+            border-radius:var(--rs);cursor:pointer">
+        </div>
+        <div style="flex:1">
+          <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Знак</label>
+          <div style="display:flex;flex-wrap:wrap;gap:3px">${_pmSymHtml('pm', 'point')}</div>
+        </div>
+      </div>
+    </div>`,
+    [
+      { label: 'Отмена', cls: 'bs', fn: closeModal },
+      { label: '📍 Добавить', cls: 'bp', fn: async () => {
+        const name = (document.getElementById('pm-name')?.value || '').trim();
+        const layerId = document.getElementById('pm-layer')?.value;
+        const newName = (document.getElementById('pm-newname')?.value || '').trim();
+        const color = document.getElementById('pm-color')?.value || '#e53935';
+        const ok = await _saveMarkerPoint(latlng.lat, latlng.lng, name, layerId, newName, color, _pmSym);
+        if (ok) { closeModal(); toast('✅ Метка добавлена', 'ok'); }
+      }}
+    ]
+  );
+  setTimeout(() => { const el = document.getElementById('pm-name'); if (el) el.focus(); }, 80);
+}
+
+function pmLayerChange() {
+  const sel = document.getElementById('pm-layer');
+  const row = document.getElementById('pm-newname-row');
+  if (row) row.style.display = sel && sel.value === '_new' ? '' : 'none';
+}
+
+// ── Метка по координатам ────────────────────────────────────
+function openCoordMarkerModal(prefillLatlng) {
+  _pmSym = 'point';
+  _cmCrs = 'wgs';
+  const lat0 = prefillLatlng ? prefillLatlng.lat.toFixed(6) : '';
+  const lon0 = prefillLatlng ? prefillLatlng.lng.toFixed(6) : '';
+  showModal('🔢 Метка по координатам', `
+    <div class="fgr fone">
+      <div class="fg">
+        <label>Система координат</label>
+        <div style="display:flex;gap:4px">
+          <button id="cmb-wgs" class="btn bsm on" onclick="cmSetCrs('wgs')">WGS-84</button>
+          <button id="cmb-msk" class="btn bsm"    onclick="cmSetCrs('msk')">МСК-86</button>
+          <button id="cmb-gsk" class="btn bsm"    onclick="cmSetCrs('gsk')">ГСК-2011</button>
+        </div>
+      </div>
+      <div id="cm-wgs-fields">
+        <div style="font-size:9px;color:var(--tx3);margin-bottom:6px;line-height:1.5">
+          Принимаемые форматы:<br>
+          Десятичные градусы: <b>60.123456</b><br>
+          Градусы°Минуты′Секунды″: <b>60°07′24.42″</b> или <b>60 07 24.42</b>
+        </div>
+        <div style="display:flex;gap:8px">
+          <div class="fg" style="flex:1">
+            <label>Широта (°N)</label>
+            <input id="cm-lat" type="text" value="${lat0}"
+              placeholder="60.123456 или 60 07 24.42" oninput="cmUpdatePreview()"
+              style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
+              border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+          </div>
+          <div class="fg" style="flex:1">
+            <label>Долгота (°E)</label>
+            <input id="cm-lon" type="text" value="${lon0}"
+              placeholder="68.654321 или 68 39 15.56" oninput="cmUpdatePreview()"
+              style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
+              border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+          </div>
+        </div>
+      </div>
+      <div id="cm-proj-fields" style="display:none">
+        <div class="fg">
+          <label>X — Северная (м)</label>
+          <input id="cm-north" type="text" placeholder="6 630 000.00" oninput="cmUpdatePreview()"
+            style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
+            border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+        </div>
+        <div class="fg">
+          <label>Y — Восточная (м)</label>
+          <input id="cm-east" type="text" placeholder="12 500 000.00" oninput="cmUpdatePreview()"
+            style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
+            border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+        </div>
+        <div id="cm-zone-hint"
+          style="font-size:10px;color:var(--tx3);margin-top:-4px;margin-bottom:2px">
+          Зона определяется автоматически по значению Y
+        </div>
+      </div>
+      <div id="cm-preview"
+        style="font-size:10px;min-height:16px;padding:3px 0;color:var(--tx3)"></div>
+      <div class="fg">
+        <label>Название метки</label>
+        <input id="cm-name" type="text" placeholder="Точка 1, КПП, Скважина..."
+          style="width:100%;box-sizing:border-box;font-size:13px;padding:5px 8px;
+          border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+      </div>
+      <div class="fg">
+        <label>Слой</label>
+        ${_pmLayerSelectHtml('cm')}
+      </div>
+      <div class="fg" style="display:flex;align-items:flex-start;gap:14px">
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Цвет</label>
+          <input id="cm-color" type="color" value="#1a56db"
+            style="width:44px;height:32px;padding:2px;border:1.5px solid var(--bd);
+            border-radius:var(--rs);cursor:pointer">
+        </div>
+        <div style="flex:1">
+          <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Знак</label>
+          <div style="display:flex;flex-wrap:wrap;gap:3px">${_pmSymHtml('cm', 'point')}</div>
+        </div>
+      </div>
+    </div>`,
+    [
+      { label: 'Отмена', cls: 'bs', fn: closeModal },
+      { label: '📍 Добавить', cls: 'bp', fn: async () => {
+        const ll = _cmGetLatlng();
+        if (!ll) { toast('❌ Некорректные координаты', 'err'); return; }
+        const name = (document.getElementById('cm-name')?.value || '').trim();
+        const layerId = document.getElementById('cm-layer')?.value;
+        const newName = (document.getElementById('cm-newname')?.value || '').trim();
+        const color = document.getElementById('cm-color')?.value || '#1a56db';
+        const ok = await _saveMarkerPoint(ll.lat, ll.lng, name, layerId, newName, color, _pmSym);
+        if (ok) {
+          closeModal();
+          toast('✅ Метка добавлена', 'ok');
+          map.flyTo([ll.lat, ll.lng], Math.max(map.getZoom(), 14));
+        }
+      }}
+    ]
+  );
+  setTimeout(() => {
+    const el = _cmCrs === 'wgs' ? document.getElementById('cm-lat') : document.getElementById('cm-north');
+    if (el) el.focus();
+    cmUpdatePreview();
+  }, 80);
+}
+
+function cmSetCrs(crs) {
+  _cmCrs = crs;
+  ['wgs', 'msk', 'gsk'].forEach(c => {
+    const b = document.getElementById('cmb-' + c);
+    if (b) b.classList.toggle('on', c === crs);
+  });
+  const wf = document.getElementById('cm-wgs-fields');
+  const pf = document.getElementById('cm-proj-fields');
+  if (wf) wf.style.display = crs === 'wgs' ? '' : 'none';
+  if (pf) pf.style.display = crs !== 'wgs' ? '' : 'none';
+  cmUpdatePreview();
+}
+
+function _cmGetLatlng() {
+  if (_cmCrs === 'wgs') {
+    const lat = _parseDMSCoord(document.getElementById('cm-lat')?.value || '');
+    const lon = _parseDMSCoord(document.getElementById('cm-lon')?.value || '');
+    if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+    return { lat, lng: lon };
+  }
+  const rawN = (document.getElementById('cm-north')?.value || '').replace(/[\s ]/g, '').replace(',', '.');
+  const rawE = (document.getElementById('cm-east')?.value || '').replace(/[\s ]/g, '').replace(',', '.');
+  const north = parseFloat(rawN), east = parseFloat(rawE);
+  if (isNaN(north) || isNaN(east)) return null;
+  const zone = Math.round(east / 1000000);
+  if (zone < 1 || zone > 60) return null;
+  try {
+    const conv = _cmCrs === 'msk' ? mskToWgs : gskToWgs;
+    const { lat, lon } = conv(north, east, zone);
+    if (isNaN(lat) || isNaN(lon)) return null;
+    return { lat, lng: lon };
+  } catch (_) { return null; }
+}
+
+function cmUpdatePreview() {
+  const el = document.getElementById('cm-preview');
+  if (!el) return;
+  const ll = _cmGetLatlng();
+  if (!ll) { el.textContent = ''; return; }
+  let hint = '';
+  if (_cmCrs !== 'wgs') {
+    const rawE = (document.getElementById('cm-east')?.value || '').replace(/[\s ]/g, '').replace(',', '.');
+    const east = parseFloat(rawE);
+    const zone = isNaN(east) ? '?' : Math.round(east / 1000000);
+    hint = ` · зона ${zone}`;
+  }
+  el.innerHTML = `→ WGS-84${hint}: <b>${ll.lat.toFixed(6)}°N</b> &nbsp; <b>${ll.lng.toFixed(6)}°E</b>`;
+}
+
+function cmLayerChange() {
+  const sel = document.getElementById('cm-layer');
+  const row = document.getElementById('cm-newname-row');
+  if (row) row.style.display = sel && sel.value === '_new' ? '' : 'none';
+}
+
 // ── Инициализация ───────────────────────────────────────────
 async function initKmlManager() {
   await loadKmGroups();
   window.renderLayerGroups = renderLayerGroupsWithSymbols;
+  _kmlInitSplitter();
   setTimeout(() => {
     try { renderLayerGroupsWithSymbols(); } catch(e) {}
   }, 50);

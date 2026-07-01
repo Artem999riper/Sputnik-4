@@ -101,6 +101,10 @@ module.exports = (app, getDb, L) => {
   }));
 
   // ── VOLUMES ────────────────────────────────────────────────
+  app.get('/api/sites/:id/volumes', wrap((req, res) => {
+    res.json(all(db(), 'SELECT * FROM volumes WHERE site_id=? ORDER BY category,name', [req.params.id]));
+  }));
+
   app.post('/api/sites/:id/volumes', wrap((req, res) => {
     const err = required(['name'], req.body);
     if (err) return res.status(400).json({ error: err });
@@ -120,6 +124,12 @@ module.exports = (app, getDb, L) => {
       [category, name, amount || 0, unit || 'шт', geojson || null, color || '#1a56db',
        fill_opacity !== undefined ? fill_opacity : 0.25, plan_start || null, plan_end || null, notes || '', req.params.id]);
     res.json({ success: true });
+  }));
+
+  app.patch('/api/volumes/:id/visible', wrap((req, res) => {
+    const vis = req.body.visible ? 1 : 0;
+    run(db(), 'UPDATE volumes SET visible=? WHERE id=?', [vis, req.params.id]);
+    res.json({ ok: true });
   }));
 
   app.delete('/api/volumes/:id', wrap((req, res) => {

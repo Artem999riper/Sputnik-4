@@ -68,18 +68,18 @@ module.exports = (app, getDb, L) => {
     const err = required(['name'], req.body);
     if (err) return res.status(400).json({ error: err });
     const id = uuid();
-    const { name, amount, unit, min_amount, notes, category } = req.body;
-    run(db(), 'INSERT INTO materials(id,base_id,name,amount,unit,min_amount,notes,category)VALUES(?,?,?,?,?,?,?,?)',
-      [id, req.params.id, name, amount || 0, unit || 'шт', min_amount || 0, notes || '', category || '']);
+    const { name, amount, unit, min_amount, notes, category, weight } = req.body;
+    run(db(), 'INSERT INTO materials(id,base_id,name,amount,unit,min_amount,notes,category,weight)VALUES(?,?,?,?,?,?,?,?,?)',
+      [id, req.params.id, name, amount || 0, unit || 'шт', min_amount || 0, notes || '', category || '', weight || 0]);
     res.json({ id });
   }));
 
   app.put('/api/materials/:id', wrap((req, res) => {
     const err = required(['name'], req.body);
     if (err) return res.status(400).json({ error: err });
-    const { name, amount, unit, min_amount, notes, category } = req.body;
-    run(db(), 'UPDATE materials SET name=?,amount=?,unit=?,min_amount=?,notes=?,category=? WHERE id=?',
-      [name, amount || 0, unit || 'шт', min_amount || 0, notes || '', category || '', req.params.id]);
+    const { name, amount, unit, min_amount, notes, category, weight } = req.body;
+    run(db(), 'UPDATE materials SET name=?,amount=?,unit=?,min_amount=?,notes=?,category=?,weight=? WHERE id=?',
+      [name, amount || 0, unit || 'шт', min_amount || 0, notes || '', category || '', weight || 0, req.params.id]);
     res.json({ success: true });
   }));
 

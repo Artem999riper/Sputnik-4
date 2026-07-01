@@ -1,14 +1,113 @@
 async function selectSite(id){
   try{
+    // Close full panel silently (no mini-restore for old site)
+    const panelEl=document.getElementById('panel');
+    if(panelEl.classList.contains('open')){
+      panelEl.classList.remove('open');
+      document.body.classList.remove('panel-open');
+    }
+    document.getElementById('mini-panel').classList.remove('open');
     const r=await fetch(`${API}/sites/${id}`);
     if(!r.ok)throw new Error('not found');
     currentObj=await r.json();currentType='site';activeSiteId=id;
-    // Show mini panel first
+    window._ssoCollapsed=false;
     _showMiniPanel();
+    renderSiteStatsOverlay(currentObj);
     renderSidebar();
     await repaintMap();
     renderVpLayers(currentObj.vol_progress||[]);
   }catch(e){toast('Ошибка загрузки объекта','err');}
+}
+
+function hideSiteStatsOverlay(){
+  const el=document.getElementById('site-stats-overlay');
+  if(el){el.style.display='none';el.innerHTML='';}
+}
+
+function collapseSiteStatsOverlay(){
+  window._ssoCollapsed=true;
+  const body=document.getElementById('sso-body');
+  const arrow=document.getElementById('sso-arrow');
+  if(body)body.style.display='none';
+  if(arrow)arrow.textContent='◀';
+}
+
+function toggleSiteStatsOverlay(){
+  if(window._ssoCollapsed){
+    window._ssoCollapsed=false;
+    const body=document.getElementById('sso-body');
+    const arrow=document.getElementById('sso-arrow');
+    if(body)body.style.display='';
+    if(arrow)arrow.textContent='▶';
+  } else {
+    collapseSiteStatsOverlay();
+  }
+}
+
+function _ssoReposition(){
+  const el=document.getElementById('site-stats-overlay');
+  if(!el)return;
+  const mp=document.getElementById('mini-panel');
+  if(mp&&mp.classList.contains('open')){
+    const r=mp.getBoundingClientRect();
+    el.style.top=(r.bottom+2)+'px';
+  }
+}
+
+function renderSiteStatsOverlay(site){
+  const el=document.getElementById('site-stats-overlay');
+  if(!el||!site)return;
+  const vols=site.volumes||[];
+  if(!vols.length){hideSiteStatsOverlay();return;}
+  const done={};
+  (site.vol_progress||[]).forEach(p=>{
+    if(p.row_type&&p.row_type!=='fact')return;
+    done[p.volume_id]=(done[p.volume_id]||0)+(parseFloat(p.completed)||0);
+  });
+  const rows=vols.map(v=>{
+    const d=done[v.id]||0;
+    const plan=parseFloat(v.amount)||0;
+    const remain=Math.max(0,plan-d);
+    const unit=esc(v.unit||'');
+    const cat=v.category==='geology'?'🛠':(v.category==='geodesy'?'📐':'•');
+    const pct=plan>0?Math.round(d/plan*100):0;
+    const pctTxt=plan>0?`<span style="color:#888;font-size:11px">${pct}%</span>`:'';
+    const remainTxt=plan>0?`<span style="color:#888">${fmtN(remain)}</span>`:'-';
+    return `<tr>
+      <td style="padding:1px 6px 1px 0;white-space:nowrap">${cat} ${esc(v.name||'')}</td>
+      <td style="padding:1px 4px;text-align:right;font-weight:600">${fmtN(d)}</td>
+      <td style="padding:1px 2px;color:#aaa">/</td>
+      <td style="padding:1px 4px;text-align:right">${plan>0?fmtN(plan):'-'}</td>
+      <td style="padding:1px 4px;color:#666">${unit}</td>
+      <td style="padding:1px 0 1px 6px;text-align:right">${remainTxt}</td>
+      <td style="padding:1px 0 1px 4px">${pctTxt}</td>
+    </tr>`;
+  }).join('');
+  const collapsed=window._ssoCollapsed;
+  el.innerHTML=
+    `<div id="sso-tab" onclick="toggleSiteStatsOverlay()" style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;white-space:nowrap;font-weight:600;font-size:12px">
+       <span id="sso-arrow" style="font-size:10px;color:var(--tx3)">${collapsed?'◀':'▶'}</span>📊 Объёмы
+     </div>
+     <div id="sso-body" style="margin-top:6px;${collapsed?'display:none':''}">
+       <table style="border-collapse:collapse;font-size:12px;width:100%">
+         <thead><tr style="color:#888;font-size:11px">
+           <th style="text-align:left;padding:0 6px 3px 0;font-weight:500">Вид работ</th>
+           <th style="padding:0 4px 3px;font-weight:500">Факт</th><th></th>
+           <th style="padding:0 4px 3px;font-weight:500">План</th>
+           <th style="padding:0 4px 3px;font-weight:500;text-align:left">Ед.</th>
+           <th style="padding:0 0 3px 6px;font-weight:500">Остаток</th><th></th>
+         </tr></thead>
+         <tbody>${rows}</tbody>
+       </table>
+     </div>`;
+  el.style.display='block';
+  setTimeout(_ssoReposition, 240);
+}
+
+function fmtN(v){
+  if(!isFinite(v))return '0';
+  if(Math.abs(v-Math.round(v))<1e-9)return String(Math.round(v));
+  return v.toFixed(1).replace('.',',');
 }
 
 function _showMiniPanel(){
@@ -30,12 +129,14 @@ function _showMiniPanel(){
 function openFullSitePanel(){
   if(!currentObj||currentType!=='site')return;
   document.getElementById('mini-panel').classList.remove('open');
+  hideSiteStatsOverlay();
   openPanel(false);setupSiteTabs();renderTab();
   loadPhotos('site',currentObj.id,'photos-site');
 }
 
 function closeMiniPanel(){
   document.getElementById('mini-panel').classList.remove('open');
+  hideSiteStatsOverlay();
   currentObj=null;currentType=null;activeSiteId=null;
   clearVolumesFromMap();
   renderSidebar();
@@ -43,6 +144,8 @@ function closeMiniPanel(){
 }
 async function selectBase(id){
   try{
+    document.getElementById('mini-panel').classList.remove('open');
+    hideSiteStatsOverlay();
     const r=await fetch(`${API}/bases/${id}`);
     if(!r.ok)throw new Error('not found');
     currentObj=await r.json();currentType='base';activeSiteId=null;
@@ -68,9 +171,17 @@ function openPanel(isBase){
 }
 function closePanel(){
   document.getElementById('panel').classList.remove('open');
-  document.getElementById('mini-panel').classList.remove('open');
   document.body.classList.remove('panel-open');
   setTimeout(()=>map.invalidateSize({animate:false,pan:false}),260);
+  // For sites: go back to mini panel instead of closing entirely
+  if(currentType==='site'&&currentObj){
+    window._ssoCollapsed=false;
+    _showMiniPanel();
+    renderSiteStatsOverlay(currentObj);
+    return;
+  }
+  document.getElementById('mini-panel').classList.remove('open');
+  hideSiteStatsOverlay();
   currentObj=null;currentType=null;activeSiteId=null;
   clearVolumesFromMap();
   renderSidebar();
@@ -198,6 +309,7 @@ function openVolPointSemantics(volId){
   function _renderDataFields(type){
     if(type==='borehole'||type==='pit'){
       return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">'
+        +'<div class="fg s2"><label>Название / Номер</label><input id="sd-label" value="'+(curData.label||'')+'" placeholder="СКВ-1, ПТ-2/23..."></div>'
         +'<div class="fg"><label>Глубина (м)</label><input id="sd-depth" type="number" step="0.1" value="'+(curData.depth||'')+'" placeholder="0.0"></div>'
         +'<div class="fg"><label>Диаметр (мм)</label><input id="sd-diam" type="number" step="1" value="'+(curData.diam||'')+'" placeholder=""></div>'
         +'<div class="fg"><label>УГВ (м)</label><input id="sd-ugv" type="number" step="0.1" value="'+(curData.ugv||'')+'" placeholder="не встречен"></div>'
@@ -233,6 +345,7 @@ function openVolPointSemantics(volId){
       var data={};
       if(selType==='borehole'||selType==='pit'){
         data={
+          label:document.getElementById('sd-label')?.value||'',
           depth:document.getElementById('sd-depth')?.value||'',
           diam:document.getElementById('sd-diam')?.value||'',
           ugv:document.getElementById('sd-ugv')?.value||'',
@@ -422,7 +535,7 @@ function renderVolumesOnMap(vols){
   clearVolumesFromMap();
   (vols||[]).forEach(function(vol){
     if(!vol.geojson)return;
-    if(volVisible[vol.id]===true)return;
+    if(vol.visible===0)return;
     try{
       var gj=JSON.parse(vol.geojson);
       // Determine if this volume is a point collection
@@ -453,6 +566,7 @@ function renderVolumesOnMap(vols){
 
       var g=L.geoJSON(gj,{
         pane: isPointVol ? 'volPointsPane' : 'overlayPane',
+        renderer: getCanvasRenderer(isPointVol ? 'volPointsPane' : 'overlayPane'),
         style:function(feature){
           var c=(feature&&feature.properties&&feature.properties.color)||vol.color||'#1a56db';
           return {color:c,weight:2.5,opacity:.9,fillOpacity:vol.fill_opacity!=null?vol.fill_opacity:.25};
@@ -561,7 +675,7 @@ function renderVolumesOnMap(vols){
           }
           menuItems.push({sep:true});
           menuItems.push({i:'📝',l:'Редактировать данные',f:function(){openEditVolModal(vol.id);}});
-          menuItems.push({i:'🚫',l:'Скрыть с карты',f:function(){toggleVolVis(vol.id);}});
+          menuItems.push({i:vol.visible===0?'👁':'🚫',l:vol.visible===0?'Показать на карте':'Скрыть с карты',f:function(){toggleVolVis(vol.id);}});
           menuItems.push({i:'✂️',l:'Удалить контур',cls:'dan',f:function(){clearVolGeom(vol.id);}});
           menuItems.push({i:'🗑',l:'Удалить объём',cls:'dan',f:function(){deleteVol(vol.id);}});
           showCtx(cx,cy,menuItems);
@@ -585,7 +699,7 @@ function renderVolumesOnMap(vols){
         }
         items.push({sep:true});
         items.push({i:'📝',l:'Редактировать данные',f:function(){openEditVolModal(vol.id);}});
-        items.push({i:'🚫',l:'Скрыть с карты',f:function(){toggleVolVis(vol.id);}});
+        items.push({i:vol.visible===0?'👁':'🚫',l:vol.visible===0?'Показать на карте':'Скрыть с карты',f:function(){toggleVolVis(vol.id);}});
         items.push({i:'✂️',l:'Удалить контур',cls:'dan',f:function(){clearVolGeom(vol.id);}});
         items.push({i:'🗑',l:'Удалить объём',cls:'dan',f:function(){deleteVol(vol.id);}});
         showCtx(cx,cy,items);
@@ -640,6 +754,7 @@ function renderVpLayers(volProgressList){
     if(!p.geojson)return;
     if(vpVisible[p.id]===false)return; // явно скрыт пользователем
     var vol=(currentObj&&currentObj.volumes||[]).find(function(v){return v.id===p.volume_id;});
+    if(vol&&vol.visible===0)return; // родительский объём скрыт
     var color=vol?vol.color||'#1a56db':'#1a56db';
     var fillOp=vol&&vol.fill_opacity!==undefined&&vol.fill_opacity!==null?vol.fill_opacity:.3;
     try{
@@ -654,6 +769,7 @@ function renderVpLayers(volProgressList){
       }
 
       var g=L.geoJSON(pGj,{
+        renderer: getCanvasRenderer('overlayPane'),
         style:function(feature){
           var c=(feature&&feature.properties&&feature.properties.color)||color;
           return {color:c,weight:2,opacity:.85,fillOpacity:fillOp,dashArray:'4 3'};
@@ -675,8 +791,11 @@ function renderVpLayers(volProgressList){
         var semData=sem.data||{};
         var semLabel=semType&&VOL_SEM_TYPES[semType]?VOL_SEM_TYPES[semType].icon+' '+VOL_SEM_TYPES[semType].label:'';
         var tipLines=[];
+        if(fProps.field_borehole_uuid&&fProps.name){
+          tipLines.push('<b>🛰️ '+esc(fProps.name)+'</b>');
+        }
         tipLines.push('<b>'+(p.work_date||'')+'</b>'+(p.completed?' · +'+p.completed+(vol?' '+esc(vol.unit):''):''));
-        if(semLabel) tipLines.push('<span style="color:var(--acc)">'+semLabel+'</span>');
+        if(semLabel) tipLines.push('<span style="color:var(--acc)">'+semLabel+(semData.label?' <b>'+esc(semData.label)+'</b>':'')+'</span>');
         if(semType==='borehole'||semType==='pit'){
           if(semData.depth) tipLines.push('⬇ Глубина: <b>'+semData.depth+' м</b>');
           if(semData.diam)  tipLines.push('⌀ Диаметр: <b>'+semData.diam+' мм</b>');
@@ -689,6 +808,17 @@ function renderVpLayers(volProgressList){
         }
         if(p.notes) tipLines.push('💬 '+esc(p.notes));
         vpLayer.bindTooltip(tipLines.join('<br>'),{permanent:false,className:'mlbl',direction:'top'});
+      });
+
+      // Клик ЛКМ по полевой скважине — открыть карточку (как в табе «Полевые материалы»)
+      g.eachLayer(function(vpLayer){
+        var fProps=(vpLayer.feature&&vpLayer.feature.properties)||{};
+        if(fProps.field_borehole_uuid&&typeof openFieldBoreholeCard==='function'){
+          vpLayer.on('click',function(ev){
+            L.DomEvent.stopPropagation(ev);
+            openFieldBoreholeCard(fProps.field_borehole_uuid);
+          });
+        }
       });
 
       // Регистрируем через eachLayer чтобы знать конкретную точку
@@ -842,13 +972,15 @@ function toggleVpVis(factId,volId){
 }
 
 function toggleVolVis(volId){
-  const isHidden=(volVisible[volId]===true);
-  if(isHidden){
-    volVisible[volId]=false; // показать
-  } else {
-    volVisible[volId]=true;  // скрыть
-  }
+  var vol=(currentObj&&currentObj.volumes||[]).find(function(v){return v.id===volId;});
+  if(!vol)return;
+  var newVis=vol.visible===0?1:0;
+  vol.visible=newVis; // мгновенная обратная связь
+  fetch(API+'/volumes/'+volId+'/visible',{method:'PATCH',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({visible:newVis})});
   if(currentObj)renderVolumesOnMap(currentObj.volumes||[]);
+  if(currentObj)renderVpLayers(currentObj.vol_progress||[]);
   renderTab();
 }
 function clearVolGeom(volId){

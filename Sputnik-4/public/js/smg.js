@@ -130,6 +130,32 @@ function smgEffectivePlan(vol,prog){
   return result;
 }
 
+// Plan accumulated from plan_start to today across all months
+function smgPlanToDate(vol, prog) {
+  if (!vol.plan_start || !vol.plan_end) return 0;
+  const allDates = smgAllPlanDateStrs(vol);
+  if (!allDates.length) return 0;
+  const todayStr = new Date().toISOString().split('T')[0];
+  const datesUpToToday = allDates.filter(ds => ds <= todayStr);
+  if (!datesUpToToday.length) return 0;
+  const allManual = {};
+  (prog || []).filter(p => p.volume_id === vol.id && p.row_type === 'plan').forEach(p => {
+    allManual[p.work_date] = (allManual[p.work_date] || 0) + (+p.completed || 0);
+  });
+  if (Object.keys(allManual).length > 0) {
+    const autoDatesSet = new Set(allDates.filter(ds => !Object.prototype.hasOwnProperty.call(allManual, ds)));
+    const manualTotal = Object.values(allManual).reduce((a, v) => a + v, 0);
+    const perAutoDay = autoDatesSet.size > 0 ? Math.max(0, vol.amount - manualTotal) / autoDatesSet.size : 0;
+    let total = 0;
+    datesUpToToday.forEach(ds => {
+      total += Object.prototype.hasOwnProperty.call(allManual, ds) ? allManual[ds] : Math.round(perAutoDay);
+    });
+    return total;
+  } else {
+    return allDates.length > 0 ? Math.round(vol.amount / allDates.length * datesUpToToday.length) : 0;
+  }
+}
+
 // ── Sparkline SVG ─────────────────────────────────────────────
 function smgSparkline(points,color){
   if(!points.length)return '';
@@ -296,12 +322,12 @@ function smgRender(){
       <div style="font-size:${Math.round(8*_smgZoom)}px;opacity:.7;line-height:1">${SMG_DOWS[dt.getDay()]}</div>
     </th>`;
   }
-  thead+=`<th class="smg-hd-tot" style="min-width:70px;top:0;z-index:19">Факт</th>
-    <th class="smg-hd-tot" style="min-width:70px;top:0;z-index:19">План</th>
+  thead+=`<th class="smg-hd-tot" style="min-width:70px;top:0;z-index:19">План<br><span style="opacity:.6;font-size:9px">/ Факт</span></th>
     <th class="smg-hd-tot" style="min-width:78px;top:0;z-index:19">Общий<br>объём</th>
     <th class="smg-hd-tot" style="min-width:44px;top:0;z-index:19">%</th>
     <th class="smg-hd-tot smg-hd-act" style="min-width:68px;top:0;z-index:19">Акт</th>
     <th class="smg-hd-tot smg-hd-delta" style="min-width:108px;top:0;z-index:19">Δ план</th>
+    <th class="smg-hd-tot" style="min-width:70px;top:0;z-index:19">Остаток</th>
   </tr>`;
 
   // ── Table body
@@ -326,7 +352,7 @@ function smgRender(){
         if(p.cell_color)colorMap[p.work_date]=p.cell_color;
       });
       const totalFact=factEntries.reduce((a,p)=>a+(+p.completed||0),0);
-      const totalPlan=Object.values(plan).reduce((a,v)=>a+v,0);
+      const pT_all=smgPlanToDate(vol,prog);
       const pct=vol.amount>0?Math.min(100,Math.round(totalFact/vol.amount*100)):0;
       // act = count of days marked as skipped (row_type='act')
       const actEntries=prog.filter(p=>p.volume_id===vol.id&&p.row_type==='act');
@@ -340,14 +366,19 @@ function smgRender(){
         if(ds<=today){pT+=(plan[ds]||0);fT+=(factMap[ds]||0);}
         sparkPoints.push(factMap[ds]||0);
       }
-      const delta=Math.round(fT-pT);
+      const delta=Math.round(totalFact-pT_all);
       const deltaHtml=delta===0
         ?'<span style="color:#a3a3a3;font-size:11px">—</span>'
         :delta>0
           ?`<span class="smg-delta-pos">▲ +${delta.toLocaleString('ru-RU')} ${esc(vol.unit)}</span>`
-          :`<span class="smg-delta-neg">▼ ${delta.toLocaleString('ru-RU')} ${esc(vol.unit)}</span>`;
+          :`<span class="smg-delta-neg">▼ ${Math.abs(delta).toLocaleString('ru-RU')} ${esc(vol.unit)}</span>`;
+      const остаток=Math.round(vol.amount-totalFact);
+      const остатокHtml=остаток<=0
+        ?'<span style="color:#059669;font-size:11px;font-weight:700">✓</span>'
+        :`<span style="font-size:11px">${остаток.toLocaleString('ru-RU')} ${esc(vol.unit)}</span>`;
 
       const pctColor=pct>=100?'#059669':pct>=70?'#2563eb':pct>=40?'#d97706':'#dc2626';
+      const pctStyle=`color:${pctColor};font-size:11px;font-weight:800`;
       const pbar=`<div style="margin-top:4px;height:3px;background:#e5e5e5;border-radius:2px;overflow:hidden">
         <div style="width:${Math.min(100,pct)}%;height:3px;background:${pctColor};border-radius:2px;transition:width .3s"></div>
       </div>`;
@@ -390,10 +421,15 @@ function smgRender(){
           ${pval>0?`<span class="smg-plan-val" style="font-size:${pfs}px">${pstr}</span>`:''}
         </td>`;
       }
-      tbody+=`<td class="smg-tot" style="color:#a3a3a3;font-size:10px;text-align:right;padding:2px 6px">—</td>
-        <td class="smg-tot" style="font-size:11px;font-weight:600;text-align:right;padding:2px 6px">${Math.round(totalPlan).toLocaleString('ru-RU')}</td>
-        <td class="smg-tot" style="font-size:10px;color:var(--acc);text-align:right;padding:2px 6px">${vol.amount.toLocaleString('ru-RU')} ${esc(vol.unit)}</td>
-        <td class="smg-tot"></td><td class="smg-tot"></td><td class="smg-tot"></td>
+      tbody+=`<td class="smg-tot" rowspan="2" style="vertical-align:top;padding:4px 6px">
+        <div style="font-size:11px;font-weight:800;color:var(--tx);text-align:right;line-height:1.5">${Math.round(pT_all).toLocaleString('ru-RU')}</div>
+        <div style="font-size:11px;font-weight:800;color:var(--tx);text-align:right;line-height:1.5">${Math.round(totalFact).toLocaleString('ru-RU')}</div>
+      </td>
+        <td class="smg-tot" rowspan="2" style="font-size:10px;color:var(--acc);text-align:right;padding:2px 6px">${vol.amount.toLocaleString('ru-RU')} ${esc(vol.unit)}</td>
+        <td class="smg-tot" rowspan="2" style="${pctStyle}">${pct}%</td>
+        <td class="smg-tot smg-tot-act" rowspan="2">${actCount>0?actCount+' дн.':'—'}</td>
+        <td class="smg-tot" rowspan="2">${deltaHtml}</td>
+        <td class="smg-tot" rowspan="2">${остатокHtml}</td>
       </tr>`;
 
       // ── FACT ROW ─────────────────────────────────────────────
@@ -439,14 +475,7 @@ function smgRender(){
           ${inner}
         </td>`;
       }
-      const pctStyle=`color:${pctColor};font-size:11px;font-weight:800`;
-      tbody+=`<td class="smg-tot smg-tot-fact">${Math.round(totalFact).toLocaleString('ru-RU')}</td>
-        <td class="smg-tot" style="color:var(--tx3)">${Math.round(totalPlan).toLocaleString('ru-RU')}</td>
-        <td class="smg-tot"></td>
-        <td class="smg-tot" style="${pctStyle}">${pct}%</td>
-        <td class="smg-tot smg-tot-act">${actCount>0?actCount+' дн.':'—'}</td>
-        <td class="smg-tot">${deltaHtml}</td>
-      </tr>`;
+      tbody+=`</tr>`;
     });
   });
 
@@ -464,10 +493,10 @@ function smgRender(){
     const n=vols.filter(v=>prog.some(p=>p.volume_id===v.id&&p.work_date===ds&&p.row_type!=='plan')).length;
     tbody+=`<td style="font-size:9px;text-align:center;font-weight:700;color:${n?'#059669':'var(--tx3)'}">${n||''}</td>`;
   }
-  tbody+=`<td class="smg-tot" colspan="2" style="font-size:11px;font-weight:800;color:var(--acc)">${doneVols}/${totalVols}</td>
+  tbody+=`<td class="smg-tot" style="font-size:11px;font-weight:800;color:var(--acc)">${doneVols}/${totalVols}</td>
     <td class="smg-tot"></td>
     <td class="smg-tot" style="font-size:11px;font-weight:800;color:${avgPct>=80?'#059669':avgPct>=50?'#2563eb':'#dc2626'}">${avgPct}%</td>
-    <td class="smg-tot"></td><td class="smg-tot"></td>
+    <td class="smg-tot"></td><td class="smg-tot"></td><td class="smg-tot"></td>
   </tr>`;
 
   document.getElementById('smg-body').innerHTML=`
@@ -1198,24 +1227,28 @@ function _smgBuildMonthSheet(site,vols,prog,y,m,today){
       factEntries.forEach(p=>{factMap[p.work_date]=(factMap[p.work_date]||0)+(+p.completed||0);});
       const ep=_smgEffPlanForMonth(vol,prog,y,m);
 
-      // Month-scoped totals
-      let monthPlanTotal=0,monthFactTotal=0,monthPT=0,monthFT=0;
+      // Month-scoped sum for the "Объём на месяц" cell
+      let monthPlanTotal=0;
       for(let d=1;d<=days;d++){
         const ds=_smgDateStr(y,m,d);
         monthPlanTotal+=(ep[ds]||0);
-        monthFactTotal+=(factMap[ds]||0);
-        if(ds<=today){monthPT+=(ep[ds]||0);monthFT+=(factMap[ds]||0);}
       }
-      const monthDelta=Math.round(monthFT-monthPT);
 
-      // All-time fact for % (vs vol.amount)
+      // Cross-period "to date" totals — matches on-screen smgPlanToDate logic
+      const pT_all = (typeof smgPlanToDate==='function') ? smgPlanToDate(vol,prog) : 0;
+      const totalFactToDate = factEntries
+        .filter(p=>p.work_date && p.work_date <= today)
+        .reduce((a,p)=>a+(+p.completed||0),0);
+      const deltaAll = Math.round(totalFactToDate - pT_all);
+
+      // % of total volume by all-time fact (independent of plan_start)
       const totalFact=factEntries.reduce((a,p)=>a+(+p.completed||0),0);
       const pct=vol.amount>0?Math.min(100,Math.round(totalFact/vol.amount*100)):0;
       const actCount=new Set(prog.filter(p=>p.volume_id===vol.id&&p.row_type==='act').map(p=>p.work_date)).size;
 
       const planRow=[seqNo,vol.name,'ПЛАН',vol.unit,monthPlanTotal];
       for(let d=1;d<=days;d++)planRow.push(ep[_smgDateStr(y,m,d)]||'');
-      planRow.push(vol.amount,monthPlanTotal,pct+'%',(monthDelta>0?'+':'')+monthDelta,'');
+      planRow.push(vol.amount,Math.round(pT_all),pct+'%',(deltaAll>0?'+':'')+deltaAll,'');
       aoa.push(planRow);
       const planRowIdx=curRow;
       planRows.push(planRowIdx);
@@ -1223,7 +1256,7 @@ function _smgBuildMonthSheet(site,vols,prog,y,m,today){
 
       const factRow=['','','ФАКТ','',''];
       for(let d=1;d<=days;d++)factRow.push(factMap[_smgDateStr(y,m,d)]||'');
-      factRow.push('',monthFactTotal,'','',actCount||'');
+      factRow.push('',Math.round(totalFactToDate),'','',actCount||'');
       aoa.push(factRow);
       const factRowIdx=curRow;
       factRows.push(factRowIdx);

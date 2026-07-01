@@ -10,12 +10,15 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist node_modules (
-    echo First launch - installing dependencies...
-    npm install
+echo Checking dependencies...
+call npm install
+if errorlevel 1 (
     echo.
+    echo [ERROR] npm install failed!
     pause
+    exit /b 1
 )
+echo.
 
 :MENU
 cls
@@ -74,7 +77,7 @@ goto MENU
 echo.
 echo    Reinstalling dependencies...
 if exist node_modules rmdir /s /q node_modules
-npm install
+call npm install
 echo.
 echo    Done!
 pause
