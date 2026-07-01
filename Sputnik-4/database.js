@@ -139,6 +139,7 @@ async function getDb() {
   ta("ALTER TABLE vol_progress ADD COLUMN act_number TEXT DEFAULT ''");
   ta("ALTER TABLE vol_progress ADD COLUMN cell_color TEXT DEFAULT ''");
   ta("ALTER TABLE vol_progress ADD COLUMN row_type TEXT DEFAULT 'fact'");
+  ta("ALTER TABLE vol_progress ADD COLUMN hidden INTEGER DEFAULT 0");
   ta("ALTER TABLE site_tasks ADD COLUMN closed_by TEXT");
   ta("ALTER TABLE site_tasks ADD COLUMN closed_at TEXT");
   ta("ALTER TABLE kml_layers ADD COLUMN site_id TEXT");

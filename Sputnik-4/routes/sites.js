@@ -156,8 +156,9 @@ module.exports = (app, getDb, L) => {
     const act_date   = req.body.act_date   !== undefined ? req.body.act_date   : existing.act_date;
     const cell_color = req.body.cell_color !== undefined ? req.body.cell_color : existing.cell_color;
     const row_type   = req.body.row_type   !== undefined ? req.body.row_type   : (existing.row_type || 'fact');
-    run(d, 'UPDATE vol_progress SET work_date=?,completed=?,notes=?,geojson=?,act_date=?,cell_color=?,row_type=? WHERE id=?',
-      [work_date, completed || 0, notes || '', geojson, act_date || null, cell_color || '', row_type, req.params.id]);
+    const hidden     = req.body.hidden     !== undefined ? (req.body.hidden ? 1 : 0) : (existing.hidden || 0);
+    run(d, 'UPDATE vol_progress SET work_date=?,completed=?,notes=?,geojson=?,act_date=?,cell_color=?,row_type=?,hidden=? WHERE id=?',
+      [work_date, completed || 0, notes || '', geojson, act_date || null, cell_color || '', row_type, hidden, req.params.id]);
     res.json({ success: true });
   }));
 

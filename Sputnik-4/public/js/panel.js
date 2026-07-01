@@ -615,7 +615,25 @@ function clearVpLayers(){
   Object.values(vpLayers).forEach(g=>{try{map.removeLayer(g);}catch(e){}});
   vpLayers={};
 }
+// Синхронизирует runtime-кэш видимости из сохранённого на сервере флага hidden
+function seedVpVisible(volProgressList){
+  (volProgressList||[]).forEach(function(p){
+    vpVisible[p.id]=p.hidden?false:true;
+  });
+}
+// Скрыть/показать факт с сохранением на сервере (видно всем)
+async function setVpHidden(factId,hidden){
+  vpVisible[factId]=hidden?false:true;
+  var p=(currentObj&&currentObj.vol_progress||[]).find(function(x){return x.id===factId;});
+  if(p)p.hidden=hidden?1:0;
+  if(currentObj)renderVpLayers(currentObj.vol_progress||[]);
+  try{
+    await fetch(API+'/vol_progress/'+factId,{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({hidden:hidden?1:0})});
+  }catch(e){toast('Не удалось сохранить видимость','err');}
+}
 function renderVpLayers(volProgressList){
+  seedVpVisible(volProgressList);
   // Remove old layers first
   clearVpLayers();
   (volProgressList||[]).forEach(function(p){
@@ -730,7 +748,7 @@ function renderVpLayers(volProgressList){
             items.push({i:'📝',l:'Данные объёма',f:function(){openEditVolModal(vid);}});
           }
           items.push({sep:true});
-          items.push({i:'🚫',l:'Скрыть слой',f:function(){vpVisible[p.id]=false;renderVpLayers(currentObj&&currentObj.vol_progress||[]);}});
+          items.push({i:'🚫',l:'Скрыть слой',f:function(){setVpHidden(p.id,true);}});
           showCtx(cx,cy,items);
         });
       });
@@ -767,7 +785,7 @@ function renderVpLayers(volProgressList){
           items.push({i:'📝',l:'Данные объёма',f:function(){openEditVolModal(vid);}});
         }
         items.push({sep:true});
-        items.push({i:'🚫',l:'Скрыть слой',f:function(){vpVisible[p.id]=false;renderVpLayers(currentObj&&currentObj.vol_progress||[]);}});
+        items.push({i:'🚫',l:'Скрыть слой',f:function(){setVpHidden(p.id,true);}});
         showCtx(cx,cy,items);
       });
       vpLayers[p.id]=g;
@@ -818,12 +836,8 @@ async function clearVpGeom(factId, volId){
 }
 
 function toggleVpVis(factId,volId){
-  if(vpVisible[factId]===false){
-    vpVisible[factId]=true;   // → показать
-  } else {
-    vpVisible[factId]=false;  // → скрыть
-  }
-  if(currentObj)renderVpLayers(currentObj.vol_progress||[]);
+  var hide=vpVisible[factId]!==false; // сейчас видно → скрываем
+  setVpHidden(factId,hide);
   currentTab='volumes';volExpanded[volId]=true;renderTab();
 }
 

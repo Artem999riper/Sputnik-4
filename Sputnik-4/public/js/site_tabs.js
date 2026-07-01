@@ -54,6 +54,7 @@ function tabSiteBases(pb){
 function tabVolumes(pb){
   const vols=currentObj?.volumes||[];
   const prog=currentObj?.vol_progress||[];
+  if(typeof seedVpVisible==='function')seedVpVisible(prog);
   const totalVols=vols.length;
   const progVols=vols.filter(v=>{
     const done=(prog.filter(p=>p.volume_id===v.id)).reduce((a,p)=>a+(+p.completed||0),0);
