@@ -428,6 +428,80 @@ function openFeatureColorPicker(volId, featureIdx, cx, cy, geojsonStr, vpId){
   };
 }
 
+// Толщина и стиль линии конкретной фигуры (линии)
+// vpId — id записи vol_progress (факт), иначе null → сохраняем в volumes
+function openFeatureLineStyle(volId, featureIdx, cx, cy, geojsonStr, vpId){
+  var vol=(currentObj&&currentObj.volumes||[]).find(function(x){return x.id===volId;});
+  if(!vol){toast('Объём не найден','err');return;}
+  var srcGj=geojsonStr||vol.geojson;
+  if(!srcGj){toast('У объёма нет геометрии на карте','err');return;}
+  var gj;
+  try{gj=JSON.parse(srcGj);}catch(e){toast('Ошибка разбора геометрии','err');return;}
+  if(!gj){toast('Геометрия пустая','err');return;}
+  if(!gj.features){
+    if(gj.type==='Feature') gj={type:'FeatureCollection',features:[gj]};
+    else gj={type:'FeatureCollection',features:[{type:'Feature',geometry:gj,properties:{}}]};
+  }
+  if(!gj.features.length){toast('Нет геометрии','err');return;}
+  if(featureIdx<0||featureIdx>=gj.features.length) featureIdx=0;
+  var feature=gj.features[featureIdx];
+  if(!feature.properties)feature.properties={};
+  var defDash=vpId?'4 3':'';
+  var curW=(feature.properties.weight!=null)?feature.properties.weight:(vpId?2:2.5);
+  var curDash=(feature.properties.dashArray!==undefined&&feature.properties.dashArray!==null)?feature.properties.dashArray:defDash;
+  var STYLES=[{l:'Сплошная',v:'',p:'———'},{l:'Пунктир',v:'6 4',p:'– – –'},{l:'Штрихи',v:'12 6',p:'—  —'},{l:'Точки',v:'1 6',p:'· · · ·'},{l:'Штрих-пунктир',v:'12 6 2 6',p:'—·—·'}];
+  document.querySelectorAll('[data-vlspop]').forEach(function(e){e.remove();});
+  var el=document.createElement('div');
+  el.setAttribute('data-vlspop','1');
+  el.style.cssText='position:fixed;z-index:10000;background:var(--s);border:1.5px solid var(--bd);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:10px 12px;min-width:240px';
+  el.style.left=Math.min(cx,window.innerWidth-260)+'px';
+  el.style.top=Math.min(cy,window.innerHeight-260)+'px';
+  var styleBtns=STYLES.map(function(s){
+    var active=(curDash===s.v);
+    return '<div data-dv="'+esc(s.v)+'" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;border:1.5px solid '+(active?'var(--acc)':'var(--bd)')+';background:'+(active?'var(--accl)':'var(--s2)')+';margin-bottom:4px;font-size:11px" '
+      +'onclick="window._applyFeatureLine('+featureIdx+',null,\''+s.v+'\')">'
+      +'<span style="font-family:monospace;color:var(--tx2);min-width:48px">'+s.p+'</span>'
+      +'<span style="font-weight:600">'+s.l+'</span></div>';
+  }).join('');
+  el.innerHTML='<div style="font-size:11px;font-weight:700;margin-bottom:8px;color:var(--tx)">✒️ Стиль линии<br><span style="font-weight:400;color:var(--tx3)">'+esc(vol.name)+'</span></div>'
+    +'<div style="font-size:10px;color:var(--tx2);margin-bottom:4px">Толщина: <b id="_lsw">'+curW+'</b> px</div>'
+    +'<input type="range" id="_lswr" min="1" max="12" step="0.5" value="'+curW+'" style="width:100%;margin-bottom:8px">'
+    +'<div style="font-size:10px;color:var(--tx2);margin-bottom:4px">Стиль</div>'
+    +'<div id="_lsstyles">'+styleBtns+'</div>'
+    +'<div style="display:flex;margin-top:6px"><button style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:11px;color:var(--tx3)" onclick="this.closest(\'[data-vlspop]\').remove()">✕ Закрыть</button></div>';
+  document.body.appendChild(el);
+  var wr=el.querySelector('#_lswr');
+  wr.addEventListener('input',function(){el.querySelector('#_lsw').textContent=this.value;});
+  wr.addEventListener('change',function(){window._applyFeatureLine(featureIdx,parseFloat(this.value),null);});
+  setTimeout(function(){
+    document.addEventListener('mousedown',function _cl(e){
+      if(!el.contains(e.target)){el.remove();document.removeEventListener('mousedown',_cl);}
+    });
+  },120);
+  window._applyFeatureLine=function(idx,weight,dashArray){
+    if(!gj.features[idx]) return;
+    if(!gj.features[idx].properties) gj.features[idx].properties={};
+    if(weight!=null){curW=weight;gj.features[idx].properties.weight=weight;}
+    if(dashArray!=null){
+      curDash=dashArray;gj.features[idx].properties.dashArray=dashArray;
+      el.querySelectorAll('#_lsstyles [data-dv]').forEach(function(b){
+        var on=(b.getAttribute('data-dv')===dashArray);
+        b.style.borderColor=on?'var(--acc)':'var(--bd)';b.style.background=on?'var(--accl)':'var(--s2)';
+      });
+    }
+    var newGjStr=JSON.stringify(gj);
+    var url=vpId?(API+'/vol_progress/'+vpId):(API+'/volumes/'+volId);
+    var body=vpId
+      ?{geojson:newGjStr}
+      :{category:vol.category,name:vol.name,amount:vol.amount,unit:vol.unit,
+        color:vol.color,fill_opacity:vol.fill_opacity,plan_start:vol.plan_start,plan_end:vol.plan_end,
+        notes:vol.notes||'',geojson:newGjStr};
+    fetch(url,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(){refreshCurrent();})
+    .catch(function(){toast('Ошибка сохранения','err');});
+  };
+}
+
 // Семантика конкретной точки
 // vpId — id записи vol_progress (если вызвано из прогресса), иначе null → сохраняем в volumes
 function openFeatureSemantics(volId, featureIdx, geojsonStr, vpId){
@@ -568,8 +642,11 @@ function renderVolumesOnMap(vols){
         pane: isPointVol ? 'volPointsPane' : 'overlayPane',
         renderer: getCanvasRenderer(isPointVol ? 'volPointsPane' : 'overlayPane'),
         style:function(feature){
-          var c=(feature&&feature.properties&&feature.properties.color)||vol.color||'#1a56db';
-          return {color:c,weight:2.5,opacity:.9,fillOpacity:vol.fill_opacity!=null?vol.fill_opacity:.25};
+          var fp=(feature&&feature.properties)||{};
+          var c=fp.color||vol.color||'#1a56db';
+          var w=(fp.weight!=null)?fp.weight:2.5;
+          var da=(fp.dashArray!==undefined&&fp.dashArray!==null)?fp.dashArray:'';
+          return {color:c,weight:w,opacity:.9,fillOpacity:vol.fill_opacity!=null?vol.fill_opacity:.25,dashArray:da||undefined};
         },
         pointToLayer:function(feature,ll){
           var c=(feature&&feature.properties&&feature.properties.color)||vol.color||'#1a56db';
@@ -660,6 +737,7 @@ function renderVolumesOnMap(vols){
             // Линия или полигон с известным индексом
             var shapeLabel=geoType==='line'?'этой линии':'этого полигона';
             menuItems.push({i:'🎨',l:'Цвет '+shapeLabel,f:function(){openFeatureColorPicker(vol.id,featureIdx,cx,cy);}});
+            if(geoType==='line') menuItems.push({i:'✒️',l:'Толщина и стиль линии',f:function(){openFeatureLineStyle(vol.id,featureIdx,cx,cy);}});
             menuItems.push({i:'🎨',l:'Цвет всего объёма',f:function(){openVolColorPickerCtx(vol.id,cx,cy);}});
             menuItems.push({i:'✏️',l:'Редактировать вершины',f:function(){startVolVertexEdit(vol.id);}});
             menuItems.push({i:'🖊',l:'Продолжить рисование',f:function(){startVolDraw(vol.id,'add');}});
@@ -668,6 +746,7 @@ function renderVolumesOnMap(vols){
             // featureIdx не определён — используем 0 для линий и полигонов
             var shapeLabel2=geoType==='line'?'этой линии':'этого полигона';
             menuItems.push({i:'🎨',l:'Цвет '+shapeLabel2,f:function(){openFeatureColorPicker(vol.id,0,cx,cy);}});
+            if(geoType==='line') menuItems.push({i:'✒️',l:'Толщина и стиль линии',f:function(){openFeatureLineStyle(vol.id,0,cx,cy);}});
             menuItems.push({i:'🎨',l:'Цвет всего объёма',f:function(){openVolColorPickerCtx(vol.id,cx,cy);}});
             menuItems.push({i:'✏️',l:'Редактировать вершины',f:function(){startVolVertexEdit(vol.id);}});
             menuItems.push({i:'🖊',l:'Продолжить рисование',f:function(){startVolDraw(vol.id,'add');}});
@@ -771,8 +850,11 @@ function renderVpLayers(volProgressList){
       var g=L.geoJSON(pGj,{
         renderer: getCanvasRenderer('overlayPane'),
         style:function(feature){
-          var c=(feature&&feature.properties&&feature.properties.color)||color;
-          return {color:c,weight:2,opacity:.85,fillOpacity:fillOp,dashArray:'4 3'};
+          var fp=(feature&&feature.properties)||{};
+          var c=fp.color||color;
+          var w=(fp.weight!=null)?fp.weight:2;
+          var da=(fp.dashArray!==undefined&&fp.dashArray!==null)?fp.dashArray:'4 3';
+          return {color:c,weight:w,opacity:.85,fillOpacity:fillOp,dashArray:da||undefined};
         },
         pointToLayer:function(feature,ll){
           var c=(feature&&feature.properties&&feature.properties.color)||color;
@@ -873,6 +955,7 @@ function renderVpLayers(volProgressList){
               try{var _tgj=JSON.parse(vpGjStr||'{}');var _tgt=(_tgj.features&&_tgj.features[0]&&_tgj.features[0].geometry&&_tgj.features[0].geometry.type)||_tgj.geometry&&_tgj.geometry.type||'';if(_tgt==='LineString'||_tgt==='MultiLineString')vpShapeType='line';}catch(e){}
               var vpShapeLbl=vpShapeType==='line'?'этой линии':'этого полигона';
               items.push({i:'🎨',l:'Цвет '+vpShapeLbl,f:function(){openFeatureColorPicker(vid,0,cx,cy,vpGs,vpId);}});
+              if(vpShapeType==='line') items.push({i:'✒️',l:'Толщина и стиль линии',f:function(){openFeatureLineStyle(vid,0,cx,cy,vpGs,vpId);}});
               items.push({i:'🎨',l:'Цвет всего объёма',f:function(){openVolColorPickerCtx(vid,cx,cy);}});
             }
             items.push({i:'📝',l:'Данные объёма',f:function(){openEditVolModal(vid);}});
@@ -910,6 +993,7 @@ function renderVpLayers(volProgressList){
             try{var _fgj=JSON.parse(vpGsFb||'{}');var _fgt=(_fgj.features&&_fgj.features[0]&&_fgj.features[0].geometry&&_fgj.features[0].geometry.type)||_fgj.geometry&&_fgj.geometry.type||'';if(_fgt==='LineString'||_fgt==='MultiLineString')fbShapeType='line';}catch(e){}
             var fbShapeLbl=fbShapeType==='line'?'этой линии':'этого полигона';
             items.push({i:'🎨',l:'Цвет '+fbShapeLbl,f:function(){openFeatureColorPicker(vid,0,cx,cy,vpGsFb,vpIdFb);}});
+            if(fbShapeType==='line') items.push({i:'✒️',l:'Толщина и стиль линии',f:function(){openFeatureLineStyle(vid,0,cx,cy,vpGsFb,vpIdFb);}});
             items.push({i:'🎨',l:'Цвет всего объёма',f:function(){openVolColorPickerCtx(vid,cx,cy);}});
           }
           items.push({i:'📝',l:'Данные объёма',f:function(){openEditVolModal(vid);}});
