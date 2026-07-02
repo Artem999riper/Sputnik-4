@@ -80,7 +80,16 @@ function onMapRClick(e){
 // ═══════════════════════════════════════════════════════════
 // TOOLS & MODES
 // ═══════════════════════════════════════════════════════════
+// Снимает «заморозку» маркеров (pointer-events:none), которую ставит режим перемещения.
+// Без этого после выхода из перемещения на маркеры нельзя навести —
+// курсор остаётся «ладонью» вместо указателя.
+function restoreMarkerEvents(){
+  document.querySelectorAll('.leaflet-marker-icon,.leaflet-marker-shadow').forEach(function(el){el.style.pointerEvents='';});
+}
 function setTool(t){
+  // Любой переход инструмента прекращает незавершённое перемещение и «размораживает» маркеры
+  if(moveMode){moveMode=null;moveData=null;}
+  restoreMarkerEvents();
   mapMode=t;
   document.querySelectorAll('.mt').forEach(b=>b.classList.remove('on','onb'));
   const el=document.getElementById('tool-'+t);
@@ -130,7 +139,7 @@ function setTool(t){
 function cancelMode(){
   if(drawMode){cancelDraw();return;}
   moveMode=null;moveData=null;
-  document.querySelectorAll('.leaflet-marker-icon,.leaflet-marker-shadow').forEach(function(el){el.style.pointerEvents='';});
+  restoreMarkerEvents();
   setMachineryFocus(false);
   const btn=document.getElementById('tool-machine');if(btn)btn.classList.remove('on');
   setTool('view');

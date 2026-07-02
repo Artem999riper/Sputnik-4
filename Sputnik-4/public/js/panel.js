@@ -1106,15 +1106,14 @@ async function doMoveBase(ll){
   const b=moveData.base||moveData;
   await fetch(`${API}/bases/${b.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...b,lat:ll.lat,lng:ll.lng,user_name:un()})});
   toast('База перемещена','ok');moveMode=null;moveData=null;
-  document.querySelectorAll('.leaflet-marker-icon,.leaflet-marker-shadow').forEach(function(el){el.style.pointerEvents='';});
+  restoreMarkerEvents();
   setTool('view');await loadAll();
 }
 async function doMoveMachine(ll){
   const{mach,baseId}=moveData;
   await fetch(`${API}/pgk/machinery/${mach.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...mach,lat:ll.lat,lng:ll.lng,base_id:baseId||null,user_name:un()})});
   toast('Техника перемещена','ok');moveMode=null;moveData=null;
-  // Восстанавливаем pointer-events
-  document.querySelectorAll('.leaflet-marker-icon,.leaflet-marker-shadow').forEach(function(el){el.style.pointerEvents='';});
+  restoreMarkerEvents();
   setTool('view');
   if(currentObj)await refreshCurrent();else await loadAll();
 }
