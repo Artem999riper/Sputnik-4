@@ -640,7 +640,9 @@ function renderVolumesOnMap(vols){
 
       var g=L.geoJSON(gj,{
         pane: isPointVol ? 'volPointsPane' : 'overlayPane',
-        renderer: getCanvasRenderer(isPointVol ? 'volPointsPane' : 'overlayPane'),
+        // Точки — через SVG (volPointsPane лежит поверх маркеров): сплошной canvas
+        // здесь перехватывал бы наведение мыши на маркеры и слои под ним.
+        renderer: isPointVol ? getSvgRenderer('volPointsPane') : getCanvasRenderer('overlayPane'),
         style:function(feature){
           var fp=(feature&&feature.properties)||{};
           var c=fp.color||vol.color||'#1a56db';

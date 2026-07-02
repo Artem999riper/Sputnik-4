@@ -43,6 +43,15 @@ function getCanvasRenderer(paneName){
   if(!_canvasRenderers[paneName]) _canvasRenderers[paneName]=L.canvas({pane:paneName,padding:1.0});
   return _canvasRenderers[paneName];
 }
+// SVG-рендерер: в отличие от canvas, пустые области НЕ перехватывают события мыши.
+// Нужен для панелей поверх маркеров (volPointsPane, z-index 640) — иначе сплошной
+// canvas накрыл бы карту и наведение на маркеры/слои под ним переставало бы работать.
+let _svgRenderers={};
+function getSvgRenderer(paneName){
+  paneName=paneName||'overlayPane';
+  if(!_svgRenderers[paneName]) _svgRenderers[paneName]=L.svg({pane:paneName,padding:1.0});
+  return _svgRenderers[paneName];
+}
 let drawMode=null, drawPts=[], drawPtNames=[], drawTmpLayer=null, drawVolId=null, drawSiteId=null, drawVolData=null;
 let volVisible={}; // per-volume show/hide
 let vpLayers={}; // per fact-entry map layers (key=progress id)

@@ -1077,7 +1077,9 @@ function renderLayerGroupsWithSymbols() {
     map.getPane('kmlPane').style.pointerEvents = 'auto';
   }
   map.getPane('kmlPane').style.zIndex = 300;
-  if (map.getPane('overlayPane'))  map.getPane('overlayPane').style.zIndex  = 620;
+  // overlayPane (canvas фактов/полигонов) держим НИЖЕ markerPane (600): сплошной
+  // canvas поверх маркеров перехватывал бы наведение мыши на них. KML(300) < факты(400) < маркеры(600).
+  if (map.getPane('overlayPane'))  map.getPane('overlayPane').style.zIndex  = 400;
   if (map.getPane('volPointsPane'))map.getPane('volPointsPane').style.zIndex = 640;
 
   layers.filter(l => l.visible && !l.site_id).forEach(l => {
