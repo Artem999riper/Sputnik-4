@@ -862,7 +862,10 @@ function renderVpLayers(volProgressList){
         },
         pointToLayer:function(feature,ll){
           var c=(feature&&feature.properties&&feature.properties.color)||color;
-          return L.circleMarker(ll,{radius:6,fillColor:c,color:'#fff',weight:2,fillOpacity:Math.max(fillOp,0.6)});
+          // pane+renderer обязательны: иначе точка рисуется в дефолтном рендерере
+          // (overlayPane) и оказывается ПОД точками KML
+          return L.circleMarker(ll,{radius:6,fillColor:c,color:'#fff',weight:2,fillOpacity:Math.max(fillOp,0.6),
+            pane:'factsPane',renderer:getSvgRenderer('factsPane')});
         }
       }).addTo(map);
 
