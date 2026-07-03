@@ -3356,12 +3356,14 @@ function updateDrawPreview(){
   // цвет берём из drawVolData (сохранён до closePanel) или из currentObj если панель ещё открыта
   const vol=drawVolData||(currentObj?.volumes||[]).find(x=>x.id===drawVolId);
   const color=vol?.color||'#0891b2';
+  // Предпросмотр — в factsPane (поверх KML), иначе точки прячутся за точками KML
+  const rOpts={pane:'factsPane',renderer:getSvgRenderer('factsPane')};
   if(drawMode==='points'){
-    drawTmpLayer=L.layerGroup(pts.map(p=>L.circleMarker(p,{radius:7,fillColor:color,color:'#fff',weight:2,fillOpacity:.9}))).addTo(map);
+    drawTmpLayer=L.layerGroup(pts.map(p=>L.circleMarker(p,{radius:7,fillColor:color,color:'#fff',weight:2,fillOpacity:.9,...rOpts}))).addTo(map);
   }else if(drawMode==='polygon'&&pts.length>=2){
-    drawTmpLayer=L.polygon(pts,{color,weight:2.5,fillOpacity:.2}).addTo(map);
+    drawTmpLayer=L.polygon(pts,{color,weight:2.5,fillOpacity:.2,...rOpts}).addTo(map);
   }else if(drawMode==='line'&&pts.length>=2){
-    drawTmpLayer=L.polyline(pts,{color,weight:3}).addTo(map);
+    drawTmpLayer=L.polyline(pts,{color,weight:3,...rOpts}).addTo(map);
   }
 }
 function undoDrawPt(){if(!drawPts.length){toast('Нет точек','err');return;}drawPts.pop();updateDrawPreview();toast(`Отменена точка. Осталось: ${drawPts.length}`,'ok');}
