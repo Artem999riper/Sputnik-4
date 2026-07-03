@@ -22,6 +22,10 @@ function initMap(){
   // Pane для точечных объёмов — поверх vpLayers и KML
   map.createPane('volPointsPane');
   map.getPane('volPointsPane').style.zIndex=640;
+  // Панель для +фактов — поверх ВСЕХ слоёв KML (KML-точки лежат в markerPane=600).
+  // Рендерер SVG (не canvas): пустые области не перехватывают наведение/клики по нижним слоям.
+  map.createPane('factsPane');
+  map.getPane('factsPane').style.zIndex=630;
   map.on('click',onMapClick);
   map.on('contextmenu',onMapRClick);
   map.on('zoomend',_updateKmlLabelScale);

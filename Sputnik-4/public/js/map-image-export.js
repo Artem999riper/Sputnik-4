@@ -96,7 +96,7 @@ async function _imgExRender(bounds) {
   function _hide(el) { if (el) { el.style.display = 'none'; hiddenEls.push(el); } }
 
   if (!opts.kml)       _hide(map.getPanes()['kmlPane']);
-  if (!opts.facts)   { _hide(map.getPanes()['overlayPane']); _hide(map.getPanes()['volPointsPane']); }
+  if (!opts.facts)   { _hide(map.getPanes()['overlayPane']); _hide(map.getPanes()['volPointsPane']); _hide(map.getPanes()['factsPane']); }
   if (!opts.machinery) Object.values(mMarkers || {}).forEach(function(m) { _hide(m.getElement ? m.getElement() : null); });
   if (!opts.bases)     Object.values(bMarkers || {}).forEach(function(m) { _hide(m.getElement ? m.getElement() : null); });
 

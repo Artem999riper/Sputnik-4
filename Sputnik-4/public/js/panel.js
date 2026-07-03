@@ -850,7 +850,9 @@ function renderVpLayers(volProgressList){
       }
 
       var g=L.geoJSON(pGj,{
-        renderer: getCanvasRenderer('overlayPane'),
+        pane:'factsPane',
+        // Факты — в SVG-панели поверх всех слоёв KML
+        renderer: getSvgRenderer('factsPane'),
         style:function(feature){
           var fp=(feature&&feature.properties)||{};
           var c=fp.color||color;
