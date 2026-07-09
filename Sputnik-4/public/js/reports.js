@@ -413,11 +413,22 @@ function handleSseChange(ev){
       try{fetchNotifs&&fetchNotifs();}catch(e){}
     },600);
   }
+  // МТО — перезагрузить вкладку, если она открыта
+  if(url.indexOf('/mto')>=0){
+    if(_sseMtoTimer)clearTimeout(_sseMtoTimer);
+    _sseMtoTimer=setTimeout(function(){
+      try{
+        const pg=document.getElementById('mto-page');
+        if(pg&&pg.classList.contains('show')&&typeof loadMTO==='function')loadMTO();
+      }catch(e){}
+    },500);
+  }
   // Базовые сущности — общий дебаунсированный loadAll
   if(url.match(/\/(sites|bases|layers|pgk|materials|volumes|vol_progress|kameral|remarks|machinery|workers|equipment)/)){
     _sseResyncAll();
   }
 }
+let _sseMtoTimer=null;
 let _sseAllTimer=null;
 // Дебаунсированная полная пересинхронизация: подтягивает свежие данные с сервера.
 // Вызывается как из SSE-событий, так и при (пере)подключении SSE и возврате вкладки —

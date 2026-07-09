@@ -201,6 +201,8 @@ async function getDb() {
   ta("ALTER TABLE pgk_equipment ADD COLUMN group_id TEXT DEFAULT ''");
   ta("ALTER TABLE kml_layers ADD COLUMN show_labels INTEGER DEFAULT 0");
   ta("ALTER TABLE kml_layers ADD COLUMN fill_opacity REAL DEFAULT 0.2");
+  // МТО — материально-техническое обеспечение (справка о технических средствах)
+  ta("CREATE TABLE IF NOT EXISTS mto_items (id TEXT PRIMARY KEY, category TEXT DEFAULT '', name TEXT NOT NULL, quantity TEXT DEFAULT '', year TEXT DEFAULT '', condition TEXT DEFAULT 'Исправен', ownership TEXT DEFAULT '', notes TEXT DEFAULT '', sort_order INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))");
 
   // ── field_* tables (полевые материалы) ────────────────────
   ta(`CREATE TABLE IF NOT EXISTS field_boreholes (

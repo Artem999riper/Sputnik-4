@@ -16,7 +16,7 @@ const RESTORABLE_TABLES = new Set([
   'bases','sites','volumes','vol_progress','progress_items',
   'kameral_reports','kameral_remarks','site_tasks','global_tasks',
   'pgk_workers','pgk_machinery','pgk_equipment','materials',
-  'cargo_orders','kml_layers','site_bases',
+  'cargo_orders','kml_layers','site_bases','mto_items',
 ]);
 
 // ── SSE ────────────────────────────────────────────────────

@@ -202,7 +202,7 @@
     <div class="nt gruz" data-v="gruz" onclick="switchView('gruz')">🚚 Груз <span id="gruz-notif-badge" style="display:none;background:#d97706;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="gruz-active-badge" style="display:none;background:#1e40af;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="gruz-my-tasks-badge" style="display:none;background:#ef4444;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle" title="Мои незакрытые задачи"></span></div>
     <div class="nt gtasks" data-v="gtasks" onclick="switchView('gtasks')">📋 Задачи <span id="gtasks-open-badge" style="display:none;background:#7c3aed;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span><span id="notif-badge" style="display:none;background:#ef4444;color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:2px;vertical-align:middle"></span></div>
     <div class="nt" data-v="smg" onclick="switchView('smg')">📅 СМГ</div>
-    <div class="nt field" data-v="field" onclick="switchView('field')">🛰️ Полевые материалы</div>
+    <div class="nt" data-v="mto" onclick="switchView('mto')">🛠 МТО</div>
     <div class="nt" data-v="brigades" onclick="switchView('brigades')">👥 Бригады</div>
   </div>
   <div class="tdv"></div>
@@ -399,6 +399,9 @@
 <!-- MATERIALS PAGE -->
 <div id="materials-page"></div>
 
+<!-- MTO PAGE (материально-техническое обеспечение) -->
+<div id="mto-page"></div>
+
 <!-- GLOBAL TASKS PAGE -->
 <div id="gtasks-page">
   <div class="gt-toolbar">
@@ -534,6 +537,7 @@
 <script src="js/smg.js"></script>
 <script src="js/reports.js"></script>
 <script src="js/materials.js"></script>
+<script src="js/mto.js"></script>
 <script src="js/volumes.js"></script>
 <script src="js/cargo.js"></script>
 <script src="js/tasks.js"></script>
@@ -570,7 +574,7 @@
         📂 Импорт
         <input type="file" accept=".kml,.gpx,.dxf,.csv,.txt" style="display:none" onchange="kmlPanelImport(event)">
       </label>
-      <button class="btn bs bxs" onclick="openLayerExportDialog()" title="Экспорт слоёв в DXF">📤 DXF</button>
+      <button class="btn bs bxs" onclick="openLayerExportDialog()" title="Экспорт слоёв в DXF или KML">📤 DXF/KML</button>
       <button class="kml-panel-close" onclick="toggleKmlPanel()" title="Закрыть">✕</button>
     </div>
   </div>

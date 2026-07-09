@@ -242,8 +242,8 @@
 .spk-bh-meta{font-size:10px;color:var(--tx2)}
 
 /* ── Section pages (Сотрудники / Техника / Оборудование / Материалы) ── */
-#workers-page,#machinery-page,#equipment-page,#materials-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden}
-#workers-page.show,#machinery-page.show,#equipment-page.show,#materials-page.show{display:flex}
+#workers-page,#machinery-page,#equipment-page,#materials-page,#mto-page{position:fixed;top:var(--th);left:var(--sw);right:0;bottom:0;background:var(--bg);z-index:500;display:none;flex-direction:column;overflow:hidden}
+#workers-page.show,#machinery-page.show,#equipment-page.show,#materials-page.show,#mto-page.show{display:flex}
 #workers-page>.wt-outer,#machinery-page>.wt-outer,#equipment-page>.wt-outer,#materials-page>.wt-outer{margin:0}
 
 /* ── Cards & lists (panel content) ── */
