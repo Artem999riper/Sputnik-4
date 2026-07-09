@@ -568,13 +568,27 @@ function kmlOpenStyleModal(id) {
   const curMinZ = l.min_zoom != null ? l.min_zoom : 0;
   const curMaxZ = l.max_zoom != null ? l.max_zoom : 20;
   const curSize = l.size     != null ? l.size     : 1;
+  const curFill = l.fill_opacity != null ? l.fill_opacity : 0.2;
   const curZ    = Math.round(map.getZoom());
   showModal(`🎨 Стиль слоя — ${esc(l.name)}`,`
     <div style="display:flex;gap:12px;margin-bottom:12px;align-items:flex-start">
       <div><label style="font-size:11px;font-weight:600;display:block;margin-bottom:4px">Цвет</label>
-        <input type="color" id="kml-style-color" value="${curColor}" style="width:50px;height:36px;border:1.5px solid var(--bd);border-radius:5px;cursor:pointer;padding:2px" oninput="kmlUpdateSymPreviews(this.value)">
+        <input type="color" id="kml-style-color" value="${curColor}" style="width:50px;height:36px;border:1.5px solid var(--bd);border-radius:5px;cursor:pointer;padding:2px" oninput="kmlUpdateSymPreviews(this.value);var fp=document.getElementById('kml-fill-prev');if(fp)fp.style.background=this.value">
       </div>
       <div style="flex:1"><label style="font-size:11px;font-weight:600;display:block;margin-bottom:4px">Линии/полигоны</label>${lineHtml}</div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;font-weight:600;display:block;margin-bottom:6px">
+        Заливка полигонов: <b id="kml-fill-val">${Math.round(curFill*100)}%</b>
+      </label>
+      <input type="range" id="kml-fill" min="0" max="100" step="5" value="${Math.round(curFill*100)}"
+        style="width:100%;accent-color:var(--acc)"
+        oninput="document.getElementById('kml-fill-val').textContent=this.value+'%';document.getElementById('kml-fill-prev').style.opacity=this.value/100">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:9px;color:var(--tx3);margin-top:2px">
+        <span>0% (без заливки)</span>
+        <div id="kml-fill-prev" style="width:44px;height:14px;border:1.5px solid var(--bd);border-radius:3px;background:${curColor};opacity:${curFill}"></div>
+        <span>100% (сплошная)</span>
+      </div>
     </div>
     <div style="margin-bottom:12px">
       <label style="font-size:11px;font-weight:600;display:block;margin-bottom:6px">
@@ -609,9 +623,10 @@ function kmlOpenStyleModal(id) {
        const minZ=Math.max(0,Math.min(20,parseInt(document.getElementById('kml-min-zoom').value)||0));
        const maxZ=Math.max(0,Math.min(20,parseInt(document.getElementById('kml-max-zoom').value)||20));
        const sz=Math.max(0.3,Math.min(3,parseFloat(document.getElementById('kml-size').value)||1));
-       l.color=color;l.symbol=sym;l.line_dash=dash;l.min_zoom=minZ;l.max_zoom=maxZ;l.size=sz;
+       const fillOp=Math.max(0,Math.min(1,(parseInt(document.getElementById('kml-fill').value)||0)/100));
+       l.color=color;l.symbol=sym;l.line_dash=dash;l.min_zoom=minZ;l.max_zoom=maxZ;l.size=sz;l.fill_opacity=fillOp;
        await fetch(`${API}/layers/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
-         body:JSON.stringify({name:l.name,color,visible:l.visible?1:0,symbol:sym,group_id:l.group_id||'',line_dash:dash,min_zoom:minZ,max_zoom:maxZ,size:sz})});
+         body:JSON.stringify({name:l.name,color,visible:l.visible?1:0,symbol:sym,group_id:l.group_id||'',line_dash:dash,min_zoom:minZ,max_zoom:maxZ,size:sz,fill_opacity:fillOp})});
        closeModal();renderLayerGroups();renderKmlPanel();toast('Стиль применён','ok');
      }}]);
 }
@@ -1105,7 +1120,8 @@ function renderLayerGroupsWithSymbols() {
       const g = L.geoJSON(gj, {
         pane: 'kmlPane',
         renderer: getCanvasRenderer('kmlPane'),
-        style: (f) => ({ color: f?.properties?._color || color, weight:2.5, opacity:.85, fillOpacity:.2, dashArray:dashArr }),
+        style: (f) => ({ color: f?.properties?._color || color, weight:2.5, opacity:.85,
+          fillOpacity: l.fill_opacity != null ? l.fill_opacity : .2, dashArray:dashArr }),
         pointToLayer: (f, ll) => {
           // Точки — в markerPane (z-600), иначе markerPane перехватывает события
           const icon = kmlFeatureDivIcon(l, f.properties);

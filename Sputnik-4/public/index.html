@@ -17,88 +17,166 @@
 
 <!-- SPLASH SCREEN -->
 <div id="splash">
+  <div class="spl-stars spl-stars1"></div>
+  <div class="spl-stars spl-stars2"></div>
   <div id="splash-inner">
-    <div id="splash-sat">
-      <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <!-- solar panels left -->
-        <rect x="2" y="30" width="22" height="8" rx="2" fill="#4F81BD" opacity=".9"/>
-        <line x1="6"  y1="30" x2="6"  y2="38" stroke="#B9CCE4" stroke-width=".8"/>
-        <line x1="10" y1="30" x2="10" y2="38" stroke="#B9CCE4" stroke-width=".8"/>
-        <line x1="14" y1="30" x2="14" y2="38" stroke="#B9CCE4" stroke-width=".8"/>
-        <line x1="18" y1="30" x2="18" y2="38" stroke="#B9CCE4" stroke-width=".8"/>
-        <!-- arm left -->
-        <rect x="24" y="33" width="8" height="2" rx="1" fill="#ccc"/>
-        <!-- body -->
-        <rect x="32" y="26" width="16" height="16" rx="3" fill="#e8eef6" stroke="#4F81BD" stroke-width="1.5"/>
-        <circle cx="40" cy="34" r="3" fill="#4F81BD" opacity=".7"/>
-        <!-- arm right -->
-        <rect x="48" y="33" width="8" height="2" rx="1" fill="#ccc"/>
-        <!-- solar panels right -->
-        <rect x="56" y="30" width="22" height="8" rx="2" fill="#4F81BD" opacity=".9"/>
-        <line x1="60" y1="30" x2="60" y2="38" stroke="#B9CCE4" stroke-width=".8"/>
-        <line x1="64" y1="30" x2="64" y2="38" stroke="#B9CCE4" stroke-width=".8"/>
-        <line x1="68" y1="30" x2="68" y2="38" stroke="#B9CCE4" stroke-width=".8"/>
-        <line x1="72" y1="30" x2="72" y2="38" stroke="#B9CCE4" stroke-width=".8"/>
-        <!-- antenna -->
-        <line x1="40" y1="26" x2="40" y2="18" stroke="#aaa" stroke-width="1.2"/>
-        <circle cx="40" cy="17" r="1.5" fill="#9BBB59"/>
-        <!-- signal arcs -->
-        <path d="M44 20 Q50 15 44 10" stroke="#9BBB59" stroke-width="1" fill="none" stroke-linecap="round" opacity=".7"/>
-        <path d="M46 22 Q55 13 46 7"  stroke="#9BBB59" stroke-width="1" fill="none" stroke-linecap="round" opacity=".45"/>
+    <div id="spl-scene">
+      <!-- планета-глобус -->
+      <svg id="spl-globe" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="splGlobeG" cx="38%" cy="32%" r="75%">
+            <stop offset="0%"  stop-color="#3b82f6"/>
+            <stop offset="55%" stop-color="#1d4ed8"/>
+            <stop offset="100%" stop-color="#172554"/>
+          </radialGradient>
+        </defs>
+        <circle cx="50" cy="50" r="34" fill="url(#splGlobeG)"/>
+        <!-- сетка меридианов/параллелей -->
+        <g stroke="#93c5fd" stroke-width=".7" opacity=".5" fill="none">
+          <ellipse cx="50" cy="50" rx="34" ry="34"/>
+          <ellipse cx="50" cy="50" rx="22" ry="34"/>
+          <ellipse cx="50" cy="50" rx="9"  ry="34"/>
+          <line x1="16" y1="50" x2="84" y2="50"/>
+          <path d="M20 33 A44 44 0 0 1 80 33"/>
+          <path d="M20 67 A44 44 0 0 0 80 67"/>
+        </g>
+        <!-- материк-силуэт -->
+        <path d="M38 36 q6 -6 13 -3 q8 3 10 9 q1 5 -4 7 q-7 2 -12 -1 q-8 -4 -7 -12z" fill="#22c55e" opacity=".55"/>
+        <path d="M55 60 q6 -2 9 2 q2 4 -2 6 q-6 3 -9 -2 q-2 -4 2 -6z" fill="#22c55e" opacity=".45"/>
+        <!-- атмосфера -->
+        <circle cx="50" cy="50" r="36.5" stroke="#60a5fa" stroke-width="1" opacity=".35"/>
       </svg>
+      <!-- орбита + спутник -->
+      <div id="spl-orbit-ring"></div>
+      <div id="spl-orbit">
+        <div id="spl-sat">
+          <svg viewBox="0 0 64 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1"  y="14" width="18" height="11" rx="1.5" fill="#2563eb"/>
+            <g stroke="#bfdbfe" stroke-width=".8"><line x1="5" y1="14" x2="5" y2="25"/><line x1="9.5" y1="14" x2="9.5" y2="25"/><line x1="14" y1="14" x2="14" y2="25"/></g>
+            <rect x="45" y="14" width="18" height="11" rx="1.5" fill="#2563eb"/>
+            <g stroke="#bfdbfe" stroke-width=".8"><line x1="49.5" y1="14" x2="49.5" y2="25"/><line x1="54" y1="14" x2="54" y2="25"/><line x1="58.5" y1="14" x2="58.5" y2="25"/></g>
+            <rect x="19" y="18" width="6" height="3" rx="1.5" fill="#94a3b8"/>
+            <rect x="39" y="18" width="6" height="3" rx="1.5" fill="#94a3b8"/>
+            <rect x="25" y="12" width="14" height="15" rx="3" fill="#e2e8f0" stroke="#64748b"/>
+            <circle cx="32" cy="19.5" r="3.2" fill="#0ea5e9" opacity=".85"/>
+            <line x1="32" y1="12" x2="32" y2="5" stroke="#94a3b8" stroke-width="1.2"/>
+            <circle cx="32" cy="4" r="1.6" fill="#4ade80"/>
+          </svg>
+        </div>
+      </div>
+      <!-- импульс сигнала -->
+      <div class="spl-ping"></div>
+      <div class="spl-ping spl-ping2"></div>
     </div>
-    <div id="splash-title">Спутник</div>
+    <div id="splash-title">СПУТНИК</div>
+    <div id="splash-sub">ПурГеоКом · карта полевых работ</div>
+    <div id="spl-bar"><div id="spl-bar-fill"></div></div>
   </div>
 </div>
 
 <style>
 #splash{
-  position:fixed;inset:0;z-index:99999;
-  background:#0f172a;
+  position:fixed;inset:0;z-index:99999;overflow:hidden;
+  background:radial-gradient(120% 120% at 50% 30%, #1e293b 0%, #0f172a 45%, #060b18 100%);
   display:flex;align-items:center;justify-content:center;
-  animation:splashFadeOut .5s ease-in 2s forwards;
+  animation:splashFadeOut .55s ease-in 2.1s forwards;
+}
+/* звёзды: два дрейфующих слоя */
+.spl-stars{position:absolute;inset:-50%;background-repeat:repeat;}
+.spl-stars1{
+  background-image:radial-gradient(1.2px 1.2px at 20px 30px,#cbd5e1 60%,transparent),
+    radial-gradient(1px 1px at 110px 80px,#93c5fd 60%,transparent),
+    radial-gradient(1.4px 1.4px at 190px 140px,#e2e8f0 60%,transparent),
+    radial-gradient(.9px .9px at 260px 50px,#94a3b8 60%,transparent);
+  background-size:300px 200px;opacity:.7;
+  animation:splDrift 60s linear infinite, splTwinkle 3s ease-in-out infinite alternate;
+}
+.spl-stars2{
+  background-image:radial-gradient(1px 1px at 60px 120px,#cbd5e1 60%,transparent),
+    radial-gradient(1.3px 1.3px at 160px 40px,#bfdbfe 60%,transparent),
+    radial-gradient(.8px .8px at 230px 170px,#e2e8f0 60%,transparent);
+  background-size:340px 240px;opacity:.45;
+  animation:splDrift 100s linear infinite reverse, splTwinkle 4s ease-in-out infinite alternate-reverse;
 }
 #splash-inner{
-  display:flex;flex-direction:column;align-items:center;gap:22px;
-  animation:splashRise .7s cubic-bezier(.22,.68,0,1.2) both;
+  position:relative;display:flex;flex-direction:column;align-items:center;gap:14px;
+  animation:splashRise .8s cubic-bezier(.22,.68,0,1.15) both;
 }
-#splash-sat{
-  width:120px;height:120px;
-  animation:splashSpin 3s linear infinite, splashFloat 2s ease-in-out infinite;
+/* сцена: глобус + орбита */
+#spl-scene{position:relative;width:190px;height:190px;margin-bottom:6px;}
+#spl-globe{
+  position:absolute;inset:24px;width:142px;height:142px;
+  filter:drop-shadow(0 0 26px rgba(59,130,246,.45));
+  animation:splFloat 4s ease-in-out infinite;
 }
-#splash-sat svg{width:100%;height:100%;}
+#spl-orbit-ring{
+  position:absolute;inset:2px;border-radius:50%;
+  border:1.2px dashed rgba(148,197,253,.35);
+  animation:splFloat 4s ease-in-out infinite;
+}
+#spl-orbit{
+  position:absolute;inset:2px;
+  animation:splOrbit 5s linear infinite, splFloat 4s ease-in-out infinite;
+}
+#spl-sat{
+  position:absolute;top:-13px;left:50%;width:52px;height:32px;margin-left:-26px;
+  animation:splCounter 5s linear infinite;
+  filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));
+}
+#spl-sat svg{width:100%;height:100%;}
+/* импульсы от глобуса */
+.spl-ping{
+  position:absolute;inset:24px;border-radius:50%;
+  border:1.5px solid rgba(96,165,250,.55);
+  animation:splPing 2.6s ease-out infinite;
+}
+.spl-ping2{animation-delay:1.3s;}
 #splash-title{
   font-family:'Segoe UI',system-ui,sans-serif;
-  font-size:36px;font-weight:700;letter-spacing:6px;
-  color:#e8eef6;text-transform:uppercase;
-  animation:splashGlow 1.5s ease-in-out infinite alternate;
+  font-size:40px;font-weight:800;letter-spacing:12px;text-indent:12px;
+  background:linear-gradient(180deg,#f8fafc 20%,#93c5fd 90%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  text-shadow:0 0 30px rgba(96,165,250,.35);
+  animation:splTitleIn 1s .15s cubic-bezier(.22,.68,0,1.1) both;
 }
-@keyframes splashRise{
-  from{opacity:0;transform:translateY(24px);}
-  to{opacity:1;transform:translateY(0);}
+#splash-sub{
+  font-family:'Segoe UI',system-ui,sans-serif;
+  font-size:12px;letter-spacing:3.5px;text-transform:uppercase;color:#64748b;
+  animation:splTitleIn 1s .35s both;
 }
-@keyframes splashFloat{
-  0%,100%{transform:translateY(0);}
-  50%{transform:translateY(-8px);}
+/* полоса загрузки */
+#spl-bar{
+  width:220px;height:3px;margin-top:10px;border-radius:99px;overflow:hidden;
+  background:rgba(148,163,184,.18);
+  animation:splTitleIn .8s .45s both;
 }
-@keyframes splashSpin{
-  from{transform:rotate(0deg);}
-  to{transform:rotate(360deg);}
+#spl-bar-fill{
+  height:100%;width:0;border-radius:99px;
+  background:linear-gradient(90deg,#2563eb,#60a5fa,#4ade80);
+  box-shadow:0 0 10px rgba(96,165,250,.7);
+  animation:splLoad 1.9s .25s cubic-bezier(.3,.75,.35,1) forwards;
 }
-@keyframes splashGlow{
-  from{text-shadow:0 0 8px rgba(79,129,189,.4);}
-  to{text-shadow:0 0 22px rgba(79,129,189,.9),0 0 40px rgba(155,187,89,.4);}
-}
-@keyframes splashFadeOut{
-  from{opacity:1;pointer-events:all;}
-  to{opacity:0;pointer-events:none;}
+@keyframes splashRise{from{opacity:0;transform:translateY(26px) scale(.96);}to{opacity:1;transform:translateY(0) scale(1);}}
+@keyframes splTitleIn{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+@keyframes splFloat{0%,100%{translate:0 0;}50%{translate:0 -7px;}}
+@keyframes splOrbit{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
+@keyframes splCounter{from{transform:rotate(0deg);}to{transform:rotate(-360deg);}}
+@keyframes splPing{0%{transform:scale(1);opacity:.6;}80%,100%{transform:scale(1.45);opacity:0;}}
+@keyframes splDrift{from{transform:translate3d(0,0,0);}to{transform:translate3d(-300px,-200px,0);}}
+@keyframes splTwinkle{from{opacity:.35;}to{opacity:.8;}}
+@keyframes splLoad{0%{width:0;}60%{width:74%;}100%{width:100%;}}
+@keyframes splashFadeOut{from{opacity:1;pointer-events:all;}to{opacity:0;pointer-events:none;}}
+@media (prefers-reduced-motion:reduce){
+  .spl-stars,#spl-orbit,#spl-sat,#spl-globe,#spl-orbit-ring,.spl-ping{animation:none!important;}
 }
 </style>
 <script>
   setTimeout(()=>{
     const s=document.getElementById('splash');
-    if(s){s.addEventListener('animationend',()=>s.remove(),{once:true});}
+    if(s){s.addEventListener('animationend',e=>{if(e.animationName==='splashFadeOut')s.remove();});}
   },2400);
+  // страховка: если animationend не сработал — убрать принудительно
+  setTimeout(()=>{const s=document.getElementById('splash');if(s)s.remove();},3600);
 </script>
 
 <div id="tb">
