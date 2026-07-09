@@ -633,6 +633,51 @@ function kmlOpenStyleModal(id) {
 function kmlSelectSym(el){document.querySelectorAll('.kml-sym-btn').forEach(b=>b.classList.remove('on'));el.classList.add('on');}
 function kmlUpdateSymPreviews(color){Object.keys(KML_SYMBOLS).forEach(k=>{const el=document.getElementById('kml-sym-prev-'+k);if(el)el.innerHTML=kmlSvgIcon(k,color,22);});}
 
+// ── Преобразование линия ↔ полигон ──────────────────────────
+// Сохраняет geojson слоя на сервере (все поля стиля передаём, чтобы ничего не сбросить)
+async function _kmlSaveGeojson(l, gj){
+  await fetch(`${API}/layers/${l.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:l.name,color:l.color,visible:l.visible?1:0,symbol:l.symbol||'',
+      group_id:l.group_id||'',line_dash:l.line_dash||'solid',min_zoom:l.min_zoom,max_zoom:l.max_zoom,
+      size:l.size,show_labels:l.show_labels?1:0,fill_opacity:l.fill_opacity,geojson:JSON.stringify(gj)})});
+  l.geojson=JSON.stringify(gj);
+}
+// Замкнутая (или замыкаемая) KML-линия → полигон: появляется заливка (настройка в «Стиль слоя»)
+async function kmlLineToPolygon(layerId, fIdx){
+  const l=layers.find(x=>x.id===layerId);if(!l)return;
+  let gj;try{gj=JSON.parse(l.geojson);}catch(e){toast('Ошибка разбора слоя','err');return;}
+  const features=gj.type==='FeatureCollection'?gj.features:[gj];
+  const f=features[fIdx];
+  if(!f||!f.geometry||f.geometry.type!=='LineString'){toast('Это не линия','err');return;}
+  const coords=(f.geometry.coordinates||[]).map(c=>c.slice());
+  if(coords.length<3){toast('Нужно минимум 3 точки','err');return;}
+  const a=coords[0],b=coords[coords.length-1];
+  const wasClosed=Math.abs(a[0]-b[0])<1e-9&&Math.abs(a[1]-b[1])<1e-9;
+  if(!wasClosed)coords.push([a[0],a[1]]); // автозамыкание
+  f.geometry={type:'Polygon',coordinates:[coords]};
+  try{
+    await _kmlSaveGeojson(l,gj);
+    renderLayerGroups();
+    toast(wasClosed?'⬛ Линия преобразована в полигон':'⬛ Линия замкнута и преобразована в полигон','ok');
+  }catch(e){toast('Ошибка сохранения','err');}
+}
+// Обратное преобразование: полигон (внешнее кольцо) → линия
+async function kmlPolygonToLine(layerId, fIdx){
+  const l=layers.find(x=>x.id===layerId);if(!l)return;
+  let gj;try{gj=JSON.parse(l.geojson);}catch(e){toast('Ошибка разбора слоя','err');return;}
+  const features=gj.type==='FeatureCollection'?gj.features:[gj];
+  const f=features[fIdx];
+  if(!f||!f.geometry||f.geometry.type!=='Polygon'){toast('Это не полигон','err');return;}
+  const ring=(f.geometry.coordinates&&f.geometry.coordinates[0])||[];
+  if(ring.length<3){toast('Пустой полигон','err');return;}
+  f.geometry={type:'LineString',coordinates:ring.map(c=>c.slice())};
+  try{
+    await _kmlSaveGeojson(l,gj);
+    renderLayerGroups();
+    toast('〰️ Полигон преобразован в линию','ok');
+  }catch(e){toast('Ошибка сохранения','err');}
+}
+
 // ══════════════════════════════════════════════════════════════
 // РЕДАКТОР ОБЪЕКТОВ СЛОЯ (Feature List)
 // ══════════════════════════════════════════════════════════════
@@ -1154,6 +1199,8 @@ function renderLayerGroupsWithSymbols() {
                 catch(e){ try{map.flyTo(layer.getLatLng(),16);}catch(e2){} }
               }},
               ...(fIdx>=0?[{i:'✏️',l:'Редактировать объект',f:()=>kmlEditFeature(l.id,fIdx)}]:[]),
+              ...(fIdx>=0&&f.geometry&&f.geometry.type==='LineString'?[{i:'⬛',l:'Линия → полигон',f:()=>kmlLineToPolygon(l.id,fIdx)}]:[]),
+              ...(fIdx>=0&&f.geometry&&f.geometry.type==='Polygon'?[{i:'〰️',l:'Полигон → линия',f:()=>kmlPolygonToLine(l.id,fIdx)}]:[]),
               ...(coordStr?[{i:'📋',l:'Копировать координаты',f:()=>{navigator.clipboard.writeText(coordStr).then(()=>toast('Скопировано','ok'));}}]:[]),
               {sep:true},
               {i:'🎨',l:'Стиль слоя',f:()=>kmlOpenStyleModal(l.id)},
