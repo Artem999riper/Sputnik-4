@@ -26,13 +26,58 @@ function _mtoCategories(){
   return out;
 }
 
+// Полная перерисовка страницы (каркас + строки).
+// При наборе в поиске НЕ вызывается — иначе innerHTML пересоздаёт input
+// и поле теряет фокус после каждой буквы; фильтр обновляет только tbody.
 function renderMTO(){
   const pg=document.getElementById('mto-page');if(!pg)return;
-  const q=_mtoQ.toLowerCase();
-  const filtered=q?mtoItems.filter(it=>((it.name||'')+' '+(it.category||'')+' '+(it.ownership||'')+' '+(it.notes||'')).toLowerCase().includes(q)):mtoItems;
   const cats=_mtoCategories();
+  pg.innerHTML=`
+    <div class="wt-toolbar" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1.5px solid var(--bd);flex-wrap:wrap">
+      <span style="font-size:14px;font-weight:800">🛠 МТО</span>
+      <span style="font-size:10px;color:var(--tx3)">материально-техническое обеспечение</span>
+      <input id="mto-search" type="search" placeholder="🔍 Поиск…" value="${esc(_mtoQ)}"
+        style="font-size:11px;padding:4px 9px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:170px;flex:1;max-width:340px"
+        oninput="_mtoQ=this.value;mtoRenderRows()">
+      <span style="flex:1"></span>
+      <label class="btn bs bsm" style="cursor:pointer" title="Импорт таблицы из Word или Excel">
+        📥 Импорт
+        <input type="file" accept=".docx,.xlsx,.xls" style="display:none" onchange="mtoImportFile(this)">
+      </label>
+      <button class="btn bs bsm" onclick="mtoExportDocx()" title="Скачать справку Word">📤 Word</button>
+      <button class="btn bs bsm" onclick="mtoExportXlsx()" title="Скачать Excel">📤 Excel</button>
+      <button class="btn bp bsm" onclick="mtoAddItem()">＋ Добавить</button>
+    </div>
+    <div class="wt-summary" style="padding:4px 14px;display:flex;gap:14px;font-size:11px;color:var(--tx2)">
+      <span>Позиций: <b>${mtoItems.length}</b></span>
+      <span>Разделов: <b>${cats.filter(c=>c).length}</b></span>
+      <span id="mto-shown" style="color:var(--acc);display:none">Показано: <b id="mto-shown-n"></b></span>
+    </div>
+    <div style="flex:1;overflow:auto">
+      <table class="wt-tbl" style="min-width:900px">
+        <thead><tr>
+          <th class="no-sort" style="width:34px;text-align:center">#</th>
+          <th class="no-sort">Наименование</th>
+          <th class="no-sort" style="width:80px;text-align:center">Кол-во</th>
+          <th class="no-sort" style="width:110px;text-align:center">Год выпуска</th>
+          <th class="no-sort" style="width:100px;text-align:center">Состояние</th>
+          <th class="no-sort" style="width:170px">Принадлежность</th>
+          <th class="no-sort" style="min-width:120px">Примечания</th>
+          <th class="no-sort" style="width:60px"></th>
+        </tr></thead>
+        <tbody id="mto-tbody"></tbody>
+      </table>
+    </div>`;
+  mtoRenderRows();
+}
+
+// Перерисовывает только строки таблицы + счётчик «Показано» (каркас не трогает)
+function mtoRenderRows(){
+  const tb=document.getElementById('mto-tbody');if(!tb)return;
+  const q=(_mtoQ||'').toLowerCase();
+  const filtered=q?mtoItems.filter(it=>((it.name||'')+' '+(it.category||'')+' '+(it.ownership||'')+' '+(it.notes||'')).toLowerCase().includes(q)):mtoItems;
   let rows='',num=0;
-  cats.forEach(cat=>{
+  _mtoCategories().forEach(cat=>{
     const items=filtered.filter(it=>(it.category||'')===cat);
     if(!items.length)return;
     rows+=`<tr style="background:var(--s2)">
@@ -56,43 +101,14 @@ function renderMTO(){
       </tr>`;
     });
   });
-  pg.innerHTML=`
-    <div class="wt-toolbar" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1.5px solid var(--bd);flex-wrap:wrap">
-      <span style="font-size:14px;font-weight:800">🛠 МТО</span>
-      <span style="font-size:10px;color:var(--tx3)">материально-техническое обеспечение</span>
-      <input type="search" placeholder="🔍 Поиск…" value="${esc(_mtoQ)}"
-        style="font-size:11px;padding:4px 9px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:170px;flex:1;max-width:340px"
-        oninput="_mtoQ=this.value;renderMTO()">
-      <span style="flex:1"></span>
-      <label class="btn bs bsm" style="cursor:pointer" title="Импорт таблицы из Word или Excel">
-        📥 Импорт
-        <input type="file" accept=".docx,.xlsx,.xls" style="display:none" onchange="mtoImportFile(this)">
-      </label>
-      <button class="btn bs bsm" onclick="mtoExportDocx()" title="Скачать справку Word">📤 Word</button>
-      <button class="btn bs bsm" onclick="mtoExportXlsx()" title="Скачать Excel">📤 Excel</button>
-      <button class="btn bp bsm" onclick="mtoAddItem()">＋ Добавить</button>
-    </div>
-    <div class="wt-summary" style="padding:4px 14px;display:flex;gap:14px;font-size:11px;color:var(--tx2)">
-      <span>Позиций: <b>${mtoItems.length}</b></span>
-      <span>Разделов: <b>${cats.filter(c=>c).length}</b></span>
-      ${filtered.length<mtoItems.length?`<span style="color:var(--acc)">Показано: <b>${filtered.length}</b></span>`:''}
-    </div>
-    <div style="flex:1;overflow:auto">
-      <table class="wt-tbl" style="min-width:900px">
-        <thead><tr>
-          <th class="no-sort" style="width:34px;text-align:center">#</th>
-          <th class="no-sort">Наименование</th>
-          <th class="no-sort" style="width:80px;text-align:center">Кол-во</th>
-          <th class="no-sort" style="width:110px;text-align:center">Год выпуска</th>
-          <th class="no-sort" style="width:100px;text-align:center">Состояние</th>
-          <th class="no-sort" style="width:170px">Принадлежность</th>
-          <th class="no-sort" style="min-width:120px">Примечания</th>
-          <th class="no-sort" style="width:60px"></th>
-        </tr></thead>
-        <tbody>${rows||`<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--tx3)">
-          Список пуст — добавьте позицию или импортируйте таблицу (Word/Excel)</td></tr>`}</tbody>
-      </table>
-    </div>`;
+  tb.innerHTML=rows||`<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--tx3)">${
+    q?'Ничего не найдено':'Список пуст — добавьте позицию или импортируйте таблицу (Word/Excel)'}</td></tr>`;
+  const shown=document.getElementById('mto-shown');
+  if(shown){
+    const less=filtered.length<mtoItems.length;
+    shown.style.display=less?'':'none';
+    if(less)document.getElementById('mto-shown-n').textContent=filtered.length;
+  }
 }
 
 function mtoCtxMenu(ev,id){
