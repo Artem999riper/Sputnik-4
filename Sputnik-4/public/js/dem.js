@@ -106,6 +106,14 @@ const DEM_PROJECTIONS = [
     name:  'MSK86_Z4',
   },
   {
+    id:    'msk86_z5',
+    label: 'МСК-86 Зона 5 (ЦМ=84°05′)',
+    epsg:  null,
+    proj4: '+proj=tmerc +lat_0=0 +lon_0=84.05 +k=1 +x_0=5500000 +y_0=-5811057.63 ' +
+           '+ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs',
+    name:  'MSK86_Z5',
+  },
+  {
     id:    'sk42_z4',
     label: 'СК-42 Зона 4 (CM=81°)',
     epsg:  28404,
