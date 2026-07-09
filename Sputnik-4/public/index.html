@@ -40,9 +40,16 @@
           <path d="M20 33 A44 44 0 0 1 80 33"/>
           <path d="M20 67 A44 44 0 0 0 80 67"/>
         </g>
-        <!-- материк-силуэт -->
-        <path d="M38 36 q6 -6 13 -3 q8 3 10 9 q1 5 -4 7 q-7 2 -12 -1 q-8 -4 -7 -12z" fill="#22c55e" opacity=".55"/>
-        <path d="M55 60 q6 -2 9 2 q2 4 -2 6 q-6 3 -9 -2 q-2 -4 2 -6z" fill="#22c55e" opacity=".45"/>
+        <!-- Россия: стилизованный контур (Кольский, Ямал, Таймыр, Чукотка, Камчатка) -->
+        <path d="M24 44
+                 q1 -5 5 -6 q3 -1 4 -3 q2 -3 4 -1 l1 3 q1 2 3 0 l2 -3 q2 -2 4 -1
+                 q2 1 3 -1 l2 -3 q2 -2 3 0 l1 3 q1 2 3 1 q3 -1 5 1 l3 2 q2 1 4 0
+                 l4 -2 q3 -1 4 1 l2 3 q2 3 -1 4 l-3 1 q-2 1 -1 3 q1 2 -1 3
+                 q-2 1 -3 -1 l-1 -2 q-1 -2 -3 -1 q-2 1 -1 3 l2 4 q1 3 -1 4
+                 q-2 1 -3 -1 l-2 -5 q-1 -2 -3 -2 l-4 0 q-3 0 -5 2 l-2 2
+                 q-2 2 -5 1 l-5 -2 q-3 -1 -6 0 l-3 1 q-3 1 -4 -2 q-1 -2 -2 -3
+                 q-2 -2 -1 -4 z"
+              fill="#22c55e" opacity=".6" stroke="#86efac" stroke-width=".5" stroke-opacity=".5"/>
         <!-- атмосфера -->
         <circle cx="50" cy="50" r="36.5" stroke="#60a5fa" stroke-width="1" opacity=".35"/>
       </svg>
@@ -69,7 +76,7 @@
       <div class="spl-ping spl-ping2"></div>
     </div>
     <div id="splash-title">СПУТНИК</div>
-    <div id="splash-sub">ПурГеоКом · карта полевых работ</div>
+    <div id="splash-sub">ПурГеоКом · комплекс управления инженерными изысканиями</div>
     <div id="spl-bar"><div id="spl-bar-fill"></div></div>
   </div>
 </div>
@@ -141,7 +148,8 @@
 }
 #splash-sub{
   font-family:'Segoe UI',system-ui,sans-serif;
-  font-size:12px;letter-spacing:3.5px;text-transform:uppercase;color:#64748b;
+  font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:#64748b;
+  text-align:center;max-width:90vw;line-height:1.7;
   animation:splTitleIn 1s .35s both;
 }
 /* полоса загрузки */
