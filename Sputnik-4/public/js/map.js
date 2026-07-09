@@ -71,6 +71,8 @@ function onMapRClick(e){
   }
   const hasRuler=rulerPts.length>=2;
   showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
+    {i:'🔎',l:'Найти на карте',f:openMapSearch},
+    {sep:true},
     {i:'📌',l:'Поставить метку',f:()=>openPlaceMarkerModal(e.latlng)},
     {i:'🔢',l:'Метка по координатам',f:()=>openCoordMarkerModal(e.latlng)},
     {sep:true},
@@ -79,6 +81,122 @@ function onMapRClick(e){
     {i:'📏',l:'Линейка (замер расстояния)',f:startRuler},
     ...(hasRuler?[{i:'🗑',l:'Убрать линейку',cls:'dan',f:clearRuler}]:[])
   ]);
+}
+
+// ═══════════════════════════════════════════════════════════
+// ПОИСК ПО ОБЪЕКТАМ НА КАРТЕ (ПКМ → Найти на карте)
+// Ищет по всему, что сейчас загружено: точки/линии KML, факты,
+// объёмы, базы, техника. Клик по результату — перелёт + подсветка.
+// ═══════════════════════════════════════════════════════════
+function _msFeatureName(p){
+  if(!p)return '';
+  return p.name||p.Name||p.label||p.Label||p.title||p.Title||p.id||p.ID
+    ||(p.sem&&p.sem.data&&p.sem.data.label)||'';
+}
+function _msCollectGroup(g,icon,src,idx){
+  try{
+    g.eachLayer(function(sub){
+      const f=sub.feature;if(!f)return;
+      const nm=String(_msFeatureName(f.properties)||'').trim();
+      if(!nm)return;
+      idx.push({nm:nm,icon:icon,src:src,
+        ll:sub.getLatLng?sub.getLatLng():null,
+        bounds:(!sub.getLatLng&&sub.getBounds)?sub.getBounds():null});
+    });
+  }catch(e){}
+}
+function openMapSearch(){
+  const idx=[];
+  // KML-слои (глобальные и слои объекта)
+  Object.entries(lGroups||{}).forEach(function([lid,g]){
+    let lname='KML';
+    try{
+      const lay=(typeof layers!=='undefined'?layers:[]).find(x=>x.id===lid||('s_'+x.id)===lid);
+      if(lay&&lay.name)lname=lay.name;
+    }catch(e){}
+    _msCollectGroup(g,'🗺',lname,idx);
+  });
+  // Факты и объёмы текущего объекта
+  Object.values(typeof vpLayers!=='undefined'?vpLayers:{}).forEach(g=>_msCollectGroup(g,'📈','Факт',idx));
+  Object.values(typeof volLayers!=='undefined'?volLayers:{}).forEach(g=>_msCollectGroup(g,'📐','Объём',idx));
+  // Базы и техника
+  (typeof bases!=='undefined'?bases:[]).forEach(function(b){
+    if(b.lat&&b.lng)idx.push({nm:b.name,icon:'🏕',src:'База',ll:L.latLng(b.lat,b.lng)});
+  });
+  (typeof pgkMachinery!=='undefined'?pgkMachinery:[]).forEach(function(m){
+    if(m.lat&&m.lng)idx.push({nm:m.name,icon:'🚛',src:'Техника',ll:L.latLng(m.lat,m.lng)});
+  });
+  window._mapSearchIdx=idx;
+  showModal('🔎 Поиск на карте',
+    `<input id="msearch-inp" type="search" placeholder="Имя скважины, точки, базы…" autocomplete="off"
+       style="width:100%;font-size:13px;padding:8px 10px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);color:var(--tx);outline:none"
+       oninput="mapSearchRender(this.value)" onkeydown="if(event.key==='Enter')mapSearchGoFirst()">
+     <div style="font-size:10px;color:var(--tx3);margin:4px 2px 6px">Объектов на карте: <b>${idx.length}</b> · Enter — перейти к первому</div>
+     <div id="msearch-res" style="max-height:300px;overflow-y:auto"></div>`,
+    [{label:'Закрыть',cls:'bs',fn:closeModal}]);
+  setTimeout(function(){const i=document.getElementById('msearch-inp');if(i)i.focus();},60);
+  mapSearchRender('');
+}
+function mapSearchRender(q){
+  const box=document.getElementById('msearch-res');if(!box)return;
+  q=String(q||'').trim().toLowerCase();
+  const idx=window._mapSearchIdx||[];
+  if(q.length<1){
+    box.innerHTML='<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">Начните вводить название</div>';
+    return;
+  }
+  const starts=[],contains=[];
+  idx.forEach(function(it,i){
+    const nm=it.nm.toLowerCase();
+    if(nm.startsWith(q))starts.push(i);
+    else if(nm.includes(q))contains.push(i);
+  });
+  const hits=starts.concat(contains).slice(0,40);
+  window._mapSearchHits=hits;
+  if(!hits.length){
+    box.innerHTML='<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">Ничего не найдено</div>';
+    return;
+  }
+  box.innerHTML=hits.map(function(i){
+    const it=(window._mapSearchIdx||[])[i];
+    return `<div onclick="mapSearchGo(${i})"
+      style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:var(--rs);cursor:pointer;font-size:12px"
+      onmouseover="this.style.background='var(--s2)'" onmouseout="this.style.background=''">
+      <span>${it.icon}</span>
+      <span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.nm)}</span>
+      <span style="font-size:10px;color:var(--tx3);white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis">${esc(it.src)}</span>
+    </div>`;
+  }).join('');
+}
+function mapSearchGoFirst(){
+  const hits=window._mapSearchHits||[];
+  if(hits.length)mapSearchGo(hits[0]);
+}
+function mapSearchGo(i){
+  const it=(window._mapSearchIdx||[])[i];if(!it)return;
+  closeModal();
+  switchView('map');
+  let ll=it.ll;
+  if(it.bounds){
+    try{map.flyToBounds(it.bounds.pad(.4),{duration:.8});ll=it.bounds.getCenter();}catch(e){}
+  } else if(ll){
+    map.flyTo(ll,Math.max(map.getZoom(),16),{duration:.8});
+  }
+  if(ll)_mapSearchHighlight(ll,it.nm);
+}
+// Пульсирующая подсветка найденного объекта
+function _mapSearchHighlight(ll,nm){
+  if(!document.getElementById('msearch-pulse-css')){
+    const st=document.createElement('style');
+    st.id='msearch-pulse-css';
+    st.textContent='@keyframes msPulse{0%{transform:scale(.4);opacity:.9}100%{transform:scale(1.8);opacity:0}}'+
+      '.ms-pulse{width:46px;height:46px;border-radius:50%;border:3px solid #f59e0b;box-sizing:border-box;animation:msPulse 1.1s ease-out infinite}';
+    document.head.appendChild(st);
+  }
+  const mk=L.marker(ll,{interactive:false,icon:L.divIcon({className:'',iconSize:[46,46],iconAnchor:[23,23],
+    html:'<div class="ms-pulse"></div>'})}).addTo(map);
+  if(nm)mk.bindTooltip(esc(nm),{permanent:true,className:'mlbl',direction:'top',offset:[0,-16]}).openTooltip();
+  setTimeout(function(){try{map.removeLayer(mk);}catch(e){}},3200);
 }
 
 // ═══════════════════════════════════════════════════════════
