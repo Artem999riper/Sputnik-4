@@ -192,11 +192,12 @@ function _buildWorkerSelectHtml(selectedIds){
     ${workers.map(w=>{
       const label=esc(w.name)+(w.role?' — '+esc(w.role):'');
       return`<label class="vpw-row" data-text="${escAttr((w.name+' '+(w.role||'')).toLowerCase())}"
-        style="display:flex;align-items:center;gap:7px;padding:4px 8px;font-size:11px;cursor:pointer;border-bottom:1px solid var(--bd)"
+        style="display:flex;align-items:center;gap:8px;padding:5px 9px;font-size:12px;font-weight:400;letter-spacing:normal;text-transform:none;color:var(--tx);cursor:pointer;border-bottom:1px solid var(--bd)"
         onmouseover="this.style.background='var(--s3)'" onmouseout="this.style.background=''">
         <input type="checkbox" class="vpw-cb" value="${escAttr(String(w.id))}" data-name="${escAttr(w.name)}"
-          ${selSet.has(String(w.id))?'checked':''} onchange="_vpwUpdateCount()" style="flex-shrink:0">
-        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}</span>
+          ${selSet.has(String(w.id))?'checked':''} onchange="_vpwUpdateCount()"
+          style="width:15px;height:15px;flex:0 0 auto;padding:0;margin:0;accent-color:var(--acc);cursor:pointer">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}</span>
       </label>`;
     }).join('')||'<div style="padding:8px;font-size:11px;color:var(--tx3)">Нет сотрудников</div>'}
   </div>
