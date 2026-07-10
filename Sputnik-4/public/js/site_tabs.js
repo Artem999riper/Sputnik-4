@@ -51,27 +51,36 @@ function tabSiteBases(pb){
   }).join(''):'<div class="empty"><div class="empty-i">🏕</div>Нет баз</div>'}`;
 }
 
+function volToggleHideDone(on){
+  try{localStorage.setItem('vol_hide_done',on?'1':'0');}catch(e){}
+  renderTab();
+}
 function tabVolumes(pb){
   const vols=currentObj?.volumes||[];
   const prog=currentObj?.vol_progress||[];
   if(typeof seedVpVisible==='function')seedVpVisible(prog);
   const totalVols=vols.length;
-  const progVols=vols.filter(v=>{
-    const done=(prog.filter(p=>p.volume_id===v.id)).reduce((a,p)=>a+(+p.completed||0),0);
-    return v.amount>0&&done>=v.amount;
-  }).length;
+  const _volDone=v=>(prog.filter(p=>p.volume_id===v.id)).reduce((a,p)=>a+(+p.completed||0),0);
+  const _isDone=v=>v.amount>0&&_volDone(v)>=v.amount;
+  const progVols=vols.filter(_isDone).length;
+  let hideDone=false;try{hideDone=localStorage.getItem('vol_hide_done')==='1';}catch(e){}
+  const doneVols=hideDone?vols.filter(_isDone):[];
 
   pb.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:4px">
     <div><h4 style="font-size:13px;font-weight:800">📋 Объёмы (${totalVols})</h4>
       <div style="font-size:10px;color:var(--tx2)">Выполнено: ${progVols}/${totalVols}</div></div>
-    <div style="display:flex;gap:4px">
+    <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--tx2);cursor:pointer;user-select:none;white-space:nowrap">
+        <input type="checkbox" ${hideDone?'checked':''} onchange="volToggleHideDone(this.checked)">Скрыть выполненные
+      </label>
       <button class="btn bg bsm" onclick="openVolSectionPicker()">＋ Добавить</button>
       <button class="btn bs bsm" onclick="recalcPctFromVols()">🔄 Обновить %</button>
     </div>
   </div>
   ${vols.length===0?'<div class="empty"><div class="empty-i">📋</div>Нет объёмов</div>':
     Object.entries(VOL_SECTIONS).map(([cat,sec])=>{
-      const catVols=vols.filter(v=>v.category===cat);
+      let catVols=vols.filter(v=>v.category===cat);
+      if(hideDone)catVols=catVols.filter(v=>!_isDone(v));
       if(!catVols.length)return'';
       const catRows=catVols.map(vol=>{
         const vp=prog.filter(p=>p.volume_id===vol.id).slice().sort((a,b)=>a.work_date<b.work_date?1:-1);
@@ -125,7 +134,25 @@ function tabVolumes(pb){
         ${catRows}
       </div>`;
     }).join('')
-  }`;
+  }
+  ${doneVols.length?`<div style="margin-top:6px">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;padding:4px 8px;background:var(--grnl);border-left:3px solid var(--grn);border-radius:0 var(--rs) var(--rs) 0">
+      <span style="font-size:12px">✅</span>
+      <span style="font-size:10px;font-weight:800;color:var(--grn);text-transform:uppercase;letter-spacing:.5px">Выполненные</span>
+      <span style="font-size:10px;color:var(--tx3);margin-left:auto">${doneVols.length}</span>
+    </div>
+    ${doneVols.map(vol=>{
+      const done=_volDone(vol);
+      return`<div style="display:flex;align-items:center;gap:6px;padding:3px 8px;border-bottom:1px solid var(--bd);font-size:10px;opacity:.75"
+        onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.75'">
+        <div style="width:7px;height:7px;border-radius:50%;background:${vol.color||'#1a56db'};flex-shrink:0"></div>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx2)">${esc(vol.name)}</span>
+        <span style="color:var(--grn);font-weight:700;white-space:nowrap">${done}/${vol.amount} ${esc(vol.unit)} · 100%</span>
+        <button class="btn bg bxs" style="padding:0 4px" title="Редактировать" onclick="openEditVolModal('${vol.id}')">✏️</button>
+        <button class="btn bg bxs" style="padding:0 4px" title="История факта" onclick="openVolProgressHistoryModal('${vol.id}')">📋</button>
+      </div>`;
+    }).join('')}
+  </div>`:''}`;
 }
 let volExpanded={};
 let volEditingFact=null;
@@ -152,6 +179,7 @@ async function saveVolFact(factId, volId){
 
 
 // ── Helpers for worker search in +Факт modals ──────────────────────────────
+// Список исполнителей с галочками (вместо Ctrl+клик мультиселекта)
 function _buildWorkerSelectHtml(selectedIds){
   const workers=pgkWorkers&&pgkWorkers.length?pgkWorkers:(currentObj?.workers||[]);
   const selSet=new Set((selectedIds||'').split(',').filter(Boolean));
@@ -160,18 +188,35 @@ function _buildWorkerSelectHtml(selectedIds){
       style="width:100%;box-sizing:border-box;font-size:11px;padding:4px 8px;border:1px solid var(--bd);border-radius:4px;background:var(--s2);color:var(--tx)"
       oninput="filterVolWorkers()">
   </div>
-  <select id="f-vpworkers" multiple style="width:100%;height:90px;font-size:11px">
-    ${workers.map(w=>`<option value="${w.id}"${selSet.has(String(w.id))?' selected':''}>${esc(w.name)}${w.role?' — '+esc(w.role):''}</option>`).join('')}
-  </select>
-  <div style="font-size:9px;color:var(--tx3);margin-top:2px">Ctrl+клик для выбора нескольких</div>`;
+  <div id="f-vpworkers" style="max-height:130px;overflow-y:auto;border:1px solid var(--bd);border-radius:4px;background:var(--s2)">
+    ${workers.map(w=>{
+      const label=esc(w.name)+(w.role?' — '+esc(w.role):'');
+      return`<label class="vpw-row" data-text="${escAttr((w.name+' '+(w.role||'')).toLowerCase())}"
+        style="display:flex;align-items:center;gap:7px;padding:4px 8px;font-size:11px;cursor:pointer;border-bottom:1px solid var(--bd)"
+        onmouseover="this.style.background='var(--s3)'" onmouseout="this.style.background=''">
+        <input type="checkbox" class="vpw-cb" value="${escAttr(String(w.id))}" data-name="${escAttr(w.name)}"
+          ${selSet.has(String(w.id))?'checked':''} onchange="_vpwUpdateCount()" style="flex-shrink:0">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}</span>
+      </label>`;
+    }).join('')||'<div style="padding:8px;font-size:11px;color:var(--tx3)">Нет сотрудников</div>'}
+  </div>
+  <div id="f-vpwcount" style="font-size:9px;color:var(--tx3);margin-top:2px">${selSet.size?'Выбрано: '+selSet.size:'Отметьте исполнителей галочками'}</div>`;
 }
 function filterVolWorkers(){
   const q=(document.getElementById('f-vpwsearch')?.value||'').toLowerCase();
-  const sel=document.getElementById('f-vpworkers');
-  if(!sel)return;
-  [...sel.options].forEach(o=>{
-    o.style.display=(!q||o.text.toLowerCase().includes(q))?'':'none';
+  document.querySelectorAll('#f-vpworkers .vpw-row').forEach(row=>{
+    row.style.display=(!q||(row.dataset.text||'').includes(q))?'':'none';
   });
+}
+function _vpwUpdateCount(){
+  const n=document.querySelectorAll('#f-vpworkers .vpw-cb:checked').length;
+  const el=document.getElementById('f-vpwcount');
+  if(el)el.textContent=n?'Выбрано: '+n:'Отметьте исполнителей галочками';
+}
+// Возвращает выбранных исполнителей {ids:'1,2', names:'Иванов, Петров'}
+function _vpwSelected(){
+  const cbs=[...document.querySelectorAll('#f-vpworkers .vpw-cb:checked')];
+  return{ids:cbs.map(c=>c.value).join(','),names:cbs.map(c=>c.dataset.name).join(', ')};
 }
 
 // Add fact progress to a volume
@@ -197,9 +242,9 @@ function openAddVolProgressModal(volId){
   </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
     const work_date=v('f-vpd');const completed=parseFloat(v('f-vpc'))||0;
     if(!work_date){toast('Укажите дату','err');return;}
-    const _selWorkers=[...document.getElementById('f-vpworkers').selectedOptions];
-    const _workerIds=_selWorkers.map(o=>o.value).join(',');
-    const _workerNames=_selWorkers.map(o=>o.text).join(', ');
+    const _sel=_vpwSelected();
+    const _workerIds=_sel.ids;
+    const _workerNames=_sel.names;
     const _machEl=document.getElementById('f-vpmach');
     const _machId=_machEl&&_machEl.value?_machEl.value:null;
     const _machName=_machId&&_machEl?_machEl.options[_machEl.selectedIndex].text:'';
@@ -252,9 +297,9 @@ function openEditVolFactModal(factId, volId){
     const work_date=document.getElementById('f-efd')?.value;
     const completed=parseFloat(document.getElementById('f-efc')?.value)||0;
     if(!work_date){toast('Укажите дату','err');return;}
-    const _selWorkers=[...document.getElementById('f-vpworkers').selectedOptions];
-    const _workerIds=_selWorkers.map(o=>o.value).join(',');
-    const _workerNames=_selWorkers.map(o=>o.text).join(', ');
+    const _sel=_vpwSelected();
+    const _workerIds=_sel.ids;
+    const _workerNames=_sel.names;
     const _machEl=document.getElementById('f-efmach');
     const _machId=_machEl&&_machEl.value?_machEl.value:null;
     const _machName=_machId&&_machEl?_machEl.options[_machEl.selectedIndex].text:'';
@@ -275,6 +320,67 @@ function openEditVolFactModal(factId, volId){
     await autoRecalcPct();
     toast('Факт обновлён','ok');
   }}]);
+}
+
+// ── ВЫПОЛНЕНИЕ ЗА ДЕНЬ ───────────────────────────────────────
+// Кнопка в мини-карточке: дата + список невыполненных объёмов,
+// напротив каждого вводится выполненное за день → +факт каждому.
+function openDailyProgressModal(){
+  if(!currentObj||currentType!=='site'){toast('Откройте объект','err');return;}
+  const vols=currentObj.volumes||[];
+  const prog=currentObj.vol_progress||[];
+  const pending=vols.filter(v=>{
+    const done=prog.filter(p=>p.volume_id===v.id).reduce((a,p)=>a+(+p.completed||0),0);
+    return !(v.amount>0&&done>=v.amount); // ещё не выполнен на 100%
+  });
+  if(!pending.length){toast('Все объёмы выполнены на 100% 🎉','ok');return;}
+  const today=new Date().toISOString().split('T')[0];
+  const rows=pending.map(v=>{
+    const done=prog.filter(p=>p.volume_id===v.id).reduce((a,p)=>a+(+p.completed||0),0);
+    const remain=v.amount>0?Math.max(0,v.amount-done):null;
+    const sec=VOL_SECTIONS[v.category]||{icon:'•'};
+    return`<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--bd)">
+      <div style="width:9px;height:9px;border-radius:50%;background:${v.color||'#1a56db'};flex-shrink:0"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sec.icon} ${esc(v.name)}</div>
+        <div style="font-size:9px;color:var(--tx3)">${done}/${v.amount} ${esc(v.unit)}${remain!==null?' · осталось '+(+remain.toFixed(3))+' '+esc(v.unit):''}</div>
+      </div>
+      <input type="number" step="any" min="0" class="dp-inp" data-vol="${escAttr(v.id)}" placeholder="0"
+        style="width:80px;font-size:12px;padding:5px 7px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);color:var(--tx);text-align:right">
+      <span style="font-size:10px;color:var(--tx3);min-width:32px">${esc(v.unit)}</span>
+    </div>`;
+  }).join('');
+  showModal('📆 Выполнение за день — '+esc(currentObj.name),`
+    <div class="fg" style="margin-bottom:8px"><label>Дата *</label><input id="dp-date" type="date" value="${today}" style="max-width:170px"></div>
+    <div style="font-size:10px;color:var(--tx2);margin-bottom:6px">
+      Невыполненных объёмов: <b>${pending.length}</b>. Впишите выполненное за день — пустые строки будут пропущены.
+    </div>
+    <div style="max-height:330px;overflow-y:auto;border:1.5px solid var(--bd);border-radius:var(--rs)">${rows}</div>`,
+    [{label:'Отмена',cls:'bs',fn:closeModal},
+     {label:'💾 Добавить факты',cls:'bp',fn:async()=>{
+       const work_date=document.getElementById('dp-date')?.value;
+       if(!work_date){toast('Укажите дату','err');return;}
+       const entries=[...document.querySelectorAll('.dp-inp')]
+         .map(inp=>({volId:inp.dataset.vol,completed:parseFloat(inp.value)||0}))
+         .filter(e=>e.completed>0);
+       if(!entries.length){toast('Впишите хотя бы одно значение','err');return;}
+       closeModal();
+       toast('⏳ Добавляю факты…','ok');
+       let ok=0,fail=0;
+       for(const e of entries){
+         try{
+           const r=await fetch(`${API}/volumes/${e.volId}/progress`,{method:'POST',headers:{'Content-Type':'application/json'},
+             body:JSON.stringify({site_id:currentObj.id,work_date,completed:e.completed,notes:'',user_name:un()})});
+           if(r.ok)ok++;else fail++;
+         }catch(err){fail++;}
+       }
+       const updated=await fetch(`${API}/sites/${currentObj.id}`).then(r=>r.json());
+       currentObj=updated;
+       renderVpLayers(updated.vol_progress||[]);
+       if(typeof renderTab==='function'&&currentTab==='volumes')renderTab();
+       await autoRecalcPct();
+       toast(fail?`✅ Добавлено: ${ok} · ❌ Ошибок: ${fail}`:`✅ Добавлено фактов: ${ok}`,fail?'err':'ok');
+     }}]);
 }
 
 function openVolProgressHistoryModal(volId){
