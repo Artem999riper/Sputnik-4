@@ -1373,12 +1373,15 @@ function kmlCancelPlacement() {
 // ══════════════════════════════════════════════════════════════
 // renderLayerGroups — KML всегда ПОД объёмами (pane kmlPane)
 // ══════════════════════════════════════════════════════════════
+// Кэш отрисованных слоёв: id → {str: geojson на момент постройки, sig: стилевая
+// подпись, rec: объект слоя, захваченный замыканиями меню}. Слой пересобирается
+// только если изменились данные или стиль — иначе группа остаётся на карте как есть.
+let _kmlRenderCache = {};
+function _kmlLayerSig(l) {
+  return [l.color, l.line_dash, l.symbol, l.size, l.show_labels ? 1 : 0,
+    l.fill_opacity, l.min_zoom, l.max_zoom, layerLabels[l.id] ? 1 : 0].join('|');
+}
 function renderLayerGroupsWithSymbols() {
-  // Удаляем старые глобальные KML-слои
-  Object.keys(lGroups).forEach(k => {
-    if (!k.startsWith('s_')) { try { map.removeLayer(lGroups[k]); } catch(e) {} delete lGroups[k]; }
-  });
-
   // kmlPane ниже overlayPane (400) — KML визуально под объёмами
   if (!map.getPane('kmlPane')) {
     map.createPane('kmlPane');
@@ -1390,6 +1393,7 @@ function renderLayerGroupsWithSymbols() {
   if (map.getPane('overlayPane'))  map.getPane('overlayPane').style.zIndex  = 400;
   if (map.getPane('volPointsPane'))map.getPane('volPointsPane').style.zIndex = 640;
 
+  const keep = new Set();
   layers.filter(l => l.visible && !l.site_id).forEach(l => {
     // If the layer's group is bound to a specific site, only show when that site is active
     if (l.group_id) {
@@ -1399,6 +1403,16 @@ function renderLayerGroupsWithSymbols() {
         if (siteIds.length && (!currentObj || !siteIds.includes(currentObj.id))) return;
       }
     }
+    // Не изменился (данные + стиль) и уже на карте → не пересоздаём
+    const sig = _kmlLayerSig(l);
+    const cached = _kmlRenderCache[l.id];
+    if (cached && lGroups[l.id] && cached.str === l.geojson && cached.sig === sig) {
+      keep.add(l.id);
+      // замыкания контекстных меню держат старый объект слоя — синхронизируем поля
+      if (cached.rec !== l) { Object.assign(cached.rec, l); }
+      return;
+    }
+    if (lGroups[l.id]) { try { map.removeLayer(lGroups[l.id]); } catch(e) {} delete lGroups[l.id]; }
     try {
       const gjRaw    = JSON.parse(l.geojson);
       // Скрытые объекты слоя не рендерим
@@ -1461,6 +1475,8 @@ function renderLayerGroupsWithSymbols() {
       }).addTo(map);
 
       lGroups[l.id] = g;
+      _kmlRenderCache[l.id] = { str: l.geojson, sig, rec: l };
+      keep.add(l.id);
       // Скрыть если текущий зум вне диапазона масштаба
       const minZ = l.min_zoom != null ? l.min_zoom : 0;
       const maxZ = l.max_zoom != null ? l.max_zoom : 20;
@@ -1469,6 +1485,16 @@ function renderLayerGroupsWithSymbols() {
         if (z < minZ || z > maxZ) map.removeLayer(g);
       }
     } catch(e) { console.warn('KML render error', l.name, e); }
+  });
+
+  // Убираем слои, которых больше нет / скрытые / выпавшие из группы объекта
+  Object.keys(lGroups).forEach(k => {
+    if (k.startsWith('s_')) return;
+    if (!keep.has(k)) {
+      try { map.removeLayer(lGroups[k]); } catch(e) {}
+      delete lGroups[k];
+      delete _kmlRenderCache[k];
+    }
   });
 
   // Объёмы всегда поверх KML

@@ -10,12 +10,22 @@ module.exports = (app, getDb, L) => {
   app.get('/api/bases', wrap((req, res) => {
     const d = db();
     const bases = all(d, 'SELECT * FROM bases ORDER BY name');
+    // По одному запросу на таблицу вместо 4 запросов на каждую базу (N+1)
+    const groupByBase = (table) => {
+      const m = {};
+      all(d, `SELECT * FROM ${table} WHERE base_id IS NOT NULL`).forEach(r => {
+        (m[r.base_id] = m[r.base_id] || []).push(r);
+      });
+      return m;
+    };
+    const w = groupByBase('pgk_workers'), mch = groupByBase('pgk_machinery'),
+          eq = groupByBase('pgk_equipment'), mat = groupByBase('materials');
     res.json(bases.map(b => ({
       ...b,
-      workers:   all(d, 'SELECT * FROM pgk_workers WHERE base_id=?', [b.id]),
-      machinery: all(d, 'SELECT * FROM pgk_machinery WHERE base_id=?', [b.id]),
-      equipment: all(d, 'SELECT * FROM pgk_equipment WHERE base_id=?', [b.id]),
-      materials: all(d, 'SELECT * FROM materials WHERE base_id=?', [b.id]),
+      workers:   w[b.id]   || [],
+      machinery: mch[b.id] || [],
+      equipment: eq[b.id]  || [],
+      materials: mat[b.id] || [],
     })));
   }));
 

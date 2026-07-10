@@ -423,13 +423,69 @@ function handleSseChange(ev){
       }catch(e){}
     },500);
   }
-  // Базовые сущности — общий дебаунсированный loadAll
-  if(url.match(/\/(sites|bases|layers|pgk|materials|volumes|vol_progress|kameral|remarks|machinery|workers|equipment)/)){
-    _sseResyncAll();
+  // Точечная синхронизация по типу сущности — вместо полной перезагрузки (loadAll)
+  if(url.indexOf('/layers')>=0){
+    _sseResyncKind('layers',_sseSyncLayers);
+  } else if(url.indexOf('/machinery')>=0){
+    _sseResyncKind('machinery',_sseSyncMachinery);
+  } else if(url.match(/\/(bases|materials|workers|equipment|pgk)/)){
+    _sseResyncKind('bases',_sseSyncBases);
+  } else if(url.match(/\/(sites|volumes|vol_progress|kameral|remarks|progress)/)){
+    _sseResyncKind('sites',_sseSyncSites);
   }
 }
 let _sseMtoTimer=null;
 let _sseAllTimer=null;
+
+// ── Точечные синхронизаторы (дебаунс на каждый тип отдельно) ──
+let _sseKindTimers={};
+function _sseResyncKind(kind,fn){
+  if(_sseKindTimers[kind])clearTimeout(_sseKindTimers[kind]);
+  _sseKindTimers[kind]=setTimeout(async function(){try{await fn();}catch(e){}},700);
+}
+// KML-слои: перекачиваем только их; рендер инкрементальный (пересобираются
+// только изменённые слои — см. _kmlRenderCache)
+async function _sseSyncLayers(){
+  const r=await fetch(`${API}/layers`);if(!r.ok)return;
+  layers=await r.json();
+  layers.forEach(function(l){layerLabels[l.id]=!!l.show_labels;});
+  try{renderLayerGroups();}catch(e){}
+  try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
+  try{renderLP();}catch(e){}
+}
+// Техника: только её список + маркеры техники
+async function _sseSyncMachinery(){
+  const r=await fetch(`${API}/pgk/machinery`);if(!r.ok)return;
+  pgkMachinery=await r.json();
+  try{
+    if(typeof activeSiteId!=='undefined'&&activeSiteId&&currentType==='site'&&currentObj)renderMachineMarkers(currentObj.bases||[]);
+    else if(currentType==='base'&&currentObj)renderMachineMarkers([currentObj]);
+    else renderAllMachinery();
+  }catch(e){}
+  try{
+    if(document.getElementById('machinery-page')?.classList.contains('show')&&typeof renderPGK==='function')renderPGK();
+  }catch(e){}
+}
+// Базы и их наполнение (сотрудники/оборудование/материалы): один запрос /api/bases
+async function _sseSyncBases(){
+  const r=await fetch(`${API}/bases`);if(!r.ok)return;
+  bases=await r.json();
+  try{renderBaseMarkers();}catch(e){}
+  try{renderSidebar();updateStats();}catch(e){}
+  try{
+    const open=['workers-page','equipment-page','materials-page'].some(id=>document.getElementById(id)?.classList.contains('show'));
+    if(open&&typeof loadPGK==='function')loadPGK();
+  }catch(e){}
+}
+// Объекты/объёмы/факты: список объектов для сайдбара; если открыт объект —
+// освежаем его целиком (URL факта не содержит id объекта, поэтому проверка
+// по currentObj.id в начале handleSseChange его не ловит)
+async function _sseSyncSites(){
+  const r=await fetch(`${API}/sites`);if(!r.ok)return;
+  sites=await r.json();
+  try{renderSidebar();updateStats();}catch(e){}
+  try{if(currentType==='site'&&currentObj&&typeof refreshCurrent==='function')refreshCurrent();}catch(e){}
+}
 // Дебаунсированная полная пересинхронизация: подтягивает свежие данные с сервера.
 // Вызывается как из SSE-событий, так и при (пере)подключении SSE и возврате вкладки —
 // чтобы догнать изменения, пропущенные пока клиент был отключён (SSE не воспроизводит

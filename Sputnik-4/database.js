@@ -263,6 +263,35 @@ async function getDb() {
   ta("ALTER TABLE field_samples ADD COLUMN depth_bottom_m REAL");
   ta("ALTER TABLE volumes ADD COLUMN visible INTEGER DEFAULT 1");
 
+  // ── Индексы на FK-колонки (горячие выборки) ────────────────
+  ta("CREATE INDEX IF NOT EXISTS idx_workers_base       ON pgk_workers(base_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_machinery_base     ON pgk_machinery(base_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_equipment_base     ON pgk_equipment(base_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_materials_base     ON materials(base_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_volumes_site       ON volumes(site_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_volprog_site       ON vol_progress(site_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_volprog_volume     ON vol_progress(volume_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_progress_site      ON progress_items(site_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_sitetasks_site     ON site_tasks(site_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_kamrep_site        ON kameral_reports(site_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_kamrem_report      ON kameral_remarks(report_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_actlog_site        ON activity_log(site_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_sitebases_base     ON site_bases(base_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_photos_entity      ON photos(entity_type, entity_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_matlog_material    ON materials_log(material_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_shifts_worker      ON worker_shifts(worker_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_moves_machine      ON machine_moves(machine_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_kml_site           ON kml_layers(site_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_fuel_base          ON fuel_reserves(base_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_fueltx_base        ON fuel_transactions(base_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_spare_group        ON spare_parts(group_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_fb_site            ON field_boreholes(site_id)");
+  ta("CREATE INDEX IF NOT EXISTS idx_fsoil_borehole     ON field_soil_layers(borehole_uuid)");
+  ta("CREATE INDEX IF NOT EXISTS idx_fsamples_borehole  ON field_samples(borehole_uuid)");
+  ta("CREATE INDEX IF NOT EXISTS idx_fugv_borehole      ON field_ugv(borehole_uuid)");
+  ta("CREATE INDEX IF NOT EXISTS idx_fmmg_borehole      ON field_mmg(borehole_uuid)");
+  ta("CREATE INDEX IF NOT EXISTS idx_fphotos_borehole   ON field_photos(borehole_uuid)");
+
   return _db;
 }
 
