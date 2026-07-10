@@ -116,9 +116,12 @@ module.exports = (app, getDb, L) => {
     const change = parseFloat(new_amount) - prev;
     const logId = uuid();
     const today = act_date || new Date().toISOString().split('T')[0];
-    run(d, 'INSERT INTO materials_log(id,material_id,base_id,prev_amount,new_amount,change_amount,act_date,notes,user_name)VALUES(?,?,?,?,?,?,?,?,?)',
-      [logId, req.params.id, mat.base_id, prev, new_amount, change, today, notes || '', user_name || 'Система']);
-    run(d, 'UPDATE materials SET amount=?,last_act_date=? WHERE id=?', [new_amount, today, req.params.id]);
+    // Лог + обновление остатка — атомарно: либо оба, либо ничего
+    d.transaction(() => {
+      run(d, 'INSERT INTO materials_log(id,material_id,base_id,prev_amount,new_amount,change_amount,act_date,notes,user_name)VALUES(?,?,?,?,?,?,?,?,?)',
+        [logId, req.params.id, mat.base_id, prev, new_amount, change, today, notes || '', user_name || 'Система']);
+      run(d, 'UPDATE materials SET amount=?,last_act_date=? WHERE id=?', [new_amount, today, req.params.id]);
+    })();
     res.json({ ok: true, change });
   }));
 
@@ -133,16 +136,20 @@ module.exports = (app, getDb, L) => {
       groups[key].push(m);
     });
     let merged = 0;
-    Object.values(groups).forEach(grp => {
-      if (grp.length < 2) return;
-      const keep = grp[0];
-      const totalAmount = grp.reduce((a, m) => a + (parseFloat(m.amount) || 0), 0);
-      const maxMin = Math.max(...grp.map(m => parseFloat(m.min_amount) || 0));
-      const notes = [...new Set(grp.map(m => m.notes).filter(Boolean))].join('; ');
-      run(d, 'UPDATE materials SET amount=?,min_amount=?,notes=? WHERE id=?', [totalAmount, maxMin, notes, keep.id]);
-      grp.slice(1).forEach(m => run(d, 'DELETE FROM materials WHERE id=?', [m.id]));
-      merged += grp.length - 1;
-    });
+    // Слияние атомарно: падение посередине не оставит просуммированный остаток
+    // вместе с неудалёнными дубликатами
+    d.transaction(() => {
+      Object.values(groups).forEach(grp => {
+        if (grp.length < 2) return;
+        const keep = grp[0];
+        const totalAmount = grp.reduce((a, m) => a + (parseFloat(m.amount) || 0), 0);
+        const maxMin = Math.max(...grp.map(m => parseFloat(m.min_amount) || 0));
+        const notes = [...new Set(grp.map(m => m.notes).filter(Boolean))].join('; ');
+        run(d, 'UPDATE materials SET amount=?,min_amount=?,notes=? WHERE id=?', [totalAmount, maxMin, notes, keep.id]);
+        grp.slice(1).forEach(m => run(d, 'DELETE FROM materials WHERE id=?', [m.id]));
+        merged += grp.length - 1;
+      });
+    })();
     res.json({ ok: true, merged });
   }));
 };

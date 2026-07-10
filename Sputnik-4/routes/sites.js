@@ -71,20 +71,24 @@ module.exports = (app, getDb, L) => {
 
   app.delete('/api/sites/:id', wrap((req, res) => {
     const d = db();
-    // remarks → удаляем без сохранения (зависят от уже удалённых reports)
-    all(d, 'SELECT id FROM kameral_reports WHERE site_id=?', [req.params.id])
-      .forEach(r => run(d, 'DELETE FROM kameral_remarks WHERE report_id=?', [r.id]));
-    run(d, 'DELETE FROM activity_log WHERE site_id=?', [req.params.id]);
-    const _restore = trashAndDelete(d, 'sites', req.params.id, {
-      children: [
-        { table: 'site_bases',      fkColumn: 'site_id' },
-        { table: 'progress_items',  fkColumn: 'site_id' },
-        { table: 'volumes',         fkColumn: 'site_id' },
-        { table: 'site_tasks',      fkColumn: 'site_id' },
-        { table: 'kameral_reports', fkColumn: 'site_id' },
-        { table: 'vol_progress',    fkColumn: 'site_id' },
-      ],
-    });
+    // Всё удаление объекта — одной транзакцией: падение посередине
+    // не оставит объект без замечаний/журнала, но с объёмами
+    const _restore = d.transaction(() => {
+      // remarks → удаляем без сохранения (зависят от уже удалённых reports)
+      all(d, 'SELECT id FROM kameral_reports WHERE site_id=?', [req.params.id])
+        .forEach(r => run(d, 'DELETE FROM kameral_remarks WHERE report_id=?', [r.id]));
+      run(d, 'DELETE FROM activity_log WHERE site_id=?', [req.params.id]);
+      return trashAndDelete(d, 'sites', req.params.id, {
+        children: [
+          { table: 'site_bases',      fkColumn: 'site_id' },
+          { table: 'progress_items',  fkColumn: 'site_id' },
+          { table: 'volumes',         fkColumn: 'site_id' },
+          { table: 'site_tasks',      fkColumn: 'site_id' },
+          { table: 'kameral_reports', fkColumn: 'site_id' },
+          { table: 'vol_progress',    fkColumn: 'site_id' },
+        ],
+      });
+    })();
     if (!_restore) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true, _restore });
   }));
@@ -92,10 +96,13 @@ module.exports = (app, getDb, L) => {
   app.put('/api/sites/:id/bases', wrap((req, res) => {
     const { base_ids, user_name } = req.body;
     const d = db();
-    run(d, 'DELETE FROM site_bases WHERE site_id=?', [req.params.id]);
-    (base_ids || []).forEach(bid => {
-      try { run(d, 'INSERT INTO site_bases(site_id,base_id)VALUES(?,?)', [req.params.id, bid]); } catch (e) {}
-    });
+    // DELETE + INSERT атомарно: падение посередине не оставит объект без баз
+    d.transaction(() => {
+      run(d, 'DELETE FROM site_bases WHERE site_id=?', [req.params.id]);
+      (base_ids || []).forEach(bid => {
+        try { run(d, 'INSERT INTO site_bases(site_id,base_id)VALUES(?,?)', [req.params.id, bid]); } catch (e) {}
+      });
+    })();
     L(req.params.id, null, 'Назначены базы', `${(base_ids || []).length} баз`, user_name);
     res.json({ success: true });
   }));

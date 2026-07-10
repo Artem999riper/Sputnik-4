@@ -401,11 +401,16 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json(files);
   }));
 
-  app.post('/api/backups/create', wrap((req, res) => {
+  app.post('/api/backups/create', wrap(async (req, res) => {
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const fname = `backup_${ts}.db`;
-    const size = doBackup(path.join(BACKUP_DIR, fname));
-    res.json({ ok: true, name: fname, size });
+    try {
+      const size = await doBackup(path.join(BACKUP_DIR, fname));
+      res.json({ ok: true, name: fname, size });
+    } catch (e) {
+      console.error('[backup] create failed:', e.message);
+      res.status(500).json({ error: 'Бэкап не создан: ' + e.message });
+    }
   }));
 
   // ── BACKUP SETTINGS ────────────────────────────────────────
@@ -426,10 +431,11 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json({ ok: true, ...getBackupSettings() });
   }));
 
-  app.post('/api/backups/run-auto', wrap((req, res) => {
+  app.post('/api/backups/run-auto', wrap(async (req, res) => {
     if (!performAutoBackup) return res.status(501).json({ error: 'Не доступно' });
-    performAutoBackup();
-    res.json({ ok: true });
+    const r = await performAutoBackup();
+    if (r && r.ok === false) return res.status(500).json({ error: 'Автобэкап не создан: ' + r.error });
+    res.json({ ok: true, ...(r || {}) });
   }));
 
   app.post('/api/backups/restore/:name', wrap((req, res) => {

@@ -57,17 +57,11 @@ if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR);
 const BACKUP_DEFAULTS = { interval_hours: 2, max_count: 10 };
 let autoBackupTimer = null;
 
-function doBackup(destPath) {
-  const DB_PATH  = path.join(__dirname, 'survey.db');
-  const WAL_PATH = DB_PATH + '-wal';
-  const SHM_PATH = DB_PATH + '-shm';
-  try { run(db, 'PRAGMA wal_checkpoint(TRUNCATE)'); } catch(e) {}
-  fs.copyFileSync(DB_PATH, destPath);
-  const walSize = fs.existsSync(WAL_PATH) ? fs.statSync(WAL_PATH).size : 0;
-  if (walSize > 32) {
-    try { fs.copyFileSync(WAL_PATH, destPath + '-wal'); } catch(e) {}
-    try { fs.copyFileSync(SHM_PATH, destPath + '-shm'); } catch(e) {}
-  }
+// Штатный онлайн-бэкап better-sqlite3: атомарный, включает данные из WAL,
+// не блокирует запись и не зависит от wal_checkpoint. Ошибки НЕ глотаются —
+// пробрасываются вызывающему, чтобы сломанный бэкап не выглядел здоровым.
+async function doBackup(destPath) {
+  await db.backup(destPath);
   return fs.statSync(destPath).size;
 }
 
@@ -102,24 +96,32 @@ function rotateAutoBackups(maxCount) {
     .sort((a, b) => a.mtime - b.mtime);
   while (autoFiles.length > maxCount) {
     const old = autoFiles.shift().f;
-    try { fs.unlinkSync(path.join(BACKUP_DIR, old)); } catch(e) {}
-    try { fs.unlinkSync(path.join(BACKUP_DIR, old + '-wal')); } catch(e) {}
-    try { fs.unlinkSync(path.join(BACKUP_DIR, old + '-shm')); } catch(e) {}
+    try { fs.unlinkSync(path.join(BACKUP_DIR, old)); }
+    catch(e) { console.warn(`  ⚠️  Не удалось удалить старый бэкап ${old}:`, e.message); }
+    // -wal/-shm — от бэкапов старого формата (копирование файла)
+    try { if (fs.existsSync(path.join(BACKUP_DIR, old + '-wal'))) fs.unlinkSync(path.join(BACKUP_DIR, old + '-wal')); } catch(e) {}
+    try { if (fs.existsSync(path.join(BACKUP_DIR, old + '-shm'))) fs.unlinkSync(path.join(BACKUP_DIR, old + '-shm')); } catch(e) {}
   }
 }
 
-function performAutoBackup() {
+// Возвращает { ok, name, size } либо { ok:false, error } — ошибка видна вызывающему
+async function performAutoBackup() {
+  const DB_PATH = path.join(__dirname, 'survey.db');
+  if (!fs.existsSync(DB_PATH)) return { ok: false, error: 'survey.db не найден' };
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const fname = `backup_auto_${ts}.db`;
+  const dest  = path.join(BACKUP_DIR, fname);
   try {
-    const DB_PATH = path.join(__dirname, 'survey.db');
-    if (!fs.existsSync(DB_PATH)) return;
-    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const fname = `backup_auto_${ts}.db`;
-    const dest  = path.join(BACKUP_DIR, fname);
-    const size  = doBackup(dest);
+    const size = await doBackup(dest);
     const { max_count } = getBackupSettings();
     rotateAutoBackups(max_count);
     console.log(`  📦  Автобэкап: ${fname} (${(size / 1024).toFixed(0)} КБ, max=${max_count})`);
-  } catch (e) { console.warn('Auto-backup failed:', e.message); }
+    return { ok: true, name: fname, size };
+  } catch (e) {
+    console.error('  ❌  Автобэкап НЕ создан:', e.message);
+    try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch(_) {} // не оставлять битый файл
+    return { ok: false, error: e.message };
+  }
 }
 
 function scheduleAutoBackup() {
