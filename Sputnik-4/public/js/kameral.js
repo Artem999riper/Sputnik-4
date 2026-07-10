@@ -148,16 +148,20 @@ function rulerUndoLast(){
   _rulerDraw();
   if(!rulerPts.length) toast('📏 Все точки удалены','ok');
 }
+let rulerDots=[];
 function _rulerClear(){
   if(rulerLayer){try{map.removeLayer(rulerLayer);}catch(x){}}
   rulerLabels.forEach(function(l){try{map.removeLayer(l);}catch(x){}});
-  rulerLayer=null; rulerLabels=[];
+  rulerDots.forEach(function(d){try{map.removeLayer(d);}catch(x){}});
+  rulerLayer=null; rulerLabels=[]; rulerDots=[];
 }
-function _rulerDraw(){
-  _rulerClear();
-  if(rulerPts.length<1)return;
+// Линия и подписи расстояний (вершины не трогает — их можно тащить)
+function _rulerDrawLines(){
+  if(rulerLayer){try{map.removeLayer(rulerLayer);}catch(x){}rulerLayer=null;}
+  rulerLabels.forEach(function(l){try{map.removeLayer(l);}catch(x){}});
+  rulerLabels=[];
   if(rulerPts.length>=2){
-    rulerLayer=L.polyline(rulerPts,{color:'#e11d48',weight:2.5,dashArray:'6 4',opacity:.9}).addTo(map);
+    rulerLayer=L.polyline(rulerPts,{color:'#e11d48',weight:2.5,dashArray:'6 4',opacity:.9,interactive:false}).addTo(map);
   }
   let total=0;
   rulerPts.forEach(function(pt,i){
@@ -166,26 +170,40 @@ function _rulerDraw(){
       total+=seg;
       const mid=L.latLng((rulerPts[i-1].lat+pt.lat)/2,(rulerPts[i-1].lng+pt.lng)/2);
       const txt=_fmtDist(seg);
-      const lbl=L.marker(mid,{icon:L.divIcon({
+      const lbl=L.marker(mid,{interactive:false,icon:L.divIcon({
         className:'',
         html:'<div style="background:rgba(225,29,72,.9);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3);transform:translate(-50%,-50%)">'+txt+'</div>',
         iconSize:[0,0],iconAnchor:[0,0]
       })}).addTo(map);
       rulerLabels.push(lbl);
     }
-    const dot=L.circleMarker(pt,{radius:5,fillColor:'#e11d48',color:'#fff',weight:2,fillOpacity:1}).addTo(map);
-    rulerLabels.push(dot);
   });
   if(rulerPts.length>=2){
     const last=rulerPts[rulerPts.length-1];
     const txt='Итого: '+_fmtDist(total);
-    const tot=L.marker(last,{icon:L.divIcon({
+    const tot=L.marker(last,{interactive:false,icon:L.divIcon({
       className:'',
       html:'<div style="background:#1a56db;color:#fff;font-size:11px;font-weight:800;padding:4px 10px;border-radius:12px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.3);transform:translate(-50%,-130%)">'+txt+'</div>',
       iconSize:[0,0],iconAnchor:[0,0]
     })}).addTo(map);
     rulerLabels.push(tot);
   }
+}
+function _rulerDraw(){
+  _rulerClear();
+  if(rulerPts.length<1)return;
+  _rulerDrawLines();
+  // Вершины — перетаскиваемые маркеры: тянешь точку, расстояния пересчитываются
+  rulerPts.forEach(function(pt,i){
+    const mk=L.marker(pt,{draggable:true,icon:L.divIcon({
+      className:'',iconSize:[16,16],iconAnchor:[8,8],
+      html:'<div style="width:16px;height:16px;border-radius:50%;background:#e11d48;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:grab;box-sizing:border-box"></div>'
+    })});
+    mk._ri=i;
+    mk.on('drag',function(){rulerPts[this._ri]=this.getLatLng();_rulerDrawLines();});
+    mk.addTo(map);
+    rulerDots.push(mk);
+  });
 }
 function _fmtDist(m){return m>=1000?(m/1000).toFixed(2)+' км':Math.round(m)+' м';}
 function stopRuler(){
