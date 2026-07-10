@@ -525,8 +525,8 @@ async function importSiteKML(ev,siteId){
   layers.forEach(function(l){
     if(l.visible&&l.geojson){
       try{
-        L.geoJSON(JSON.parse(l.geojson),{style:{color:l.color,weight:2.5,opacity:.85,fillOpacity:l.fill_opacity!=null?l.fill_opacity:.2},
-          pointToLayer:function(f,ll){return L.circleMarker(ll,{radius:6,fillColor:l.color,color:'#fff',weight:2,fillOpacity:.9});}
+        L.geoJSON(JSON.parse(l.geojson),{style:function(f){return {color:(f&&f.properties&&f.properties._color)||l.color,weight:2.5,opacity:.85,fillOpacity:l.fill_opacity!=null?l.fill_opacity:.2};},
+          pointToLayer:function(f,ll){return L.circleMarker(ll,{radius:6,fillColor:(f&&f.properties&&f.properties._color)||l.color,color:'#fff',weight:2,fillOpacity:.9});}
         }).addTo(map);
       }catch(e){}
     }
@@ -587,8 +587,8 @@ function toggleSiteLayerBtn(btn){
       if(lGroups['s_'+lid]){try{map.removeLayer(lGroups['s_'+lid]);}catch(e){}}
       try{
         lGroups['s_'+lid]=L.geoJSON(JSON.parse(cached.geojson),{
-          style:{color:cached.color||'#1a56db',weight:2.5,opacity:.85,fillOpacity:cached.fill_opacity!=null?cached.fill_opacity:.2},
-          pointToLayer:function(f,ll){return L.circleMarker(ll,{radius:6,fillColor:cached.color||'#1a56db',color:'#fff',weight:2,fillOpacity:.9});}
+          style:function(f){return {color:(f&&f.properties&&f.properties._color)||cached.color||'#1a56db',weight:2.5,opacity:.85,fillOpacity:cached.fill_opacity!=null?cached.fill_opacity:.2};},
+          pointToLayer:function(f,ll){return L.circleMarker(ll,{radius:6,fillColor:(f&&f.properties&&f.properties._color)||cached.color||'#1a56db',color:'#fff',weight:2,fillOpacity:.9});}
         }).addTo(map);
       }catch(e){}
     }

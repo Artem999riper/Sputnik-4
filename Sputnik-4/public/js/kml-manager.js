@@ -633,6 +633,113 @@ function kmlOpenStyleModal(id) {
 function kmlSelectSym(el){document.querySelectorAll('.kml-sym-btn').forEach(b=>b.classList.remove('on'));el.classList.add('on');}
 function kmlUpdateSymPreviews(color){Object.keys(KML_SYMBOLS).forEach(k=>{const el=document.getElementById('kml-sym-prev-'+k);if(el)el.innerHTML=kmlSvgIcon(k,color,22);});}
 
+// ── «Выполнить объекты» — перекраска KML в выделенной области ──
+// ПКМ по карте → Выполнить объекты → два клика (углы прямоугольника):
+// все объекты KML в области красятся в зелёный (properties._color, с сохранением).
+const KML_DONE_COLOR='#16a34a';
+let _kcStart=null,_kcTmp=null,_kcReset=false;
+function startKmlCompleteMode(reset){
+  _kcReset=!!reset;
+  _kcStart=null;
+  if(_kcTmp){try{map.removeLayer(_kcTmp);}catch(e){}_kcTmp=null;}
+  map.getContainer().style.cursor='crosshair';
+  const bnr=document.getElementById('bnr');
+  bnr.className='show draw';
+  document.getElementById('bnr-t').textContent=(_kcReset?'↩ Сброс выполнения':'✅ Выполнено')+': первый угол области (ПКМ — отмена)';
+  map.once('click',_kcFirst);
+  map.once('contextmenu',_kcCancel);
+}
+function _kcFirst(e){
+  _kcStart=e.latlng;
+  document.getElementById('bnr-t').textContent=(_kcReset?'↩ Сброс выполнения':'✅ Выполнено')+': второй угол области';
+  map.on('mousemove',_kcMove);
+  map.once('click',_kcSecond);
+  map.off('contextmenu',_kcCancel);
+  map.once('contextmenu',_kcCancel);
+}
+function _kcMove(e){
+  if(!_kcStart)return;
+  const b=L.latLngBounds(_kcStart,e.latlng);
+  if(_kcTmp)_kcTmp.setBounds(b);
+  else _kcTmp=L.rectangle(b,{color:KML_DONE_COLOR,weight:2,dashArray:'6 4',fillColor:KML_DONE_COLOR,fillOpacity:.1}).addTo(map);
+}
+function _kcEndUi(){
+  map.off('mousemove',_kcMove);
+  if(_kcTmp){try{map.removeLayer(_kcTmp);}catch(e){}_kcTmp=null;}
+  map.getContainer().style.cursor='';
+  document.getElementById('bnr').className='';
+}
+function _kcCancel(){
+  map.off('click',_kcFirst);map.off('click',_kcSecond);map.off('contextmenu',_kcCancel);
+  _kcEndUi();
+  toast('Отменено','ok');
+}
+function _kcSecond(e){
+  map.off('contextmenu',_kcCancel);
+  const bounds=L.latLngBounds(_kcStart,e.latlng);
+  _kcEndUi();
+  _kcApply(bounds);
+}
+// Есть ли у геометрии вершина внутри области (для Point — сама точка)
+function _kcGeomInBounds(geom,bounds){
+  if(!geom)return false;
+  if(geom.type==='GeometryCollection')
+    return (geom.geometries||[]).some(g=>_kcGeomInBounds(g,bounds));
+  const c=geom.coordinates;
+  if(!c)return false;
+  const walk=arr=>{
+    if(typeof arr[0]==='number')return bounds.contains(L.latLng(arr[1],arr[0]));
+    return arr.some(walk);
+  };
+  try{return walk(c);}catch(e){return false;}
+}
+async function _kcApply(bounds){
+  let changed=0;const savePromises=[];
+  // все KML-слои, отображённые сейчас на карте (глобальные и слои объекта)
+  for(const [gid,g] of Object.entries(lGroups||{})){
+    if(!g||!map.hasLayer(g))continue;
+    const isSite=String(gid).startsWith('s_');
+    const lid=isSite?String(gid).slice(2):gid;
+    const rec=isSite?(siteLayerCache[lid]||null):(layers||[]).find(x=>x.id===lid);
+    if(!rec||!rec.geojson)continue;
+    let gj;try{gj=JSON.parse(rec.geojson);}catch(e){continue;}
+    const features=gj.type==='FeatureCollection'?(gj.features||[]):[gj];
+    let hit=0;
+    features.forEach(f=>{
+      if(!f||!_kcGeomInBounds(f.geometry,bounds))return;
+      if(!f.properties)f.properties={};
+      if(_kcReset){
+        if(f.properties._color===undefined)return;
+        delete f.properties._color;
+      } else {
+        if(f.properties._color===KML_DONE_COLOR)return;
+        f.properties._color=KML_DONE_COLOR;
+      }
+      hit++;
+    });
+    if(!hit)continue;
+    changed+=hit;
+    savePromises.push(_kmlSaveGeojson(rec,gj).then(()=>{
+      // перерисовать слой объекта на месте (глобальные перерисуются одним разом ниже)
+      if(isSite&&lGroups[gid]){
+        try{map.removeLayer(lGroups[gid]);}catch(e){}
+        try{
+          lGroups[gid]=L.geoJSON(gj,{
+            style:f=>({color:(f&&f.properties&&f.properties._color)||rec.color||'#1a56db',weight:2.5,opacity:.85,
+              fillOpacity:rec.fill_opacity!=null?rec.fill_opacity:.2}),
+            pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:6,
+              fillColor:(f&&f.properties&&f.properties._color)||rec.color||'#1a56db',color:'#fff',weight:2,fillOpacity:.9})
+          }).addTo(map);
+        }catch(e){}
+      }
+    }).catch(()=>{toast('Ошибка сохранения слоя','err');}));
+  }
+  if(!changed){toast('В области нет объектов KML','err');return;}
+  await Promise.all(savePromises);
+  renderLayerGroups();
+  toast((_kcReset?'↩ Сброшено':'✅ Выполнено')+': '+changed+' объект(ов)','ok');
+}
+
 // ── Преобразование линия ↔ полигон ──────────────────────────
 // Сохраняет geojson слоя на сервере (все поля стиля передаём, чтобы ничего не сбросить)
 async function _kmlSaveGeojson(l, gj){
