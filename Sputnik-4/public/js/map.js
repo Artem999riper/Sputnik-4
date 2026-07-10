@@ -72,8 +72,7 @@ function onMapRClick(e){
   const hasRuler=rulerPts.length>=2;
   showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
     {i:'🔎',l:'Найти на карте',f:openMapSearch},
-    {i:'✅',l:'Выполнить объекты (область)',f:()=>startKmlCompleteMode(false)},
-    {i:'↩️',l:'Сбросить выполнение (область)',f:()=>startKmlCompleteMode(true)},
+    {i:'⬚',l:'Выделить объекты (область)',f:startKmlSelectMode},
     {sep:true},
     {i:'📌',l:'Поставить метку',f:()=>openPlaceMarkerModal(e.latlng)},
     {i:'🔢',l:'Метка по координатам',f:()=>openCoordMarkerModal(e.latlng)},
