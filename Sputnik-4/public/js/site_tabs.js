@@ -398,7 +398,7 @@ function openVolProgressHistoryModal(volId){
     [{label:'Закрыть',cls:'bs',fn:closeModal}]);
 }
 async function deleteVolProgress(id,volId){
-  if(!confirm('Удалить запись?'))return;
+  if(!await confirmDlg('Удалить запись?'))return;
   await apiDelUndo(`/vol_progress/${id}`,'Запись удалена',async()=>{
     await refreshCurrent();currentTab='volumes';renderTab();
   });

@@ -24,6 +24,62 @@ const fmt=d=>{if(!d||d==='')return'—';try{const p=d.split('-');return`${p[2]}.
 const fmtDT=dt=>{if(!dt)return'';try{const d=new Date(dt.includes('Z')?dt:dt+'Z');return d.toLocaleString('ru',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}catch{return dt;}};
 
 // ═══════════════════════════════════════════════════════════
+// ГЛОБАЛЬНАЯ ОБЁРТКА FETCH: индикатор загрузки + тосты об ошибках
+// Все запросы к /api/ проходят через неё без правки мест вызова:
+//  • пока идут запросы — тонкая полоса активности сверху (с задержкой 300мс);
+//  • не-GET с ответом !ok — тост с кодом и текстом ошибки сервера;
+//  • сетевая ошибка — тост «нет связи» (не чаще раза в 5 сек).
+// ═══════════════════════════════════════════════════════════
+(function(){
+  const orig=window.fetch.bind(window);
+  let busy=0,showTimer=null,lastNetToast=0;
+  function bar(){
+    let el=document.getElementById('net-busy');
+    if(!el){
+      el=document.createElement('div');
+      el.id='net-busy';
+      el.style.cssText='position:fixed;top:0;left:0;right:0;height:2.5px;z-index:12000;display:none;overflow:hidden;pointer-events:none';
+      el.innerHTML='<div style="width:38%;height:100%;background:linear-gradient(90deg,#2563eb,#60a5fa);border-radius:2px;animation:netBusySlide 1.1s ease-in-out infinite"></div>';
+      const st=document.createElement('style');
+      st.textContent='@keyframes netBusySlide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}';
+      document.head.appendChild(st);
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  function upd(){
+    if(busy>0){
+      if(!showTimer)showTimer=setTimeout(()=>{if(busy>0)bar().style.display='block';},300);
+    } else {
+      if(showTimer){clearTimeout(showTimer);showTimer=null;}
+      const el=document.getElementById('net-busy');if(el)el.style.display='none';
+    }
+  }
+  window.fetch=async function(url,opts){
+    const isApi=typeof url==='string'&&url.indexOf('/api/')>=0;
+    const method=((opts&&opts.method)||'GET').toUpperCase();
+    if(isApi){busy++;upd();}
+    try{
+      const r=await orig(url,opts);
+      if(isApi&&!r.ok&&method!=='GET'){
+        let msg='';
+        try{const j=await r.clone().json();msg=j&&j.error?String(j.error):'';}catch(e){}
+        try{toast('⚠️ Ошибка сервера ('+r.status+')'+(msg?': '+msg:''),'err');}catch(e){}
+      }
+      return r;
+    }catch(e){
+      if(isApi&&Date.now()-lastNetToast>5000){
+        lastNetToast=Date.now();
+        try{toast('⚠️ Нет связи с сервером','err');}catch(_){}
+      }
+      throw e;
+    }finally{
+      if(isApi){busy--;upd();}
+    }
+  };
+})();
+
+// ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
 let map, sites=[], bases=[], layers=[];

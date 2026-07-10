@@ -104,7 +104,7 @@ async function kamEditReport(id,siteId){
   }}]);
 }
 async function kamDelReport(id,siteId){
-  if(!confirm('Удалить специалиста и все его замечания?'))return;
+  if(!await confirmDlg('Удалить специалиста и все его замечания?'))return;
   await apiDelUndo(`/kameral/${id}`,'Камеральщик удалён',()=>renderKam(siteId));
 }
 async function kamAddRemark(reportId,siteId){

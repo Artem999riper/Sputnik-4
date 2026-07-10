@@ -212,7 +212,7 @@ async function saveBrigade(id) {
 }
 
 async function deleteBrigade(id) {
-  if (!confirm('Удалить бригаду?')) return;
+  if (!await confirmDlg('Удалить бригаду?')) return;
   await apiDelUndo(`/pgk/brigades/${id}`, 'Бригада удалена', loadBrigades);
 }
 

@@ -401,9 +401,9 @@ function kmlRenameGroup(gid) {
     [{label:'Отмена',cls:'bs',fn:closeModal},
      {label:'Сохранить',cls:'bp',fn:()=>{g.name=v('f-grn').trim()||g.name;saveKmGroups();closeModal();renderKmlPanel();}}]);
 }
-function kmlDeleteGroup(gid) {
+async function kmlDeleteGroup(gid) {
   const cnt = layers.filter(l=>l.group_id===gid).length;
-  if (!confirm(`Удалить группу?${cnt?' Слои ('+cnt+' шт.) останутся без группы.':''}`)) return;
+  if (!await confirmDlg(`Удалить группу?${cnt?' Слои ('+cnt+' шт.) останутся без группы.':''}`)) return;
   layers.filter(l=>l.group_id===gid).forEach(l=>{l.group_id='';});
   delete kmGroups[gid];
   kmGroupOrder = kmGroupOrder.filter(x=>x!==gid);
@@ -493,7 +493,7 @@ async function kmlMoveToGroup(lid, gid) {
 
 // ── Удалить слой ────────────────────────────────────────────
 async function kmlDeleteLayer(id) {
-  if(!confirm('Удалить слой?'))return;
+  if(!await confirmDlg('Удалить слой?'))return;
   if(lGroups[id])map.removeLayer(lGroups[id]);
   layers=layers.filter(l=>l.id!==id);renderKmlPanel();
   await apiDelUndo(`/layers/${id}`,'Слой удалён',async()=>{
@@ -863,9 +863,9 @@ function _ksRenameModal(){
        });
      }}]);
 }
-function _ksDelete(){
+async function _ksDelete(){
   const s=_ksSel;if(!s)return;
-  if(!confirm('Удалить '+s.total+' объект(ов) из слоёв KML? Действие необратимо.'))
+  if(!await confirmDlg('Удалить '+s.total+' объект(ов) из слоёв KML? Действие необратимо.'))
     {_ksCleanup();return;}
   const saves=[];
   s.entries.forEach(en=>{
@@ -1212,7 +1212,7 @@ async function kmlToggleFeatureVis(layerId, fIdx) {
 // ── Удалить отдельный feature ───────────────────────────────
 async function kmlDeleteFeature(layerId, fIdx, mode) {
   const inline = mode === 'inline';
-  if (!confirm('Удалить этот объект из слоя?')) return;
+  if (!await confirmDlg('Удалить этот объект из слоя?')) return;
   const l = layers.find(x => x.id === layerId);
   if (!l) return;
   let gj;

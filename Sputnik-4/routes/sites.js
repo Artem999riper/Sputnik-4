@@ -86,6 +86,8 @@ module.exports = (app, getDb, L) => {
           { table: 'site_tasks',      fkColumn: 'site_id' },
           { table: 'kameral_reports', fkColumn: 'site_id' },
           { table: 'vol_progress',    fkColumn: 'site_id' },
+          { table: 'kml_layers',      fkColumn: 'site_id' },
+          { table: 'photos',          fkColumn: 'entity_id' },
         ],
       });
     })();

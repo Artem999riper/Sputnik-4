@@ -287,7 +287,7 @@ async function gtConfirm(taskId, workerName, checked){
   const me = un();
   const isOther = workerName !== me;
   if(isOther && checked){
-    if(!confirm(`⚠️ ВЫ ТОЧНО ХОТИТЕ ПОДТВЕРДИТЬ ЗА ДРУГОГО ЧЕЛОВЕКА?\n\nВы собираетесь отметить выполнение задачи за сотрудника «${workerName}».\nЭто действие будет зафиксировано.`)){
+    if(!await confirmDlg(`⚠️ ВЫ ТОЧНО ХОТИТЕ ПОДТВЕРДИТЬ ЗА ДРУГОГО ЧЕЛОВЕКА?\n\nВы собираетесь отметить выполнение задачи за сотрудника «${workerName}».\nЭто действие будет зафиксировано.`)){
       renderGTasks();
       return;
     }
@@ -312,7 +312,7 @@ async function gtConfirm(taskId, workerName, checked){
 
 async function gtCloseTask(id){
   const t=gtasks.find(x=>x.id===id);if(!t)return;
-  if(!confirm(`Завершить задачу «${t.title}»?\n\nВсе ответственные подтвердили выполнение.`))return;
+  if(!await confirmDlg(`Завершить задачу «${t.title}»?\n\nВсе ответственные подтвердили выполнение.`))return;
   try{
     const r=await fetch(`${API}/gtasks/${id}/close`,{method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -328,7 +328,7 @@ async function gtCloseTask(id){
 
 async function gtDeleteTask(id){
   const t=gtasks.find(x=>x.id===id);if(!t)return;
-  if(!confirm(`Удалить задачу «${t.title}»?`))return;
+  if(!await confirmDlg(`Удалить задачу «${t.title}»?`))return;
   await apiDelUndo(`/gtasks/${id}`,`Задача «${t.title}» удалена`,loadGTasks);
 }
 

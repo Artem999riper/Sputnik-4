@@ -33,7 +33,14 @@ module.exports = (app, getDb, L) => {
   }));
 
   app.delete('/api/pgk/workers/:id', wrap((req, res) => {
-    const _restore = trashAndDelete(db(), 'pgk_workers', req.params.id);
+    const d = db();
+    // Каскад: вахты и фото сотрудника удаляются вместе с ним (и восстанавливаются undo)
+    const _restore = d.transaction(() => trashAndDelete(d, 'pgk_workers', req.params.id, {
+      children: [
+        { table: 'worker_shifts', fkColumn: 'worker_id' },
+        { table: 'photos',        fkColumn: 'entity_id' },
+      ],
+    }))();
     if (!_restore) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true, _restore });
   }));
@@ -145,7 +152,17 @@ module.exports = (app, getDb, L) => {
   }));
 
   app.delete('/api/pgk/machinery/:id', wrap((req, res) => {
-    const _restore = trashAndDelete(db(), 'pgk_machinery', req.params.id);
+    const d = db();
+    const _restore = d.transaction(() => {
+      // отвязываем сотрудников от удаляемой машины
+      run(d, 'UPDATE pgk_workers SET machine_id=NULL WHERE machine_id=?', [req.params.id]);
+      return trashAndDelete(d, 'pgk_machinery', req.params.id, {
+        children: [
+          { table: 'machine_moves', fkColumn: 'machine_id' },
+          { table: 'photos',        fkColumn: 'entity_id' },
+        ],
+      });
+    })();
     if (!_restore) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true, _restore });
   }));
@@ -216,7 +233,13 @@ module.exports = (app, getDb, L) => {
   }));
 
   app.delete('/api/pgk/equipment/:id', wrap((req, res) => {
-    const _restore = trashAndDelete(db(), 'pgk_equipment', req.params.id);
+    const d = db();
+    const _restore = d.transaction(() => trashAndDelete(d, 'pgk_equipment', req.params.id, {
+      children: [
+        { table: 'equipment_responsible_history', fkColumn: 'equipment_id' },
+        { table: 'photos',                        fkColumn: 'entity_id' },
+      ],
+    }))();
     if (!_restore) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true, _restore });
   }));

@@ -20,6 +20,36 @@ function showCtx(x,y,items){
   m.style.top=Math.min(y,window.innerHeight-items.length*34-8)+'px';
   m.classList.add('show');
 }
+// ── Стилизованное подтверждение вместо нативного confirm() ──
+// Отдельный оверлей ПОВЕРХ модалок (не заменяет открытую модалку).
+// Возвращает Promise<boolean>. Enter — да, Esc/клик мимо — отмена.
+function confirmDlg(msg,opts){
+  opts=opts||{};
+  return new Promise(resolve=>{
+    document.querySelectorAll('.cfm-ovl').forEach(e=>e.remove());
+    const ovl=document.createElement('div');
+    ovl.className='cfm-ovl';
+    ovl.style.cssText='position:fixed;inset:0;z-index:11000;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center';
+    ovl.innerHTML='<div style="background:var(--s);border:1.5px solid var(--bd);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.3);max-width:440px;width:calc(100% - 40px);padding:16px 18px">'
+      +'<div style="font-size:13px;font-weight:800;margin-bottom:8px;color:var(--tx)">'+esc(opts.title||'Подтверждение')+'</div>'
+      +'<div style="font-size:12.5px;line-height:1.6;color:var(--tx2);white-space:pre-line;margin-bottom:14px">'+esc(String(msg||''))+'</div>'
+      +'<div style="display:flex;gap:8px;justify-content:flex-end">'
+      +'<button class="btn bs" data-r="0">'+esc(opts.cancelLabel||'Отмена')+'</button>'
+      +'<button class="btn '+(opts.danger===false?'bp':'bd')+'" data-r="1">'+esc(opts.okLabel||'Да')+'</button>'
+      +'</div></div>';
+    const onKey=e=>{
+      if(e.key==='Escape'){e.stopPropagation();done(false);}
+      else if(e.key==='Enter'){e.stopPropagation();done(true);}
+    };
+    const done=v=>{try{ovl.remove();}catch(e){}document.removeEventListener('keydown',onKey,true);resolve(v);};
+    ovl.addEventListener('mousedown',e=>{if(e.target===ovl)done(false);});
+    ovl.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>done(b.dataset.r==='1')));
+    document.addEventListener('keydown',onKey,true);
+    document.body.appendChild(ovl);
+    setTimeout(()=>{const b=ovl.querySelector('[data-r=\"1\"]');if(b)b.focus();},50);
+  });
+}
+
 function hideCtx(){
   // Гвард: меню, открытое программно сразу после клика по пункту другого меню,
   // не должно закрываться «хвостом» того же клика

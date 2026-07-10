@@ -210,7 +210,7 @@ async function quickSt(mach,baseId,status){
   if(currentObj)await refreshCurrent();else await loadAll();
 }
 async function removeMachFromMap(mach,baseId){
-  if(!confirm('Убрать с карты?'))return;
+  if(!await confirmDlg('Убрать с карты?'))return;
   await fetch(`${API}/pgk/machinery/${mach.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({...mach,lat:null,lng:null,base_id:baseId||null,user_name:un()})});
   toast('Убрана с карты','ok');

@@ -1104,7 +1104,7 @@ async function smgFillMonth(volId,mode){
 }
 
 async function smgClearMonth(volId){
-  if(!confirm('Удалить все записи ФАКТ за этот месяц?'))return;
+  if(!await confirmDlg('Удалить все записи ФАКТ за этот месяц?'))return;
   if(!smgSiteData)return;
   const days=smgDaysInMonth();
   const prog=smgSiteData.vol_progress||[];
@@ -1575,7 +1575,7 @@ function buildAlerts(){
     if(soon.length)alerts.push({type:'warn',icon:'⏰',text:esc(s.name)+': '+soon.length+' задач скоро',fn:()=>selectSite(s.id)});
   });
   const broken=pgkMachinery.filter(m=>m.status==='broken');
-  if(broken.length)alerts.push({type:'danger',icon:'🔴',text:'Сломана техника: '+broken.map(m=>m.name).join(', '),fn:()=>switchView('pgk')});
+  if(broken.length)alerts.push({type:'danger',icon:'🔴',text:'Сломана техника: '+broken.map(m=>esc(m.name)).join(', '),fn:()=>switchView('pgk')});
   const longField=[];
   bases.forEach(b=>(b.workers||[]).forEach(w=>{
     if(w.start_date){const d=Math.floor((Date.now()-new Date(w.start_date))/86400000);if(d>=30)longField.push(w.name+' ('+d+' дн.)');}
@@ -1993,7 +1993,7 @@ async function createBackup(){
   closeModal();openBackupModal();
 }
 async function restoreBackup(name){
-  if(!confirm('Восстановить из резервной копии "'+name+'"?\nТекущие данные будут сохранены в отдельный бэкап.'))return;
+  if(!await confirmDlg('Восстановить из резервной копии "'+name+'"?\nТекущие данные будут сохранены в отдельный бэкап.'))return;
   const r=await fetch(`${API}/backups/restore/`+encodeURIComponent(name),{method:'POST'}).then(r=>r.json()).catch(()=>({error:'Ошибка'}));
   if(r.ok)toast(r.message,'ok');
   else toast('Ошибка: '+(r.error||''),'err');
@@ -2030,7 +2030,7 @@ async function uploadPhotos(ev, refType, refId, container){
   renderPhotos(refType,refId,container);toast('Фото добавлены','ok');
 }
 async function deletePhoto(id,refType,refId,container){
-  if(!confirm('Удалить фото?'))return;
+  if(!await confirmDlg('Удалить фото?'))return;
   await fetch(`${API}/photos/${id}`,{method:'DELETE'});
   renderPhotos(refType,refId,container);
 }

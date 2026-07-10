@@ -243,7 +243,7 @@ function clearFieldBhSelection(volId) {
 async function deleteSelectedFieldBhs(volId) {
   const sel = [...(fieldSelectedBhs[volId] || new Set())];
   if (!sel.length) return;
-  if (!confirm(`Удалить ${sel.length} скважин(у) со всеми данными?`)) return;
+  if (!await confirmDlg(`Удалить ${sel.length} скважин(у) со всеми данными?`)) return;
   let deleted = 0;
   for (const uuid of sel) {
     try {
@@ -438,7 +438,7 @@ function renderFieldImports() {
 }
 
 async function deleteFieldImport(id) {
-  if (!confirm('Удалить запись об этом импорте?')) return;
+  if (!await confirmDlg('Удалить запись об этом импорте?')) return;
   try {
     const r = await fetch(`${API}/field/imports/${id}`, { method: 'DELETE' });
     if (!r.ok) { toast('Ошибка удаления', 'err'); return; }
@@ -449,7 +449,7 @@ async function deleteFieldImport(id) {
 }
 
 async function deleteAllFieldImports() {
-  if (!confirm(`Удалить все ${fieldImports.length} записей об импортах?`)) return;
+  if (!await confirmDlg(`Удалить все ${fieldImports.length} записей об импортах?`)) return;
   try {
     const r = await fetch(`${API}/field/imports`, { method: 'DELETE' });
     if (!r.ok) { toast('Ошибка удаления', 'err'); return; }
@@ -621,7 +621,7 @@ async function fbhUploadPhotos(bhUuid) {
 }
 
 async function fbhDelete(uuid) {
-  if (!confirm('Удалить скважину со всеми слоями, пробами, УГВ, ММГ, фото и связанным фактом объёма?')) return;
+  if (!await confirmDlg('Удалить скважину со всеми слоями, пробами, УГВ, ММГ, фото и связанным фактом объёма?')) return;
   try {
     const r = await fetch(`${API}/field/boreholes/${uuid}`, {
       method: 'DELETE',

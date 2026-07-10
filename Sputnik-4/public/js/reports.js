@@ -593,7 +593,7 @@ async function importSiteKML(ev,siteId){
 }
 function deleteSiteLayerBtn(btn){deleteSiteLayer(btn.dataset.lid,btn.dataset.sid);}
 async function deleteSiteLayer(layerId,siteId){
-  if(!confirm('Удалить слой?'))return;
+  if(!await confirmDlg('Удалить слой?'))return;
   await fetch(`${API}/layers/${layerId}`,{method:'DELETE'});
   closeModal();openSiteKMLPanel(siteId);
 }

@@ -1047,7 +1047,7 @@ function formatDate(factId,prefix){
   return p?fmt(p.work_date):'';
 }
 async function clearVpGeom(factId, volId){
-  if(!confirm('Удалить контур этой записи?'))return;
+  if(!await confirmDlg('Удалить контур этой записи?'))return;
   await fetch(API+'/vol_progress/'+factId,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({geojson:null})});
   if(vpLayers[factId]){try{map.removeLayer(vpLayers[factId]);}catch(e){}delete vpLayers[factId];}
@@ -1074,8 +1074,8 @@ function toggleVolVis(volId){
   if(currentObj)renderVpLayers(currentObj.vol_progress||[]);
   renderTab();
 }
-function clearVolGeom(volId){
-  if(!confirm('Удалить нарисованный контур?'))return;
+async function clearVolGeom(volId){
+  if(!await confirmDlg('Удалить нарисованный контур?'))return;
   const vol=(currentObj&&currentObj.volumes||[]).find(function(x){return x.id===volId;});
   if(!vol){toast('Объём не найден','err');return;}
   fetch(API+'/volumes/'+volId,{method:'PUT',headers:{'Content-Type':'application/json'},

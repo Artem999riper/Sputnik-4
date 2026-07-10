@@ -63,12 +63,24 @@ module.exports = (app, getDb, L) => {
 
   app.delete('/api/bases/:id', wrap((req, res) => {
     const d = db();
-    ['pgk_workers', 'pgk_machinery', 'pgk_equipment', 'materials'].forEach(t =>
+    const _restore = d.transaction(() => {
+    // Люди/техника/оборудование остаются «без базы»
+    ['pgk_workers', 'pgk_machinery', 'pgk_equipment'].forEach(t =>
       run(d, `UPDATE ${t} SET base_id=NULL WHERE base_id=?`, [req.params.id])
     );
-    const _restore = trashAndDelete(d, 'bases', req.params.id, {
-      children: [{ table: 'site_bases', fkColumn: 'base_id' }],
+    // materials.base_id объявлен NOT NULL — отвязать нельзя, удаляем каскадом
+    // (children сохраняются в _restore и восстанавливаются через undo)
+    return trashAndDelete(d, 'bases', req.params.id, {
+      children: [
+        { table: 'site_bases',        fkColumn: 'base_id' },
+        { table: 'materials',         fkColumn: 'base_id' },
+        { table: 'materials_log',     fkColumn: 'base_id' },
+        { table: 'fuel_reserves',     fkColumn: 'base_id' },
+        { table: 'fuel_transactions', fkColumn: 'base_id' },
+        { table: 'photos',            fkColumn: 'entity_id' },
+      ],
     });
+    })();
     if (!_restore) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true, _restore });
   }));
@@ -94,7 +106,11 @@ module.exports = (app, getDb, L) => {
   }));
 
   app.delete('/api/materials/:id', wrap((req, res) => {
-    const _restore = trashAndDelete(db(), 'materials', req.params.id);
+    const d = db();
+    // Каскад: журнал актуализаций удаляется вместе с материалом
+    const _restore = d.transaction(() => trashAndDelete(d, 'materials', req.params.id, {
+      children: [{ table: 'materials_log', fkColumn: 'material_id' }],
+    }))();
     if (!_restore) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true, _restore });
   }));

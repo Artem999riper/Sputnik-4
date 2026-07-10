@@ -839,7 +839,7 @@ async function demToggleTileCoverage() {
 }
 
 async function demClearTileCache() {
-  if (!confirm('Удалить все кэшированные тайлы рельефа? Следующий профиль высот будет использовать Terrarium до нового экспорта.')) return;
+  if (!await confirmDlg('Удалить все кэшированные тайлы рельефа? Следующий профиль высот будет использовать Terrarium до нового экспорта.')) return;
   // Убрать слои с карты
   _demTileLayers.forEach(l => { try { map.removeLayer(l); } catch(_) {} });
   _demTileLayers = [];

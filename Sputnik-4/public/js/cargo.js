@@ -432,7 +432,7 @@ async function gruzConfirm(orderId, workerName, checked){
   const me = un();
   const isOther = workerName !== me;
   if(isOther && checked){
-    if(!confirm(`Вы собираетесь подтвердить заявку за сотрудника «${workerName}».\n\nВы уверены, что хотите подтвердить за другого сотрудника?`)){
+    if(!await confirmDlg(`Вы собираетесь подтвердить заявку за сотрудника «${workerName}».\n\nВы уверены, что хотите подтвердить за другого сотрудника?`)){
       // Revert checkbox visually
       renderGruz();
       return;
@@ -610,7 +610,7 @@ function gruzExportExcel(id){
 
 async function gruzDeleteOrder(id){
   const o=gruzOrders.find(x=>x.id===id);if(!o)return;
-  if(!confirm(`Удалить заявку №${o.num}?`))return;
+  if(!await confirmDlg(`Удалить заявку №${o.num}?`))return;
   await apiDelUndo(`/cargo/${id}`,`Заявка №${o.num} удалена`,loadGruz);
 }
 // ═══════════════════════════════════════════════════════════

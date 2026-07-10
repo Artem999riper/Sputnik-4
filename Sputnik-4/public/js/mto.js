@@ -172,7 +172,7 @@ function mtoEditItem(id){
     }}]);
 }
 async function mtoDelItem(id){
-  if(!confirm('Удалить позицию?'))return;
+  if(!await confirmDlg('Удалить позицию?'))return;
   await fetch(`${API}/mto/${id}`,{method:'DELETE'});
   await loadMTO();toast('Удалено','ok');
 }

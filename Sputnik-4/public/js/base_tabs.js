@@ -103,7 +103,7 @@ async function saveEquip(id){
   else  await fetch(`${API}/pgk/equipment`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   closeModal();await refreshCurrent();toast(id?'Обновлено':'Добавлено','ok');
 }
-async function delEquip(id){if(!confirm('Удалить?'))return;await apiDelUndo(`/pgk/equipment/${id}`,'Оборудование удалено',refreshCurrent);}
+async function delEquip(id){if(!await confirmDlg('Удалить?'))return;await apiDelUndo(`/pgk/equipment/${id}`,'Оборудование удалено',refreshCurrent);}
 
 function tabMaterials(pb){
   const mm=currentObj.materials||[];
