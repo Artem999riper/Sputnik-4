@@ -50,6 +50,7 @@ function onMapClick(e){
 function onMapRClick(e){
   e.originalEvent.preventDefault();
   if(typeof _epActive!=='undefined'&&_epActive){_epFinish(e);return;}
+  if(typeof _kdActive!=='undefined'&&_kdActive){_kdRClick(e);return;}
   if(vertexEditLayerId){_handleVertexEditRCM(e);return;}
   if(drawMode){
     showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
@@ -75,6 +76,8 @@ function onMapRClick(e){
     {i:'⬚',l:'Выделить объекты (область)',f:startKmlSelectMode},
     {sep:true},
     {i:'📌',l:'Поставить метку',f:()=>openPlaceMarkerModal(e.latlng)},
+    {i:'〰️',l:'Нарисовать линию',f:()=>startKmlDraw('line',e.latlng)},
+    {i:'⬛',l:'Нарисовать полигон',f:()=>startKmlDraw('polygon',e.latlng)},
     {i:'🔢',l:'Метка по координатам',f:()=>openCoordMarkerModal(e.latlng)},
     {sep:true},
     {i:'📍',l:'Отметка высоты (БСВ-77)',f:()=>showElevationAtPoint(e.latlng)},
@@ -260,6 +263,7 @@ function setTool(t){
   }
 }
 function cancelMode(){
+  if(typeof _kdActive!=='undefined'&&_kdActive){_kdCancel();return;}
   if(drawMode){cancelDraw();return;}
   moveMode=null;moveData=null;
   restoreMarkerEvents();

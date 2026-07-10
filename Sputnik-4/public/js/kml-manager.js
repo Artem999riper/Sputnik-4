@@ -1692,6 +1692,132 @@ async function _saveMarkerPoint(lat, lng, name, layerId, newLayerName, color, sy
   return true;
 }
 
+// ── Рисование линии/полигона с ПКМ (в слой KML) ─────────────
+// ПКМ → «Нарисовать линию/полигон»: точка ПКМ — первая вершина,
+// далее клики добавляют точки, ПКМ — меню (завершить/отменить).
+let _kdActive=null,_kdPts=[],_kdTmp=null;
+function startKmlDraw(type, firstLatLng){
+  _kdCancelSilent();
+  _kdActive=type;
+  _kdPts=firstLatLng?[firstLatLng]:[];
+  map.getContainer().style.cursor='crosshair';
+  const bnr=document.getElementById('bnr');
+  bnr.className='show draw';
+  document.getElementById('bnr-t').textContent=(type==='line'?'〰 Линия':'⬛ Полигон')+': кликайте точки · ПКМ — меню';
+  map.on('click',_kdClick);
+  _kdPreview();
+  toast('Кликайте точки · ПКМ — завершить','ok');
+}
+function _kdClick(e){
+  if(!_kdActive)return;
+  _kdPts.push(e.latlng);
+  _kdPreview();
+}
+function _kdPreview(){
+  if(_kdTmp){try{map.removeLayer(_kdTmp);}catch(e){}_kdTmp=null;}
+  if(!_kdPts.length)return;
+  if(_kdActive==='polygon'&&_kdPts.length>=3)
+    _kdTmp=L.polygon(_kdPts,{color:'#7c3aed',weight:2,dashArray:'5 4',fillColor:'#7c3aed',fillOpacity:.12}).addTo(map);
+  else
+    _kdTmp=L.polyline(_kdPts,{color:'#7c3aed',weight:2.5,dashArray:'5 4'}).addTo(map);
+}
+function _kdRClick(e){
+  e.originalEvent.preventDefault();
+  const need=_kdActive==='line'?2:3;
+  showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
+    {i:'✅',l:'Завершить ('+_kdPts.length+' тчк)',f:_kdFinish},
+    {i:'↩️',l:'Удалить последнюю точку',f:_kdUndo},
+    {sep:true},
+    {i:'❌',l:'Отменить рисование',cls:'dan',f:_kdCancel},
+  ]);
+}
+function _kdUndo(){
+  if(!_kdPts.length){toast('Нет точек','err');return;}
+  _kdPts.pop();_kdPreview();
+}
+function _kdCancelSilent(){
+  map.off('click',_kdClick);
+  _kdActive=null;_kdPts=[];
+  if(_kdTmp){try{map.removeLayer(_kdTmp);}catch(e){}_kdTmp=null;}
+  map.getContainer().style.cursor='';
+  const bnr=document.getElementById('bnr');if(bnr)bnr.className='';
+}
+function _kdCancel(){_kdCancelSilent();toast('Рисование отменено','ok');}
+function _kdFinish(){
+  const type=_kdActive,pts=_kdPts.slice();
+  const need=type==='line'?2:3;
+  if(pts.length<need){toast('Нужно минимум '+need+' точек','err');return;}
+  _kdCancelSilent();
+  const title=type==='line'?'〰 Линия':'⬛ Полигон';
+  showModal(title+' — сохранить',`
+    <div class="fgr fone">
+      <div class="fg"><label>Название</label>
+        <input id="kd-name" type="text" placeholder="${type==='line'?'Маршрут, профиль…':'Площадка, участок…'}"
+          style="width:100%;box-sizing:border-box;font-size:13px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+      </div>
+      <div style="font-size:10px;color:var(--tx3);margin:-4px 0 6px">Точек: ${pts.length}</div>
+      <div class="fg"><label>Слой</label>${_pmLayerSelectHtml('kd')}</div>
+      <div class="fg"><label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Цвет</label>
+        <input id="kd-color" type="color" value="#e53935"
+          style="width:44px;height:32px;padding:2px;border:1.5px solid var(--bd);border-radius:var(--rs);cursor:pointer">
+      </div>
+    </div>`,
+    [{label:'Отмена',cls:'bs',fn:closeModal},
+     {label:'💾 Сохранить',cls:'bp',fn:async()=>{
+       const name=(document.getElementById('kd-name')?.value||'').trim();
+       const layerId=document.getElementById('kd-layer')?.value;
+       const newName=(document.getElementById('kd-newname')?.value||'').trim();
+       const color=document.getElementById('kd-color')?.value||'#e53935';
+       let geom;
+       const coords=pts.map(p=>[p.lng,p.lat]);
+       if(type==='polygon'){
+         const a=coords[0],b=coords[coords.length-1];
+         if(a[0]!==b[0]||a[1]!==b[1])coords.push([a[0],a[1]]); // замыкаем кольцо
+         geom={type:'Polygon',coordinates:[coords]};
+       } else {
+         geom={type:'LineString',coordinates:coords};
+       }
+       const ok=await _saveKmlShape(geom,name||(type==='line'?'Линия':'Полигон'),layerId,newName,color);
+       if(ok){closeModal();toast('✅ '+(type==='line'?'Линия добавлена':'Полигон добавлен'),'ok');}
+     }}]);
+  setTimeout(()=>{const el=document.getElementById('kd-name');if(el)el.focus();},80);
+}
+function kdLayerChange(){
+  const sel=document.getElementById('kd-layer');
+  const row=document.getElementById('kd-newname-row');
+  if(row)row.style.display=sel&&sel.value==='_new'?'':'none';
+}
+// Сохраняет произвольную геометрию в слой KML (аналог _saveMarkerPoint)
+async function _saveKmlShape(geometry,name,layerId,newLayerName,color){
+  let ll;
+  if(layerId==='_new'){
+    const gj=JSON.stringify({type:'FeatureCollection',features:[]});
+    const nm=(newLayerName||'').trim()||'Мои объекты';
+    const r=await fetch(`${API}/layers`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:nm,geojson:gj,color:color||'#e53935',symbol:'point',
+        visible:1,group_id:'',line_dash:'solid'})});
+    const j=await r.json();
+    ll={id:j.id,name:nm,geojson:gj,color:color||'#e53935',symbol:'point',
+      visible:1,group_id:'',line_dash:'solid',size:1,show_labels:0};
+    layers.unshift(ll);
+  } else {
+    ll=layers.find(x=>x.id===layerId);
+    if(!ll){toast('Слой не найден','err');return false;}
+  }
+  let gj;
+  try{gj=JSON.parse(ll.geojson);}catch(_){gj={type:'FeatureCollection',features:[]};}
+  if(!Array.isArray(gj.features))gj.features=[];
+  const props={name:(name||'').trim()};
+  if(color&&color!==ll.color)props._color=color;
+  gj.features.push({type:'Feature',geometry:geometry,properties:props});
+  await _kmlSaveGeojson(ll,gj);
+  try{renderLayerGroups();}catch(e){}
+  setTimeout(bringVolumesToFront,50);
+  try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
+  try{renderLP();}catch(e){}
+  return true;
+}
+
 // ── Метка по клику ПКМ ──────────────────────────────────────
 function openPlaceMarkerModal(latlng) {
   _pmSym = 'point';
