@@ -638,72 +638,94 @@ function kmlUpdateSymPreviews(color){Object.keys(KML_SYMBOLS).forEach(k=>{const 
 // меню действий над всеми попавшими объектами: выполнено/цвет/имя/
 // линия↔полигон/сброс/удаление. Изменения сохраняются послойно.
 const KML_DONE_COLOR='#16a34a';
-let _ksStart=null,_ksTmp=null,_ksSel=null;
+let _ksActive=false,_ksPts=[],_ksTmp=null,_ksSel=null;
+// Выделение произвольным полигоном: клики — вершины, ПКМ — меню (выделить/отмена)
 function startKmlSelectMode(){
   _ksCleanup();
+  _ksActive=true;_ksPts=[];
   map.getContainer().style.cursor='crosshair';
   const bnr=document.getElementById('bnr');
   bnr.className='show draw';
-  document.getElementById('bnr-t').textContent='⬚ Выделение: первый угол области (ПКМ — отмена)';
-  map.once('click',_ksFirst);
-  map.once('contextmenu',_ksCancel);
+  document.getElementById('bnr-t').textContent='⬚ Выделение: кликайте вершины области · ПКМ — меню';
+  map.on('click',_ksClick);
+  toast('Обведите область кликами · ПКМ — завершить','ok');
 }
-function _ksFirst(e){
-  _ksStart=e.latlng;
-  document.getElementById('bnr-t').textContent='⬚ Выделение: второй угол области';
-  map.on('mousemove',_ksMove);
-  map.once('click',_ksSecond);
-  map.off('contextmenu',_ksCancel);
-  map.once('contextmenu',_ksCancel);
+function _ksClick(e){
+  if(!_ksActive)return;
+  _ksPts.push(e.latlng);
+  _ksPreview();
 }
-function _ksMove(e){
-  if(!_ksStart)return;
-  const b=L.latLngBounds(_ksStart,e.latlng);
-  if(_ksTmp)_ksTmp.setBounds(b);
-  else _ksTmp=L.rectangle(b,{color:'#7c3aed',weight:2,dashArray:'6 4',fillColor:'#7c3aed',fillOpacity:.08}).addTo(map);
+function _ksPreview(){
+  if(_ksTmp){try{map.removeLayer(_ksTmp);}catch(e){}_ksTmp=null;}
+  if(!_ksPts.length)return;
+  if(_ksPts.length>=3)
+    _ksTmp=L.polygon(_ksPts,{color:'#7c3aed',weight:2,dashArray:'6 4',fillColor:'#7c3aed',fillOpacity:.08,interactive:false}).addTo(map);
+  else
+    _ksTmp=L.polyline(_ksPts,{color:'#7c3aed',weight:2,dashArray:'6 4',interactive:false}).addTo(map);
+}
+// ПКМ в режиме выделения (вызывается из onMapRClick)
+function _ksRClick(e){
+  const cx=e.originalEvent.clientX,cy=e.originalEvent.clientY;
+  showCtx(cx,cy,[
+    {i:'✅',l:'Выделить ('+_ksPts.length+' тчк)',f:()=>_ksFinish(cx,cy)},
+    {i:'↩️',l:'Удалить последнюю точку',f:()=>{_ksPts.pop();_ksPreview();}},
+    {sep:true},
+    {i:'❌',l:'Отменить выделение',cls:'dan',f:_ksCancel},
+  ]);
 }
 function _ksCancel(){
-  map.off('click',_ksFirst);map.off('click',_ksSecond);map.off('mousemove',_ksMove);
   _ksCleanup();
-  document.getElementById('bnr').className='';
-  map.getContainer().style.cursor='';
   toast('Выделение отменено','ok');
 }
 function _ksCleanup(){
-  _ksStart=null;_ksSel=null;
+  map.off('click',_ksClick);
+  _ksActive=false;_ksPts=[];_ksSel=null;
   if(_ksTmp){try{map.removeLayer(_ksTmp);}catch(e){}_ksTmp=null;}
-}
-function _ksSecond(e){
-  map.off('mousemove',_ksMove);
-  map.off('contextmenu',_ksCancel);
   map.getContainer().style.cursor='';
-  document.getElementById('bnr').className='';
-  const bounds=L.latLngBounds(_ksStart,e.latlng);
-  const sel=_ksCollect(bounds);
+  const bnr=document.getElementById('bnr');if(bnr)bnr.className='';
+}
+function _ksFinish(cx,cy){
+  if(_ksPts.length<3){toast('Нужно минимум 3 точки','err');return;}
+  const poly=_ksPts.map(p=>[p.lat,p.lng]);
+  // выходим из режима кликов, но полигон оставляем видимым, пока открыто меню
+  map.off('click',_ksClick);
+  _ksActive=false;
+  map.getContainer().style.cursor='';
+  const bnr=document.getElementById('bnr');if(bnr)bnr.className='';
+  const sel=_ksCollect(poly);
   if(!sel.total){
     _ksCleanup();
     toast('В области нет объектов KML','err');
     return;
   }
   _ksSel=sel;
-  // прямоугольник остаётся на карте, пока открыто меню действий
-  _ksMenu(e.originalEvent.clientX,e.originalEvent.clientY);
+  // отложенно: чтобы клик по пункту меню не закрыл новое меню
+  setTimeout(()=>_ksMenu(cx,cy),20);
 }
-// Есть ли у геометрии вершина внутри области (для Point — сама точка)
-function _ksGeomInBounds(geom,bounds){
+// Точка внутри полигона (ray casting), poly=[[lat,lng],...]
+function _ksPtInPoly(lat,lng,poly){
+  let inside=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const yi=poly[i][0],xi=poly[i][1],yj=poly[j][0],xj=poly[j][1];
+    if(((yi>lat)!==(yj>lat))&&(lng<(xj-xi)*(lat-yi)/(yj-yi)+xi))inside=!inside;
+  }
+  return inside;
+}
+// Есть ли у геометрии вершина внутри полигона выделения (для Point — сама точка)
+function _ksGeomInPoly(geom,poly){
   if(!geom)return false;
   if(geom.type==='GeometryCollection')
-    return (geom.geometries||[]).some(g=>_ksGeomInBounds(g,bounds));
+    return (geom.geometries||[]).some(g=>_ksGeomInPoly(g,poly));
   const c=geom.coordinates;
   if(!c)return false;
   const walk=arr=>{
-    if(typeof arr[0]==='number')return bounds.contains(L.latLng(arr[1],arr[0]));
+    if(typeof arr[0]==='number')return _ksPtInPoly(arr[1],arr[0],poly);
     return arr.some(walk);
   };
   try{return walk(c);}catch(e){return false;}
 }
 // Собирает выделение: по каждому видимому KML-слою — индексы попавших фигур
-function _ksCollect(bounds){
+function _ksCollect(poly){
   const entries=[];let total=0,lines=0,polys=0;
   for(const [gid,g] of Object.entries(lGroups||{})){
     if(!g||!map.hasLayer(g))continue;
@@ -718,7 +740,7 @@ function _ksCollect(bounds){
     }
     const idxs=[];
     (gj.features||[]).forEach((f,i)=>{
-      if(!f||!_ksGeomInBounds(f.geometry,bounds))return;
+      if(!f||!_ksGeomInPoly(f.geometry,poly))return;
       idxs.push(i);
       const t=f.geometry&&f.geometry.type;
       if(t==='LineString')lines++;
@@ -730,6 +752,7 @@ function _ksCollect(bounds){
 }
 function _ksMenu(cx,cy){
   const s=_ksSel;if(!s)return;
+  window._ctxKeepUntil=Date.now()+400; // не дать «хвосту» клика закрыть меню
   const items=[
     {i:'⬚',l:`<b>Выделено: ${s.total} объект(ов)</b>`,f:null,html:true},
     {sep:true},

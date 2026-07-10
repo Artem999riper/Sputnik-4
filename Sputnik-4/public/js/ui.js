@@ -20,7 +20,12 @@ function showCtx(x,y,items){
   m.style.top=Math.min(y,window.innerHeight-items.length*34-8)+'px';
   m.classList.add('show');
 }
-function hideCtx(){document.getElementById('ctx').classList.remove('show');}
+function hideCtx(){
+  // Гвард: меню, открытое программно сразу после клика по пункту другого меню,
+  // не должно закрываться «хвостом» того же клика
+  if(window._ctxKeepUntil&&Date.now()<window._ctxKeepUntil)return;
+  document.getElementById('ctx').classList.remove('show');
+}
 
 // ═══════════════════════════════════════════════════════════
 // MODAL
