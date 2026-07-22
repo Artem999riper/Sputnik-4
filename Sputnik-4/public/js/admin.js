@@ -113,33 +113,35 @@ async function _admRenderRights(){
   const fmtSeen=s=>{if(!s)return '';const d=new Date(s.replace(' ','T')+'Z');return d.toLocaleString('ru',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});};
   box.innerHTML=`
     <div style="font-size:10px;color:var(--tx3);margin-bottom:8px;line-height:1.5">
-      Снятая галочка = <b>запрет</b> действия для этого пользователя. У «Переключение слоёв для всех»
-      снятая галочка = слои переключаются только у него, не влияя на других. Пусто = полный доступ.
+      Права привязаны к <b>имени человека</b> и сохраняются после перезапуска сервера и смены браузера.
+      Снятая галочка = <b>запрет</b>. У «Переключение слоёв для всех» снятая = слои переключаются только
+      у него, не влияя на других. Пусто = полный доступ.
     </div>
     <div style="max-height:330px;overflow-y:auto">
     ${data.clients.length?data.clients.map((c,i)=>{
-      const cid=escAttr(c.client_id);
-      return `<div style="border:1.5px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:8px" data-cid="${cid}">
+      const key=escAttr(c.key);
+      return `<div style="border:1.5px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:8px" data-key="${key}">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
           ${c.online?'<span style="width:8px;height:8px;border-radius:50%;background:#22c55e"></span>':'<span style="width:8px;height:8px;border-radius:50%;background:var(--bd)"></span>'}
           <span style="font-weight:700;font-size:12px;flex:1">${esc(c.name||'(без имени)')}</span>
+          ${c.devices>1?`<span style="font-size:9px;color:var(--tx3)" title="Устройств/браузеров">💻×${c.devices}</span>`:''}
           <span style="font-size:9px;color:var(--tx3)">${c.online?'онлайн':('был '+fmtSeen(c.last_seen))}</span>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
           ${capKeys.map(k=>`<label style="display:flex;align-items:center;gap:4px;font-size:10.5px;cursor:pointer">
-            <input type="checkbox" class="adm-cap" data-cid="${cid}" data-cap="${k}" ${c.caps&&c.caps[k]===false?'':'checked'}
-              onchange="_admSaveRow('${cid}','${escAttr(c.name||'')}')"> ${esc(data.caps[k])}
+            <input type="checkbox" class="adm-cap" data-key="${key}" data-cap="${k}" ${c.caps&&c.caps[k]===false?'':'checked'}
+              onchange="_admSaveRow('${key}','${escAttr(c.name||'')}')"> ${esc(data.caps[k])}
           </label>`).join('')}
         </div>
       </div>`;
     }).join(''):'<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">Пользователи ещё не заходили</div>'}
     </div>`;
 }
-async function _admSaveRow(cid,name){
+async function _admSaveRow(key,name){
   const caps={};
-  document.querySelectorAll('.adm-cap[data-cid="'+cid+'"]').forEach(cb=>{caps[cb.dataset.cap]=cb.checked;});
+  document.querySelectorAll('.adm-cap[data-key="'+key+'"]').forEach(cb=>{caps[cb.dataset.cap]=cb.checked;});
   try{
-    const r=await fetch(`${API}/admin/acl`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id:cid,name,caps})});
+    const r=await fetch(`${API}/admin/acl`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,caps})});
     if(r.ok)toast('Права сохранены','ok');
   }catch(e){toast('Ошибка сохранения','err');}
 }

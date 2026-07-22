@@ -66,16 +66,44 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
     return a.length === b.length && crypto.timingSafeEqual(a, b);
   };
 
-  // ACL: { users: { "<clientId>": { name, caps:{cap:bool} } } }
+  // Права привязаны к ИМЕНИ человека (нормализованному) — так они переживают
+  // не только перезапуск сервера (лежат в БД), но и смену браузера/устройства.
+  // Ключ ACL = normName(имя). Сохраняется совместимость со старыми записями по clientId.
+  const normName = (name) => String(name || '').trim().toLowerCase();
+  const reqName = (req) => { let n = req.get('X-User-Name') || ''; try { n = decodeURIComponent(n); } catch (e) {} return n; };
+
+  // ACL: { users: { "<normName|clientId>": { name, caps:{cap:bool} } } }
   const readAcl = () => { try { return JSON.parse(setting('acl') || '{}') || {}; } catch (e) { return {}; } };
-  // Возвращает caps для клиента (по умолчанию всё разрешено)
-  const capsFor = (clientId) => {
+  // Права по запросу: сначала по имени, затем (legacy) по clientId. По умолчанию всё разрешено.
+  const capsForReq = (req) => {
     const acl = readAcl();
-    const u = acl.users && acl.users[clientId];
+    const users = acl.users || {};
+    const u = users[normName(reqName(req))] || users[req.get('X-Client-Id') || ''];
     const caps = {};
     for (const k of Object.keys(CAPS)) caps[k] = !(u && u.caps && u.caps[k] === false);
     return caps;
   };
+
+  // Одноразовая миграция старых правил (ключ = clientId) на ключ = имя,
+  // разрешая clientId через known_clients. Чтобы уже выставленные права
+  // отображались и редактировались в новом реестре «по людям».
+  (function migrateAclToNames() {
+    const acl = readAcl();
+    if (!acl.users) return;
+    let changed = false;
+    for (const key of Object.keys(acl.users)) {
+      const row = get(db(), 'SELECT name FROM known_clients WHERE client_id=?', [key]);
+      if (row && row.name) {
+        const nk = normName(row.name);
+        if (nk && nk !== key) {
+          acl.users[nk] = { name: row.name, caps: (acl.users[key] && acl.users[key].caps) || {} };
+          delete acl.users[key];
+          changed = true;
+        }
+      }
+    }
+    if (changed) setSetting('acl', JSON.stringify(acl));
+  })();
 
   // ── enforcement middleware ───────────────────────────────
   app.use((req, res, next) => {
@@ -86,8 +114,7 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
     const method = req.method;
     for (const rule of RULES) {
       if ((rule.m === 'ANY' || rule.m === method) && rule.re.test(req.url)) {
-        const clientId = req.get('X-Client-Id') || '';
-        const caps = capsFor(clientId);
+        const caps = capsForReq(req);
         if (caps[rule.cap] === false) {
           return res.status(403).json({ error: 'Недостаточно прав: ' + (CAPS[rule.cap] || rule.cap) });
         }
@@ -116,8 +143,7 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
 
   // ── свои права (любой клиент) ────────────────────────────
   app.get('/api/me/caps', wrap((req, res) => {
-    const clientId = req.get('X-Client-Id') || '';
-    res.json({ isAdmin: isAdmin(req), loopback: isLoopback(req), pwSet: adminPwSet(), caps: capsFor(clientId) });
+    res.json({ isAdmin: isAdmin(req), loopback: isLoopback(req), pwSet: adminPwSet(), caps: capsForReq(req) });
   }));
 
   // ── логин админа паролем ─────────────────────────────────
@@ -147,35 +173,45 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
   }));
 
   // ── реестр пользователей + их права (админ) ──────────────
+  // Группируем по ИМЕНИ: один человек = одна строка, даже если заходил
+  // с нескольких браузеров/устройств. Права хранятся по имени.
   app.get('/api/admin/clients', wrap((req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Только для админа' });
     const rows = all(db(), 'SELECT * FROM known_clients ORDER BY last_seen DESC');
     const acl = readAcl();
     const online = {};
-    (getPresence ? getPresence() : []).forEach(p => { online[p.clientId] = p; });
-    res.json({
-      caps: CAPS,
-      clients: rows.map(r => ({
-        client_id: r.client_id, name: r.name, first_seen: r.first_seen, last_seen: r.last_seen,
-        caps: (acl.users && acl.users[r.client_id] && acl.users[r.client_id].caps) || {},
-        online: !!online[r.client_id],
-      })),
+    (getPresence ? getPresence() : []).forEach(p => { if (p.name) online[normName(p.name)] = true; });
+    const byName = {};
+    rows.forEach(r => {
+      const key = normName(r.name);
+      if (!key) return; // безымянных не показываем в списке прав
+      if (!byName[key]) byName[key] = { name: r.name, key, last_seen: r.last_seen, devices: 0 };
+      byName[key].devices++;
+      if (r.last_seen > byName[key].last_seen) { byName[key].last_seen = r.last_seen; byName[key].name = r.name; }
     });
+    const clients = Object.values(byName).map(u => ({
+      key: u.key, name: u.name, last_seen: u.last_seen, devices: u.devices,
+      caps: (acl.users && acl.users[u.key] && acl.users[u.key].caps) || {},
+      online: !!online[u.key],
+    })).sort((a, b) => (b.last_seen || '').localeCompare(a.last_seen || ''));
+    res.json({ caps: CAPS, clients });
   }));
 
   // ── сохранить права (админ) ──────────────────────────────
+  // Ключ = имя человека (нормализованное). Права следуют за человеком по имени.
   app.put('/api/admin/acl', wrap((req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Только для админа' });
-    const { client_id, name, caps } = req.body || {};
-    if (!client_id) return res.status(400).json({ error: 'client_id обязателен' });
+    const { name, caps } = req.body || {};
+    const key = normName(name);
+    if (!key) return res.status(400).json({ error: 'Имя обязательно' });
     const acl = readAcl();
     if (!acl.users) acl.users = {};
     const clean = {};
     for (const k of Object.keys(CAPS)) if (caps && caps[k] === false) clean[k] = false;
-    if (Object.keys(clean).length) acl.users[client_id] = { name: name || '', caps: clean };
-    else delete acl.users[client_id]; // пусто → полный доступ (не храним запись)
+    if (Object.keys(clean).length) acl.users[key] = { name: name || '', caps: clean };
+    else delete acl.users[key]; // пусто → полный доступ (не храним запись)
     setSetting('acl', JSON.stringify(acl));
-    if (broadcast) broadcast({ type: 'acl', client_id, t: Date.now() });
+    if (broadcast) broadcast({ type: 'acl', name: key, t: Date.now() });
     res.json({ ok: true });
   }));
 
@@ -209,5 +245,5 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
     res.json(all(db(), 'SELECT * FROM activity_log ORDER BY created_at DESC LIMIT 60'));
   }));
 
-  return { isAdmin, isLoopback, capsFor };
+  return { isAdmin, isLoopback, capsForReq };
 };
