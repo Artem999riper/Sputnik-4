@@ -23,14 +23,28 @@ const RESTORABLE_TABLES = new Set([
 
 // ── SSE ────────────────────────────────────────────────────
 
-const sseClients = new Set();
+// res → { clientId, name, ip, connectedAt } — метаданные для присутствия
+const sseClients = new Map();
 
 function broadcast(event) {
   const payload = `data: ${JSON.stringify(event)}\n\n`;
-  for (const client of [...sseClients]) {
+  for (const client of [...sseClients.keys()]) {
     try { client.write(payload); }
     catch (e) { sseClients.delete(client); }
   }
+}
+
+// Сводка присутствия: по clientId (склеивает вкладки одного человека)
+function getPresence() {
+  const byCid = {};
+  for (const meta of sseClients.values()) {
+    const cid = meta.clientId || ('anon-' + meta.ip);
+    if (!byCid[cid]) byCid[cid] = { clientId: cid, name: meta.name || '', ip: meta.ip, connectedAt: meta.connectedAt, tabs: 0 };
+    byCid[cid].tabs++;
+    if (meta.connectedAt < byCid[cid].connectedAt) byCid[cid].connectedAt = meta.connectedAt;
+    if (!byCid[cid].name && meta.name) byCid[cid].name = meta.name;
+  }
+  return Object.values(byCid).sort((a, b) => a.connectedAt - b.connectedAt);
 }
 
 function attachSse(app) {
@@ -41,11 +55,19 @@ function attachSse(app) {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders && res.flushHeaders();
     res.write(`data: ${JSON.stringify({ type: 'connected', t: Date.now() })}\n\n`);
-    sseClients.add(res);
+    const ip = req.ip || (req.socket && req.socket.remoteAddress) || '';
+    let nm = (req.query.name || '').toString();
+    try { nm = decodeURIComponent(nm); } catch (e) {}
+    sseClients.set(res, {
+      clientId: (req.query.cid || '').toString().slice(0, 64),
+      name: nm.slice(0, 120),
+      ip, connectedAt: Date.now(),
+    });
+    broadcast({ type: 'presence', t: Date.now() });
     const ping = setInterval(() => {
       try { res.write(':ping\n\n'); } catch (e) {}
     }, 25_000);
-    req.on('close', () => { clearInterval(ping); sseClients.delete(res); });
+    req.on('close', () => { clearInterval(ping); sseClients.delete(res); broadcast({ type: 'presence', t: Date.now() }); });
   });
 
   // Транслируем событие после любого успешного мутирующего запроса
@@ -114,4 +136,4 @@ function attachUndo(app, getDb) {
   });
 }
 
-module.exports = { attachSse, attachUndo, broadcast, trashAndDelete };
+module.exports = { attachSse, attachUndo, broadcast, trashAndDelete, getPresence };

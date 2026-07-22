@@ -227,8 +227,9 @@ function renderLP(){
   if(!layers.length){ll.innerHTML='<div style="padding:8px 9px;font-size:11px;color:var(--tx3)">Нет KML/GPX слоёв</div>';return;}
   ll.innerHTML=layers.map(l=>{
     const lblOn=!!layerLabels[l.id];
+    const vis=(typeof layerVisibleEffective==='function')?layerVisibleEffective(l):!!l.visible;
     return `<div class="lpi">
-      <button class="lp-v ${l.visible?'on':''}" onclick="toggleLV('${l.id}',${l.visible?0:1})" title="${l.visible?'Скрыть слой':'Показать слой'}">${l.visible?'👁':'🚫'}</button>
+      <button class="lp-v ${vis?'on':''}" onclick="toggleLV('${l.id}',${vis?0:1})" title="${vis?'Скрыть слой':'Показать слой'}">${vis?'👁':'🚫'}</button>
       <button class="lp-v ${lblOn?'on':''}" onclick="toggleLayerLabels('${l.id}')" title="${lblOn?'Скрыть надписи':'Показать надписи'}" style="font-size:10px;min-width:22px">🏷</button>
       <div class="lp-dot" style="background:${l.color}" title="Изм. цвет" onclick="editLayer('${l.id}')"></div>
       <div style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.name)}</div>
@@ -241,7 +242,7 @@ function renderLayerGroups(){
   Object.keys(lGroups).forEach(k=>{
     if(!k.startsWith('s_')){try{map.removeLayer(lGroups[k]);}catch(e){}delete lGroups[k];}
   });
-  layers.filter(l=>l.visible).forEach(l=>{
+  layers.filter(l=>(typeof layerVisibleEffective==='function')?layerVisibleEffective(l):l.visible).forEach(l=>{
     try{
       const gj=JSON.parse(l.geojson);
       const showLabels=!!layerLabels[l.id];
@@ -265,12 +266,31 @@ function renderLayerGroups(){
 }
 async function toggleLV(id,vis){
   const l=layers.find(x=>x.id===id);if(!l)return;
+  // Ограниченному (нет права layerToggleGlobal) — переключаем ТОЛЬКО у себя,
+  // не трогая сервер и не влияя на других.
+  if(typeof can==='function'&&!can('layerToggleGlobal')){
+    localLayerVisSet(id,vis);
+    renderLP();renderLayerGroups();setTimeout(bringVolumesToFront,50);
+    try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
+    return;
+  }
   l.visible=vis;
-  await fetch(`${API}/layers/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:l.name,color:l.color,visible:vis,symbol:l.symbol||'',group_id:l.group_id||'',line_dash:l.line_dash||'solid',
-      min_zoom:l.min_zoom,max_zoom:l.max_zoom,size:l.size,show_labels:l.show_labels})});
+  // Узкий PATCH только для видимости (гейтится отдельно от правки слоёв)
+  await fetch(`${API}/layers/${id}/visible`,{method:'PATCH',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({visible:vis?1:0})});
   renderLP();renderLayerGroups();setTimeout(bringVolumesToFront,50);
   try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
+}
+// Локальный (пер-браузерный) оверрайд видимости для ограниченных пользователей
+function localLayerVis(){try{return JSON.parse(localStorage.getItem('sputnik_local_vis')||'{}');}catch(e){return {};}}
+function localLayerVisSet(id,vis){const m=localLayerVis();m[id]=vis?1:0;localStorage.setItem('sputnik_local_vis',JSON.stringify(m));}
+// Эффективная видимость слоя с учётом локального оверрайда
+function layerVisibleEffective(l){
+  if(typeof can==='function'&&!can('layerToggleGlobal')){
+    const m=localLayerVis();
+    if(Object.prototype.hasOwnProperty.call(m,l.id))return !!m[l.id];
+  }
+  return !!l.visible;
 }
 function _updateKmlLabelScale(){
   if(!window.map)return;

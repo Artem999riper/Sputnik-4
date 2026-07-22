@@ -142,6 +142,7 @@ const routeTasks = require('./routes/tasks');
 const routeMisc  = require('./routes/misc');
 const routeField = require('./routes/field');
 const routeMto   = require('./routes/mto');
+const routeAdmin = require('./routes/admin');
 
 // ── START ──────────────────────────────────────────────────────────────────────
 getDb().then(database => {
@@ -150,6 +151,9 @@ getDb().then(database => {
   // SSE + Undo инфраструктура (middleware транслирует все мутации)
   realtime.attachSse(app);
   realtime.attachUndo(app, getDbInstance);
+
+  // Админ/права/присутствие — enforcement middleware ДО бизнес-маршрутов
+  routeAdmin(app, getDbInstance, L, { broadcast: realtime.broadcast, getPresence: realtime.getPresence });
 
   routeBases(app, getDbInstance, L);
   routeSites(app, getDbInstance, L);

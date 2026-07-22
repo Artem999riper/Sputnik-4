@@ -302,6 +302,14 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json({ success: true });
   }));
 
+  // Узкий эндпоинт только для видимости слоя (гейтится правом layerToggleGlobal
+  // отдельно от общей правки слоёв). Полный PUT остаётся для стиля/геометрии.
+  app.patch('/api/layers/:id/visible', wrap((req, res) => {
+    const vis = req.body && req.body.visible ? 1 : 0;
+    run(db(), 'UPDATE kml_layers SET visible=? WHERE id=?', [vis, req.params.id]);
+    res.json({ ok: true, visible: vis });
+  }));
+
   app.delete('/api/layers/:id', wrap((req, res) => {
     const _restore = trashAndDelete(db(), 'kml_layers', req.params.id);
     if (!_restore) return res.status(404).json({ error: 'Not found' });

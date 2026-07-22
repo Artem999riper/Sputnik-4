@@ -263,6 +263,9 @@ async function getDb() {
   ta("ALTER TABLE field_samples ADD COLUMN depth_bottom_m REAL");
   ta("ALTER TABLE volumes ADD COLUMN visible INTEGER DEFAULT 1");
 
+  // Реестр известных клиентов (для присутствия и настройки прав офлайн-пользователям)
+  ta("CREATE TABLE IF NOT EXISTS known_clients (client_id TEXT PRIMARY KEY, name TEXT DEFAULT '', first_seen TEXT DEFAULT (datetime('now')), last_seen TEXT DEFAULT (datetime('now')))");
+
   // ── Индексы на FK-колонки (горячие выборки) ────────────────
   ta("CREATE INDEX IF NOT EXISTS idx_workers_base       ON pgk_workers(base_id)");
   ta("CREATE INDEX IF NOT EXISTS idx_machinery_base     ON pgk_machinery(base_id)");

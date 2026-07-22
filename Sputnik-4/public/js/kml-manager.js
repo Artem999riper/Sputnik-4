@@ -1466,7 +1466,8 @@ function renderLayerGroupsWithSymbols() {
   if (map.getPane('volPointsPane'))map.getPane('volPointsPane').style.zIndex = 640;
 
   const keep = new Set();
-  layers.filter(l => l.visible && !l.site_id).forEach(l => {
+  const _visOk = l => (typeof layerVisibleEffective === 'function') ? layerVisibleEffective(l) : l.visible;
+  layers.filter(l => _visOk(l) && !l.site_id).forEach(l => {
     // If the layer's group is bound to a specific site, only show when that site is active
     if (l.group_id) {
       const grp = kmGroups[l.group_id];

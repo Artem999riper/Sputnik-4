@@ -334,6 +334,8 @@ function submitNameGate(){
 }
 async function initApp(){
   switchView('map');
+  // Права текущего клиента (для локального оверрайда слоёв и косметики UI)
+  try{if(typeof loadMyCaps==='function')await loadMyCaps();}catch(e){}
   // Грузим основные данные (объекты, базы, слои, техника) → сайдбар и карта
   await loadAll();
   // Параллельно грузим бейджи грузов, задач и уведомлений
@@ -361,7 +363,9 @@ function startSseListener(){
   if(typeof EventSource==='undefined')return;
   function connect(){
     try{
-      _sseSrc=new EventSource(`${API}/events`);
+      // cid+name в query — EventSource не умеет заголовки, а серверу они нужны для присутствия
+      let q='';try{q=`?cid=${encodeURIComponent(CLIENT_ID)}&name=${encodeURIComponent(un())}`;}catch(e){}
+      _sseSrc=new EventSource(`${API}/events${q}`);
       _sseSrc.onopen=function(){
         // Первое открытие — стартовый loadAll уже выполнен в другом месте.
         // Любое последующее открытие = переподключение → догоняем пропущенное.
@@ -370,6 +374,8 @@ function startSseListener(){
       };
       _sseSrc.onmessage=function(e){
         let ev; try{ev=JSON.parse(e.data);}catch(_){return;}
+        if(ev.type==='presence'){ if(typeof onPresenceEvent==='function')onPresenceEvent(); return; }
+        if(ev.type==='acl'){ if(typeof loadMyCaps==='function')loadMyCaps(); return; }
         if(ev.type!=='change')return;
         handleSseChange(ev);
       };

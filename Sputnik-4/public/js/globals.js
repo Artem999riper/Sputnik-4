@@ -30,6 +30,31 @@ const fmtDT=dt=>{if(!dt)return'';try{const d=new Date(dt.includes('Z')?dt:dt+'Z'
 //  • не-GET с ответом !ok — тост с кодом и текстом ошибки сервера;
 //  • сетевая ошибка — тост «нет связи» (не чаще раза в 5 сек).
 // ═══════════════════════════════════════════════════════════
+// Стабильный идентификатор браузера (для присутствия и прав)
+function _sputnikClientId(){
+  let id=localStorage.getItem('sputnik_cid');
+  if(!id){
+    id=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():'cid-'+Date.now()+'-'+Math.floor(Math.random()*1e9);
+    localStorage.setItem('sputnik_cid',id);
+  }
+  return id;
+}
+const CLIENT_ID=_sputnikClientId();
+function adminToken(){return localStorage.getItem('sputnik_admin_token')||'';}
+function setAdminToken(t){if(t)localStorage.setItem('sputnik_admin_token',t);else localStorage.removeItem('sputnik_admin_token');}
+// Права текущего клиента (загружаются с сервера). По умолчанию всё разрешено.
+let myCaps={delete:true,kmlEdit:true,volumes:true,refs:true,layerToggleGlobal:true};
+let iAmAdmin=false, iAmLoopback=false, adminPwSet=false;
+function can(cap){return myCaps[cap]!==false;}
+function isAdminClient(){return !!iAmAdmin;}
+async function loadMyCaps(){
+  try{
+    const r=await fetch(`${API}/me/caps`);
+    if(r.ok){const j=await r.json();myCaps=j.caps||myCaps;iAmAdmin=!!j.isAdmin;iAmLoopback=!!j.loopback;adminPwSet=!!j.pwSet;
+      if(typeof applyCapsToUI==='function')applyCapsToUI();}
+  }catch(e){}
+}
+
 (function(){
   const orig=window.fetch.bind(window);
   let busy=0,showTimer=null,lastNetToast=0;
@@ -58,6 +83,16 @@ const fmtDT=dt=>{if(!dt)return'';try{const d=new Date(dt.includes('Z')?dt:dt+'Z'
   window.fetch=async function(url,opts){
     const isApi=typeof url==='string'&&url.indexOf('/api/')>=0;
     const method=((opts&&opts.method)||'GET').toUpperCase();
+    if(isApi){
+      // Заголовки идентификации на каждый запрос. Имя кодируем (заголовки — latin1).
+      opts=opts||{};
+      let uname='';try{uname=encodeURIComponent(un());}catch(e){}
+      const h=new Headers(opts.headers||{});
+      h.set('X-Client-Id',CLIENT_ID);
+      if(uname)h.set('X-User-Name',uname);
+      const tk=adminToken();if(tk)h.set('X-Admin-Token',tk);
+      opts.headers=h;
+    }
     if(isApi){busy++;upd();}
     try{
       const r=await orig(url,opts);
