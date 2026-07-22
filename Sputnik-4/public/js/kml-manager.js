@@ -637,7 +637,7 @@ function kmlUpdateSymPreviews(color){Object.keys(KML_SYMBOLS).forEach(k=>{const 
 // ПКМ по карте → «Выделить объекты» → два клика (углы прямоугольника) →
 // меню действий над всеми попавшими объектами: выполнено/цвет/имя/
 // линия↔полигон/сброс/удаление. Изменения сохраняются послойно.
-const KML_DONE_COLOR='#16a34a';
+const KML_DONE_COLOR='#7ed321'; // ярко-зелёный (салатовый) — метка «выполнено»
 let _ksActive=false,_ksPts=[],_ksTmp=null,_ksSel=null;
 // Выделение произвольным полигоном: клики — вершины, ПКМ — меню (выделить/отмена)
 function startKmlSelectMode(){
@@ -711,18 +711,60 @@ function _ksPtInPoly(lat,lng,poly){
   }
   return inside;
 }
-// Есть ли у геометрии вершина внутри полигона выделения (для Point — сама точка)
+// Пересекаются ли отрезки p1-p2 и p3-p4 (точки [x,y])
+function _ksSegHit(p1,p2,p3,p4){
+  const d=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
+  const d1=d(p3,p4,p1),d2=d(p3,p4,p2),d3=d(p1,p2,p3),d4=d(p1,p2,p4);
+  if(((d1>0&&d2<0)||(d1<0&&d2>0))&&((d3>0&&d4<0)||(d3<0&&d4>0)))return true;
+  const on=(a,b,c)=>Math.min(a[0],b[0])<=c[0]&&c[0]<=Math.max(a[0],b[0])&&Math.min(a[1],b[1])<=c[1]&&c[1]<=Math.max(a[1],b[1]);
+  if(d1===0&&on(p3,p4,p1))return true;
+  if(d2===0&&on(p3,p4,p2))return true;
+  if(d3===0&&on(p1,p2,p3))return true;
+  if(d4===0&&on(p1,p2,p4))return true;
+  return false;
+}
+// Собирает из геометрии список «путей» в формате [[lat,lng],...] (для Point — одна точка)
+function _ksGeomPaths(geom,out){
+  if(!geom)return;
+  if(geom.type==='GeometryCollection'){(geom.geometries||[]).forEach(g=>_ksGeomPaths(g,out));return;}
+  const t=geom.type,c=geom.coordinates;if(!c)return;
+  const asLL=ring=>ring.map(p=>[p[1],p[0]]); // [lng,lat] → [lat,lng]
+  if(t==='Point')out.push([[c[1],c[0]]]);
+  else if(t==='MultiPoint')c.forEach(p=>out.push([[p[1],p[0]]]));
+  else if(t==='LineString')out.push(asLL(c));
+  else if(t==='MultiLineString')c.forEach(l=>out.push(asLL(l)));
+  else if(t==='Polygon')c.forEach(r=>out.push(asLL(r)));
+  else if(t==='MultiPolygon')c.forEach(poly=>poly.forEach(r=>out.push(asLL(r))));
+}
+// Пересекается ли геометрия объекта с полигоном выделения poly=[[lat,lng],...]
+// Учитывает ЧАСТИЧНОЕ попадание: вершина объекта в контуре, ИЛИ пересечение
+// рёбер, ИЛИ контур целиком внутри объекта-полигона.
 function _ksGeomInPoly(geom,poly){
-  if(!geom)return false;
-  if(geom.type==='GeometryCollection')
-    return (geom.geometries||[]).some(g=>_ksGeomInPoly(g,poly));
-  const c=geom.coordinates;
-  if(!c)return false;
-  const walk=arr=>{
-    if(typeof arr[0]==='number')return _ksPtInPoly(arr[1],arr[0],poly);
-    return arr.some(walk);
-  };
-  try{return walk(c);}catch(e){return false;}
+  if(!geom||!poly||poly.length<3)return false;
+  const paths=[];
+  try{_ksGeomPaths(geom,paths);}catch(e){return false;}
+  const asXY=ll=>[ll[1],ll[0]];             // [lat,lng] → [x=lng,y=lat] для сегментов
+  const polyXY=poly.map(asXY);
+  for(const path of paths){
+    // 1) любая вершина объекта внутри контура
+    for(const pt of path){ if(_ksPtInPoly(pt[0],pt[1],poly))return true; }
+    // 2) пересечение рёбер объекта с рёбрами контура (частичное попадание)
+    if(path.length>=2){
+      for(let i=0;i<path.length-1;i++){
+        const a=asXY(path[i]),b=asXY(path[i+1]);
+        for(let j=0,k=polyXY.length-1;j<polyXY.length;k=j++){
+          if(_ksSegHit(a,b,polyXY[k],polyXY[j]))return true;
+        }
+      }
+    }
+    // 3) контур целиком внутри объекта-полигона (кольцо >=4 точек, замкнуто)
+    if(path.length>=4){
+      const f=path[0],l=path[path.length-1];
+      const closed=Math.abs(f[0]-l[0])<1e-9&&Math.abs(f[1]-l[1])<1e-9;
+      if(closed&&_ksPtInPoly(poly[0][0],poly[0][1],path))return true;
+    }
+  }
+  return false;
 }
 // Собирает выделение: по каждому видимому KML-слою — индексы попавших фигур
 function _ksCollect(poly){
@@ -923,6 +965,32 @@ async function kmlPolygonToLine(layerId, fIdx){
     await _kmlSaveGeojson(l,gj);
     renderLayerGroups();
     toast('〰️ Полигон преобразован в линию','ok');
+  }catch(e){toast('Ошибка сохранения','err');}
+}
+
+// «Выполнить объект»: красит один объект слоя в салатовый и ставит
+// комментарий «Выполнено» (повторный вызов снимает отметку).
+async function kmlToggleDone(layerId, fIdx){
+  const l=layers.find(x=>x.id===layerId);if(!l)return;
+  let gj;try{gj=JSON.parse(l.geojson);}catch(e){toast('Ошибка разбора слоя','err');return;}
+  const features=gj.type==='FeatureCollection'?gj.features:[gj];
+  const f=features[fIdx];if(!f)return;
+  if(!f.properties)f.properties={};
+  const done=f.properties._color===KML_DONE_COLOR;
+  if(done){
+    // снять «выполнено»
+    delete f.properties._color;
+    if(f.properties.comment==='Выполнено')delete f.properties.comment;
+    if(f.properties._done)delete f.properties._done;
+  } else {
+    f.properties._color=KML_DONE_COLOR;
+    f.properties.comment='Выполнено';
+    f.properties._done=1;
+  }
+  try{
+    await _kmlSaveGeojson(l,gj);
+    renderLayerGroups();
+    toast(done?'↩️ Отметка «выполнено» снята':'✅ Объект выполнен','ok');
   }catch(e){toast('Ошибка сохранения','err');}
 }
 
@@ -1436,7 +1504,9 @@ function renderLayerGroupsWithSymbols() {
         },
         onEachFeature: (f, layer) => {
           const nm = f.properties?.name || f.properties?.Name || '';
-          if (nm) layer.bindTooltip(nm, {permanent:showLabels, className:'mlbl', direction:'top'});
+          const cmt = f.properties?.comment || '';
+          const tip = esc(nm) + (cmt ? (nm ? '<br>' : '') + '<span style="color:#65a30d;font-weight:700">✅ ' + esc(cmt) + '</span>' : '');
+          if (tip) layer.bindTooltip(tip, {permanent:showLabels, className:'mlbl', direction:'top'});
 
           // ПКМ на объекте карты
           layer.on('contextmenu', function(ev) {
@@ -1460,6 +1530,7 @@ function renderLayerGroupsWithSymbols() {
                 try { map.flyToBounds(layer.getBounds ? layer.getBounds() : L.latLngBounds([[layer.getLatLng().lat,layer.getLatLng().lng]]), {padding:[60,60]}); }
                 catch(e){ try{map.flyTo(layer.getLatLng(),16);}catch(e2){} }
               }},
+              ...(fIdx>=0?[{i:'✅',l:(f.properties&&f.properties._color===KML_DONE_COLOR)?'Снять «выполнено»':'Выполнить объект',f:()=>kmlToggleDone(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'✏️',l:'Редактировать объект',f:()=>kmlEditFeature(l.id,fIdx)}]:[]),
               ...(fIdx>=0&&f.geometry&&f.geometry.type==='LineString'?[{i:'⬛',l:'Линия → полигон',f:()=>kmlLineToPolygon(l.id,fIdx)}]:[]),
               ...(fIdx>=0&&f.geometry&&f.geometry.type==='Polygon'?[{i:'〰️',l:'Полигон → линия',f:()=>kmlPolygonToLine(l.id,fIdx)}]:[]),
