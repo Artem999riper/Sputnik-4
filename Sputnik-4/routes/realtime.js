@@ -39,7 +39,8 @@ function getPresence() {
   const byCid = {};
   for (const meta of sseClients.values()) {
     const cid = meta.clientId || ('anon-' + meta.ip);
-    if (!byCid[cid]) byCid[cid] = { clientId: cid, name: meta.name || '', ip: meta.ip, connectedAt: meta.connectedAt, tabs: 0 };
+    // stale = старая версия страницы (нет clientId → не шлёт идентификацию)
+    if (!byCid[cid]) byCid[cid] = { clientId: cid, name: meta.name || '', ip: meta.ip, connectedAt: meta.connectedAt, tabs: 0, stale: !meta.clientId };
     byCid[cid].tabs++;
     if (meta.connectedAt < byCid[cid].connectedAt) byCid[cid].connectedAt = meta.connectedAt;
     if (!byCid[cid].name && meta.name) byCid[cid].name = meta.name;

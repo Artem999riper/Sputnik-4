@@ -182,7 +182,25 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
   // ── кто сейчас онлайн (админ) ────────────────────────────
   app.get('/api/presence', wrap((req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Только для админа' });
-    res.json(getPresence ? getPresence() : []);
+    const list = getPresence ? getPresence() : [];
+    // Обогащаем имена из known_clients: если по SSE имя пустое, но клиент
+    // уже «засветился» запросом с X-Client-Id — берём имя оттуда.
+    const need = list.filter(p => !p.name && p.clientId && !p.clientId.startsWith('anon-')).map(p => p.clientId);
+    if (need.length) {
+      const ph = need.map(() => '?').join(',');
+      const rows = all(db(), `SELECT client_id,name FROM known_clients WHERE client_id IN (${ph})`, need);
+      const nameById = {};
+      rows.forEach(r => { if (r.name) nameById[r.client_id] = r.name; });
+      list.forEach(p => { if (!p.name && nameById[p.clientId]) p.name = nameById[p.clientId]; });
+    }
+    res.json(list);
+  }));
+
+  // ── попросить всех обновить страницу (админ) ─────────────
+  app.post('/api/admin/reload', wrap((req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: 'Только для админа' });
+    if (broadcast) broadcast({ type: 'reload', t: Date.now() });
+    res.json({ ok: true });
   }));
 
   // ── последние действия из журнала (админ) ────────────────

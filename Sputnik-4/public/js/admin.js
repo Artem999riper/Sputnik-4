@@ -78,15 +78,29 @@ async function _admRenderOnline(){
   const box=document.getElementById('adm-body');if(!box)return;
   let list=[];try{const r=await fetch(`${API}/presence`);if(r.ok)list=await r.json();}catch(e){}
   const fmtSince=t=>{const s=Math.max(0,Math.floor((Date.now()-t)/60000));return s<1?'только что':s<60?s+' мин':Math.floor(s/60)+' ч '+(s%60)+' мин';};
-  box.innerHTML=`<div style="font-size:11px;color:var(--tx3);margin-bottom:6px">Сейчас в программе: <b style="color:var(--acc)">${list.length}</b></div>
+  const staleN=list.filter(p=>p.stale).length;
+  box.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <div style="font-size:11px;color:var(--tx3);flex:1">Сейчас в программе: <b style="color:var(--acc)">${list.length}</b></div>
+      <button class="btn bs bsm" onclick="_admReloadAll()" title="Разослать команду обновить страницу всем на новой версии">🔄 Обновить у всех</button>
+    </div>
+    ${staleN?`<div style="font-size:10px;color:#b45309;background:#fef3c7;border-radius:var(--rs);padding:5px 8px;margin-bottom:6px;line-height:1.4">
+      ⚠️ ${staleN} чел. на старой версии страницы — попросите их обновить (F5), чтобы появились имена и права.</div>`:''}
     <div id="adm-online-list" style="max-height:300px;overflow-y:auto">
-    ${list.length?list.map(p=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--bd);font-size:12px">
-      <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0"></span>
-      <span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name||'(без имени)')}</span>
+    ${list.length?list.map(p=>{
+      const dot=p.stale?'#f59e0b':'#22c55e';
+      const nm=p.stale?'❓ Старая версия — обновить страницу (F5)':(p.name||'(без имени)');
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--bd);font-size:12px">
+      <span style="width:8px;height:8px;border-radius:50%;background:${dot};flex-shrink:0"></span>
+      <span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${p.stale?'color:#b45309':''}">${esc(nm)}</span>
       <span style="font-size:10px;color:var(--tx3);white-space:nowrap">${esc(p.ip||'')}</span>
       <span style="font-size:10px;color:var(--tx3);white-space:nowrap" title="Вкладок: ${p.tabs}">${p.tabs>1?'🗔×'+p.tabs+' · ':''}${fmtSince(p.connectedAt)}</span>
-    </div>`).join(''):'<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">Никого нет</div>'}
+    </div>`;}).join(''):'<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">Никого нет</div>'}
     </div>`;
+}
+async function _admReloadAll(){
+  const ok=await confirmDlg('Разослать команду обновить страницу всем подключённым? У людей на актуальной версии страница перезагрузится через 1–2 сек.',{okLabel:'Обновить у всех',danger:false});
+  if(!ok)return;
+  try{const r=await fetch(`${API}/admin/reload`,{method:'POST'});if(r.ok)toast('Команда отправлена','ok');}catch(e){toast('Ошибка','err');}
 }
 
 async function _admRenderRights(){
