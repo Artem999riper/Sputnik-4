@@ -1512,6 +1512,17 @@ function renderLayerGroupsWithSymbols() {
           const tip = esc(nm) + (cmt ? (nm ? '<br>' : '') + '<span style="color:#65a30d;font-weight:700">✅ ' + esc(cmt) + '</span>' : '');
           if (tip) layer.bindTooltip(tip, {permanent:showLabels, className:'mlbl', direction:'top'});
 
+          // При активной линейке клик по объекту KML добавляет точку линейки:
+          // для точки — её точные координаты, для линии/полигона — место клика
+          // с привязкой к ближайшей вершине (иначе маркер «съедает» клик карты).
+          layer.on('click', function(ev) {
+            if (typeof rulerActive !== 'undefined' && rulerActive && typeof _rulerAddPoint === 'function') {
+              L.DomEvent.stopPropagation(ev);
+              const exact = layer.getLatLng ? layer.getLatLng() : null; // точечный объект
+              _rulerAddPoint(ev.latlng, exact);
+            }
+          });
+
           // ПКМ на объекте карты
           layer.on('contextmenu', function(ev) {
             L.DomEvent.stopPropagation(ev);

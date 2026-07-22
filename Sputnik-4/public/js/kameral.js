@@ -139,10 +139,17 @@ function startRuler(){
   map.on('click',_rulerClick);
 }
 function _rulerClick(e){
-  // Привязка к вершинам/точкам KML в радиусе 14px (как в рисовании)
-  let ll=e.latlng;
-  if(typeof _snapToKml==='function'){
-    const s=_snapToKml(e.latlng,14);
+  _rulerAddPoint(e.latlng);
+}
+// Добавляет точку линейки с привязкой к вершинам/точкам KML (радиус 14px).
+// exactLatLng — если задан (клик прямо по объекту KML), используется как есть.
+function _rulerAddPoint(latlng, exactLatLng){
+  let ll=latlng;
+  if(exactLatLng){
+    ll=exactLatLng;
+    toast('📌 Привязано к объекту KML','ok');
+  } else if(typeof _snapToKml==='function'){
+    const s=_snapToKml(latlng,14);
     if(s&&s.snapped){ll=L.latLng(s.lat,s.lng);toast(s.name?'📌 '+s.name:'📌 Привязано к KML','ok');}
   }
   rulerPts.push(ll);
