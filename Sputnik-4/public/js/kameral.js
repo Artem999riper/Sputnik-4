@@ -135,11 +135,17 @@ let rulerActive=false, rulerPts=[], rulerLayer=null, rulerLabels=[];
 function startRuler(){
   rulerActive=true; rulerPts=[]; _rulerClear();
   map.getContainer().style.cursor='crosshair';
-  toast('📏 Линейка: кликайте · ПКМ — меню · Z — отменить точку','ok');
+  toast('📏 Линейка: кликайте (привязка к KML) · ПКМ — меню · Z — отменить','ok');
   map.on('click',_rulerClick);
 }
 function _rulerClick(e){
-  rulerPts.push(e.latlng);
+  // Привязка к вершинам/точкам KML в радиусе 14px (как в рисовании)
+  let ll=e.latlng;
+  if(typeof _snapToKml==='function'){
+    const s=_snapToKml(e.latlng,14);
+    if(s&&s.snapped){ll=L.latLng(s.lat,s.lng);toast(s.name?'📌 '+s.name:'📌 Привязано к KML','ok');}
+  }
+  rulerPts.push(ll);
   _rulerDraw();
 }
 function rulerUndoLast(){
