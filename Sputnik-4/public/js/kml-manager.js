@@ -798,10 +798,14 @@ function _ksMenu(cx,cy){
   const items=[
     {i:'⬚',l:`<b>Выделено: ${s.total} объект(ов)</b>`,f:null,html:true},
     {sep:true},
-    {i:'✅',l:'Перевести в выполненные',f:()=>_ksApply('Выполнено',f=>{f.properties._color=KML_DONE_COLOR;})},
+    {i:'✅',l:'Перевести в выполненные',f:()=>_ksApply('Выполнено',f=>{
+      f.properties._color=KML_DONE_COLOR;f.properties.comment='Выполнено';f.properties._done=1;})},
     {i:'🎨',l:'Изменить цвет…',f:_ksColorModal},
     {i:'🏷',l:'Переименовать…',f:_ksRenameModal},
-    {i:'↩️',l:'Сбросить инд. цвет',f:()=>_ksApply('Цвет сброшен',f=>{delete f.properties._color;})},
+    {i:'↩️',l:'Снять «выполнено» / инд. цвет',f:()=>_ksApply('Сброшено',f=>{
+      delete f.properties._color;
+      if(f.properties.comment==='Выполнено')delete f.properties.comment;
+      if(f.properties._done)delete f.properties._done;})},
   ];
   if(s.lines)items.push({i:'⬛',l:`Линии → полигоны (${s.lines})`,f:()=>_ksApply('Преобразовано',f=>{
     const g=f.geometry;
