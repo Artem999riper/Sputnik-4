@@ -1513,14 +1513,18 @@ function renderLayerGroupsWithSymbols() {
           const tip = esc(nm) + (cmt ? (nm ? '<br>' : '') + '<span style="color:#65a30d;font-weight:700">✅ ' + esc(cmt) + '</span>' : '');
           if (tip) layer.bindTooltip(tip, {permanent:showLabels, className:'mlbl', direction:'top'});
 
-          // При активной линейке клик по объекту KML добавляет точку линейки:
-          // для точки — её точные координаты, для линии/полигона — место клика
-          // с привязкой к ближайшей вершине (иначе маркер «съедает» клик карты).
+          // Клик по объекту KML добавляет точку в активный инструмент (линейка/рисование).
+          // Для точки — её точные координаты, для линии/полигона — место клика с привязкой
+          // к ближайшей вершине. Нужно, т.к. Leaflet «съедает» клик карты на самом объекте.
           layer.on('click', function(ev) {
+            const exact = layer.getLatLng ? layer.getLatLng() : null; // точечный объект
             if (typeof rulerActive !== 'undefined' && rulerActive && typeof _rulerAddPoint === 'function') {
               L.DomEvent.stopPropagation(ev);
-              const exact = layer.getLatLng ? layer.getLatLng() : null; // точечный объект
               _rulerAddPoint(ev.latlng, exact);
+            } else if (typeof drawMode !== 'undefined' && drawMode && typeof addDrawPtSnapped === 'function') {
+              L.DomEvent.stopPropagation(ev);
+              const nm = (f.properties && (f.properties.name || f.properties.Name)) || '';
+              addDrawPtSnapped(ev.latlng, exact, nm);
             }
           });
 

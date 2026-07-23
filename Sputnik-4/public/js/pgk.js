@@ -3284,6 +3284,20 @@ function addDrawPt(ll){
   if(snap.snapped)toast(snap.name?`📌 Привязано: ${snap.name}`:'📌 Привязано к KML','ok');
   updateDrawPreview();
 }
+// Добавить точку рисования с привязкой к объекту KML.
+// exactLatLng задан (клик прямо по точечному объекту) → точно его координаты + его имя;
+// иначе — обычная привязка к ближайшей вершине/точке (near-snap).
+function addDrawPtSnapped(ll, exactLatLng, name){
+  if(!drawMode)return;
+  if(exactLatLng){
+    drawPts.push([exactLatLng.lat,exactLatLng.lng]);
+    drawPtNames.push(name||'');
+    toast(name?`📌 Привязано: ${name}`:'📌 Привязано к объекту KML','ok');
+    updateDrawPreview();
+    return;
+  }
+  addDrawPt(ll);
+}
 function _snapToKml(ll,pxRadius){
   if(!window.map||!lGroups)return{lat:ll.lat,lng:ll.lng,snapped:false,name:''};
   const T=map.latLngToContainerPoint(ll);
