@@ -1600,7 +1600,7 @@ function openLayerExportDialog() {
   const list = (layers || []).slice();
   if (!list.length) { toast('Нет слоёв для экспорта', 'err'); return; }
   const rows = list.map(l => `
-    <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer">
+    <label class="lex-row" data-name="${escAttr((l.name || '').toLowerCase())}" style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer">
       <input type="checkbox" class="lex-cb" value="${l.id}" ${l.visible ? 'checked' : ''}>
       <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${l.color || '#666'};flex-shrink:0"></span>
       <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(l.name || '').replace(/[<>&]/g, '')}</span>
@@ -1646,19 +1646,44 @@ function openLayerExportDialog() {
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
           <div style="font-weight:600">Слои (${list.length})</div>
           <div>
-            <button class="btn bs bxs" onclick="document.querySelectorAll('.lex-cb').forEach(c=>c.checked=true)">Все</button>
-            <button class="btn bs bxs" onclick="document.querySelectorAll('.lex-cb').forEach(c=>c.checked=false)">Никакие</button>
+            <button class="btn bs bxs" onclick="lexSelectVisible(true)">Все</button>
+            <button class="btn bs bxs" onclick="lexSelectVisible(false)">Никакие</button>
           </div>
         </div>
-        <div style="max-height:260px;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:6px 10px">
+        <input type="search" id="lex-search" placeholder="🔍 Поиск слоя по имени…" autocomplete="off"
+          oninput="lexFilterLayers(this.value)"
+          style="width:100%;box-sizing:border-box;font-size:12px;padding:6px 9px;margin-bottom:6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);color:var(--tx);outline:none">
+        <div style="max-height:260px;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:6px 10px" id="lex-list">
           ${rows}
         </div>
+        <div id="lex-empty" style="display:none;padding:10px;text-align:center;font-size:11px;color:var(--tx3)">Ничего не найдено</div>
       </div>
     </div>`;
   showModal('📤 Экспорт слоёв', body, [
     { label: 'Отмена', cls: 'bs', fn: closeModal },
     { label: 'Скачать DXF', cls: 'bp', fn: doLayerExport },
   ]);
+}
+
+// Фильтр списка слоёв в диалоге экспорта по имени
+function lexFilterLayers(q) {
+  q = (q || '').trim().toLowerCase();
+  let shown = 0;
+  document.querySelectorAll('#lex-list .lex-row').forEach(row => {
+    const hit = !q || (row.dataset.name || '').includes(q);
+    row.style.display = hit ? '' : 'none';
+    if (hit) shown++;
+  });
+  const empty = document.getElementById('lex-empty');
+  if (empty) empty.style.display = shown ? 'none' : '';
+}
+// «Все / Никакие» — только по видимым (отфильтрованным) строкам
+function lexSelectVisible(on) {
+  document.querySelectorAll('#lex-list .lex-row').forEach(row => {
+    if (row.style.display === 'none') return;
+    const cb = row.querySelector('.lex-cb');
+    if (cb) cb.checked = on;
+  });
 }
 
 function lexFmtChange() {
