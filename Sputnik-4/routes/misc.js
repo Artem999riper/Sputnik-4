@@ -458,6 +458,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
 
   // ── LAYER EXPORT (DXF) ─────────────────────────────────────
   const { buildLayersDXF, saveDXF } = require('../dxf-writer');
+  const { buildLayersMIF, encodeCp1251 } = require('../mif-writer');
   const { makeTransform, pickMsk86Zone, pickGsk2011Zone } = require('../coord-transform');
 
   function geojsonBboxCenter(layers) {
@@ -637,6 +638,41 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     stream.pipe(res);
     stream.on('end', () => { try { fs.unlinkSync(tmpPath); } catch (e) {} });
     stream.on('error', () => { try { fs.unlinkSync(tmpPath); } catch (e) {} });
+  }));
+
+  // ── Экспорт слоёв в MapInfo (MIF/MID, в ZIP) ───────────────
+  app.post('/api/layers/export-mif', wrap((req, res) => {
+    const { layerIds, crs } = req.body || {};
+    if (!Array.isArray(layerIds) || !layerIds.length)
+      return res.status(400).json({ error: 'layerIds required' });
+    const d = db();
+    const placeholders = layerIds.map(() => '?').join(',');
+    const rows = all(d, `SELECT id, name, geojson, color FROM kml_layers WHERE id IN (${placeholders})`, layerIds);
+    if (!rows.length) return res.status(404).json({ error: 'Слои не найдены' });
+
+    const { centerLng } = geojsonBboxCenter(rows);
+    const crsKey = crs || 'wgs84';
+    const transform = makeTransform(crsKey, centerLng);
+    const isGeo = crsKey === 'wgs84';
+
+    let zoneInfo = '';
+    if (crsKey === 'msk86') zoneInfo = `_z${pickMsk86Zone(centerLng)}`;
+    else if (crsKey === 'msk86_z3') zoneInfo = '_z3';
+    else if (crsKey === 'msk86_z4') zoneInfo = '_z4';
+    else if (crsKey === 'gsk2011') zoneInfo = `_z${pickGsk2011Zone(centerLng)}`;
+
+    const { mif, mid } = buildLayersMIF({ layers: rows, transform, isGeo });
+    const base = `layers_${crsKey}${zoneInfo}`.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    zip.addFile(base + '.mif', encodeCp1251(mif));
+    zip.addFile(base + '.mid', encodeCp1251(mid));
+    const buf = zip.toBuffer();
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Length', buf.length);
+    res.setHeader('Content-Disposition', `attachment; filename="${base}.zip"`);
+    res.send(buf);
   }));
 
   // ── DEM EXPORT ─────────────────────────────────────────────

@@ -1625,6 +1625,13 @@ function openLayerExportDialog() {
               <div style="font-size:10px;color:var(--tx3)">Google Earth, QGIS</div>
             </div>
           </label>
+          <label style="flex:1;display:flex;align-items:center;gap:6px;padding:7px 10px;border:1.5px solid var(--bd);border-radius:var(--rs);cursor:pointer;background:var(--s2)">
+            <input type="radio" name="lex-fmt" value="mif" onchange="lexFmtChange()">
+            <div>
+              <div style="font-weight:600;font-size:12px">MIF/MID</div>
+              <div style="font-size:10px;color:var(--tx3)">MapInfo</div>
+            </div>
+          </label>
         </div>
       </div>
       <div id="lex-crs-row">
@@ -1657,10 +1664,11 @@ function openLayerExportDialog() {
 function lexFmtChange() {
   const fmt = document.querySelector('input[name="lex-fmt"]:checked')?.value || 'dxf';
   const crsRow = document.getElementById('lex-crs-row');
-  if (crsRow) crsRow.style.display = fmt === 'dxf' ? '' : 'none';
+  // Система координат нужна для форматов в метрах: DXF и MIF/MID
+  if (crsRow) crsRow.style.display = (fmt === 'dxf' || fmt === 'mif') ? '' : 'none';
   // Update button label
   const btn = document.querySelector('#mft .bp');
-  if (btn) btn.textContent = fmt === 'dxf' ? 'Скачать DXF' : 'Скачать KML';
+  if (btn) btn.textContent = fmt === 'kml' ? 'Скачать KML' : (fmt === 'mif' ? 'Скачать MIF/MID' : 'Скачать DXF');
   // Highlight selected format card
   document.querySelectorAll('input[name="lex-fmt"]').forEach(r => {
     const card = r.closest('label');
@@ -1699,13 +1707,17 @@ async function doLayerExport() {
     return;
   }
 
-  // DXF export
+  // DXF / MIF export (оба в метрах, с выбором СК)
   const crsEl = document.querySelector('input[name="lex-crs"]:checked');
   const crs = crsEl ? crsEl.value : 'wgs84';
+  const isMif = fmt === 'mif';
+  const endpoint = isMif ? 'export-mif' : 'export-dxf';
+  const ext = isMif ? 'zip' : 'dxf';
+  const label = isMif ? 'MIF/MID' : 'DXF';
   closeModal();
-  toast('Готовим DXF…');
+  toast(`Готовим ${label}…`);
   try {
-    const r = await fetch(`${API}/layers/export-dxf`, {
+    const r = await fetch(`${API}/layers/${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ layerIds: ids, crs }),
@@ -1720,11 +1732,11 @@ async function doLayerExport() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `layers_${crs}.dxf`;
+    a.download = `layers_${crs}.${ext}`;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
-    toast('DXF сохранён', 'ok');
+    toast(`${label} сохранён`, 'ok');
   } catch (e) {
     toast('Ошибка экспорта', 'err');
   }
