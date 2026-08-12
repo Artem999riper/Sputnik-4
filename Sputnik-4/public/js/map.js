@@ -218,7 +218,8 @@ function buildKmlShareLink(layer, name, layerId){
   p.set('lat',center.lat.toFixed(6)); p.set('lng',center.lng.toFixed(6)); p.set('z',String(zoom));
   if(name)p.set('label',name);
   if(layerId)p.set('kml',layerId);
-  return location.origin+location.pathname+'#'+p.toString();
+  const base=(typeof appBaseUrl==='function'?appBaseUrl():'')||location.origin;
+  return base+location.pathname+'#'+p.toString();
 }
 // Надёжное копирование: clipboard API недоступен на http в LAN → fallback-модалка.
 function _copyShareLink(url){

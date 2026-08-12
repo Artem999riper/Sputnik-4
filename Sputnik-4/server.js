@@ -2,6 +2,21 @@ const express = require('express');
 const cors    = require('cors');
 const path    = require('path');
 const fs      = require('fs');
+const os      = require('os');
+
+// LAN IPv4 адрес сервера (для построения ссылок, доступных другим машинам).
+// Предпочитаем приватные диапазоны 192.168/10/172.16-31.
+function lanIp() {
+  const ifaces = os.networkInterfaces();
+  const all = [];
+  for (const name of Object.keys(ifaces)) {
+    for (const ni of (ifaces[name] || [])) {
+      if (ni && ni.family === 'IPv4' && !ni.internal) all.push(ni.address);
+    }
+  }
+  const isPrivate = ip => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip);
+  return all.find(isPrivate) || all[0] || null;
+}
 const { v4: uuid } = require('uuid');
 const { getDb, run, get } = require('./database');
 const realtime = require('./routes/realtime');
@@ -167,8 +182,17 @@ getDb().then(database => {
     getBackupSettings, setBackupSettings, performAutoBackup,
   });
 
+  // Сетевой адрес сервера — чтобы клиент строил общие ссылки, доступные другим ПК
+  app.get('/api/server-info', (req, res) => {
+    const ip = lanIp();
+    res.json({ lanUrl: ip ? `http://${ip}:${PORT}` : null, ip, port: PORT });
+  });
+
   app.listen(PORT, () => {
-    console.log(`\n  ✅  ПурГеоКом запущен: http://localhost:${PORT}\n`);
+    const ip = lanIp();
+    console.log(`\n  ✅  ПурГеоКом запущен: http://localhost:${PORT}`);
+    if (ip) console.log(`  🌐  Для других в сети: http://${ip}:${PORT}\n`);
+    else console.log('');
     try { require('child_process').exec(`start http://localhost:${PORT}`); } catch(e) {}
   });
 

@@ -336,6 +336,8 @@ async function initApp(){
   switchView('map');
   // Права текущего клиента (для локального оверрайда слоёв и косметики UI)
   try{if(typeof loadMyCaps==='function')await loadMyCaps();}catch(e){}
+  // Сетевой адрес сервера — для построения общих ссылок (не localhost)
+  try{if(typeof loadServerInfo==='function')await loadServerInfo();}catch(e){}
   // Грузим основные данные (объекты, базы, слои, техника) → сайдбар и карта
   await loadAll();
   // Параллельно грузим бейджи грузов, задач и уведомлений

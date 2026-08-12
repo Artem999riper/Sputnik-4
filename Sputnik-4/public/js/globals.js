@@ -40,6 +40,17 @@ function _sputnikClientId(){
   return id;
 }
 const CLIENT_ID=_sputnikClientId();
+// Сетевой адрес сервера (для общих ссылок): localhost на чужом ПК = его же ПК,
+// поэтому ссылки строим по LAN-адресу, который сообщает сервер.
+let SERVER_LAN_URL=null;
+async function loadServerInfo(){
+  try{ const r=await fetch(`${API}/server-info`); if(r.ok){ const j=await r.json(); SERVER_LAN_URL=j&&j.lanUrl||null; } }catch(e){}
+}
+function appBaseUrl(){
+  const h=location.hostname;
+  if((h==='localhost'||h==='127.0.0.1'||h==='::1'||h==='[::1]')&&SERVER_LAN_URL)return SERVER_LAN_URL;
+  return location.origin;
+}
 function adminToken(){return localStorage.getItem('sputnik_admin_token')||'';}
 function setAdminToken(t){if(t)localStorage.setItem('sputnik_admin_token',t);else localStorage.removeItem('sputnik_admin_token');}
 // Права текущего клиента (загружаются с сервера). По умолчанию всё разрешено.
