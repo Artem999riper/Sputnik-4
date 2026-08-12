@@ -1555,6 +1555,7 @@ function renderLayerGroupsWithSymbols() {
               ...(fIdx>=0&&f.geometry&&f.geometry.type==='LineString'?[{i:'⬛',l:'Линия → полигон',f:()=>kmlLineToPolygon(l.id,fIdx)}]:[]),
               ...(fIdx>=0&&f.geometry&&f.geometry.type==='Polygon'?[{i:'〰️',l:'Полигон → линия',f:()=>kmlPolygonToLine(l.id,fIdx)}]:[]),
               ...(coordStr?[{i:'📋',l:'Копировать координаты',f:()=>{navigator.clipboard.writeText(coordStr).then(()=>toast('Скопировано','ok'));}}]:[]),
+              {i:'🔗',l:'Скопировать ссылку',f:()=>{_copyShareLink(buildKmlShareLink(layer, featureName, l.id));}},
               {sep:true},
               {i:'🎨',l:'Стиль слоя',f:()=>kmlOpenStyleModal(l.id)},
               {i:'📋',l:'Объекты слоя',f:()=>kmlOpenFeatureList(l.id)},

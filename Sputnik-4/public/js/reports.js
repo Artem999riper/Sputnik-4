@@ -344,6 +344,8 @@ async function initApp(){
     loadGruz(),
     loadGTasks(),
   ]);
+  // Переход по ссылке на объект KML (#lat&lng&z&label&kml) — после отрисовки слоёв
+  try{ if(typeof _handleDeepLink==='function')_handleDeepLink(); }catch(e){}
   // SSE подписка на серверные события — push-обновления вместо частого polling
   startSseListener();
   // Подстраховка: редкий polling на случай разрыва SSE

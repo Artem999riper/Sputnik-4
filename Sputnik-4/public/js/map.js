@@ -204,6 +204,63 @@ function _mapSearchHighlight(ll,nm){
   setTimeout(function(){try{map.removeLayer(mk);}catch(e){}},3200);
 }
 
+// ── Ссылка на объект KML: копирование + переход по ссылке ────
+// Строит ссылку на текущий вид объекта (центр+зум), устойчивую к правкам слоя.
+function buildKmlShareLink(layer, name, layerId){
+  let center, zoom;
+  try{
+    if(layer.getBounds){ const b=layer.getBounds(); center=b.getCenter(); zoom=map.getBoundsZoom(b.pad(0.4)); }
+    else { center=layer.getLatLng(); zoom=Math.max(map.getZoom(),17); }
+  }catch(e){ try{center=layer.getLatLng();}catch(_){}
+    zoom=map.getZoom(); }
+  if(!center)return null;
+  const p=new URLSearchParams();
+  p.set('lat',center.lat.toFixed(6)); p.set('lng',center.lng.toFixed(6)); p.set('z',String(zoom));
+  if(name)p.set('label',name);
+  if(layerId)p.set('kml',layerId);
+  return location.origin+location.pathname+'#'+p.toString();
+}
+// Надёжное копирование: clipboard API недоступен на http в LAN → fallback-модалка.
+function _copyShareLink(url){
+  if(!url){toast('Не удалось построить ссылку','err');return;}
+  const done=()=>toast('🔗 Ссылка скопирована','ok');
+  const fallback=()=>{
+    showModal('🔗 Ссылка на объект',
+      `<div style="font-size:11px;color:var(--tx2);margin-bottom:8px">Скопируйте ссылку (Ctrl+C) и отправьте коллеге — он перейдёт прямо к объекту.</div>
+       <input id="share-link-inp" type="text" readonly value="${escAttr(url)}"
+         style="width:100%;box-sizing:border-box;font-size:12px;padding:7px 9px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);color:var(--tx)">`,
+      [{label:'Готово',cls:'bp',fn:closeModal}]);
+    setTimeout(()=>{const i=document.getElementById('share-link-inp');if(i){i.focus();i.select();}},60);
+  };
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url).then(done).catch(fallback);
+    } else fallback();
+  }catch(e){ fallback(); }
+}
+// Переход по ссылке при загрузке: перелёт + подсветка объекта.
+function _handleDeepLink(){
+  let params;
+  try{ params=new URLSearchParams((location.hash||'').replace(/^#/,'')); }catch(e){ return; }
+  const lat=parseFloat(params.get('lat')), lng=parseFloat(params.get('lng'));
+  if(!isFinite(lat)||!isFinite(lng))return;
+  const z=parseInt(params.get('z'))||16;
+  const label=params.get('label')||'';
+  const kmlId=params.get('kml')||'';
+  // Если слой указан, но скрыт — показать его локально, чтобы объект было видно
+  try{
+    if(kmlId&&typeof layers!=='undefined'){
+      const l=layers.find(x=>x.id===kmlId);
+      if(l&&!l.visible){ l.visible=1; try{renderLayerGroups();}catch(e){} }
+    }
+  }catch(e){}
+  const ll=L.latLng(lat,lng);
+  try{ map.flyTo(ll, Math.max(3,Math.min(20,z)), {duration:.8}); }catch(e){ try{map.setView(ll,z);}catch(_){} }
+  setTimeout(function(){ try{_mapSearchHighlight(ll,label);}catch(e){} }, 850);
+  // Очистить хеш, чтобы подсветка не повторялась при навигации
+  try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){}
+}
+
 // ═══════════════════════════════════════════════════════════
 // TOOLS & MODES
 // ═══════════════════════════════════════════════════════════
