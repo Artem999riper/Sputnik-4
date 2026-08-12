@@ -675,6 +675,61 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.send(buf);
   }));
 
+  // ── Экспорт слоёв в MapInfo TAB (нативный, через ogr2ogr) ──
+  app.post('/api/layers/export-tab', wrap(async (req, res) => {
+    const { layerIds, crs } = req.body || {};
+    if (!Array.isArray(layerIds) || !layerIds.length)
+      return res.status(400).json({ error: 'layerIds required' });
+    const d = db();
+    const placeholders = layerIds.map(() => '?').join(',');
+    const rows = all(d, `SELECT id, name, geojson, color FROM kml_layers WHERE id IN (${placeholders})`, layerIds);
+    if (!rows.length) return res.status(404).json({ error: 'Слои не найдены' });
+    if (!demProcessor || !demProcessor.convertToTab)
+      return res.status(501).json({ error: 'Экспорт в TAB недоступен на сервере' });
+
+    const { centerLng } = geojsonBboxCenter(rows);
+    const crsKey = crs || 'wgs84';
+    const transform = makeTransform(crsKey, centerLng);
+    const isGeo = crsKey === 'wgs84';
+
+    let zoneInfo = '';
+    if (crsKey === 'msk86') zoneInfo = `_z${pickMsk86Zone(centerLng)}`;
+    else if (crsKey === 'msk86_z3') zoneInfo = '_z3';
+    else if (crsKey === 'msk86_z4') zoneInfo = '_z4';
+    else if (crsKey === 'gsk2011') zoneInfo = `_z${pickGsk2011Zone(centerLng)}`;
+
+    const base = `layers_${crsKey}${zoneInfo}`.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+    const { mif, mid } = buildLayersMIF({ layers: rows, transform, isGeo });
+
+    // Временная папка: MIF/MID → ogr2ogr → TAB-набор
+    const tmpDir = path.join(__dirname, '..', 'public', 'uploads', `_tab_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {} };
+    try {
+      fs.writeFileSync(path.join(tmpDir, base + '.mif'), encodeCp1251(mif));
+      fs.writeFileSync(path.join(tmpDir, base + '.mid'), encodeCp1251(mid));
+      let tabFiles;
+      try {
+        tabFiles = await demProcessor.convertToTab(path.join(tmpDir, base + '.mif'), path.join(tmpDir, base + '.tab'));
+      } catch (e) {
+        cleanup();
+        return res.status(501).json({ error: 'Для .TAB нужен установленный GDAL/OSGeo4W (как для выгрузки рельефа). ' + (e.message || '') });
+      }
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip();
+      tabFiles.forEach(fp => zip.addLocalFile(fp));
+      const buf = zip.toBuffer();
+      cleanup();
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Length', buf.length);
+      res.setHeader('Content-Disposition', `attachment; filename="${base}_tab.zip"`);
+      res.send(buf);
+    } catch (e) {
+      cleanup();
+      res.status(500).json({ error: 'Ошибка экспорта TAB: ' + (e.message || '') });
+    }
+  }));
+
   // ── DEM EXPORT ─────────────────────────────────────────────
   app.get('/api/dem/status', async (req, res) => {
     if (!demProcessor) return res.json({ available: false, reason: 'dem-processor не загружен' });

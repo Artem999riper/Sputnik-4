@@ -1137,8 +1137,28 @@ async function checkGDAL(){
   }
 }
 
+// Конвертация векторного файла (MIF/GeoJSON) в нативный MapInfo TAB через ogr2ogr.
+// Возвращает массив путей созданных файлов (.tab/.map/.id/.dat). Бросает понятную
+// ошибку, если GDAL не установлен.
+async function convertToTab(srcPath, outTabPath) {
+  findGDALBin(); // бросит, если GDAL нет
+  // -f "MapInfo File" пишет нативный TAB; кодировку берём из MIF (WindowsCyrillic)
+  await execFileP(gdal('ogr2ogr'),
+    ['-f', 'MapInfo File', outTabPath, srcPath],
+    { env: gdalEnv(), timeout: 120000, maxBuffer: 64 * 1024 * 1024 });
+  const dir = path.dirname(outTabPath);
+  const base = path.basename(outTabPath, path.extname(outTabPath));
+  const out = [];
+  for (const ext of ['.tab', '.map', '.id', '.dat', '.ind']) {
+    const p = path.join(dir, base + ext);
+    if (fs.existsSync(p)) out.push(p);
+  }
+  if (!out.length) throw new Error('ogr2ogr не создал TAB-файлы');
+  return out;
+}
+
 module.exports = {
-  processDEM, cleanupTmp, checkGDAL,
+  processDEM, cleanupTmp, checkGDAL, convertToTab,
   getElevationAtPoint, getElevationProfile, getDemTilesInfo, computeGeoidN,
   getDemTilesDir, setDemTilesDir,
   _downloadGeoidGrids: _ensureGeoidGrids,
