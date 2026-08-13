@@ -1678,7 +1678,8 @@ function lexFilterLayers(q) {
   let shown = 0;
   document.querySelectorAll('#lex-list .lex-row').forEach(row => {
     const hit = !q || (row.dataset.name || '').includes(q);
-    row.style.display = hit ? '' : 'none';
+    // именно 'flex' (у строки label по умолчанию display:inline — вёрстка бы «разъехалась»)
+    row.style.display = hit ? 'flex' : 'none';
     if (hit) shown++;
   });
   const empty = document.getElementById('lex-empty');
