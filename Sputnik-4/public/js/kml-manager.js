@@ -624,9 +624,12 @@ function kmlOpenStyleModal(id) {
        const maxZ=Math.max(0,Math.min(20,parseInt(document.getElementById('kml-max-zoom').value)||20));
        const sz=Math.max(0.3,Math.min(3,parseFloat(document.getElementById('kml-size').value)||1));
        const fillOp=Math.max(0,Math.min(1,(parseInt(document.getElementById('kml-fill').value)||0)/100));
-       l.color=color;l.symbol=sym;l.line_dash=dash;l.min_zoom=minZ;l.max_zoom=maxZ;l.size=sz;l.fill_opacity=fillOp;
+       // Берём АКТУАЛЬНЫЙ объект слоя из массива (после импорта/SSE ссылка могла обновиться)
+       const lt=layers.find(x=>x.id===id)||l;
+       lt.color=color;lt.symbol=sym;lt.line_dash=dash;lt.min_zoom=minZ;lt.max_zoom=maxZ;lt.size=sz;lt.fill_opacity=fillOp;
        await fetch(`${API}/layers/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
-         body:JSON.stringify({name:l.name,color,visible:l.visible?1:0,symbol:sym,group_id:l.group_id||'',line_dash:dash,min_zoom:minZ,max_zoom:maxZ,size:sz,fill_opacity:fillOp})});
+         body:JSON.stringify({name:lt.name,color,visible:lt.visible?1:0,symbol:sym,group_id:lt.group_id||'',line_dash:dash,min_zoom:minZ,max_zoom:maxZ,size:sz,fill_opacity:fillOp})});
+       kmlInvalidateLayerCache(id); // гарантировать перестроение слоя на карте
        closeModal();renderLayerGroups();renderKmlPanel();toast('Стиль применён','ok');
      }}]);
 }
@@ -1452,6 +1455,10 @@ let _kmlRenderCache = {};
 function _kmlLayerSig(l) {
   return [l.color, l.line_dash, l.symbol, l.size, l.show_labels ? 1 : 0,
     l.fill_opacity, l.min_zoom, l.max_zoom, layerLabels[l.id] ? 1 : 0].join('|');
+}
+// Принудительно сбросить кэш рендера слоя (гарантирует перестроение при смене стиля).
+function kmlInvalidateLayerCache(id) {
+  try { if (_kmlRenderCache) { if (id) delete _kmlRenderCache[id]; else _kmlRenderCache = {}; } } catch (e) {}
 }
 function renderLayerGroupsWithSymbols() {
   // kmlPane ниже overlayPane (400) — KML визуально под объёмами

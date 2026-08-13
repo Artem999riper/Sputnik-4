@@ -320,8 +320,10 @@ function editLayer(id){
     <div class="fg"><label>Название</label><input id="f-lnm" value="${esc(l.name)}"></div>
     <div class="fg"><label>Цвет</label><input id="f-lcl" type="color" value="${l.color}" style="width:100%;height:32px"></div>
   </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
-    l.name=v('f-lnm');l.color=v('f-lcl');
-    await fetch(`${API}/layers/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:l.name,color:l.color,visible:l.visible?1:0})});
+    const lt=layers.find(x=>x.id===id)||l; // актуальный объект слоя
+    lt.name=v('f-lnm');lt.color=v('f-lcl');
+    await fetch(`${API}/layers/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:lt.name,color:lt.color,visible:lt.visible?1:0})});
+    if(typeof kmlInvalidateLayerCache==='function')kmlInvalidateLayerCache(id); // форсировать перестроение
     closeModal();renderLP();renderLayerGroups();setTimeout(bringVolumesToFront,50);toast('Обновлено','ok');
   }}]);
 }
