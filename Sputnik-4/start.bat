@@ -1,6 +1,8 @@
 @echo off
 title PurGeoCom Launcher
-cd /d "%~dp0"
+rem pushd (в отличие от cd /d) корректно работает с UNC-путями \\сервер\папка —
+rem автоматически подключает временную букву диска и делает её текущей папкой.
+pushd "%~dp0"
 
 where node >nul 2>&1
 if errorlevel 1 (
@@ -64,7 +66,9 @@ if "%SV2%"=="RUNNING" (
 )
 echo.
 echo    Starting server...
-start "PurGeoCom Server" /d "%~dp0" cmd /k node server.js
+rem Без /d: новое окно наследует текущую папку (подключённый pushd-диск),
+rem поэтому запуск работает и с сетевого UNC-пути.
+start "PurGeoCom Server" cmd /k node server.js
 timeout /t 2 /nobreak >nul
 start "" http://localhost:3000
 goto MENU
@@ -84,4 +88,5 @@ pause
 goto MENU
 
 :QUIT
+popd
 exit /b 0
