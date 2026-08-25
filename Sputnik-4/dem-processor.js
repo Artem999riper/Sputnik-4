@@ -973,6 +973,17 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
     if (!fs.existsSync(outDxf)||fs.statSync(outDxf).size<500) {
       throw new Error(`DXF не создан или пустой (${fs.existsSync(outDxf)?fs.statSync(outDxf).size:0} bytes)`);
     }
+    // Разбираем счётчики из вывода Python: "[PY] DONE: N contours, M labels, K grid points".
+    // Если нет ни горизонталей, ни точек высот — в области нет данных рельефа ArcticDEM
+    // (вода/пропуск покрытия). Не отдаём молча «пустой» DXF, а сообщаем понятную причину.
+    const mDone = /DONE:\s*(\d+)\s+contours,\s*(\d+)\s+labels,\s*(\d+)\s+grid points/i.exec(pyResult||'');
+    if (mDone) {
+      const nContours = +mDone[1], nPoints = +mDone[3];
+      log.push(`contours=${nContours}, points=${nPoints}`);
+      if (nContours === 0 && nPoints === 0) {
+        throw new Error('В выбранной области нет данных рельефа ArcticDEM — вероятно, это вода (морская акватория/залив) или участок без покрытия. Выберите область на суше или сместите/уменьшите рамку.');
+      }
+    }
     log.push(`DXF size: ${fs.statSync(outDxf).size} bytes`);
 
     // 8. Спутник
