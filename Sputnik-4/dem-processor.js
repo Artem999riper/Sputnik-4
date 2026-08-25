@@ -924,13 +924,35 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
     }catch(e){ fs.copyFileSync(filledTif,upTif); }
     log.push('Upsample OK');
 
-    // 6. Горизонтали → GPKG
-    onProgress&&onProgress(55,`Горизонтали ${interval}м...`);
+    // 6. Горизонтали → GPKG.
+    // Автоподбор интервала: на плоских участках (у моря) при большом интервале
+    // горизонталей может не быть — тогда повторяем с меньшим шагом (2→1→0.5 м).
     const contoursGpkg=path.join(tmpDir,'contours.gpkg');
-    await runGDAL('gdal_contour',[
-      '-a','elevation','-i',String(interval),'-3d','-nln','contours','-f','GPKG',
-      upTif,contoursGpkg,
-    ]);
+    const _countContours=async()=>{
+      try{
+        const {stdout}=await execFileP(gdal('ogrinfo'),['-ro','-so',contoursGpkg,'contours'],
+          {env:gdalEnv(),timeout:60000,maxBuffer:4*1024*1024});
+        const m=/Feature Count:\s*(\d+)/i.exec(stdout||'');
+        return m?parseInt(m[1]):0;
+      }catch(e){return 0;}
+    };
+    const _intervals=[];
+    { let iv=parseFloat(interval)||2; _intervals.push(iv);
+      while(iv>0.5+1e-9 && _intervals.length<3){ iv=Math.max(0.5,Math.round((iv/2)*100)/100); _intervals.push(iv); } }
+    let usedInterval=parseFloat(interval)||2, nContours=0;
+    for(const iv of _intervals){
+      onProgress&&onProgress(55,`Горизонтали ${iv}м...`);
+      try{ if(fs.existsSync(contoursGpkg))fs.rmSync(contoursGpkg,{force:true}); }catch(e){}
+      await runGDAL('gdal_contour',[
+        '-a','elevation','-i',String(iv),'-3d','-nln','contours','-f','GPKG',
+        upTif,contoursGpkg,
+      ]);
+      usedInterval=iv;
+      nContours=await _countContours();
+      log.push(`Contours @${iv}m: ${nContours}`);
+      if(nContours>0)break;
+    }
+    interval=usedInterval; // Python получит фактический интервал (для подписей)
     log.push('Contours OK');
 
     // 7. Python → DXF R12
