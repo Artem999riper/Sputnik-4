@@ -253,10 +253,17 @@ function openDEMPanel() {
                 border-radius:3px;cursor:pointer;color:var(--tx2);white-space:nowrap;display:none">
                 🗺 Показать
               </button>
-              <button onclick="demClearTileCache()" id="dem-tile-cache-btn"
+              <button onclick="demClearTileCacheBbox()" id="dem-tile-cache-bbox-btn"
+                title="Удалить кэш только под нарисованной рамкой"
                 style="font-size:9px;padding:1px 7px;background:var(--s3);border:1px solid var(--bd);
                 border-radius:3px;cursor:pointer;color:var(--tx2);white-space:nowrap;display:none">
-                🗑 Очистить
+                🗑 По рамке
+              </button>
+              <button onclick="demClearTileCache()" id="dem-tile-cache-btn"
+                title="Удалить весь кэш тайлов рельефа"
+                style="font-size:9px;padding:1px 7px;background:var(--s3);border:1px solid var(--bd);
+                border-radius:3px;cursor:pointer;color:var(--tx2);white-space:nowrap;display:none">
+                🗑 Всё
               </button>
             </div>
           </div>
@@ -785,6 +792,7 @@ async function demSaveTilesDir() {
 async function demRefreshTileCache() {
   const el      = document.getElementById('dem-tile-cache-info');
   const btn     = document.getElementById('dem-tile-cache-btn');
+  const bboxBtn = document.getElementById('dem-tile-cache-bbox-btn');
   const showBtn = document.getElementById('dem-tile-show-btn');
   if (!el) return;
   try {
@@ -794,11 +802,13 @@ async function demRefreshTileCache() {
     if (tiles.length === 0) {
       el.innerHTML = '<span style="color:var(--tx3)">Нет кэшированных тайлов рельефа</span>';
       if (btn)     btn.style.display = 'none';
+      if (bboxBtn) bboxBtn.style.display = 'none';
       if (showBtn) showBtn.style.display = 'none';
     } else {
       const totalMb = (tiles.reduce((s, t) => s + (t.size || 0), 0) / 1024 / 1024).toFixed(0);
       el.innerHTML = `<span style="color:var(--grn)">✅ Тайлы рельефа: ${tiles.length} шт. (${totalMb} МБ) — профиль использует ArcticDEM</span>`;
       if (btn)     btn.style.display = '';
+      if (bboxBtn) bboxBtn.style.display = '';
       if (showBtn) showBtn.style.display = '';
     }
   } catch(e) {
@@ -852,6 +862,29 @@ async function demClearTileCache() {
     await demRefreshTileCache();
   } catch(e) {
     toast('❌ ' + e.message, 'err');
+  }
+}
+
+// Очистить кэш ТОЛЬКО под нарисованной рамкой (пересекающиеся тайлы)
+async function demClearTileCacheBbox() {
+  if (!_demBbox) { toast('Сначала нарисуйте рамку области (✏️ Нарисовать прямоугольник)', 'err'); return; }
+  if (!await confirmDlg('Удалить кэшированные тайлы рельефа, попадающие в нарисованную рамку? При следующем экспорте эта область скачается заново.')) return;
+  const el = document.getElementById('dem-tile-cache-info');
+  if (el) el.innerHTML = '<span style="color:var(--tx3)">⏳ Очищаю по рамке...</span>';
+  try {
+    const r = await fetch('/api/dem/tiles/clear-bbox', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bbox: _demBbox }),
+    });
+    const j = await r.json();
+    if (!r.ok) { toast('❌ ' + (j.error || 'Ошибка'), 'err'); await demRefreshTileCache(); return; }
+    toast(j.deleted ? `🗑 Удалено тайлов в рамке: ${j.deleted}` : 'В рамке нет кэшированных тайлов', j.deleted ? 'ok' : 'err');
+    // Обновить наложение покрытия, если оно показано
+    if (_demTileLayers.length) { _demTileLayers.forEach(l => { try { map.removeLayer(l); } catch(_) {} }); _demTileLayers = []; await demToggleTileCoverage(); }
+    await demRefreshTileCache();
+  } catch(e) {
+    toast('❌ ' + e.message, 'err');
+    await demRefreshTileCache();
   }
 }
 

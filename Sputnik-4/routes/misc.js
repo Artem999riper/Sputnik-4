@@ -777,6 +777,28 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json({ deleted });
   });
 
+  // POST /api/dem/tiles/clear-bbox — удалить только кэш-тайлы, ПЕРЕСЕКАЮЩИЕ рамку
+  app.post('/api/dem/tiles/clear-bbox', (req, res) => {
+    if (!demProcessor) return res.json({ deleted: 0, names: [] });
+    const b = req.body && req.body.bbox;
+    if (!b || b.minLng == null || b.minLat == null || b.maxLng == null || b.maxLat == null)
+      return res.status(400).json({ error: 'bbox required' });
+    const sMinLng = Math.min(+b.minLng, +b.maxLng), sMaxLng = Math.max(+b.minLng, +b.maxLng);
+    const sMinLat = Math.min(+b.minLat, +b.maxLat), sMaxLat = Math.max(+b.minLat, +b.maxLat);
+    const info = demProcessor.getDemTilesInfo();
+    const names = [];
+    for (const t of (info.tiles || [])) {
+      const m = t.name.match(/^dem_([-\d.]+)_([-\d.]+)_([-\d.]+)_([-\d.]+)\.tif$/i);
+      if (!m) continue;
+      const tMinLng = +m[1], tMinLat = +m[2], tMaxLng = +m[3], tMaxLat = +m[4];
+      // пересечение прямоугольников по обеим осям
+      const overlap = !(tMaxLng < sMinLng || tMinLng > sMaxLng || tMaxLat < sMinLat || tMinLat > sMaxLat);
+      if (!overlap) continue;
+      try { fs.unlinkSync(require('path').join(info.dir, t.name)); names.push(t.name); } catch(_) {}
+    }
+    res.json({ deleted: names.length, names });
+  });
+
   // GET /api/dem/tiles-dir — текущий путь к папке тайлов
   app.get('/api/dem/tiles-dir', (req, res) => {
     const dir = demProcessor ? demProcessor.getDemTilesDir() : '';
