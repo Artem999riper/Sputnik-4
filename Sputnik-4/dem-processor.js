@@ -911,10 +911,12 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
     if (format==='geotiff') return {file:reprojTif,tmpDir,log,mime:'image/tiff'};
 
     // 5. Fillnodata + upsample
+    // -md 100 (≈200 м): заполняем пустоты ArcticDEM над озёрами/реками/мелкой водой,
+    // иначе в тундре с озёрами растр «дырявый» и горизонтали не строятся.
     onProgress&&onProgress(45,'Улучшение растра...');
     const filledTif=path.join(tmpDir,'filled.tif');
     try{
-      await runGDAL('gdal_fillnodata',['-md','10','-si','2',reprojTif,filledTif]);
+      await runGDAL('gdal_fillnodata',['-md','100','-si','2',reprojTif,filledTif]);
     }catch(e){ fs.copyFileSync(reprojTif,filledTif); }
 
     const upTif=path.join(tmpDir,'up.tif');
@@ -1003,7 +1005,19 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
       const nContours = +mDone[1], nPoints = +mDone[3];
       log.push(`contours=${nContours}, points=${nPoints}`);
       if (nContours === 0 && nPoints === 0) {
-        throw new Error('В выбранной области нет данных рельефа ArcticDEM — вероятно, это вода (морская акватория/залив) или участок без покрытия. Выберите область на суше или сместите/уменьшите рамку.');
+        // Диагностика: сколько валидных пикселей и диапазон высот в растре
+        let stats = '';
+        try {
+          const { stdout } = await execFileP(gdal('gdalinfo'), ['-stats', upTif],
+            { env: gdalEnv(), timeout: 60000, maxBuffer: 4 * 1024 * 1024 });
+          const vp = /STATISTICS_VALID_PERCENT=([\d.]+)/i.exec(stdout);
+          const mn = /STATISTICS_MINIMUM=(-?[\d.]+)/i.exec(stdout);
+          const mx = /STATISTICS_MAXIMUM=(-?[\d.]+)/i.exec(stdout);
+          if (vp) stats = ` (валидных пикселей: ${(+vp[1]).toFixed(0)}%` +
+            (mn && mx ? `, высоты ${(+mn[1]).toFixed(1)}…${(+mx[1]).toFixed(1)} м)` : ')');
+        } catch (e) {}
+        throw new Error('В выбранной области нет данных рельефа ArcticDEM' + stats +
+          ' — вероятно, это вода (морская акватория/залив) или участок без покрытия. Сместите/уменьшите рамку на сушу.');
       }
     }
     log.push(`DXF size: ${fs.statSync(outDxf).size} bytes`);
