@@ -108,6 +108,7 @@ let kmlPanelOpen  = false;
 let _kmlSelectedCat = 'ALL';    // 'ALL' | group_id | 'UNGROUPED'
 let _kmlDisplayMode = 'selected'; // 'selected' | 'all' | 'none'
 let _kmlExpanded    = new Set();  // id слоёв, раскрытых в иерархии
+let _kmlSel         = new Set();  // id слоёв, отмеченных для массового удаления
 
 // ── Утилиты SVG ────────────────────────────────────────────
 function kmlSvgIcon(symbolKey, color, size) {
@@ -241,9 +242,11 @@ function _kmlRenderLayerPane() {
       ? `<span class="kml-exp-arrow" onclick="event.stopPropagation();_kmlToggleExpand('${l.id}')" title="${isExp ? 'Свернуть' : 'Показать объекты'}">${isExp ? '▼' : '▶'}</span>`
       : `<span class="kml-exp-arrow empty"></span>`;
     return `<div class="kml-layer-row" data-lid="${l.id}" oncontextmenu="event.preventDefault();kmlLayerCtx(event,'${l.id}')">
+      <input type="checkbox" class="kml-sel-cb" ${_kmlSel.has(l.id) ? 'checked' : ''} title="Выбрать для удаления"
+        onchange="kmlToggleSel('${l.id}',this.checked)" onclick="event.stopPropagation()" style="cursor:pointer;flex-shrink:0;accent-color:#e02424">
       ${arrow}
-      <input type="checkbox" ${l.visible ? 'checked' : ''} title="${l.visible ? 'Скрыть слой' : 'Показать слой'}"
-        onchange="kmlToggleVis('${l.id}',this.checked?1:0)" onclick="event.stopPropagation()" style="cursor:pointer;flex-shrink:0">
+      <button class="kml-icon-btn ${l.visible ? 'on' : ''}" title="${l.visible ? 'Скрыть слой' : 'Показать слой'}"
+        onclick="event.stopPropagation();kmlToggleVis('${l.id}',${l.visible ? 0 : 1})" style="flex-shrink:0">${l.visible ? '👁' : '🚫'}</button>
       <div class="kml-sym-preview" onclick="kmlOpenStyleModal('${l.id}')" title="Стиль слоя">${svgPrev}</div>
       <div class="kml-layer-name" onclick="${featCnt > 0 ? `_kmlToggleExpand('${l.id}')` : ''}" ondblclick="kmlRenameLayer('${l.id}')" title="${esc(l.name)}">${esc(l.name)}${featCnt ? ` <span class="kml-feat-badge">${featCnt}</span>` : ''}</div>
       <button class="kml-icon-btn ${lblOn ? 'on' : ''}" onclick="toggleLayerLabels('${l.id}')" title="Подписи">🏷</button>
@@ -253,14 +256,62 @@ function _kmlRenderLayerPane() {
     </div>${isExp ? _kmlFeatureChildRows(l) : ''}`;
   }).join('');
 
+  // Оставляем в выборе только те слои, что есть в текущем списке
+  const filteredIds = new Set(filtered.map(l => l.id));
+  [..._kmlSel].forEach(id => { if (!filteredIds.has(id)) _kmlSel.delete(id); });
+
   const visCount = filtered.filter(l => l.visible).length;
-  el.innerHTML = `<div style="flex:1">${rows}</div>
-    <div class="kml-pane-footer">Показано ${visCount} / ${filtered.length}</div>`;
+  const selN = _kmlSel.size;
+  const footer = selN > 0
+    ? `<div class="kml-pane-footer" style="display:flex;align-items:center;gap:8px">
+        <span>Выбрано: <b>${selN}</b></span>
+        <button class="btn bs bxs" onclick="kmlSelClear()">Снять</button>
+        <button class="btn bd bxs" style="margin-left:auto" onclick="kmlDeleteSelected()">🗑 Удалить выбранные (${selN})</button>
+      </div>`
+    : `<div class="kml-pane-footer" style="display:flex;align-items:center;gap:8px">
+        <span>Показано ${visCount} / ${filtered.length}</span>
+        <button class="btn bs bxs" style="margin-left:auto" onclick="kmlSelAll()">☑ Выбрать все</button>
+      </div>`;
+  el.innerHTML = `<div style="flex:1">${rows}</div>${footer}`;
+}
+// ── Массовый выбор/удаление слоёв ───────────────────────────
+function kmlToggleSel(id, on) {
+  if (on) _kmlSel.add(id); else _kmlSel.delete(id);
+  _kmlRenderLayerPane();
+}
+function kmlSelClear() { _kmlSel.clear(); _kmlRenderLayerPane(); }
+function kmlSelAll() {
+  const allLayers = layers.filter(l => !l.site_id);
+  let filtered;
+  if (_kmlSelectedCat === 'ALL') filtered = allLayers;
+  else if (_kmlSelectedCat === 'UNGROUPED') filtered = allLayers.filter(l => !l.group_id || !kmGroups[l.group_id]);
+  else filtered = allLayers.filter(l => l.group_id === _kmlSelectedCat);
+  filtered.forEach(l => _kmlSel.add(l.id));
+  _kmlRenderLayerPane();
+}
+async function kmlDeleteSelected() {
+  const ids = [..._kmlSel];
+  if (!ids.length) return;
+  if (!await confirmDlg(`Удалить выбранные слои (${ids.length})? Действие необратимо.`)) return;
+  // Убираем с карты и из локального списка сразу
+  ids.forEach(id => { if (lGroups[id]) { try { map.removeLayer(lGroups[id]); } catch(e) {} } });
+  layers = layers.filter(l => !_kmlSel.has(l.id));
+  _kmlSel.clear();
+  renderKmlPanel();
+  let ok = 0;
+  for (const id of ids) {
+    try { const r = await fetch(`${API}/layers/${id}`, { method: 'DELETE' }); if (r.ok) ok++; } catch(e) {}
+  }
+  try { layers = await fetch(`${API}/layers`).then(r => r.json()); } catch(e) {}
+  renderKmlPanel();
+  try { renderLP(); renderLayerGroups(); } catch(e) {}
+  toast(`Удалено слоёв: ${ok}`, ok ? 'ok' : 'err');
 }
 
 // Выбрать категорию в левой панели
 function _kmlSelectCat(cat) {
   _kmlSelectedCat = cat;
+  _kmlSel.clear(); // выбор для удаления не переносим между категориями
   renderKmlPanel();
 }
 
@@ -1568,6 +1619,8 @@ function renderLayerGroupsWithSymbols() {
               {i:'📋',l:'Объекты слоя',f:()=>kmlOpenFeatureList(l.id)},
               {i:'👁',l:l.visible?'Скрыть слой':'Показать слой',f:()=>kmlToggleVis(l.id,l.visible?0:1)},
               ...(l.group_id?[{sep:true},{i:'📄',l:'Убрать из группы',f:()=>kmlMoveToGroup(l.id,null)}]:[]),
+              {sep:true},
+              {i:'🗑',l:'Удалить слой',cls:'dan',f:()=>kmlDeleteLayer(l.id)},
             ]);
           });
         }
