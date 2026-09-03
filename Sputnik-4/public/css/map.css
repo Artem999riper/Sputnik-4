@@ -46,7 +46,7 @@ body:has(#kml-panel.open) #brigades-page{right:520px}
 .kml-panel-ft{display:flex;gap:8px;align-items:center;padding:5px 9px;border-top:1px solid var(--bd);flex-shrink:0;background:var(--s2);font-size:11px;flex-wrap:wrap}
 .kml-panel-ft label{display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--tx2)}
 .kml-panel-ft label:has(input:checked){color:var(--acc);font-weight:600}
-.kml-pane-footer{padding:4px 9px;font-size:10px;color:var(--tx3);border-top:1px solid var(--bd);background:var(--s2);flex-shrink:0}
+.kml-pane-footer{padding:4px 9px;font-size:10px;color:var(--tx3);border-top:1px solid var(--bd);background:var(--s2);flex-shrink:0;position:sticky;bottom:0;z-index:3;box-shadow:0 -2px 6px rgba(0,0,0,.08)}
 /* layer rows */
 .kml-layer-row{display:flex;align-items:center;gap:3px;padding:4px 8px;border-bottom:1px solid var(--bd);transition:background .1s}
 .kml-layer-row:hover{background:var(--accl)}
