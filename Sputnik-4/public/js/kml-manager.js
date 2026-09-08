@@ -1052,6 +1052,52 @@ async function kmlToggleDone(layerId, fIdx){
   }catch(e){toast('Ошибка сохранения','err');}
 }
 
+// ── Передвинуть объект KML (ПКМ → Передвинуть → клик по карте) ──
+let _kmvActive = null; // { layerId, fIdx }
+function startKmlMoveFeature(layerId, fIdx) {
+  _kmvActive = { layerId, fIdx };
+  map.getContainer().style.cursor = 'crosshair';
+  const bnr = document.getElementById('bnr');
+  if (bnr) { bnr.className = 'show draw'; const t = document.getElementById('bnr-t'); if (t) t.textContent = '↔ Кликните новое положение объекта (ПКМ — отмена)'; }
+  map.once('click', _kmvClick);
+  toast('Кликните новое положение объекта','ok');
+}
+function _kmvEnd() {
+  _kmvActive = null;
+  map.getContainer().style.cursor = '';
+  const bnr = document.getElementById('bnr'); if (bnr) bnr.className = '';
+}
+function _kmvCancel() { map.off('click', _kmvClick); _kmvEnd(); toast('Перемещение отменено','ok'); }
+// Сдвиг геометрии так, чтобы её центр (для точки — сама точка) встал на dst=[lng,lat]
+function _kmvMoveGeom(geom, dst) {
+  if (!geom) return;
+  if (geom.type === 'Point') { geom.coordinates = [dst[0], dst[1], ...(geom.coordinates.slice(2))]; return; }
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+  const visit = a => { if (typeof a[0] === 'number') { minLng = Math.min(minLng, a[0]); maxLng = Math.max(maxLng, a[0]); minLat = Math.min(minLat, a[1]); maxLat = Math.max(maxLat, a[1]); } else a.forEach(visit); };
+  const coordsList = geom.type === 'GeometryCollection' ? (geom.geometries || []).map(g => g.coordinates).filter(Boolean) : [geom.coordinates];
+  coordsList.forEach(visit);
+  if (!isFinite(minLng)) return;
+  const dx = dst[0] - (minLng + maxLng) / 2, dy = dst[1] - (minLat + maxLat) / 2;
+  const shift = a => { if (typeof a[0] === 'number') { a[0] += dx; a[1] += dy; } else a.forEach(shift); };
+  if (geom.type === 'GeometryCollection') (geom.geometries || []).forEach(g => g.coordinates && shift(g.coordinates));
+  else shift(geom.coordinates);
+}
+async function _kmvClick(e) {
+  const mv = _kmvActive; if (!mv) return;
+  _kmvEnd();
+  const l = layers.find(x => x.id === mv.layerId); if (!l) { toast('Слой не найден','err'); return; }
+  let gj; try { gj = JSON.parse(l.geojson); } catch (err) { toast('Ошибка разбора слоя','err'); return; }
+  const features = gj.type === 'FeatureCollection' ? gj.features : [gj];
+  const f = features[mv.fIdx]; if (!f || !f.geometry) { toast('Объект не найден','err'); return; }
+  _kmvMoveGeom(f.geometry, [e.latlng.lng, e.latlng.lat]);
+  try {
+    await _kmlSaveGeojson(l, gj);
+    kmlInvalidateLayerCache(l.id);
+    renderLayerGroups();
+    toast('↔ Объект перемещён','ok');
+  } catch (err) { toast('Ошибка сохранения','err'); }
+}
+
 // ══════════════════════════════════════════════════════════════
 // РЕДАКТОР ОБЪЕКТОВ СЛОЯ (Feature List)
 // ══════════════════════════════════════════════════════════════
@@ -1610,6 +1656,7 @@ function renderLayerGroupsWithSymbols() {
               }},
               ...(fIdx>=0?[{i:'✅',l:(f.properties&&f.properties._color===KML_DONE_COLOR)?'Снять «выполнено»':'Выполнить объект',f:()=>kmlToggleDone(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'✏️',l:'Редактировать объект',f:()=>kmlEditFeature(l.id,fIdx)}]:[]),
+              ...(fIdx>=0?[{i:'↔',l:'Передвинуть',f:()=>startKmlMoveFeature(l.id,fIdx)}]:[]),
               ...(fIdx>=0&&f.geometry&&f.geometry.type==='LineString'?[{i:'⬛',l:'Линия → полигон',f:()=>kmlLineToPolygon(l.id,fIdx)}]:[]),
               ...(fIdx>=0&&f.geometry&&f.geometry.type==='Polygon'?[{i:'〰️',l:'Полигон → линия',f:()=>kmlPolygonToLine(l.id,fIdx)}]:[]),
               ...(coordStr?[{i:'📋',l:'Копировать координаты',f:()=>{navigator.clipboard.writeText(coordStr).then(()=>toast('Скопировано','ok'));}}]:[]),

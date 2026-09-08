@@ -50,6 +50,7 @@ function onMapClick(e){
 function onMapRClick(e){
   e.originalEvent.preventDefault();
   if(typeof _epActive!=='undefined'&&_epActive){_epFinish(e);return;}
+  if(typeof _kmvActive!=='undefined'&&_kmvActive){_kmvCancel();return;}
   if(typeof _kdActive!=='undefined'&&_kdActive){_kdRClick(e);return;}
   if(typeof _ksActive!=='undefined'&&_ksActive){_ksRClick(e);return;}
   if(vertexEditLayerId){_handleVertexEditRCM(e);return;}
@@ -322,6 +323,7 @@ function setTool(t){
   }
 }
 function cancelMode(){
+  if(typeof _kmvActive!=='undefined'&&_kmvActive){_kmvCancel();return;}
   if(typeof _kdActive!=='undefined'&&_kdActive){_kdCancel();return;}
   if(typeof _ksActive!=='undefined'&&_ksActive){_ksCancel();return;}
   if(drawMode){cancelDraw();return;}
