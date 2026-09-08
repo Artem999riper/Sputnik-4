@@ -637,6 +637,52 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json({ layers: created });
   }));
 
+  // ── Импорт MapInfo TAB → слой KML (через ogr2ogr) ──────────
+  // Принимает несколько файлов набора (.tab/.map/.id/.dat) или ZIP с ними.
+  let _tabUpload = (req, res, next) => next();
+  try {
+    const _multer = require('multer');
+    _tabUpload = _multer({ storage: _multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } }).array('files', 16);
+  } catch (e) {}
+  app.post('/api/layers/import-tab', _tabUpload, wrap(async (req, res) => {
+    if (!demProcessor || !demProcessor.convertToGeoJSON)
+      return res.status(501).json({ error: 'Импорт TAB недоступен: на сервере нет GDAL/OSGeo4W' });
+    const files = req.files || [];
+    if (!files.length) return res.status(400).json({ error: 'Файлы не переданы' });
+
+    const tmpDir = path.join(__dirname, '..', 'public', 'uploads', `_tabimp_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {} };
+    try {
+      const AdmZip = require('adm-zip');
+      for (const f of files) {
+        const safe = (f.originalname || 'file').replace(/[\/\\]/g, '_').replace(/[<>:"|?*\x00-\x1F]/g, '_');
+        if (/\.zip$/i.test(safe)) { try { new AdmZip(f.buffer).extractAllTo(tmpDir, true); } catch (e) {} }
+        else fs.writeFileSync(path.join(tmpDir, safe), f.buffer);
+      }
+      // Ищем .tab (в т.ч. в подпапках после распаковки ZIP)
+      let tabPath = null;
+      const walk = d => { for (const n of fs.readdirSync(d)) { const p = path.join(d, n); const st = fs.statSync(p); if (st.isDirectory()) walk(p); else if (/\.tab$/i.test(n) && !tabPath) tabPath = p; } };
+      walk(tmpDir);
+      if (!tabPath) { cleanup(); return res.status(400).json({ error: 'Не найден .tab. Загрузите весь набор (.tab, .map, .id, .dat) вместе или ZIP-архив с ними.' }); }
+
+      const outGj = path.join(tmpDir, 'out.geojson');
+      try { await demProcessor.convertToGeoJSON(tabPath, outGj); }
+      catch (e) { cleanup(); return res.status(501).json({ error: 'Не удалось прочитать TAB (нужен GDAL/OSGeo4W). ' + (e.message || '') }); }
+
+      let gj; try { gj = JSON.parse(fs.readFileSync(outGj, 'utf8')); } catch (e) { cleanup(); return res.status(422).json({ error: 'GeoJSON из TAB не разобран' }); }
+      cleanup();
+      const feats = (gj && gj.features) || [];
+      if (!feats.length) return res.status(422).json({ error: 'В TAB нет объектов' });
+
+      const name = path.basename(tabPath).replace(/\.tab$/i, '');
+      const id = uuid();
+      run(db(), 'INSERT INTO kml_layers(id,name,geojson,color,visible,symbol,group_id,line_dash)VALUES(?,?,?,?,1,?,?,?)',
+        [id, name, JSON.stringify(gj), '#1a56db', '', '', 'solid']);
+      res.json({ layer: { id, name, features: feats.length } });
+    } catch (e) { cleanup(); res.status(500).json({ error: 'Ошибка импорта TAB: ' + (e.message || '') }); }
+  }));
+
   app.post('/api/layers/export-dxf', wrap(async (req, res) => {
     const { layerIds, crs, filename } = req.body || {};
     if (!Array.isArray(layerIds) || !layerIds.length) {

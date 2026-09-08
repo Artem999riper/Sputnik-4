@@ -341,7 +341,10 @@ async function _readFileText(file) {
   catch (_) { return new TextDecoder('windows-1251').decode(buf); }
 }
 async function importLayer(evt){
-  const file=evt.target.files[0];if(!file)return;
+  const fl=evt.target.files;if(!fl||!fl.length)return;
+  // Набор файлов MapInfo TAB (.tab/.map/.id/.dat) или ZIP → серверный импорт через GDAL
+  if([...fl].some(f=>/\.(tab|zip)$/i.test(f.name))){ await _importTab(fl); evt.target.value=''; return; }
+  const file=fl[0];
   const text=await _readFileText(file);
   const ext=file.name.split('.').pop().toLowerCase();
   if(ext==='dxf'){await _importDxf(file,text);evt.target.value='';return;}
@@ -385,6 +388,26 @@ function _showDxfCrsModal(){
       }},
     ]);
   });
+}
+// Импорт MapInfo TAB: отправляем весь набор файлов (или ZIP) на сервер (ogr2ogr → GeoJSON)
+async function _importTab(fileList){
+  const files=[...fileList];
+  const hasTab=files.some(f=>/\.tab$/i.test(f.name));
+  const hasZip=files.some(f=>/\.zip$/i.test(f.name));
+  if(!hasTab&&!hasZip){ toast('Для TAB выберите весь набор (.tab, .map, .id, .dat) или ZIP с ними','err'); return; }
+  const fd=new FormData();
+  files.forEach(f=>fd.append('files',f));
+  toast('⏳ Импорт TAB (через GDAL)…','ok');
+  let j;
+  try{
+    const r=await fetch(`${API}/layers/import-tab`,{method:'POST',body:fd});
+    j=await r.json();
+    if(!r.ok){ toast(j.error||'Ошибка импорта TAB','err'); return; }
+  }catch(e){ toast('Ошибка импорта TAB','err'); return; }
+  const fresh=await fetch(`${API}/layers`).then(r=>r.json()).catch(()=>layers);
+  layers=fresh;renderLP();renderLayerGroups();
+  try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
+  toast(`TAB импортирован: ${j.layer?j.layer.features:0} объектов`,'ok');
 }
 async function _importDxf(file,text){
   const crs=await _showDxfCrsModal();

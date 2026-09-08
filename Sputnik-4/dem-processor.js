@@ -1204,8 +1204,19 @@ async function convertToTab(srcPath, outTabPath) {
   return out;
 }
 
+// Конвертация векторного файла (TAB/MIF/SHP…) в GeoJSON (WGS-84) через ogr2ogr.
+// Репроецирует из встроенной СК файла в EPSG:4326. Бросает ошибку без GDAL.
+async function convertToGeoJSON(srcPath, outPath) {
+  findGDALBin();
+  await execFileP(gdal('ogr2ogr'),
+    ['-f', 'GeoJSON', '-t_srs', 'EPSG:4326', '-skipfailures', outPath, srcPath],
+    { env: gdalEnv(), timeout: 120000, maxBuffer: 256 * 1024 * 1024 });
+  if (!fs.existsSync(outPath)) throw new Error('ogr2ogr не создал GeoJSON');
+  return outPath;
+}
+
 module.exports = {
-  processDEM, cleanupTmp, checkGDAL, convertToTab,
+  processDEM, cleanupTmp, checkGDAL, convertToTab, convertToGeoJSON,
   getElevationAtPoint, getElevationProfile, getDemTilesInfo, computeGeoidN,
   getDemTilesDir, setDemTilesDir,
   _downloadGeoidGrids: _ensureGeoidGrids,
