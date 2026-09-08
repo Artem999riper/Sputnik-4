@@ -655,16 +655,37 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {} };
     try {
       const AdmZip = require('adm-zip');
+      // Собираем все части набора в память (raw). Имена multipart приходят как
+      // latin1 — декодируем в UTF-8, иначе кириллица «ломается» (мохито) и GDAL
+      // не открывает файлы. ZIP распаковываем и добавляем его содержимое.
+      const decode = s => { try { return Buffer.from(String(s || 'file'), 'latin1').toString('utf8'); } catch (e) { return String(s || 'file'); } };
+      const entries = []; // { name, buffer }
       for (const f of files) {
-        const safe = (f.originalname || 'file').replace(/[\/\\]/g, '_').replace(/[<>:"|?*\x00-\x1F]/g, '_');
-        if (/\.zip$/i.test(safe)) { try { new AdmZip(f.buffer).extractAllTo(tmpDir, true); } catch (e) {} }
-        else fs.writeFileSync(path.join(tmpDir, safe), f.buffer);
+        const nm = decode(f.originalname);
+        if (/\.zip$/i.test(nm)) {
+          const zdir = path.join(tmpDir, '_zip_' + Math.random().toString(36).slice(2));
+          fs.mkdirSync(zdir, { recursive: true });
+          try { new AdmZip(f.buffer).extractAllTo(zdir, true); } catch (e) {}
+          const collect = d => { for (const n of fs.readdirSync(d)) { const p = path.join(d, n); const st = fs.statSync(p); if (st.isDirectory()) collect(p); else entries.push({ name: n, buffer: fs.readFileSync(p) }); } };
+          collect(zdir);
+        } else {
+          entries.push({ name: nm, buffer: f.buffer });
+        }
       }
-      // Ищем .tab (в т.ч. в подпапках после распаковки ZIP)
-      let tabPath = null;
-      const walk = d => { for (const n of fs.readdirSync(d)) { const p = path.join(d, n); const st = fs.statSync(p); if (st.isDirectory()) walk(p); else if (/\.tab$/i.test(n) && !tabPath) tabPath = p; } };
-      walk(tmpDir);
-      if (!tabPath) { cleanup(); return res.status(400).json({ error: 'Не найден .tab. Загрузите весь набор (.tab, .map, .id, .dat) вместе или ZIP-архив с ними.' }); }
+      // Переписываем набор под безопасными ASCII-именами с ОБЩИМ базовым именем
+      // (imp0.tab/.map/.id/.dat), сохраняя исходное имя набора для названия слоя.
+      const baseMap = {}; let gi = 0; const origBase = {};
+      for (const e of entries) {
+        const ext = ((e.name.match(/\.([^.]+)$/) || [])[1] || '').toLowerCase();
+        const base = e.name.replace(/\.[^.]+$/, '');
+        if (!(base in baseMap)) { baseMap[base] = 'imp' + (gi++); origBase[baseMap[base]] = base; }
+        fs.writeFileSync(path.join(tmpDir, baseMap[base] + (ext ? '.' + ext : '')), e.buffer);
+      }
+      // Ищем .tab среди переписанных наборов
+      let tabSafe = null;
+      for (const sb of Object.values(baseMap)) { if (fs.existsSync(path.join(tmpDir, sb + '.tab'))) { tabSafe = sb; break; } }
+      if (!tabSafe) { cleanup(); return res.status(400).json({ error: 'Не найден .tab. Загрузите весь набор (.tab, .map, .id, .dat) вместе или ZIP-архив с ними.' }); }
+      const tabPath = path.join(tmpDir, tabSafe + '.tab');
 
       const outGj = path.join(tmpDir, 'out.geojson');
       try { await demProcessor.convertToGeoJSON(tabPath, outGj); }
@@ -675,7 +696,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
       const feats = (gj && gj.features) || [];
       if (!feats.length) return res.status(422).json({ error: 'В TAB нет объектов' });
 
-      const name = path.basename(tabPath).replace(/\.tab$/i, '');
+      const name = (origBase[tabSafe] || 'MapInfo').replace(/\.tab$/i, '');
       const id = uuid();
       run(db(), 'INSERT INTO kml_layers(id,name,geojson,color,visible,symbol,group_id,line_dash)VALUES(?,?,?,?,1,?,?,?)',
         [id, name, JSON.stringify(gj), '#1a56db', '', '', 'solid']);
