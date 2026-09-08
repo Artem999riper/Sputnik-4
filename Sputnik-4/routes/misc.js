@@ -67,6 +67,27 @@ function parseDXF(text) {
           } else { break; }
         }
       }
+      // INSERT: собираем прикреплённые ATTRIB в сам блок (не как отдельные объекты).
+      // Атрибуты идут сразу после INSERT и завершаются SEQEND.
+      if (type === 'INSERT') {
+        entity.attribs = [];
+        while (i < pairs.length) {
+          if (pairs[i][0] !== 0) { i++; continue; }
+          if (pairs[i][1] === 'ATTRIB') {
+            i++;
+            const ac = [];
+            while (i < pairs.length && pairs[i][0] !== 0) { ac.push(pairs[i]); i++; }
+            const tag = ac.find(([cc]) => cc === 2)?.[1] || '';
+            const txt = (ac.find(([cc]) => cc === 1)?.[1] || '')
+              .replace(/\\[pPfFhHwWqQaAlLkKoOcCtTb];?|[{}]/g, '').trim();
+            if (txt) entity.attribs.push({ tag, text: txt });
+          } else if (pairs[i][1] === 'SEQEND') {
+            i++;
+            while (i < pairs.length && pairs[i][0] !== 0) i++;
+            break;
+          } else { break; } // следующий объект — атрибутов у блока больше нет
+        }
+      }
       if (type !== 'SEQEND' && type !== 'VERTEX') {
         if (!dxfLayers.has(layerName)) dxfLayers.set(layerName, []);
         dxfLayers.get(layerName).push(entity);
@@ -152,9 +173,26 @@ function dxfEntitiesToFeatures(entities, inv) {
     const c = ent.codes;
     const name = gS(c, 1);
     switch (ent.type) {
-      case 'POINT': case 'INSERT': {
+      case 'POINT': {
         const xy = safeInv(gF(c, 10), gF(c, 20));
         if (xy) features.push({ type:'Feature', geometry:{ type:'Point', coordinates:xy }, properties:{ name } });
+        break;
+      }
+      case 'INSERT': {
+        // Блок → ОДНА точка в позиции вставки; атрибуты (ATTRIB) — в имя/описание,
+        // а не отдельными объектами.
+        const xy = safeInv(gF(c, 10), gF(c, 20));
+        if (!xy) break;
+        const blockName = gS(c, 2); // имя блока
+        const attribs = ent.attribs || [];
+        const attrVals = attribs.map(a => a.text).filter(Boolean);
+        const props = { name: attrVals.join(' · ') || name || blockName || '' };
+        if (attribs.length) {
+          props.description = attribs.map(a => (a.tag ? a.tag + ': ' : '') + a.text).join('\n');
+          attribs.forEach(a => { if (a.tag && props[a.tag] === undefined) props[a.tag] = a.text; });
+        }
+        if (blockName) props.block = blockName;
+        features.push({ type:'Feature', geometry:{ type:'Point', coordinates:xy }, properties:props });
         break;
       }
       case 'LINE': {
