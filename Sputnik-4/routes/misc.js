@@ -687,9 +687,22 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
       if (!tabSafe) { cleanup(); return res.status(400).json({ error: 'Не найден .tab. Загрузите весь набор (.tab, .map, .id, .dat) вместе или ZIP-архив с ними.' }); }
       const tabPath = path.join(tmpDir, tabSafe + '.tab');
 
+      // Диагностика: перечень записанных частей набора с размерами
+      const partsInfo = fs.readdirSync(tmpDir)
+        .filter(n => /\.(tab|map|id|dat|ind)$/i.test(n))
+        .map(n => `${n}=${fs.statSync(path.join(tmpDir, n)).size}б`).join(', ');
+
       const outGj = path.join(tmpDir, 'out.geojson');
       try { await demProcessor.convertToGeoJSON(tabPath, outGj); }
-      catch (e) { cleanup(); return res.status(501).json({ error: 'Не удалось прочитать TAB (нужен GDAL/OSGeo4W). ' + (e.message || '') }); }
+      catch (e) {
+        const msg = (e.message || '');
+        cleanup();
+        // Частая причина — загружены не все файлы набора или .dat пустой
+        const short = /Open\(\) failed for .*\.dat/i.test(msg)
+          ? 'Не удалось открыть .DAT. Загрузите ВЕСЬ набор одним разом: .tab, .map, .id, .dat (и .ind, если есть). Получено: ' + (partsInfo || 'нет частей') + '.'
+          : ('Не удалось прочитать TAB (нужен GDAL/OSGeo4W). Получено: ' + (partsInfo || 'нет') + '. ' + msg.slice(0, 200));
+        return res.status(501).json({ error: short });
+      }
 
       let gj; try { gj = JSON.parse(fs.readFileSync(outGj, 'utf8')); } catch (e) { cleanup(); return res.status(422).json({ error: 'GeoJSON из TAB не разобран' }); }
       cleanup();
