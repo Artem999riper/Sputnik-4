@@ -345,8 +345,11 @@ async function importLayer(evt){
   // Набор файлов MapInfo TAB (.tab/.map/.id/.dat) или ZIP → серверный импорт через GDAL
   if([...fl].some(f=>/\.(tab|zip)$/i.test(f.name))){ await _importTab(fl); evt.target.value=''; return; }
   const file=fl[0];
+  const fext=file.name.split('.').pop().toLowerCase();
+  // Excel (.xlsx/.xls) — читаем как таблицу и прогоняем через тот же CSV-мастер
+  if(fext==='xlsx'||fext==='xls'){ await _importXlsx(file); evt.target.value=''; return; }
   const text=await _readFileText(file);
-  const ext=file.name.split('.').pop().toLowerCase();
+  const ext=fext;
   if(ext==='dxf'){await _importDxf(file,text);evt.target.value='';return;}
   if(ext==='csv'||ext==='txt'){await _importCsv(file,text);evt.target.value='';return;}
   const name=file.name.replace(/\.(kml|gpx)$/i,'');
@@ -606,6 +609,21 @@ function _showCsvConfigModal(text, fileName) {
   });
 }
 
+// Импорт Excel: читаем первый лист → tab-разделённый текст → тот же CSV-мастер
+async function _importXlsx(file) {
+  if (typeof XLSX === 'undefined') { toast('Библиотека Excel (XLSX) не загружена', 'err'); return; }
+  let text;
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    if (!ws) { toast('В Excel нет листов', 'err'); return; }
+    // Таб как разделитель — в ячейках он практически не встречается
+    text = XLSX.utils.sheet_to_csv(ws, { FS: '\t', blankrows: false });
+  } catch (e) { toast('Ошибка чтения Excel: ' + (e.message || ''), 'err'); return; }
+  if (!text || !text.trim()) { toast('Лист Excel пуст', 'err'); return; }
+  await _importCsv(file, text);
+}
 async function _importCsv(file, text) {
   const cfg = await _showCsvConfigModal(text, file.name);
   if (!cfg) return;
