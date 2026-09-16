@@ -451,6 +451,28 @@ function _csvSplitLine(line, delim) {
   return cells.map(c => c.replace(/^["']|["']$/g, ''));
 }
 
+// Разбор значения координаты: десятичные градусы/метры ИЛИ ГМС
+// (напр. "N 68°46'31.1\"", "71 50 27", "-45.5"). Полушарие S/W/Ю/З → минус.
+function _csvParseCoordVal(raw) {
+  if (raw == null) return NaN;
+  let s = String(raw).trim().replace(/^["']+|["']+$/g, '').trim();
+  if (!s) return NaN;
+  const neg = /[SsWwЮюЗз]/.test(s) || /^\s*-/.test(s);
+  const nums = s.replace(/,/g, '.').match(/\d+(?:\.\d+)?/g);
+  if (!nums || !nums.length) return NaN;
+  let val;
+  if (nums.length === 1) {
+    val = parseFloat(nums[0]);            // десятичные градусы или метры
+  } else {
+    const d = parseFloat(nums[0]) || 0;   // Г М С
+    const m = parseFloat(nums[1]) || 0;
+    const sec = parseFloat(nums[2] || '0') || 0;
+    val = d + m / 60 + sec / 3600;
+  }
+  if (!isFinite(val)) return NaN;
+  return neg ? -Math.abs(val) : val;
+}
+
 function _csvBuildPreviewAndCols(text, delim) {
   const lines = text.split(/\r?\n/).filter(l => l.trim());
   const rows = lines.slice(0, 7).map(l => _csvSplitLine(l, delim));
@@ -641,8 +663,8 @@ async function _importCsv(file, text) {
     const rawY = cols[yCol] || '';
     const nm   = nameCol >= 0 ? (cols[nameCol] || `Точка ${i + 1}`) : `Точка ${i + 1}`;
 
-    const x = parseFloat(rawX.replace(',', '.'));
-    const y = parseFloat(rawY.replace(',', '.'));
+    const x = _csvParseCoordVal(rawX); // Север/Широта (поддержка ГМС)
+    const y = _csvParseCoordVal(rawY); // Восток/Долгота (поддержка ГМС)
     if (isNaN(x) || isNaN(y)) { skipped++; return; }
 
     let lat, lng;
