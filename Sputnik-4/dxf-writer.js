@@ -227,7 +227,12 @@ function buildLayersDXF({ layers = [], transform = (lng, lat) => [lng, lat] }) {
   s += g(0, 'ENDTAB');
   s += g(0, 'ENDSEC');
 
-  s += g(0, 'SECTION'); s += g(2, 'ENTITIES');
+  // ── Буферы: определения блоков (BLOCKS) и объекты (ENTITIES) ──
+  // Точка с подписью выгружается как БЛОК (POINT+TEXT) и вставка INSERT —
+  // в CAD это единый объект: точка и надпись выделяются/двигаются вместе.
+  let blk = '';   // тело секции BLOCKS
+  let ent = '';   // тело секции ENTITIES
+  let blkSeq = 0; // счётчик уникальных имён блоков
 
   function tf(c) {
     const r = transform(c[0], c[1]);
@@ -236,12 +241,27 @@ function buildLayersDXF({ layers = [], transform = (lng, lat) => [lng, lat] }) {
 
   function emitPoint(layer, c, name) {
     const [x, y] = tf(c);
-    s += g(0, 'POINT'); s += g(8, layer.dxfName); s += g(62, layer.color);
-    s += g(10, x.toFixed(3)); s += g(20, y.toFixed(3)); s += g(30, '0.000');
     if (name) {
-      s += g(0, 'TEXT'); s += g(8, layer.dxfName); s += g(62, layer.color);
-      s += g(10, (x + 1).toFixed(3)); s += g(20, (y + 1).toFixed(3)); s += g(30, '0.000');
-      s += g(40, '2.5'); s += g(1, String(name).slice(0, 100));
+      // Определение блока: геометрия относительно точки вставки (0,0)
+      const bn = `PT_${++blkSeq}`;
+      const off = 1;
+      blk += g(0, 'BLOCK'); blk += g(8, layer.dxfName); blk += g(2, bn);
+      blk += g(70, 0); blk += g(10, '0.000'); blk += g(20, '0.000'); blk += g(30, '0.000');
+      blk += g(3, bn);
+      blk += g(0, 'POINT'); blk += g(8, layer.dxfName); blk += g(62, layer.color);
+      blk += g(10, '0.000'); blk += g(20, '0.000'); blk += g(30, '0.000');
+      blk += g(0, 'TEXT'); blk += g(8, layer.dxfName); blk += g(62, layer.color);
+      blk += g(10, off.toFixed(3)); blk += g(20, off.toFixed(3)); blk += g(30, '0.000');
+      blk += g(40, '2.5'); blk += g(1, String(name).slice(0, 100));
+      blk += g(0, 'ENDBLK'); blk += g(8, layer.dxfName);
+      // Вставка блока в целевые координаты
+      ent += g(0, 'INSERT'); ent += g(8, layer.dxfName); ent += g(62, layer.color);
+      ent += g(2, bn);
+      ent += g(10, x.toFixed(3)); ent += g(20, y.toFixed(3)); ent += g(30, '0.000');
+    } else {
+      // Точка без подписи — обычный POINT (группировать не с чем)
+      ent += g(0, 'POINT'); ent += g(8, layer.dxfName); ent += g(62, layer.color);
+      ent += g(10, x.toFixed(3)); ent += g(20, y.toFixed(3)); ent += g(30, '0.000');
     }
   }
 
@@ -251,9 +271,9 @@ function buildLayersDXF({ layers = [], transform = (lng, lat) => [lng, lat] }) {
       const [x2, y2] = tf(coords[i + 1]);
       const z1 = isFinite(coords[i][2]) ? coords[i][2] : 0;
       const z2 = isFinite(coords[i + 1][2]) ? coords[i + 1][2] : 0;
-      s += g(0, 'LINE'); s += g(8, layer.dxfName); s += g(62, layer.color);
-      s += g(10, x1.toFixed(3)); s += g(20, y1.toFixed(3)); s += g(30, z1.toFixed(3));
-      s += g(11, x2.toFixed(3)); s += g(21, y2.toFixed(3)); s += g(31, z2.toFixed(3));
+      ent += g(0, 'LINE'); ent += g(8, layer.dxfName); ent += g(62, layer.color);
+      ent += g(10, x1.toFixed(3)); ent += g(20, y1.toFixed(3)); ent += g(30, z1.toFixed(3));
+      ent += g(11, x2.toFixed(3)); ent += g(21, y2.toFixed(3)); ent += g(31, z2.toFixed(3));
     }
   }
 
@@ -262,15 +282,15 @@ function buildLayersDXF({ layers = [], transform = (lng, lat) => [lng, lat] }) {
       if (!ring || ring.length < 2) continue;
       // Используем Z первой точки кольца как высоту полигона (однородная для зоны затопления)
       const ringZ = isFinite(ring[0]?.[2]) ? ring[0][2] : 0;
-      s += g(0, 'POLYLINE'); s += g(8, layer.dxfName); s += g(62, layer.color);
-      s += g(66, 1); s += g(70, 1); s += g(30, ringZ.toFixed(3));
+      ent += g(0, 'POLYLINE'); ent += g(8, layer.dxfName); ent += g(62, layer.color);
+      ent += g(66, 1); ent += g(70, 1); ent += g(30, ringZ.toFixed(3));
       for (const c of ring) {
         const [x, y] = tf(c);
         const z = isFinite(c[2]) ? c[2] : ringZ;
-        s += g(0, 'VERTEX'); s += g(8, layer.dxfName);
-        s += g(10, x.toFixed(3)); s += g(20, y.toFixed(3)); s += g(30, z.toFixed(3));
+        ent += g(0, 'VERTEX'); ent += g(8, layer.dxfName);
+        ent += g(10, x.toFixed(3)); ent += g(20, y.toFixed(3)); ent += g(30, z.toFixed(3));
       }
-      s += g(0, 'SEQEND'); s += g(8, layer.dxfName);
+      ent += g(0, 'SEQEND'); ent += g(8, layer.dxfName);
     }
   }
 
@@ -305,7 +325,21 @@ function buildLayersDXF({ layers = [], transform = (lng, lat) => [lng, lat] }) {
     features.forEach(f => emitFeature(layer, f));
   }
 
+  // ── BLOCKS ── (обязательные *MODEL_SPACE / *PAPER_SPACE + наши блоки точек)
+  s += g(0, 'SECTION'); s += g(2, 'BLOCKS');
+  for (const bn of ['*MODEL_SPACE', '*PAPER_SPACE']) {
+    s += g(0, 'BLOCK'); s += g(8, '0'); s += g(2, bn); s += g(70, 0);
+    s += g(10, '0.000'); s += g(20, '0.000'); s += g(30, '0.000'); s += g(3, bn);
+    s += g(0, 'ENDBLK'); s += g(8, '0');
+  }
+  s += blk;
   s += g(0, 'ENDSEC');
+
+  // ── ENTITIES ──
+  s += g(0, 'SECTION'); s += g(2, 'ENTITIES');
+  s += ent;
+  s += g(0, 'ENDSEC');
+
   s += g(0, 'EOF');
   return s;
 }
