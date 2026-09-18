@@ -44,15 +44,29 @@ echo    1.  Start server
 echo    2.  Open in browser
 echo    3.  Reinstall dependencies
 echo    4.  Exit
+echo    5.  Show admin password
+echo    6.  Reset admin password
 echo    ----------------------------------------
 echo.
 set choice=
-set /p choice=   Action (1-4):
+set /p choice=   Action (1-6):
 
 if "%choice%"=="1" goto START
 if "%choice%"=="2" goto BROWSER
 if "%choice%"=="3" goto INSTALL
 if "%choice%"=="4" goto QUIT
+if "%choice%"=="5" goto SHOWPASS
+if "%choice%"=="6" goto RESETPASS
+goto MENU
+
+:SHOWPASS
+node admin-pass.js
+pause
+goto MENU
+
+:RESETPASS
+node admin-pass.js reset
+pause
 goto MENU
 
 :START

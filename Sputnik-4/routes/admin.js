@@ -167,6 +167,8 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
     const { password } = req.body || {};
     if (!password || String(password).length < 4) return res.status(400).json({ error: 'Минимум 4 символа' });
     setSetting('admin_pw', hashPw(password));
+    // Копия в открытом виде — чтобы можно было посмотреть пароль в start.bat (LAN-инструмент)
+    setSetting('admin_pw_plain', String(password));
     let tok = setting('admin_token');
     if (!tok) { tok = crypto.randomBytes(24).toString('hex'); setSetting('admin_token', tok); }
     res.json({ ok: true, token: tok });
