@@ -16,6 +16,24 @@ function _dxfGskProj(zone) {
   const lon_0 = zone * 6 - 3, x_0 = zone * 1000000 + 500000;
   return `+proj=tmerc +lat_0=0 +lon_0=${lon_0} +k=1 +x_0=${x_0} +y_0=0 +a=6378136.5 +rf=298.2564151 +towgs84=0.013,-0.092,-0.03,-0.001738,0.003559,-0.004263,0.0074 +units=m +no_defs`;
 }
+// Региональные МСК: МСК-66 (Свердловская, y_0=-5911057.63) и МСК-72 (Тюменская, y_0=-6000000).
+// Зона — по префиксу X (восток): floor(x / 1e6). Параметры совпадают с coords.js на фронте.
+function _dxfMsk66Proj(zone, w) {
+  const lon_0 = 60.05 + w * (zone - 1), x_0 = zone * 1000000 + 500000;
+  return `+proj=tmerc +lat_0=0 +lon_0=${lon_0} +k=1 +x_0=${x_0} +y_0=-5911057.63 +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs`;
+}
+function _dxfMsk72Proj(zone, w) {
+  const base = (w === 1.5) ? 66.08333333 : 63.05;
+  const lon_0 = base + w * (zone - 1), x_0 = zone * 1000000 + 500000;
+  return `+proj=tmerc +lat_0=0 +lon_0=${lon_0} +k=1 +x_0=${x_0} +y_0=-6000000 +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs`;
+}
+const _DXF_MSK_REGIONAL = {
+  msk66_3:   { proj: _dxfMsk66Proj, w: 3   },
+  msk66_6:   { proj: _dxfMsk66Proj, w: 6   },
+  msk72_1_5: { proj: _dxfMsk72Proj, w: 1.5 },
+  msk72_3:   { proj: _dxfMsk72Proj, w: 3   },
+  msk72_6:   { proj: _dxfMsk72Proj, w: 6   },
+};
 
 function parseDXF(text) {
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
@@ -109,11 +127,19 @@ function _dxfFindFirstX(dxfLayers) {
 
 function makeDxfInverseTransform(crs, sampleX) {
   if (crs === 'wgs84') return (x, y) => [x, y];
+  const sx = sampleX || 3500000;
+  // Региональные МСК-66 / МСК-72 — зона по префиксу X (восток)
+  const reg = _DXF_MSK_REGIONAL[crs];
+  if (reg) {
+    const zone = Math.max(1, Math.floor(sx / 1e6));
+    const projStr = reg.proj(zone, reg.w);
+    return (x, y) => { const [lng, lat] = proj4(projStr, _DXF_WGS84, [x, y]); return [lng, lat]; };
+  }
   let zone;
   if      (crs === 'msk86_z3') zone = 3;
   else if (crs === 'msk86_z4') zone = 4;
-  else if (crs === 'msk86')    zone = Math.round((sampleX || 3500000) / 1e6);
-  else                          zone = Math.floor((sampleX || 3500000) / 1e6); // gsk2011
+  else if (crs === 'msk86')    zone = Math.round(sx / 1e6);
+  else                          zone = Math.floor(sx / 1e6); // gsk2011
   const projStr = crs === 'gsk2011' ? _dxfGskProj(zone) : _dxfMskProj(zone);
   return (x, y) => { const [lng, lat] = proj4(projStr, _DXF_WGS84, [x, y]); return [lng, lat]; };
 }

@@ -380,6 +380,11 @@ function _showDxfCrsModal(){
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86" checked> МСК-86 (авто зона по X)</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′, фикс.)</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′, фикс.)</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk66_3"> МСК-66 (Свердловская), 3-градусная</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk66_6"> МСК-66 (Свердловская), 6-градусная</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk72_1_5"> МСК-72 (Тюменская), 1.5-градусная</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk72_3"> МСК-72 (Тюменская), 3-градусная</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk72_6"> МСК-72 (Тюменская), 6-градусная</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="gsk2011"> ГСК-2011</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="wgs84"> WGS-84 (градусы)</label>
       </div>`;
@@ -561,6 +566,11 @@ function _showCsvConfigModal(text, fileName) {
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86" checked> МСК-86 (авто зона по Y)</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′)</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′)</label>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk66_3"> МСК-66 (Свердловская), 3-градусная</label>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk66_6"> МСК-66 (Свердловская), 6-градусная</label>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk72_1_5"> МСК-72 (Тюменская), 1.5-градусная</label>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk72_3"> МСК-72 (Тюменская), 3-градусная</label>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk72_6"> МСК-72 (Тюменская), 6-градусная</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="gsk2011"> ГСК-2011</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="wgs84"> WGS-84 (широта / долгота)</label>
           </div>
@@ -671,6 +681,10 @@ async function _importCsv(file, text) {
     try {
       if (crs === 'wgs84') {
         lat = x; lng = y;
+      } else if (typeof isRegionalMsk === 'function' && isRegionalMsk(crs)) {
+        // МСК-66 / МСК-72 — зона по префиксу Y
+        const res = mskRegionalToWgs(x, y, crs);
+        lat = res.lat; lng = res.lon;
       } else {
         const zone = crs === 'msk86_z3' ? 3 : crs === 'msk86_z4' ? 4 : Math.round(y / 1e6);
         const conv = crs.startsWith('gsk') ? gskToWgs : mskToWgs;
