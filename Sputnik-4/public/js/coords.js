@@ -71,9 +71,9 @@ function gskToWgs(northing, easting, zone) {
 // Эллипсоид Красовского, датум Пулково-1942 (towgs84 как у МСК-86).
 // Параметры зон (осевые меридианы, ложный восток/север) сверены по нескольким
 // источникам (параметры MapInfo .prj / gis-lab / кадастровые):
-//   МСК-66: y_0 = -5911057.63; ЦМ зоны 1 = 60.05°, шаг = ширина зоны (3° или 6°)
-//   МСК-72: y_0 = -5811057.63; 3°/6° — ЦМ зоны 1 = 63.05°; 1.5° — ЦМ зоны 1 = 66°05′
-//   (параметры 3°/6° МСК-72 и 3° МСК-66 сверены по geobridge.ru)
+//   МСК-66: y_0 = -5911057.63; ЦМ зоны 1 = 60.05°, шаг = ширина зоны
+//   МСК-72: y_0 = -5811057.63; ЦМ зоны 1 = 63.05°, шаг = ширина зоны
+//   (параметры сверены по geobridge.ru)
 //   Ложный восток x_0 = N·1e6 + 500000, где N — номер зоны (кодируется префиксом Y).
 function _msk66Proj(zone, w) {
   const lon_0 = 60.05 + w * (zone - 1), x_0 = zone * 1e6 + 500000;
@@ -81,18 +81,15 @@ function _msk66Proj(zone, w) {
          ` +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs`;
 }
 function _msk72Proj(zone, w) {
-  const base = (w === 1.5) ? 66.08333333 : 63.05;
-  const lon_0 = base + w * (zone - 1), x_0 = zone * 1e6 + 500000;
+  const lon_0 = 63.05 + w * (zone - 1), x_0 = zone * 1e6 + 500000;
   return `+proj=tmerc +lat_0=0 +lon_0=${lon_0} +k=1 +x_0=${x_0} +y_0=-5811057.63` +
          ` +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs`;
 }
 // crsKey → { построитель proj, ширина зоны в градусах }
 const MSK_REGIONAL = {
-  msk66_3:   { proj: _msk66Proj, w: 3   },
-  msk66_6:   { proj: _msk66Proj, w: 6   },
-  msk72_1_5: { proj: _msk72Proj, w: 1.5 },
-  msk72_3:   { proj: _msk72Proj, w: 3   },
-  msk72_6:   { proj: _msk72Proj, w: 6   },
+  msk66_3: { proj: _msk66Proj, w: 3 },
+  msk72_3: { proj: _msk72Proj, w: 3 },
+  msk72_6: { proj: _msk72Proj, w: 6 },
 };
 function isRegionalMsk(crsKey) { return Object.prototype.hasOwnProperty.call(MSK_REGIONAL, crsKey); }
 // Номер зоны кодируется префиксом Y (восток): floor(east / 1e6).

@@ -381,8 +381,6 @@ function _showDxfCrsModal(){
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′, фикс.)</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′, фикс.)</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk66_3"> МСК-66 (Свердловская), 3-градусная</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk66_6"> МСК-66 (Свердловская), 6-градусная</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk72_1_5"> МСК-72 (Тюменская), 1.5-градусная</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk72_3"> МСК-72 (Тюменская), 3-градусная</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk72_6"> МСК-72 (Тюменская), 6-градусная</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="gsk2011"> ГСК-2011</label>
@@ -567,8 +565,6 @@ function _showCsvConfigModal(text, fileName) {
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′)</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′)</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk66_3"> МСК-66 (Свердловская), 3-градусная</label>
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk66_6"> МСК-66 (Свердловская), 6-градусная</label>
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk72_1_5"> МСК-72 (Тюменская), 1.5-градусная</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk72_3"> МСК-72 (Тюменская), 3-градусная</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk72_6"> МСК-72 (Тюменская), 6-градусная</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="gsk2011"> ГСК-2011</label>

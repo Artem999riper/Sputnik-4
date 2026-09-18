@@ -23,16 +23,13 @@ function _dxfMsk66Proj(zone, w) {
   return `+proj=tmerc +lat_0=0 +lon_0=${lon_0} +k=1 +x_0=${x_0} +y_0=-5911057.63 +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs`;
 }
 function _dxfMsk72Proj(zone, w) {
-  const base = (w === 1.5) ? 66.08333333 : 63.05;
-  const lon_0 = base + w * (zone - 1), x_0 = zone * 1000000 + 500000;
+  const lon_0 = 63.05 + w * (zone - 1), x_0 = zone * 1000000 + 500000;
   return `+proj=tmerc +lat_0=0 +lon_0=${lon_0} +k=1 +x_0=${x_0} +y_0=-5811057.63 +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs`;
 }
 const _DXF_MSK_REGIONAL = {
-  msk66_3:   { proj: _dxfMsk66Proj, w: 3   },
-  msk66_6:   { proj: _dxfMsk66Proj, w: 6   },
-  msk72_1_5: { proj: _dxfMsk72Proj, w: 1.5 },
-  msk72_3:   { proj: _dxfMsk72Proj, w: 3   },
-  msk72_6:   { proj: _dxfMsk72Proj, w: 6   },
+  msk66_3: { proj: _dxfMsk66Proj, w: 3 },
+  msk72_3: { proj: _dxfMsk72Proj, w: 3 },
+  msk72_6: { proj: _dxfMsk72Proj, w: 6 },
 };
 
 function parseDXF(text) {
