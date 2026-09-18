@@ -336,6 +336,8 @@ async function initApp(){
   switchView('map');
   // Права текущего клиента (для локального оверрайда слоёв и косметики UI)
   try{if(typeof loadMyCaps==='function')await loadMyCaps();}catch(e){}
+  // Какие вкладки навигации скрыты (глобальная настройка админа)
+  try{if(typeof loadUiConfig==='function')await loadUiConfig();}catch(e){}
   // Сетевой адрес сервера — для построения общих ссылок (не localhost)
   try{if(typeof loadServerInfo==='function')await loadServerInfo();}catch(e){}
   // Грузим основные данные (объекты, базы, слои, техника) → сайдбар и карта
@@ -380,6 +382,7 @@ function startSseListener(){
         let ev; try{ev=JSON.parse(e.data);}catch(_){return;}
         if(ev.type==='presence'){ if(typeof onPresenceEvent==='function')onPresenceEvent(); return; }
         if(ev.type==='acl'){ if(typeof loadMyCaps==='function')loadMyCaps(); return; }
+        if(ev.type==='uiconfig'){ if(typeof loadUiConfig==='function')loadUiConfig(); return; }
         if(ev.type==='reload'){ try{toast('🔄 Обновление приложения…','ok');}catch(_){} setTimeout(function(){location.reload();},1500); return; }
         if(ev.type!=='change')return;
         handleSseChange(ev);

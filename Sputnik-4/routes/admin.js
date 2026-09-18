@@ -217,6 +217,20 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
     res.json({ ok: true });
   }));
 
+  // ── UI-конфиг: какие вкладки скрыты (глобально, для всех) ──
+  app.get('/api/ui-config', wrap((req, res) => {
+    let hidden = []; try { hidden = JSON.parse(setting('hidden_tabs') || '[]') || []; } catch (e) {}
+    res.json({ hiddenTabs: Array.isArray(hidden) ? hidden : [] });
+  }));
+  app.put('/api/admin/ui-config', wrap((req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: 'Только для админа' });
+    let hidden = Array.isArray(req.body && req.body.hiddenTabs) ? req.body.hiddenTabs : [];
+    hidden = hidden.filter(t => typeof t === 'string' && t && t !== 'map').slice(0, 50);
+    setSetting('hidden_tabs', JSON.stringify(hidden));
+    if (broadcast) broadcast({ type: 'uiconfig', t: Date.now() });
+    res.json({ ok: true, hiddenTabs: hidden });
+  }));
+
   // ── кто сейчас онлайн (админ) ────────────────────────────
   app.get('/api/presence', wrap((req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Только для админа' });

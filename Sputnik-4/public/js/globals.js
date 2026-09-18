@@ -164,3 +164,31 @@ let siteLayerVisibility={}; // user-toggled visible state for site KML layers
 let vpVisible={}; // per fact-entry visibility toggle
 let drawingFactId=null; // which fact entry is being drawn
 let moveMode=null, moveData=null;
+
+// ═══════════════════════════════════════════════════════════
+// UI-КОНФИГ: какие вкладки скрыты (глобально, задаётся админом)
+// ═══════════════════════════════════════════════════════════
+let HIDDEN_TABS=[]; // массив data-v скрытых вкладок ('dash', 'smg', ...)
+async function loadUiConfig(){
+  try{
+    const r=await fetch(`${API}/ui-config`);
+    if(!r.ok)return;
+    const d=await r.json();
+    HIDDEN_TABS=Array.isArray(d&&d.hiddenTabs)?d.hiddenTabs:[];
+  }catch(e){ HIDDEN_TABS=[]; }
+  applyHiddenTabs();
+}
+function applyHiddenTabs(){
+  try{
+    document.querySelectorAll('.nt[data-v]').forEach(function(el){
+      const v=el.dataset.v;
+      if(v==='map'){ el.style.display=''; return; } // карту скрыть нельзя
+      el.style.display=HIDDEN_TABS.indexOf(v)>=0?'none':'';
+    });
+    // Если активная вкладка оказалась скрыта — уходим на карту
+    const active=document.querySelector('.nt.on[data-v]');
+    if(active&&active.dataset.v!=='map'&&HIDDEN_TABS.indexOf(active.dataset.v)>=0){
+      if(typeof switchView==='function')switchView('map');
+    }
+  }catch(e){}
+}

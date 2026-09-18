@@ -263,10 +263,12 @@ function _kmlRenderLayerPane() {
   const visCount = filtered.filter(l => l.visible).length;
   const selN = _kmlSel.size;
   const footer = selN > 0
-    ? `<div class="kml-pane-footer" style="display:flex;align-items:center;gap:8px">
+    ? `<div class="kml-pane-footer" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span>Выбрано: <b>${selN}</b></span>
         <button class="btn bs bxs" onclick="kmlSelClear()">Снять</button>
-        <button class="btn bd bxs" style="margin-left:auto" onclick="kmlDeleteSelected()">🗑 Удалить выбранные (${selN})</button>
+        <span style="flex:1"></span>
+        ${selN >= 2 ? `<button class="btn bp bxs" onclick="kmlMergeSelected()">🔗 Объединить (${selN})</button>` : ''}
+        <button class="btn bd bxs" onclick="kmlDeleteSelected()">🗑 Удалить (${selN})</button>
       </div>`
     : `<div class="kml-pane-footer" style="display:flex;align-items:center;gap:8px">
         <span>Показано ${visCount} / ${filtered.length}</span>
@@ -306,6 +308,39 @@ async function kmlDeleteSelected() {
   renderKmlPanel();
   try { renderLP(); renderLayerGroups(); } catch(e) {}
   toast(`Удалено слоёв: ${ok}`, ok ? 'ok' : 'err');
+}
+// Объединить выбранные слои в один (объекты сливаются в первый выбранный)
+async function kmlMergeSelected() {
+  const ids = [..._kmlSel];
+  if (ids.length < 2) { toast('Выберите минимум 2 слоя', 'err'); return; }
+  // Порядок как в общем списке — целевой слой первый
+  const ordered = layers.filter(l => _kmlSel.has(l.id));
+  const target = ordered[0];
+  const others = ordered.slice(1);
+  if (!target) return;
+  if (!await confirmDlg(`Объединить ${ids.length} слоёв в «${target.name}»? Объекты будут собраны в один слой, остальные слои удалятся.`)) return;
+  // Собираем все объекты
+  let tgj;
+  try { tgj = JSON.parse(target.geojson); } catch(e) { tgj = { type:'FeatureCollection', features:[] }; }
+  if (tgj.type !== 'FeatureCollection') tgj = { type:'FeatureCollection', features: tgj.type === 'Feature' ? [tgj] : [] };
+  if (!Array.isArray(tgj.features)) tgj.features = [];
+  for (const l of others) {
+    let gj; try { gj = JSON.parse(l.geojson); } catch(e) { continue; }
+    const feats = gj.type === 'FeatureCollection' ? (gj.features || []) : (gj.type === 'Feature' ? [gj] : []);
+    feats.forEach(f => { if (f && f.geometry) tgj.features.push(f); });
+  }
+  // Убираем чужие слои с карты
+  others.forEach(l => { if (lGroups[l.id]) { try { map.removeLayer(lGroups[l.id]); } catch(e) {} } });
+  try {
+    await _kmlSaveGeojson(target, tgj);               // сохранить объединённую геометрию
+    kmlInvalidateLayerCache(target.id);
+    for (const l of others) { try { await fetch(`${API}/layers/${l.id}`, { method: 'DELETE' }); } catch(e) {} }
+    _kmlSel.clear();
+    layers = await fetch(`${API}/layers`).then(r => r.json()).catch(() => layers);
+    renderKmlPanel();
+    try { renderLP(); renderLayerGroups(); } catch(e) {}
+    toast(`Объединено в «${target.name}»: ${tgj.features.length} объектов`, 'ok');
+  } catch(e) { toast('Ошибка объединения', 'err'); }
 }
 
 // Выбрать категорию в левой панели

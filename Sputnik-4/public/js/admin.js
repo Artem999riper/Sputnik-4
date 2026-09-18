@@ -53,6 +53,7 @@ function _admRender(){
     <div style="display:flex;gap:4px;margin-bottom:10px;border-bottom:1.5px solid var(--bd);padding-bottom:8px">
       <button class="btn bs bsm" id="adm-t-online"  onclick="_admSwitch('online')">👥 Онлайн</button>
       <button class="btn bs bsm" id="adm-t-rights"  onclick="_admSwitch('rights')">🔑 Права</button>
+      <button class="btn bs bsm" id="adm-t-tabs"    onclick="_admSwitch('tabs')">🗂 Вкладки</button>
       <button class="btn bs bsm" id="adm-t-settings" onclick="_admSwitch('settings')">⚙️ Настройки</button>
     </div>
     <div id="adm-body" style="min-height:260px"></div>`,
@@ -61,13 +62,14 @@ function _admRender(){
 }
 function _admSwitch(tab){
   _admTab=tab;
-  ['online','rights','settings'].forEach(t=>{
+  ['online','rights','tabs','settings'].forEach(t=>{
     const b=document.getElementById('adm-t-'+t);
     if(b)b.className='btn '+(t===tab?'bp':'bs')+' bsm';
   });
   _admStopPoll();
   if(tab==='online'){_admRenderOnline();_admPollTimer=setInterval(()=>{if(document.getElementById('adm-online-list'))_admRenderOnline();else _admStopPoll();},8000);}
   else if(tab==='rights')_admRenderRights();
+  else if(tab==='tabs')_admRenderTabs();
   else _admRenderSettings();
 }
 function _admStopPoll(){if(_admPollTimer){clearInterval(_admPollTimer);_admPollTimer=null;}}
@@ -144,6 +146,49 @@ async function _admSaveRow(key,name){
     const r=await fetch(`${API}/admin/acl`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,caps})});
     if(r.ok)toast('Права сохранены','ok');
   }catch(e){toast('Ошибка сохранения','err');}
+}
+
+// Управление видимостью вкладок навигации (глобально для всех пользователей)
+const _ADM_TABS=[
+  {v:'dash',label:'📊 Дашборд'},
+  {v:'workers',label:'👷 Сотрудники'},
+  {v:'machinery',label:'🚛 Техника'},
+  {v:'equipment',label:'🔩 Оборудование'},
+  {v:'materials',label:'📦 Материалы'},
+  {v:'gruz',label:'🚚 Груз'},
+  {v:'gtasks',label:'📋 Задачи'},
+  {v:'smg',label:'📅 СМГ'},
+  {v:'mto',label:'🛠 МТО'},
+  {v:'brigades',label:'👥 Бригады'},
+];
+async function _admRenderTabs(){
+  const box=document.getElementById('adm-body');if(!box)return;
+  box.innerHTML='<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">⏳ Загрузка…</div>';
+  let hidden=[];
+  try{const r=await fetch(`${API}/ui-config`);if(r.ok){const d=await r.json();hidden=Array.isArray(d&&d.hiddenTabs)?d.hiddenTabs:[];}}catch(e){}
+  box.innerHTML=`
+    <div style="font-size:10px;color:var(--tx3);margin-bottom:10px;line-height:1.5">
+      Снятая галочка = вкладка <b>скрыта у всех</b> пользователей. Вкладка «🗺 Карта» скрыть нельзя.
+      Изменения применяются сразу на всех подключённых устройствах.
+    </div>
+    <div style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">
+    ${_ADM_TABS.map(t=>`<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;padding:6px 8px;border:1px solid var(--bd);border-radius:var(--rs)">
+      <input type="checkbox" class="adm-tab-cb" data-v="${escAttr(t.v)}" ${hidden.indexOf(t.v)>=0?'':'checked'} onchange="_admSaveTabs()">
+      <span>${t.label}</span>
+    </label>`).join('')}
+    </div>`;
+}
+async function _admSaveTabs(){
+  const hidden=[];
+  document.querySelectorAll('.adm-tab-cb').forEach(cb=>{ if(!cb.checked)hidden.push(cb.dataset.v); });
+  try{
+    const r=await fetch(`${API}/admin/ui-config`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({hiddenTabs:hidden})});
+    if(!r.ok){const j=await r.json().catch(()=>({}));toast(j.error||'Ошибка','err');return;}
+    toast('Настройки вкладок сохранены','ok');
+    // Применяем локально сразу (SSE догонит остальных)
+    if(typeof HIDDEN_TABS!=='undefined')HIDDEN_TABS=hidden;
+    if(typeof applyHiddenTabs==='function')applyHiddenTabs();
+  }catch(e){toast('Ошибка сети','err');}
 }
 
 function _admRenderSettings(){
