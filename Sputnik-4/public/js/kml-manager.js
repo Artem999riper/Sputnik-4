@@ -1183,6 +1183,7 @@ function kmlOpenFeatureList(id) {
         <button class="kml-icon-btn kfl-vis-btn" onclick="kmlToggleFeatureVis('${id}',${idx})" title="${isHidden?'Показать объект':'Скрыть объект'}">${isHidden?'👁':'🚫'}</button>
         <button class="kml-icon-btn" onclick="kmlZoomToFeature('${id}',${idx})" title="Приблизить">🔍</button>
         <button class="kml-icon-btn" onclick="kmlEditFeature('${id}',${idx})" title="Редактировать">✏️</button>
+        <button class="kml-icon-btn" onclick="kmlMoveFeature('${id}',${idx})" title="Выделить в новый слой / перенести в другой">📤</button>
         <button class="kml-icon-btn" style="color:var(--red);opacity:.7" onclick="kmlDeleteFeature('${id}',${idx})" title="Удалить">🗑</button>
       </div>
     </div>`;
@@ -1436,6 +1437,100 @@ async function kmlDeleteFeature(layerId, fIdx, mode) {
   toast('Объект удалён','ok');
   if (inline) { if (kmlPanelOpen) _kmlRenderLayerPane(); }
   else kmlOpenFeatureList(layerId);  // обновить список
+}
+
+// ── Перенести объект в другой слой / выделить в новый ───────
+function mvfLayerChange() {
+  const sel = document.getElementById('mvf-layer');
+  const row = document.getElementById('mvf-newname-row');
+  if (row) row.style.display = sel && sel.value === '_new' ? '' : 'none';
+}
+function kmlMoveFeature(sourceLayerId, fIdx) {
+  const src = layers.find(x => x.id === sourceLayerId);
+  if (!src) return;
+  let sgj;
+  try { sgj = JSON.parse(src.geojson); } catch (e) { toast('Ошибка разбора слоя', 'err'); return; }
+  const sFeats = sgj.type === 'FeatureCollection' ? sgj.features : [sgj];
+  const f = sFeats[fIdx];
+  if (!f) { toast('Объект не найден', 'err'); return; }
+  const props = f.properties || {};
+  const fName = props.name || props.Name || `Объект ${fIdx + 1}`;
+
+  // Список слоёв-получателей — все глобальные слои, кроме исходного
+  const targets = layers.filter(l => !l.site_id && l.id !== sourceLayerId);
+  const selHtml = `<select id="mvf-layer" onchange="mvfLayerChange()"
+      style="width:100%;font-size:13px;padding:6px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+      <option value="_new">— Новый слой (выделить объект) —</option>
+      ${targets.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}
+    </select>
+    <div id="mvf-newname-row" style="margin-top:6px">
+      <input id="mvf-newname" type="text" value="${esc(fName)}" placeholder="Название нового слоя"
+        style="width:100%;box-sizing:border-box;font-size:12px;padding:6px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+    </div>`;
+
+  showModal(`📤 Перенести объект — ${esc(fName)}`, `
+    <div class="fg">
+      <label>Куда перенести</label>
+      ${selHtml}
+      <div style="font-size:10px;color:var(--tx3);margin-top:6px;line-height:1.5">
+        «Новый слой» — объект выделяется в отдельный слой. Иначе объект перемещается
+        в выбранный слой (внешний вид сохраняется).
+      </div>
+    </div>`,
+    [
+      { label: 'Отмена', cls: 'bs', fn: () => { closeModal(); kmlOpenFeatureList(sourceLayerId); } },
+      { label: '📤 Перенести', cls: 'bp', fn: async () => {
+        const targetId = document.getElementById('mvf-layer')?.value;
+        const newName  = (document.getElementById('mvf-newname')?.value || '').trim();
+        // клонируем feature (снимок), затем удаляем из исходного слоя
+        const moved = JSON.parse(JSON.stringify(f));
+        let target;
+        if (targetId === '_new') {
+          // Цвет/символ нового слоя берём из объекта (или из исходного слоя)
+          const col = props._color || src.color || '#1a56db';
+          const sym = props._sym   || src.symbol || 'point';
+          const emptyGJ = JSON.stringify({ type: 'FeatureCollection', features: [] });
+          let created;
+          try {
+            const r = await fetch(`${API}/layers`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: newName || fName || 'Новый слой', geojson: emptyGJ, color: col,
+                symbol: sym, visible: 1, group_id: src.group_id || '', line_dash: src.line_dash || 'solid', size: src.size || 1 }) });
+            created = await r.json();
+          } catch (e) { toast('Не удалось создать слой', 'err'); return; }
+          target = { id: created.id, name: newName || fName || 'Новый слой', geojson: emptyGJ, color: col,
+            symbol: sym, visible: 1, group_id: src.group_id || '', line_dash: src.line_dash || 'solid', size: src.size || 1, show_labels: 0 };
+          layers.unshift(target);
+        } else {
+          target = layers.find(l => l.id === targetId);
+          if (!target) { toast('Слой-получатель не найден', 'err'); return; }
+        }
+
+        // Добавляем объект в целевой слой
+        let tgj;
+        try { tgj = JSON.parse(target.geojson); } catch (e) { tgj = { type: 'FeatureCollection', features: [] }; }
+        if (tgj.type !== 'FeatureCollection') tgj = { type: 'FeatureCollection', features: tgj.type === 'Feature' ? [tgj] : [] };
+        if (!Array.isArray(tgj.features)) tgj.features = [];
+        tgj.features.push(moved);
+
+        // Удаляем объект из исходного слоя
+        if (sgj.type === 'FeatureCollection') sgj.features.splice(fIdx, 1);
+        else sgj = { type: 'FeatureCollection', features: [] };
+
+        try {
+          await _kmlSaveGeojson(target, tgj);
+          await _kmlSaveGeojson(src, sgj);
+        } catch (e) { toast('Ошибка сохранения', 'err'); return; }
+        kmlInvalidateLayerCache(target.id);
+        kmlInvalidateLayerCache(src.id);
+        try { renderLayerGroups(); } catch (e) {}
+        try { if (kmlPanelOpen) renderKmlPanel(); } catch (e) {}
+        closeModal();
+        toast(targetId === '_new' ? `Объект выделен в «${target.name}»` : `Перенесено в «${target.name}»`, 'ok');
+        // Вернуться к списку объектов исходного слоя, если в нём ещё что-то осталось
+        const left = sgj.type === 'FeatureCollection' ? sgj.features.length : 0;
+        if (left > 0) kmlOpenFeatureList(sourceLayerId);
+      }}
+    ]);
 }
 
 // ── Импорт ─────────────────────────────────────────────────
