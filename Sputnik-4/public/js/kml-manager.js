@@ -1787,6 +1787,7 @@ function renderLayerGroupsWithSymbols() {
               ...(fIdx>=0?[{i:'✅',l:(f.properties&&f.properties._color===KML_DONE_COLOR)?'Снять «выполнено»':'Выполнить объект',f:()=>kmlToggleDone(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'✏️',l:'Редактировать объект',f:()=>kmlEditFeature(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'↔',l:'Передвинуть',f:()=>startKmlMoveFeature(l.id,fIdx)}]:[]),
+              ...(fIdx>=0?[{i:'📤',l:'Перенести в другой слой',f:()=>kmlMoveFeature(l.id,fIdx)}]:[]),
               ...(fIdx>=0&&f.geometry&&f.geometry.type==='LineString'?[{i:'⬛',l:'Линия → полигон',f:()=>kmlLineToPolygon(l.id,fIdx)}]:[]),
               ...(fIdx>=0&&f.geometry&&f.geometry.type==='Polygon'?[{i:'〰️',l:'Полигон → линия',f:()=>kmlPolygonToLine(l.id,fIdx)}]:[]),
               ...(coordStr?[{i:'📋',l:'Копировать координаты',f:()=>{navigator.clipboard.writeText(coordStr).then(()=>toast('Скопировано','ok'));}}]:[]),
@@ -1797,6 +1798,7 @@ function renderLayerGroupsWithSymbols() {
               {i:'👁',l:l.visible?'Скрыть слой':'Показать слой',f:()=>kmlToggleVis(l.id,l.visible?0:1)},
               ...(l.group_id?[{sep:true},{i:'📄',l:'Убрать из группы',f:()=>kmlMoveToGroup(l.id,null)}]:[]),
               {sep:true},
+              ...(fIdx>=0?[{i:'🗑',l:'Удалить объект',cls:'dan',f:()=>kmlDeleteFeature(l.id,fIdx,'inline')}]:[]),
               {i:'🗑',l:'Удалить слой',cls:'dan',f:()=>kmlDeleteLayer(l.id)},
             ]);
           });
