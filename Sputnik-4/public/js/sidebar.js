@@ -398,9 +398,35 @@ function _showDxfCrsModal(){
 // Импорт MapInfo TAB: отправляем весь набор файлов (или ZIP) на сервер (ogr2ogr → GeoJSON)
 async function _importTab(fileList){
   const files=[...fileList];
-  const hasTab=files.some(f=>/\.tab$/i.test(f.name));
+  const tabs=files.filter(f=>/\.tab$/i.test(f.name));
   const hasZip=files.some(f=>/\.zip$/i.test(f.name));
-  if(!hasTab&&!hasZip){ toast('Для TAB выберите весь набор (.tab, .map, .id, .dat) или ZIP с ними','err'); return; }
+  if(!tabs.length&&!hasZip){ toast('Для TAB выберите весь набор (.tab, .map, .id, .dat) или ZIP с ними','err'); return; }
+  // Проверка комплектности набора ДО отправки (частая ошибка — выбран только .tab).
+  // MapInfo TAB — это несколько файлов с общим именем; GDAL не откроет набор без .dat/.map/.id.
+  if(!hasZip){
+    const names=files.map(f=>f.name.toLowerCase());
+    const missing=[];
+    tabs.forEach(t=>{
+      const base=t.name.toLowerCase().replace(/\.tab$/,'');
+      ['map','id','dat'].forEach(ext=>{ if(!names.includes(base+'.'+ext)) missing.push(base+'.'+ext); });
+    });
+    if(missing.length){
+      const list=[...new Set(missing)].map(m=>'• '+esc(m)).join('<br>');
+      showModal('📁 Выберите ВЕСЬ набор MapInfo TAB', `
+        <div style="font-size:13px;line-height:1.65">
+          Формат MapInfo — это <b>несколько файлов с одним именем</b>:
+          <code>.tab</code>, <code>.map</code>, <code>.id</code>, <code>.dat</code> (иногда ещё <code>.ind</code>).
+          Сам <code>.tab</code> — только заголовок, без остальных файлов данные не читаются.
+          <div style="margin:8px 0;padding:8px 10px;background:var(--s2);border-radius:6px">
+            Не хватает файлов:<br>${list}
+          </div>
+          <b>Как выбрать сразу все:</b> в окне выбора файлов зажмите <b>Ctrl</b> и отметьте все части набора
+          (или <b>Ctrl+A</b> в папке набора). Либо запакуйте их в <b>.zip</b> и загрузите архив.
+        </div>`,
+        [{label:'Понятно',cls:'bp',fn:closeModal}]);
+      return;
+    }
+  }
   const fd=new FormData();
   files.forEach(f=>fd.append('files',f));
   toast('⏳ Импорт TAB (через GDAL)…','ok');
