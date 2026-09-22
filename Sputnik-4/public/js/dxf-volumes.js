@@ -196,43 +196,73 @@ function buildVolumesDXF({points, polylines, polygons, coordSys, siteName}){
 
   s += _dxfG(0,'ENDSEC');
 
-  // ── ENTITIES ───────────────────────────────────────────
-  s += _dxfG(0,'SECTION') + _dxfG(2,'ENTITIES');
+  // Буферы: определения блоков (BLOCKS) и объекты (ENTITIES).
+  // Точка-объём + её подпись выгружаются как БЛОК (POINT+TEXT) и INSERT —
+  // в CAD это единый объект: точка и надпись выделяются/двигаются вместе.
+  let blk = '';   // тело секции BLOCKS
+  let ent = '';   // тело секции ENTITIES
+  let blkN = 0;
+  const off = textH * 0.4;
 
-  // Points + labels
+  // Точки-объёмы: каждая — отдельный блок (POINT + TEXT) + вставка INSERT
   for(const pt of points){
-    const x = parseFloat(pt.x)||0;
-    const y = parseFloat(pt.y)||0;
+    const x = parseFloat(pt.x)||0;    // northing
+    const y = parseFloat(pt.y)||0;    // easting
     const txt = pt.label || pt.type || 'Точка';
-    s += _dxfPoint(x, y, 'СКВАЖИНЫ', '5');
-    s += _dxfText(x + textH*0.4, y + textH*0.4, txt, 'ПОДПИСИ', '2', textH);
+    const bn = 'PV_' + (++blkN);
+    // Определение блока: геометрия относительно точки вставки (0,0)
+    blk += _dxfG(0,'BLOCK') + _dxfG(8,'СКВАЖИНЫ') + _dxfG(2,bn) + _dxfG(70,'0');
+    blk += _dxfG(10,'0.000') + _dxfG(20,'0.000') + _dxfG(30,'0.000') + _dxfG(3,bn);
+    blk += _dxfG(0,'POINT') + _dxfG(8,'СКВАЖИНЫ') + _dxfG(62,'5');
+    blk += _dxfG(10,'0.000') + _dxfG(20,'0.000') + _dxfG(30,'0.000');
+    blk += _dxfG(0,'TEXT') + _dxfG(8,'ПОДПИСИ') + _dxfG(62,'2');
+    blk += _dxfG(10, off.toFixed(3)) + _dxfG(20, off.toFixed(3)) + _dxfG(30,'0.000');
+    blk += _dxfG(40, textHs) + _dxfG(1, txt || ' ') + _dxfG(50,'0.0') + _dxfG(72,'0');
+    blk += _dxfG(11, off.toFixed(3)) + _dxfG(21, off.toFixed(3)) + _dxfG(31,'0.000');
+    blk += _dxfG(0,'ENDBLK') + _dxfG(8,'СКВАЖИНЫ');
+    // Вставка блока: DXF X = easting (y), DXF Y = northing (x)
+    ent += _dxfG(0,'INSERT') + _dxfG(8,'СКВАЖИНЫ') + _dxfG(2,bn);
+    ent += _dxfG(10, y.toFixed(3)) + _dxfG(20, x.toFixed(3)) + _dxfG(30,'0.000');
   }
 
   // Lines (LineString) — as LINE segments
   for(const pl of polylines){
-    s += _dxfLineSegments(pl.coords, 'ЛИНИИ', '3');
+    ent += _dxfLineSegments(pl.coords, 'ЛИНИИ', '3');
     if(pl.name && pl.coords && pl.coords[0]){
       const f = pl.coords[0];
-      s += _dxfText(parseFloat(f.x)||0, parseFloat(f.y)||0, pl.name, 'ПОДПИСИ', '2', textH);
+      ent += _dxfText(parseFloat(f.x)||0, parseFloat(f.y)||0, pl.name, 'ПОДПИСИ', '2', textH);
     }
   }
 
   // Polygons — closed POLYLINE
   for(const pg of polygons){
     for(const ring of pg.rings){
-      s += _dxfClosedPolyline(ring, 'КОНТУРЫ', '4');
+      ent += _dxfClosedPolyline(ring, 'КОНТУРЫ', '4');
     }
     if(pg.name && pg.rings[0] && pg.rings[0][0]){
       const f = pg.rings[0][0];
-      s += _dxfText(parseFloat(f.x)||0, parseFloat(f.y)||0, pg.name, 'ПОДПИСИ', '2', textH);
+      ent += _dxfText(parseFloat(f.x)||0, parseFloat(f.y)||0, pg.name, 'ПОДПИСИ', '2', textH);
     }
   }
 
   // Metadata label — placed near first point if available, else origin
   let metaX = 0, metaY = 0;
   if(allX.length){ metaX = Math.min(...allX); metaY = Math.min(...allY) - textH*3; }
-  s += _dxfText(metaX, metaY, (siteName||'Объект') + ' | ' + axisLabel, 'ПОДПИСИ', '2', textH*0.7);
+  ent += _dxfText(metaX, metaY, (siteName||'Объект') + ' | ' + axisLabel, 'ПОДПИСИ', '2', textH*0.7);
 
+  // ── BLOCKS ── (обязательные *MODEL_SPACE / *PAPER_SPACE + блоки точек)
+  s += _dxfG(0,'SECTION') + _dxfG(2,'BLOCKS');
+  for(const bn of ['*MODEL_SPACE','*PAPER_SPACE']){
+    s += _dxfG(0,'BLOCK') + _dxfG(8,'0') + _dxfG(2,bn) + _dxfG(70,'0');
+    s += _dxfG(10,'0.000') + _dxfG(20,'0.000') + _dxfG(30,'0.000') + _dxfG(3,bn);
+    s += _dxfG(0,'ENDBLK') + _dxfG(8,'0');
+  }
+  s += blk;
+  s += _dxfG(0,'ENDSEC');
+
+  // ── ENTITIES ───────────────────────────────────────────
+  s += _dxfG(0,'SECTION') + _dxfG(2,'ENTITIES');
+  s += ent;
   s += _dxfG(0,'ENDSEC');
   s += _dxfG(0,'EOF');
   return s;
