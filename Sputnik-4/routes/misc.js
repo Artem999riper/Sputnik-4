@@ -122,6 +122,24 @@ function _dxfFindFirstX(dxfLayers) {
   return 3500000;
 }
 
+// Определяет, какая из двух координат — восток (easting), а какая — север (northing).
+// Нужно из-за российской традиции (X=север, Y=восток): в NonEarth-наборах порядок
+// столбцов часто перепутан. Восток МСК/ГСК имеет префикс зоны и ≈ zone*1e6+500000.
+function _orderEN(a, b, crs) {
+  let x0 = null;
+  if (crs === 'msk86_z3') x0 = 3500000;
+  else if (crs === 'msk86_z4') x0 = 4500000;
+  if (x0 != null) return Math.abs(a - x0) <= Math.abs(b - x0) ? [a, b] : [b, a];
+  // Авто/региональные: восток — координата, чей остаток по 1e6 ближе к 500000
+  // (x_0 = zone*1e6+500000), и целый префикс даёт правдоподобную зону 1..32.
+  const score = v => {
+    const av = Math.abs(v), z = Math.floor(av / 1e6);
+    let s = Math.abs((av % 1e6) - 500000);          // отклонение от *,500000
+    if (z < 1 || z > 32) s += 1e6;                   // штраф за неправдоподобную зону
+    return s;
+  };
+  return score(a) <= score(b) ? [a, b] : [b, a];
+}
 // Рекурсивный пересчёт всех координат GeoJSON функцией fn(x,y)->[lng,lat].
 function _reprojectCoords(coords, fn) {
   if (typeof coords[0] === 'number') {
@@ -138,13 +156,13 @@ function _reprojectGeoJSON(gj, fn) {
     }
   }
 }
-// Первая X-координата (восток) — для определения зоны МСК/ГСК.
-function _firstEasting(gj) {
+// Первая координатная пара [x, y] набора — для определения зоны/порядка осей.
+function _firstPoint(gj) {
   const feats = gj && gj.type === 'FeatureCollection' ? (gj.features || []) : [gj];
   for (const f of feats) {
     let c = f && f.geometry && f.geometry.coordinates;
     while (Array.isArray(c) && Array.isArray(c[0])) c = c[0];
-    if (Array.isArray(c) && isFinite(c[0])) return c[0];
+    if (Array.isArray(c) && isFinite(c[0]) && isFinite(c[1])) return [c[0], c[1]];
   }
   return null;
 }
@@ -752,9 +770,18 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
         try { await demProcessor.convertToGeoJSONRaw(tabPath, outGj); }
         catch (e) { cleanup(); return res.status(501).json({ error: 'Не удалось прочитать TAB (нужен GDAL). Получено: ' + (partsInfo || 'нет') + '.' }); }
         try { gj = JSON.parse(fs.readFileSync(outGj, 'utf8')); } catch (e) { cleanup(); return res.status(422).json({ error: 'GeoJSON из TAB не разобран' }); }
-        let inv;
-        try { inv = makeDxfInverseTransform(reqCrs, _firstEasting(gj) || 3500000); }
+        const forceSwap = req.body && (req.body.swap === '1' || req.body.swap === 'true');
+        // Определяем восток первой точки (с учётом возможной перестановки X/Y)
+        const p0 = _firstPoint(gj);
+        let sampleE = 3500000;
+        if (p0) sampleE = forceSwap ? p0[1] : _orderEN(p0[0], p0[1], reqCrs)[0];
+        let rawInv;
+        try { rawInv = makeDxfInverseTransform(reqCrs, sampleE || 3500000); }
         catch (e) { cleanup(); return res.status(400).json({ error: 'Неизвестная СК: ' + reqCrs }); }
+        const inv = (c0, c1) => {
+          const [e, n] = forceSwap ? [c1, c0] : _orderEN(c0, c1, reqCrs);
+          return rawInv(e, n);
+        };
         _reprojectGeoJSON(gj, inv);
         cleanup();
       } else {

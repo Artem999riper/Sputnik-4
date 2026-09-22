@@ -429,11 +429,11 @@ async function _importTab(fileList){
   }
   await _tabUploadRequest(files, null);
 }
-// Отправка набора на сервер. crs — выбранная СК исходных метров (для NonEarth), либо null.
-async function _tabUploadRequest(files, crs){
+// Отправка набора на сервер. opt = {crs, swap} для NonEarth-набора, либо null.
+async function _tabUploadRequest(files, opt){
   const fd=new FormData();
   files.forEach(f=>fd.append('files',f));
-  if(crs) fd.append('crs',crs);
+  if(opt && opt.crs){ fd.append('crs',opt.crs); if(opt.swap) fd.append('swap',opt.swap); }
   toast('⏳ Импорт TAB (через GDAL)…','ok');
   let j, r;
   try{
@@ -474,12 +474,17 @@ function _showTabCrsModal(reason){
         <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk72_3"> МСК-72 (Тюменская), 3-градусная</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk72_6"> МСК-72 (Тюменская), 6-градусная</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="gsk2011"> ГСК-2011</label>
-      </div>`;
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="tab-swap"> Поменять местами X и Y
+        <span style="color:var(--tx3);font-size:10px">(включите, если объект уходит не туда)</span>
+      </label>`;
     showModal('📥 Импорт TAB — выберите систему координат', body, [
       {label:'Отмена',cls:'bs',fn:()=>{closeModal();resolve(null);}},
       {label:'Импортировать',cls:'bp',fn:()=>{
         const crs=document.querySelector('input[name="tab-crs"]:checked')?.value||'msk86';
-        closeModal();resolve(crs);
+        const swap=document.getElementById('tab-swap')?.checked?'1':'';
+        closeModal();resolve({crs,swap});
       }},
     ]);
   });
