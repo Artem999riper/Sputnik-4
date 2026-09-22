@@ -1228,8 +1228,28 @@ async function _ogrSrcSrs(srcPath) {
   try {
     const { stdout } = await execFileP(gdal('ogrinfo'), ['-so', '-al', srcPath],
       { env: gdalEnv(), timeout: 60000, maxBuffer: 32 * 1024 * 1024 });
-    const m = String(stdout || '').match(/(PROJCS|GEOGCS|PROJCRS|GEOGCRS|BOUNDCRS)[^\n]*/);
-    return m ? m[0].replace(/^[A-Z]+\[?"?/, '').replace(/["\],].*$/, '').trim() : '';
+    const out = String(stdout || '');
+    // 1) Имя проекционной/географической СК (в т.ч. локальной NonEarth)
+    const m = out.match(/(PROJCS|GEOGCS|PROJCRS|GEOGCRS|BOUNDCRS|LOCAL_CS|ENGCRS|ENGINEERINGCRS)\s*\[?\s*"([^"]+)"/);
+    if (m) return m[2].trim();
+    // 2) Явный признак отсутствия привязки (NonEarth / Unknown)
+    if (/Layer SRS WKT:\s*\n\s*\(unknown\)/i.test(out) || /NonEarth/i.test(out)) return 'NonEarth (локальная, без географической привязки)';
+    // 3) Строка PROJECTION[...]
+    const p = out.match(/PROJECTION\s*\[\s*"([^"]+)"/);
+    if (p) return p[1].trim();
+    return '';
+  } catch (e) { return ''; }
+}
+// Компактная выжимка того, что ogrinfo знает про СК — для диагностики в сообщении.
+async function _ogrSrsDump(srcPath) {
+  try {
+    const { stdout } = await execFileP(gdal('ogrinfo'), ['-so', '-al', srcPath],
+      { env: gdalEnv(), timeout: 60000, maxBuffer: 32 * 1024 * 1024 });
+    const out = String(stdout || '');
+    const i = out.search(/Layer SRS WKT:/i);
+    let block = i >= 0 ? out.slice(i).split(/\nGeometry|\nFeature Count|\nExtent/i)[0] : '';
+    block = block.replace(/\s+/g, ' ').trim();
+    return block.slice(0, 400);
   } catch (e) { return ''; }
 }
 
@@ -1258,10 +1278,12 @@ async function convertToGeoJSON(srcPath, outPath) {
     if (_gjLooksGeographic(outPath)) return outPath;
     // Иначе набор в проекционной СК, которую GDAL не смог перевести в WGS-84.
     const srs = await _ogrSrcSrs(srcPath);
+    const dump = await _ogrSrsDump(srcPath);
     const err = new Error('SRS_MISMATCH');
     err.userMessage = 'Набор в проекционной системе координат, которую не удалось пересчитать в WGS-84'
       + (srs ? ` (исходная СК: ${srs})` : '')
-      + '. Экспортируйте из MapInfo в широту/долготу (WGS-84 / Lat-Long) — или пришлите файл, добавлю поддержку этой СК.';
+      + '. Экспортируйте из MapInfo в широту/долготу (WGS-84 / Lat-Long) — или пришлите файл, добавлю поддержку этой СК.'
+      + (dump ? ` [СК по данным GDAL: ${dump}]` : '');
     throw err;
   }
 
