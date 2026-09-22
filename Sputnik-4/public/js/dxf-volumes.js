@@ -221,7 +221,8 @@ function buildVolumesDXF({points, polylines, polygons, coordSys, siteName}){
     blk += _dxfG(10,'0.000') + _dxfG(20,'0.000') + _dxfG(30,'0.000');
     blk += _dxfG(0,'ATTDEF') + _dxfG(8,'ПОДПИСИ') + _dxfG(62,'2');
     blk += _dxfG(10, offs) + _dxfG(20, offs) + _dxfG(30,'0.000');
-    blk += _dxfG(40, textHs) + _dxfG(1, txt || ' ');   // 1 = значение по умолчанию
+    // 1 = значение по умолчанию: ПУСТО, иначе текст «запекается» в блок и дублирует атрибут
+    blk += _dxfG(40, textHs) + _dxfG(1, '');
     blk += _dxfG(2,'LABEL') + _dxfG(3,'Подпись') + _dxfG(70,'0'); // 2=тег, 3=подсказка, 70=флаги
     blk += _dxfG(50,'0.0') + _dxfG(72,'0');
     blk += _dxfG(11, offs) + _dxfG(21, offs) + _dxfG(31,'0.000');
