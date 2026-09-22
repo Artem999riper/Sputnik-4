@@ -427,19 +427,62 @@ async function _importTab(fileList){
       return;
     }
   }
+  await _tabUploadRequest(files, null);
+}
+// Отправка набора на сервер. crs — выбранная СК исходных метров (для NonEarth), либо null.
+async function _tabUploadRequest(files, crs){
   const fd=new FormData();
   files.forEach(f=>fd.append('files',f));
+  if(crs) fd.append('crs',crs);
   toast('⏳ Импорт TAB (через GDAL)…','ok');
-  let j;
+  let j, r;
   try{
-    const r=await fetch(`${API}/layers/import-tab`,{method:'POST',body:fd});
-    j=await r.json();
-    if(!r.ok){ toast(j.error||'Ошибка импорта TAB','err'); return; }
+    r=await fetch(`${API}/layers/import-tab`,{method:'POST',body:fd});
+    j=await r.json().catch(()=>({}));
   }catch(e){ toast('Ошибка импорта TAB','err'); return; }
-  const fresh=await fetch(`${API}/layers`).then(r=>r.json()).catch(()=>layers);
+  if(!r.ok){
+    // Сервер сообщил, что набор в NonEarth/проекционной СК — предлагаем выбрать СК метров
+    if(j && j.needCrs){
+      const chosen=await _showTabCrsModal(j.error||'');
+      if(!chosen) return;                 // пользователь отменил
+      return _tabUploadRequest(files, chosen);
+    }
+    // длинные сообщения показываем модалкой, короткие — тостом
+    if((j.error||'').length>120) showModal('⚠️ Импорт TAB', `<div style="font-size:13px;line-height:1.6">${esc(j.error||'Ошибка импорта TAB')}</div>`, [{label:'Закрыть',cls:'bs',fn:closeModal}]);
+    else toast(j.error||'Ошибка импорта TAB','err');
+    return;
+  }
+  const fresh=await fetch(`${API}/layers`).then(x=>x.json()).catch(()=>layers);
   layers=fresh;renderLP();renderLayerGroups();
   try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
   toast(`TAB импортирован: ${j.layer?j.layer.features:0} объектов`,'ok');
+}
+// Выбор СК для TAB в NonEarth (локальные метры) — те же системы, что и для DXF
+function _showTabCrsModal(reason){
+  return new Promise(resolve=>{
+    const body=`
+      <div style="font-size:12px;color:var(--tx3);margin-bottom:8px;line-height:1.55">
+        Файл MapInfo сохранён в системе <b>NonEarth</b> — это локальные метры (X — восток, Y — север)
+        без географической привязки. Укажите, в какой системе координат заданы эти метры,
+        и программа пересчитает объекты в WGS-84.
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk86" checked> МСК-86 (авто зона по X)</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′, фикс.)</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′, фикс.)</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk66_3"> МСК-66 (Свердловская), 3-градусная</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk72_3"> МСК-72 (Тюменская), 3-градусная</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk72_6"> МСК-72 (Тюменская), 6-градусная</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="gsk2011"> ГСК-2011</label>
+      </div>`;
+    showModal('📥 Импорт TAB — выберите систему координат', body, [
+      {label:'Отмена',cls:'bs',fn:()=>{closeModal();resolve(null);}},
+      {label:'Импортировать',cls:'bp',fn:()=>{
+        const crs=document.querySelector('input[name="tab-crs"]:checked')?.value||'msk86';
+        closeModal();resolve(crs);
+      }},
+    ]);
+  });
 }
 async function _importDxf(file,text){
   const crs=await _showDxfCrsModal();

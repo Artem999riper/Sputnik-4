@@ -1294,8 +1294,18 @@ async function convertToGeoJSON(srcPath, outPath) {
   throw err;
 }
 
+// Конвертация БЕЗ репроекции — координаты остаются в исходной СК (для NonEarth:
+// локальные метры). Дальше их пересчитывает вызывающий код по выбранной пользователем СК.
+async function convertToGeoJSONRaw(srcPath, outPath) {
+  findGDALBin();
+  await execFileP(gdal('ogr2ogr'), ['-f', 'GeoJSON', '-skipfailures', outPath, srcPath],
+    { env: gdalEnv(), timeout: 120000, maxBuffer: 256 * 1024 * 1024 });
+  if (!fs.existsSync(outPath)) throw new Error('ogr2ogr не создал GeoJSON');
+  return outPath;
+}
+
 module.exports = {
-  processDEM, cleanupTmp, checkGDAL, convertToTab, convertToGeoJSON,
+  processDEM, cleanupTmp, checkGDAL, convertToTab, convertToGeoJSON, convertToGeoJSONRaw,
   getElevationAtPoint, getElevationProfile, getDemTilesInfo, computeGeoidN,
   getDemTilesDir, setDemTilesDir,
   _downloadGeoidGrids: _ensureGeoidGrids,

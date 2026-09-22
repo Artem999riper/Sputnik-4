@@ -122,6 +122,33 @@ function _dxfFindFirstX(dxfLayers) {
   return 3500000;
 }
 
+// Рекурсивный пересчёт всех координат GeoJSON функцией fn(x,y)->[lng,lat].
+function _reprojectCoords(coords, fn) {
+  if (typeof coords[0] === 'number') {
+    const [lng, lat] = fn(coords[0], coords[1]);
+    return coords.length > 2 ? [lng, lat, coords[2]] : [lng, lat];
+  }
+  return coords.map(c => _reprojectCoords(c, fn));
+}
+function _reprojectGeoJSON(gj, fn) {
+  const feats = gj && gj.type === 'FeatureCollection' ? (gj.features || []) : (gj && gj.type === 'Feature' ? [gj] : []);
+  for (const f of feats) {
+    if (f && f.geometry && Array.isArray(f.geometry.coordinates)) {
+      f.geometry.coordinates = _reprojectCoords(f.geometry.coordinates, fn);
+    }
+  }
+}
+// Первая X-координата (восток) — для определения зоны МСК/ГСК.
+function _firstEasting(gj) {
+  const feats = gj && gj.type === 'FeatureCollection' ? (gj.features || []) : [gj];
+  for (const f of feats) {
+    let c = f && f.geometry && f.geometry.coordinates;
+    while (Array.isArray(c) && Array.isArray(c[0])) c = c[0];
+    if (Array.isArray(c) && isFinite(c[0])) return c[0];
+  }
+  return null;
+}
+
 function makeDxfInverseTransform(crs, sampleX) {
   if (crs === 'wgs84') return (x, y) => [x, y];
   const sx = sampleX || 3500000;
@@ -716,21 +743,40 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
         .map(n => `${n}=${fs.statSync(path.join(tmpDir, n)).size}б`).join(', ');
 
       const outGj = path.join(tmpDir, 'out.geojson');
-      try { await demProcessor.convertToGeoJSON(tabPath, outGj); }
-      catch (e) {
-        const msg = (e.message || '');
-        cleanup();
-        // Понятное сообщение от конвертера (СК не пересчитывается / пусто)
-        if (e.userMessage) return res.status(422).json({ error: e.userMessage + ' Получено: ' + (partsInfo || 'нет') + '.' });
-        // Частая причина — загружены не все файлы набора или .dat пустой
-        const short = /Open\(\) failed for .*\.dat/i.test(msg)
-          ? 'Не удалось открыть .DAT. Загрузите ВЕСЬ набор одним разом: .tab, .map, .id, .dat (и .ind, если есть). Получено: ' + (partsInfo || 'нет частей') + '.'
-          : ('Не удалось прочитать TAB (нужен GDAL/OSGeo4W). Получено: ' + (partsInfo || 'нет') + '. ' + msg.slice(0, 200));
-        return res.status(501).json({ error: short });
-      }
+      const reqCrs = (req.body && typeof req.body.crs === 'string') ? req.body.crs : '';
+      let gj;
 
-      let gj; try { gj = JSON.parse(fs.readFileSync(outGj, 'utf8')); } catch (e) { cleanup(); return res.status(422).json({ error: 'GeoJSON из TAB не разобран' }); }
-      cleanup();
+      if (reqCrs && reqCrs !== 'wgs84') {
+        // Пользователь указал СК исходных метров (NonEarth/проекционная):
+        // читаем координаты «как есть» и пересчитываем их сами в WGS-84.
+        try { await demProcessor.convertToGeoJSONRaw(tabPath, outGj); }
+        catch (e) { cleanup(); return res.status(501).json({ error: 'Не удалось прочитать TAB (нужен GDAL). Получено: ' + (partsInfo || 'нет') + '.' }); }
+        try { gj = JSON.parse(fs.readFileSync(outGj, 'utf8')); } catch (e) { cleanup(); return res.status(422).json({ error: 'GeoJSON из TAB не разобран' }); }
+        let inv;
+        try { inv = makeDxfInverseTransform(reqCrs, _firstEasting(gj) || 3500000); }
+        catch (e) { cleanup(); return res.status(400).json({ error: 'Неизвестная СК: ' + reqCrs }); }
+        _reprojectGeoJSON(gj, inv);
+        cleanup();
+      } else {
+        try { await demProcessor.convertToGeoJSON(tabPath, outGj); }
+        catch (e) {
+          const msg = (e.message || '');
+          cleanup();
+          // NonEarth / проекционная без пересчёта → просим клиент выбрать СК метров
+          if (e.message === 'SRS_MISMATCH') {
+            return res.status(422).json({ error: e.userMessage + ' Получено: ' + (partsInfo || 'нет') + '.', needCrs: true });
+          }
+          // Прочие понятные сообщения от конвертера
+          if (e.userMessage) return res.status(422).json({ error: e.userMessage + ' Получено: ' + (partsInfo || 'нет') + '.' });
+          // Частая причина — загружены не все файлы набора или .dat пустой
+          const short = /Open\(\) failed for .*\.dat/i.test(msg)
+            ? 'Не удалось открыть .DAT. Загрузите ВЕСЬ набор одним разом: .tab, .map, .id, .dat (и .ind, если есть). Получено: ' + (partsInfo || 'нет частей') + '.'
+            : ('Не удалось прочитать TAB (нужен GDAL/OSGeo4W). Получено: ' + (partsInfo || 'нет') + '. ' + msg.slice(0, 200));
+          return res.status(501).json({ error: short });
+        }
+        try { gj = JSON.parse(fs.readFileSync(outGj, 'utf8')); } catch (e) { cleanup(); return res.status(422).json({ error: 'GeoJSON из TAB не разобран' }); }
+        cleanup();
+      }
       const feats = (gj && gj.features) || [];
       if (!feats.length) return res.status(422).json({ error: 'В TAB нет объектов' });
 
