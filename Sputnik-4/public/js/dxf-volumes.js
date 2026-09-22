@@ -197,38 +197,48 @@ function buildVolumesDXF({points, polylines, polygons, coordSys, siteName}){
   s += _dxfG(0,'ENDSEC');
 
   // Буферы: определения блоков (BLOCKS) и объекты (ENTITIES).
-  // Точка-объём + её подпись выгружаются как БЛОК (POINT+TEXT) и INSERT —
-  // в CAD это единый объект: точка и надпись выделяются/двигаются вместе.
+  // Точка-объём выгружается как ВСТАВКА (INSERT) блока с атрибутом-подписью.
+  // Блок ОДИН на тип объёма (все скважины ссылаются на один блок «СКВАЖИНА» и т.п.),
+  // а не отдельный блок на каждую точку.
   let blk = '';   // тело секции BLOCKS
   let ent = '';   // тело секции ENTITIES
-  let blkN = 0;
   const off = textH * 0.4;
+  const offs = off.toFixed(3);
 
-  // Точки-объёмы: каждая — отдельный блок (POINT + ATTDEF) + вставка INSERT
-  // с атрибутом (ATTRIB). Подпись хранится как АТРИБУТ блока — редактируется в CAD.
-  for(const pt of points){
-    const x = parseFloat(pt.x)||0;    // northing
-    const y = parseFloat(pt.y)||0;    // easting
-    const txt = pt.label || pt.type || 'Точка';
-    const bn = 'PV_' + (++blkN);
-    const offs = off.toFixed(3);
-    const ax = (y + off).toFixed(3);  // абсолютная X подписи (easting)
-    const ay = (x + off).toFixed(3);  // абсолютная Y подписи (northing)
-    // Определение блока: POINT + ATTDEF (определение атрибута-подписи). 70=2 → блок с атрибутами
-    blk += _dxfG(0,'BLOCK') + _dxfG(8,'СКВАЖИНЫ') + _dxfG(2,bn) + _dxfG(70,'2');
-    blk += _dxfG(10,'0.000') + _dxfG(20,'0.000') + _dxfG(30,'0.000') + _dxfG(3,bn);
+  // Тип объёма → имя блока (читаемое, одно на тип)
+  const _volBlockName = {
+    borehole:'СКВАЖИНА', pit:'ШУРФ', ggs:'ГГС', ogs:'ОГС',
+    repere:'РЕПЕР', benchmark:'МАРКА', steel_angle:'УГОЛОК', other:'ТОЧКА',
+  };
+  const _blkDefined = new Set();
+  function _defineVolBlock(name){
+    if(_blkDefined.has(name)) return;   // определяем блок один раз
+    _blkDefined.add(name);
+    // Определение блока: POINT + ATTDEF (пустой по умолчанию, подпись задаёт INSERT).
+    // 70=2 → блок с атрибутами.
+    blk += _dxfG(0,'BLOCK') + _dxfG(8,'СКВАЖИНЫ') + _dxfG(2,name) + _dxfG(70,'2');
+    blk += _dxfG(10,'0.000') + _dxfG(20,'0.000') + _dxfG(30,'0.000') + _dxfG(3,name);
     blk += _dxfG(0,'POINT') + _dxfG(8,'СКВАЖИНЫ') + _dxfG(62,'5');
     blk += _dxfG(10,'0.000') + _dxfG(20,'0.000') + _dxfG(30,'0.000');
     blk += _dxfG(0,'ATTDEF') + _dxfG(8,'ПОДПИСИ') + _dxfG(62,'2');
     blk += _dxfG(10, offs) + _dxfG(20, offs) + _dxfG(30,'0.000');
-    // 1 = значение по умолчанию: ПУСТО, иначе текст «запекается» в блок и дублирует атрибут
-    blk += _dxfG(40, textHs) + _dxfG(1, '');
-    blk += _dxfG(2,'LABEL') + _dxfG(3,'Подпись') + _dxfG(70,'0'); // 2=тег, 3=подсказка, 70=флаги
+    blk += _dxfG(40, textHs) + _dxfG(1, '');            // пустое значение по умолчанию
+    blk += _dxfG(2,'LABEL') + _dxfG(3,'Подпись') + _dxfG(70,'0');
     blk += _dxfG(50,'0.0') + _dxfG(72,'0');
     blk += _dxfG(11, offs) + _dxfG(21, offs) + _dxfG(31,'0.000');
     blk += _dxfG(0,'ENDBLK') + _dxfG(8,'СКВАЖИНЫ');
+  }
+
+  for(const pt of points){
+    const x = parseFloat(pt.x)||0;    // northing
+    const y = parseFloat(pt.y)||0;    // easting
+    const txt = pt.label || pt.type || 'Точка';
+    const bname = _volBlockName[pt.type] || _volBlockName.other;
+    _defineVolBlock(bname);
+    const ax = (y + off).toFixed(3);  // абсолютная X подписи (easting)
+    const ay = (x + off).toFixed(3);  // абсолютная Y подписи (northing)
     // Вставка блока с атрибутом. 66=1 → далее следуют ATTRIB. DXF X = easting (y), Y = northing (x)
-    ent += _dxfG(0,'INSERT') + _dxfG(66,'1') + _dxfG(8,'СКВАЖИНЫ') + _dxfG(2,bn);
+    ent += _dxfG(0,'INSERT') + _dxfG(66,'1') + _dxfG(8,'СКВАЖИНЫ') + _dxfG(2,bname);
     ent += _dxfG(10, y.toFixed(3)) + _dxfG(20, x.toFixed(3)) + _dxfG(30,'0.000');
     ent += _dxfG(0,'ATTRIB') + _dxfG(8,'ПОДПИСИ') + _dxfG(62,'2');
     ent += _dxfG(10, ax) + _dxfG(20, ay) + _dxfG(30,'0.000');
