@@ -204,25 +204,37 @@ function buildVolumesDXF({points, polylines, polygons, coordSys, siteName}){
   let blkN = 0;
   const off = textH * 0.4;
 
-  // Точки-объёмы: каждая — отдельный блок (POINT + TEXT) + вставка INSERT
+  // Точки-объёмы: каждая — отдельный блок (POINT + ATTDEF) + вставка INSERT
+  // с атрибутом (ATTRIB). Подпись хранится как АТРИБУТ блока — редактируется в CAD.
   for(const pt of points){
     const x = parseFloat(pt.x)||0;    // northing
     const y = parseFloat(pt.y)||0;    // easting
     const txt = pt.label || pt.type || 'Точка';
     const bn = 'PV_' + (++blkN);
-    // Определение блока: геометрия относительно точки вставки (0,0)
-    blk += _dxfG(0,'BLOCK') + _dxfG(8,'СКВАЖИНЫ') + _dxfG(2,bn) + _dxfG(70,'0');
+    const offs = off.toFixed(3);
+    const ax = (y + off).toFixed(3);  // абсолютная X подписи (easting)
+    const ay = (x + off).toFixed(3);  // абсолютная Y подписи (northing)
+    // Определение блока: POINT + ATTDEF (определение атрибута-подписи). 70=2 → блок с атрибутами
+    blk += _dxfG(0,'BLOCK') + _dxfG(8,'СКВАЖИНЫ') + _dxfG(2,bn) + _dxfG(70,'2');
     blk += _dxfG(10,'0.000') + _dxfG(20,'0.000') + _dxfG(30,'0.000') + _dxfG(3,bn);
     blk += _dxfG(0,'POINT') + _dxfG(8,'СКВАЖИНЫ') + _dxfG(62,'5');
     blk += _dxfG(10,'0.000') + _dxfG(20,'0.000') + _dxfG(30,'0.000');
-    blk += _dxfG(0,'TEXT') + _dxfG(8,'ПОДПИСИ') + _dxfG(62,'2');
-    blk += _dxfG(10, off.toFixed(3)) + _dxfG(20, off.toFixed(3)) + _dxfG(30,'0.000');
-    blk += _dxfG(40, textHs) + _dxfG(1, txt || ' ') + _dxfG(50,'0.0') + _dxfG(72,'0');
-    blk += _dxfG(11, off.toFixed(3)) + _dxfG(21, off.toFixed(3)) + _dxfG(31,'0.000');
+    blk += _dxfG(0,'ATTDEF') + _dxfG(8,'ПОДПИСИ') + _dxfG(62,'2');
+    blk += _dxfG(10, offs) + _dxfG(20, offs) + _dxfG(30,'0.000');
+    blk += _dxfG(40, textHs) + _dxfG(1, txt || ' ');   // 1 = значение по умолчанию
+    blk += _dxfG(2,'LABEL') + _dxfG(3,'Подпись') + _dxfG(70,'0'); // 2=тег, 3=подсказка, 70=флаги
+    blk += _dxfG(50,'0.0') + _dxfG(72,'0');
+    blk += _dxfG(11, offs) + _dxfG(21, offs) + _dxfG(31,'0.000');
     blk += _dxfG(0,'ENDBLK') + _dxfG(8,'СКВАЖИНЫ');
-    // Вставка блока: DXF X = easting (y), DXF Y = northing (x)
-    ent += _dxfG(0,'INSERT') + _dxfG(8,'СКВАЖИНЫ') + _dxfG(2,bn);
+    // Вставка блока с атрибутом. 66=1 → далее следуют ATTRIB. DXF X = easting (y), Y = northing (x)
+    ent += _dxfG(0,'INSERT') + _dxfG(66,'1') + _dxfG(8,'СКВАЖИНЫ') + _dxfG(2,bn);
     ent += _dxfG(10, y.toFixed(3)) + _dxfG(20, x.toFixed(3)) + _dxfG(30,'0.000');
+    ent += _dxfG(0,'ATTRIB') + _dxfG(8,'ПОДПИСИ') + _dxfG(62,'2');
+    ent += _dxfG(10, ax) + _dxfG(20, ay) + _dxfG(30,'0.000');
+    ent += _dxfG(40, textHs) + _dxfG(1, txt || ' ') + _dxfG(2,'LABEL') + _dxfG(70,'0');
+    ent += _dxfG(50,'0.0') + _dxfG(72,'0');
+    ent += _dxfG(11, ax) + _dxfG(21, ay) + _dxfG(31,'0.000');
+    ent += _dxfG(0,'SEQEND') + _dxfG(8,'ПОДПИСИ');
   }
 
   // Lines (LineString) — as LINE segments
