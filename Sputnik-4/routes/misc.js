@@ -720,6 +720,8 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
       catch (e) {
         const msg = (e.message || '');
         cleanup();
+        // Понятное сообщение от конвертера (СК не пересчитывается / пусто)
+        if (e.userMessage) return res.status(422).json({ error: e.userMessage + ' Получено: ' + (partsInfo || 'нет') + '.' });
         // Частая причина — загружены не все файлы набора или .dat пустой
         const short = /Open\(\) failed for .*\.dat/i.test(msg)
           ? 'Не удалось открыть .DAT. Загрузите ВЕСЬ набор одним разом: .tab, .map, .id, .dat (и .ind, если есть). Получено: ' + (partsInfo || 'нет частей') + '.'

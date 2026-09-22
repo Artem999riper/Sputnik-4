@@ -1206,13 +1206,70 @@ async function convertToTab(srcPath, outTabPath) {
 
 // Конвертация векторного файла (TAB/MIF/SHP…) в GeoJSON (WGS-84) через ogr2ogr.
 // Репроецирует из встроенной СК файла в EPSG:4326. Бросает ошибку без GDAL.
+// Кол-во объектов и признак «координаты уже географические» в готовом GeoJSON.
+function _gjFeatureCount(p) {
+  try { const gj = JSON.parse(fs.readFileSync(p, 'utf8')); return (gj.features || []).length; }
+  catch (e) { return 0; }
+}
+function _gjLooksGeographic(p) {
+  try {
+    const gj = JSON.parse(fs.readFileSync(p, 'utf8'));
+    for (const f of (gj.features || [])) {
+      let c = f && f.geometry && f.geometry.coordinates;
+      while (Array.isArray(c) && Array.isArray(c[0])) c = c[0];   // до первой пары [lng,lat]
+      if (Array.isArray(c) && isFinite(c[0]) && isFinite(c[1])) {
+        return Math.abs(c[0]) <= 180 && Math.abs(c[1]) <= 90;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+async function _ogrSrcSrs(srcPath) {
+  try {
+    const { stdout } = await execFileP(gdal('ogrinfo'), ['-so', '-al', srcPath],
+      { env: gdalEnv(), timeout: 60000, maxBuffer: 32 * 1024 * 1024 });
+    const m = String(stdout || '').match(/(PROJCS|GEOGCS|PROJCRS|GEOGCRS|BOUNDCRS)[^\n]*/);
+    return m ? m[0].replace(/^[A-Z]+\[?"?/, '').replace(/["\],].*$/, '').trim() : '';
+  } catch (e) { return ''; }
+}
+
 async function convertToGeoJSON(srcPath, outPath) {
   findGDALBin();
-  await execFileP(gdal('ogr2ogr'),
-    ['-f', 'GeoJSON', '-t_srs', 'EPSG:4326', '-skipfailures', outPath, srcPath],
-    { env: gdalEnv(), timeout: 120000, maxBuffer: 256 * 1024 * 1024 });
-  if (!fs.existsSync(outPath)) throw new Error('ogr2ogr не создал GeoJSON');
-  return outPath;
+  const env = gdalEnv();
+  const run = (args) => execFileP(gdal('ogr2ogr'), args,
+    { env, timeout: 120000, maxBuffer: 256 * 1024 * 1024 });
+
+  // 1) С репроекцией в WGS-84 (штатный путь)
+  let stderr1 = '';
+  try { const r = await run(['-f', 'GeoJSON', '-t_srs', 'EPSG:4326', '-skipfailures', outPath, srcPath]); stderr1 = r.stderr || ''; }
+  catch (e) { stderr1 = (e.stderr || e.message || ''); }
+  if (fs.existsSync(outPath) && _gjFeatureCount(outPath) > 0) return outPath;
+
+  // 2) Репроекция дала 0 объектов — частая причина: исходную СК не удалось
+  //    пересчитать в WGS-84, и -skipfailures молча выкинул все объекты.
+  //    Пробуем без -t_srs (в исходной СК).
+  try { fs.rmSync(outPath, { force: true }); } catch (e) {}
+  let stderr2 = '';
+  try { const r = await run(['-f', 'GeoJSON', '-skipfailures', outPath, srcPath]); stderr2 = r.stderr || ''; }
+  catch (e) { stderr2 = (e.stderr || e.message || ''); }
+
+  if (fs.existsSync(outPath) && _gjFeatureCount(outPath) > 0) {
+    // Если координаты уже географические (широта/долгота) — берём как есть.
+    if (_gjLooksGeographic(outPath)) return outPath;
+    // Иначе набор в проекционной СК, которую GDAL не смог перевести в WGS-84.
+    const srs = await _ogrSrcSrs(srcPath);
+    const err = new Error('SRS_MISMATCH');
+    err.userMessage = 'Набор в проекционной системе координат, которую не удалось пересчитать в WGS-84'
+      + (srs ? ` (исходная СК: ${srs})` : '')
+      + '. Экспортируйте из MapInfo в широту/долготу (WGS-84 / Lat-Long) — или пришлите файл, добавлю поддержку этой СК.';
+    throw err;
+  }
+
+  // 3) Совсем пусто — вернём диагностику ogr2ogr.
+  const diag = String(stderr1 || stderr2 || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  const err = new Error('EMPTY');
+  err.userMessage = 'GDAL не вернул ни одного объекта из TAB.' + (diag ? ` Сообщение GDAL: ${diag}` : '');
+  throw err;
 }
 
 module.exports = {
