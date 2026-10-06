@@ -1796,6 +1796,7 @@ function renderLayerGroupsWithSymbols() {
               {i:'🎨',l:'Стиль слоя',f:()=>kmlOpenStyleModal(l.id)},
               {i:'📋',l:'Объекты слоя',f:()=>kmlOpenFeatureList(l.id)},
               {i:'👁',l:l.visible?'Скрыть слой':'Показать слой',f:()=>kmlToggleVis(l.id,l.visible?0:1)},
+              {i:'🏷',l:layerLabels[l.id]?'Скрыть подписи слоя':'Показать подписи слоя',f:()=>toggleLayerLabels(l.id)},
               ...(l.group_id?[{sep:true},{i:'📄',l:'Убрать из группы',f:()=>kmlMoveToGroup(l.id,null)}]:[]),
               {sep:true},
               ...(fIdx>=0?[{i:'🗑',l:'Удалить объект',cls:'dan',f:()=>kmlDeleteFeature(l.id,fIdx,'inline')}]:[]),
