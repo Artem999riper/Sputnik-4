@@ -85,11 +85,19 @@ function _msk72Proj(zone, w) {
   return `+proj=tmerc +lat_0=0 +lon_0=${lon_0} +k=1 +x_0=${x_0} +y_0=-5811057.63` +
          ` +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs`;
 }
+// МСК-11 (Республика Коми): 9 трёхградусных зон. Отличия от 66/72:
+//   ЦМ зоны 1 = 41°02′ (41.03333°), ложный восток = N·1e6 + 400000, y_0 = -6211057.628.
+function _msk11Proj(zone, w) {
+  const lon_0 = 41.03333333 + 3 * (zone - 1), x_0 = zone * 1e6 + 400000;
+  return `+proj=tmerc +lat_0=0 +lon_0=${lon_0} +k=1 +x_0=${x_0} +y_0=-6211057.628` +
+         ` +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs`;
+}
 // crsKey → { построитель proj, ширина зоны в градусах }
 const MSK_REGIONAL = {
   msk66_3: { proj: _msk66Proj, w: 3 },
   msk72_3: { proj: _msk72Proj, w: 3 },
   msk72_6: { proj: _msk72Proj, w: 6 },
+  msk11_3: { proj: _msk11Proj, w: 3 },
 };
 function isRegionalMsk(crsKey) { return Object.prototype.hasOwnProperty.call(MSK_REGIONAL, crsKey); }
 // Номер зоны кодируется префиксом Y (восток): floor(east / 1e6).
