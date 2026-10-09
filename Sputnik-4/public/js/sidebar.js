@@ -372,6 +372,33 @@ async function importLayer(evt){
   toast(`Импортировано: ${gj.features.length} объектов`,'ok');
   evt.target.value='';
 }
+// ── Полный справочник МСК (все регионы РФ, 2001/2008) в диалогах импорта ──
+function _mskRegionOptionsHtml(){
+  const regs = (typeof MSK_FULL==='object' && MSK_FULL && MSK_FULL.regions) ? Object.keys(MSK_FULL.regions) : [];
+  regs.sort((a,b)=>parseInt(a,10)-parseInt(b,10));
+  return regs.map(r=>`<option value="${esc(r)}">МСК-${esc(r)}</option>`).join('');
+}
+function _mskFullPickerHtml(prefix, pad){
+  const p = pad||'3px';
+  return `<label style="display:block;padding:${p} 0"><input type="radio" name="${prefix}-crs" id="${prefix}-crs-mskfull" value="mskfull"> МСК по региону (все, 2001/2008):</label>
+    <div style="display:flex;gap:6px;margin:2px 0 2px 20px">
+      <select id="${prefix}-mskreg" onchange="var r=document.getElementById('${prefix}-crs-mskfull');if(r)r.checked=true" style="flex:1;min-width:0;font-size:12px;padding:3px;border:1px solid var(--bd);border-radius:4px;background:var(--s2);color:var(--tx)">${_mskRegionOptionsHtml()}</select>
+      <select id="${prefix}-mskdatum" style="font-size:12px;padding:3px;border:1px solid var(--bd);border-radius:4px;background:var(--s2);color:var(--tx)">
+        <option value="2008">ГОСТ-2008</option><option value="2001">ГОСТ-2001</option>
+      </select>
+    </div>`;
+}
+function _mskReadCrs(prefix, fallback){
+  const sel = document.querySelector(`input[name="${prefix}-crs"]:checked`);
+  const v = sel ? sel.value : (fallback||'wgs84');
+  if(v==='mskfull'){
+    const reg = document.getElementById(`${prefix}-mskreg`)?.value || '';
+    const dat = document.getElementById(`${prefix}-mskdatum`)?.value || '2008';
+    return reg ? `mskfull:${reg}:${dat}` : (fallback||'wgs84');
+  }
+  return v;
+}
+
 function _showDxfCrsModal(){
   return new Promise(resolve=>{
     const body=`
@@ -380,17 +407,14 @@ function _showDxfCrsModal(){
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86" checked> МСК-86 (авто зона по X)</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′, фикс.)</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′, фикс.)</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk66_3"> МСК-66 (Свердловская), 3-градусная</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk72_3"> МСК-72 (Тюменская), 3-градусная</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk72_6"> МСК-72 (Тюменская), 6-градусная</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk11_3"> МСК-11 (Коми), 3-градусная</label>
+        ${_mskFullPickerHtml('dxf')}
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="gsk2011"> ГСК-2011</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="wgs84"> WGS-84 (градусы)</label>
       </div>`;
     showModal('📥 Импорт DXF',body,[
       {label:'Отмена',cls:'bs',fn:()=>{closeModal();resolve(null);}},
       {label:'Импортировать',cls:'bp',fn:()=>{
-        const crs=document.querySelector('input[name="dxf-crs"]:checked')?.value||'msk86';
+        const crs=_mskReadCrs('dxf','msk86');
         closeModal();resolve(crs);
       }},
     ]);
@@ -398,6 +422,7 @@ function _showDxfCrsModal(){
 }
 // Импорт MapInfo TAB: отправляем весь набор файлов (или ZIP) на сервер (ogr2ogr → GeoJSON)
 async function _importTab(fileList){
+  if(typeof loadMskFull==='function'){try{await loadMskFull();}catch(e){}}
   const files=[...fileList];
   const tabs=files.filter(f=>/\.tab$/i.test(f.name));
   const hasZip=files.some(f=>/\.zip$/i.test(f.name));
@@ -471,10 +496,7 @@ function _showTabCrsModal(reason){
         <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk86" checked> МСК-86 (авто зона по X)</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′, фикс.)</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′, фикс.)</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk66_3"> МСК-66 (Свердловская), 3-градусная</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk72_3"> МСК-72 (Тюменская), 3-градусная</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk72_6"> МСК-72 (Тюменская), 6-градусная</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk11_3"> МСК-11 (Коми), 3-градусная</label>
+        ${_mskFullPickerHtml('tab')}
         <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="gsk2011"> ГСК-2011</label>
       </div>
       <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;cursor:pointer">
@@ -484,7 +506,7 @@ function _showTabCrsModal(reason){
     showModal('📥 Импорт TAB — выберите систему координат', body, [
       {label:'Отмена',cls:'bs',fn:()=>{closeModal();resolve(null);}},
       {label:'Импортировать',cls:'bp',fn:()=>{
-        const crs=document.querySelector('input[name="tab-crs"]:checked')?.value||'msk86';
+        const crs=_mskReadCrs('tab','msk86');
         const swap=document.getElementById('tab-swap')?.checked?'1':'';
         closeModal();resolve({crs,swap});
       }},
@@ -492,6 +514,7 @@ function _showTabCrsModal(reason){
   });
 }
 async function _importDxf(file,text){
+  if(typeof loadMskFull==='function'){try{await loadMskFull();}catch(e){}}
   const crs=await _showDxfCrsModal();
   if(!crs)return;
   let j;
@@ -640,10 +663,7 @@ function _showCsvConfigModal(text, fileName) {
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86" checked> МСК-86 (авто зона по Y)</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′)</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′)</label>
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk66_3"> МСК-66 (Свердловская), 3-градусная</label>
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk72_3"> МСК-72 (Тюменская), 3-градусная</label>
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk72_6"> МСК-72 (Тюменская), 6-градусная</label>
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk11_3"> МСК-11 (Коми), 3-градусная</label>
+            ${_mskFullPickerHtml('csv','2px')}
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="gsk2011"> ГСК-2011</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="wgs84"> WGS-84 (широта / долгота)</label>
           </div>
@@ -703,7 +723,7 @@ function _showCsvConfigModal(text, fileName) {
         const nc = parseInt(document.getElementById('csv-col-name')?.value ?? -1);
         const xc = parseInt(document.getElementById('csv-col-x')?.value  ?? 1);
         const yc = parseInt(document.getElementById('csv-col-y')?.value  ?? 2);
-        const crs = document.querySelector('input[name="csv-crs"]:checked')?.value || 'msk86';
+        const crs = _mskReadCrs('csv','msk86');
         const hdr = !!document.getElementById('csv-hdr')?.checked;
         closeModal();
         resolve({ delim, hasHeader: hdr, nameCol: nc, xCol: xc, yCol: yc, crs });
@@ -730,6 +750,7 @@ async function _importXlsx(file) {
   await _importCsv(file, text);
 }
 async function _importCsv(file, text) {
+  if(typeof loadMskFull==='function'){try{await loadMskFull();}catch(e){}}
   const cfg = await _showCsvConfigModal(text, file.name);
   if (!cfg) return;
   const { delim, hasHeader, nameCol, xCol, yCol, crs } = cfg;
@@ -754,6 +775,10 @@ async function _importCsv(file, text) {
     try {
       if (crs === 'wgs84') {
         lat = x; lng = y;
+      } else if (typeof isMskFull === 'function' && isMskFull(crs)) {
+        // МСК любого региона (2001/2008) — зона по префиксу Y
+        const res = mskFullToWgs(x, y, crs);
+        lat = res.lat; lng = res.lon;
       } else if (typeof isRegionalMsk === 'function' && isRegionalMsk(crs)) {
         // МСК-66 / МСК-72 — зона по префиксу Y
         const res = mskRegionalToWgs(x, y, crs);

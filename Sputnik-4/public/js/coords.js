@@ -111,6 +111,40 @@ function mskRegionalToWgs(northing, easting, crsKey) {
   return { lat, lon, zone };
 }
 
+// ── Полный справочник МСК (все регионы РФ, 2001 и 2008) ─────
+// Данные из Trimble GeoDB (Russia/MSK/2001 и /2008): по региону — список зон
+// {z, lon(ЦМ, град), x0(ложный восток), y0(ложный север)}. Проекция одинакова
+// для 2001/2008; различается только датум (towgs84). Эллипсоид Красовского.
+let MSK_FULL = null;
+async function loadMskFull() {
+  if (MSK_FULL) return MSK_FULL;
+  try { MSK_FULL = await fetch('/msk-zones.json').then(r => r.json()); }
+  catch (e) { MSK_FULL = { regions: {}, datums: {} }; }
+  return MSK_FULL;
+}
+// crsKey вида "mskfull:<регион>:<датум>" (напр. "mskfull:11:2008")
+function isMskFull(crsKey) { return typeof crsKey === 'string' && crsKey.indexOf('mskfull:') === 0; }
+function _mskFullProjStr(reg, datumId, easting) {
+  if (!MSK_FULL || !MSK_FULL.regions) return null;
+  const zones = MSK_FULL.regions[reg];
+  if (!zones || !zones.length) return null;
+  const zoneNo = Math.max(1, Math.floor(easting / 1e6));
+  let zrec = zones.find(z => Math.floor(z.x0 / 1e6) === zoneNo) || zones[0];
+  const tw = (MSK_FULL.datums && MSK_FULL.datums[datumId]) || MSK_FULL.datums['2008'] ||
+             [23.57, -140.95, -79.8, 0, 0.35, 0.79, -0.22];
+  const ellps = MSK_FULL.ellps || 'krass';
+  return `+proj=tmerc +lat_0=0 +lon_0=${zrec.lon} +k=1 +x_0=${zrec.x0} +y_0=${zrec.y0}` +
+         ` +ellps=${ellps} +towgs84=${tw.join(',')} +units=m +no_defs`;
+}
+// Пересчёт МСК (любой регион) X=север, Y=восток → WGS-84. crsKey = "mskfull:reg:datum".
+function mskFullToWgs(northing, easting, crsKey) {
+  const parts = crsKey.split(':');            // ['mskfull', reg, datum]
+  const projStr = _mskFullProjStr(parts[1], parts[2] || '2008', easting);
+  if (!projStr) return null;
+  const [lon, lat] = proj4(projStr, _WGS84, [easting, northing]);
+  return { lat, lon, zone: Math.max(1, Math.floor(easting / 1e6)) };
+}
+
 // ── Форматирование ─────────────────────────────────────────
 function formatWGS(lat, lon) {
   const latH = lat >= 0 ? 'N' : 'S';

@@ -38,6 +38,22 @@ const _DXF_MSK_REGIONAL = {
   msk72_6: { proj: _dxfMsk72Proj, w: 6 },
   msk11_3: { proj: _dxfMsk11Proj, w: 3 },
 };
+// Полный справочник МСК (все регионы РФ, 2001/2008) — из public/msk-zones.json.
+let _MSK_FULL = null;
+try { _MSK_FULL = require('../public/msk-zones.json'); } catch (e) { _MSK_FULL = null; }
+// crs = "mskfull:<регион>:<датум>"; зона — по префиксу восточной координаты sampleX.
+function _mskFullProjStr(crs, sampleX) {
+  if (!_MSK_FULL || !_MSK_FULL.regions) return null;
+  const parts = String(crs).split(':');       // ['mskfull', reg, datum]
+  const zones = _MSK_FULL.regions[parts[1]];
+  if (!zones || !zones.length) return null;
+  const zoneNo = Math.max(1, Math.floor((sampleX || 0) / 1e6));
+  const zrec = zones.find(z => Math.floor(z.x0 / 1e6) === zoneNo) || zones[0];
+  const tw = (_MSK_FULL.datums && _MSK_FULL.datums[parts[2]]) || (_MSK_FULL.datums && _MSK_FULL.datums['2008']) ||
+             [23.57, -140.95, -79.8, 0, 0.35, 0.79, -0.22];
+  const ellps = _MSK_FULL.ellps || 'krass';
+  return `+proj=tmerc +lat_0=0 +lon_0=${zrec.lon} +k=1 +x_0=${zrec.x0} +y_0=${zrec.y0} +ellps=${ellps} +towgs84=${tw.join(',')} +units=m +no_defs`;
+}
 
 function parseDXF(text) {
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
@@ -177,6 +193,12 @@ function _firstPoint(gj) {
 function makeDxfInverseTransform(crs, sampleX) {
   if (crs === 'wgs84') return (x, y) => [x, y];
   const sx = sampleX || 3500000;
+  // Полный справочник МСК: crs вида "mskfull:<регион>:<датум>"
+  if (typeof crs === 'string' && crs.indexOf('mskfull:') === 0) {
+    const projStr = _mskFullProjStr(crs, sx);
+    if (!projStr) throw new Error('Неизвестный регион МСК: ' + crs);
+    return (x, y) => { const [lng, lat] = proj4(projStr, _DXF_WGS84, [x, y]); return [lng, lat]; };
+  }
   // Региональные МСК-66 / МСК-72 — зона по префиксу X (восток)
   const reg = _DXF_MSK_REGIONAL[crs];
   if (reg) {
