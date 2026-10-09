@@ -1881,6 +1881,7 @@ function openLayerExportDialog() {
         <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=66°, фиксированная)</label>
         <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=72°, фиксированная)</label>
         <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="gsk2011"> ГСК-2011 (6° зоны)</label>
+        ${typeof _mskFullPickerHtml==='function' ? _mskFullPickerHtml('lex','2px') : ''}
       </div>
       <div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
@@ -1903,6 +1904,13 @@ function openLayerExportDialog() {
     { label: 'Отмена', cls: 'bs', fn: closeModal },
     { label: 'Скачать DXF', cls: 'bp', fn: doLayerExport },
   ]);
+  // Догружаем список регионов МСК (если справочник ещё не загружен)
+  if (typeof loadMskFull === 'function') {
+    loadMskFull().then(() => {
+      const s = document.getElementById('lex-mskreg');
+      if (s && !s.options.length && typeof _mskRegionOptionsHtml === 'function') s.innerHTML = _mskRegionOptionsHtml();
+    }).catch(()=>{});
+  }
 }
 
 // Фильтр списка слоёв в диалоге экспорта по имени
@@ -1974,8 +1982,9 @@ async function doLayerExport() {
   }
 
   // DXF / TAB export (оба в метрах, с выбором СК)
-  const crsEl = document.querySelector('input[name="lex-crs"]:checked');
-  const crs = crsEl ? crsEl.value : 'wgs84';
+  const crs = (typeof _mskReadCrs === 'function')
+    ? _mskReadCrs('lex', 'wgs84')
+    : (document.querySelector('input[name="lex-crs"]:checked')?.value || 'wgs84');
   const isTab = fmt === 'tab';
   const endpoint = isTab ? 'export-tab' : 'export-dxf';
   const ext = isTab ? 'zip' : 'dxf';

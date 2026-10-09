@@ -594,7 +594,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
   // ── LAYER EXPORT (DXF) ─────────────────────────────────────
   const { buildLayersDXF, saveDXF } = require('../dxf-writer');
   const { buildLayersMIF, encodeCp1251 } = require('../mif-writer');
-  const { makeTransform, pickMsk86Zone, pickGsk2011Zone } = require('../coord-transform');
+  const { makeTransform, pickMsk86Zone, pickGsk2011Zone, mskFullZone } = require('../coord-transform');
 
   function geojsonBboxCenter(layers) {
     let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity, found = false;
@@ -863,6 +863,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     else if (crsKey === 'msk86_z3') zoneInfo = '_z3';
     else if (crsKey === 'msk86_z4') zoneInfo = '_z4';
     else if (crsKey === 'gsk2011') zoneInfo = `_z${pickGsk2011Zone(centerLng)}`;
+    else if (typeof crsKey === 'string' && crsKey.indexOf('mskfull:') === 0) { const _p = crsKey.split(':'); const _z = mskFullZone(crsKey, centerLng); zoneInfo = `_MSK${_p[1]}${_z ? '_z' + _z : ''}`; }
 
     const layers = rows.map(r => ({
       name: r.name,
@@ -905,6 +906,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     else if (crsKey === 'msk86_z3') zoneInfo = '_z3';
     else if (crsKey === 'msk86_z4') zoneInfo = '_z4';
     else if (crsKey === 'gsk2011') zoneInfo = `_z${pickGsk2011Zone(centerLng)}`;
+    else if (typeof crsKey === 'string' && crsKey.indexOf('mskfull:') === 0) { const _p = crsKey.split(':'); const _z = mskFullZone(crsKey, centerLng); zoneInfo = `_MSK${_p[1]}${_z ? '_z' + _z : ''}`; }
 
     const { mif, mid } = buildLayersMIF({ layers: rows, transform, isGeo });
     const base = `layers_${crsKey}${zoneInfo}`.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
@@ -942,6 +944,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     else if (crsKey === 'msk86_z3') zoneInfo = '_z3';
     else if (crsKey === 'msk86_z4') zoneInfo = '_z4';
     else if (crsKey === 'gsk2011') zoneInfo = `_z${pickGsk2011Zone(centerLng)}`;
+    else if (typeof crsKey === 'string' && crsKey.indexOf('mskfull:') === 0) { const _p = crsKey.split(':'); const _z = mskFullZone(crsKey, centerLng); zoneInfo = `_MSK${_p[1]}${_z ? '_z' + _z : ''}`; }
 
     const base = `layers_${crsKey}${zoneInfo}`.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
     const { mif, mid } = buildLayersMIF({ layers: rows, transform, isGeo });

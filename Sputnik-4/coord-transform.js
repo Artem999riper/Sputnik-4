@@ -62,14 +62,47 @@ function pickGsk2011Zone(centerLngDeg) {
   return _gskZone(centerLngDeg);
 }
 
+// Полный справочник МСК (все регионы, 2001/2008) — из public/msk-zones.json.
+let _MSK_FULL = null;
+try { _MSK_FULL = require('./public/msk-zones.json'); } catch (e) { _MSK_FULL = null; }
+// Зона региона по долготе (ближайший осевой меридиан).
+function _mskFullPickZone(reg, lng) {
+  const zs = _MSK_FULL && _MSK_FULL.regions && _MSK_FULL.regions[reg];
+  if (!zs || !zs.length) return null;
+  let best = zs[0], bd = Infinity;
+  for (const z of zs) { const d = Math.abs(z.lon - lng); if (d < bd) { bd = d; best = z; } }
+  return best;
+}
+// Строит proj-строку МСК для crs "mskfull:<регион>:<датум>" и долготы центра области.
+function _mskFullProjStr(crs, centerLng) {
+  if (!_MSK_FULL || !_MSK_FULL.regions) return null;
+  const parts = String(crs).split(':');            // ['mskfull', reg, datum]
+  const z = _mskFullPickZone(parts[1], isFinite(centerLng) ? centerLng : 0);
+  if (!z) return null;
+  const tw = (_MSK_FULL.datums && _MSK_FULL.datums[parts[2]]) || (_MSK_FULL.datums && _MSK_FULL.datums['2008']) ||
+             [23.57, -140.95, -79.8, 0, 0.35, 0.79, -0.22];
+  const ellps = _MSK_FULL.ellps || 'krass';
+  return { proj: `+proj=tmerc +lat_0=0 +lon_0=${z.lon} +k=1 +x_0=${z.x0} +y_0=${z.y0} +ellps=${ellps} +towgs84=${tw.join(',')} +units=m +no_defs`, zone: z.z };
+}
+// Номер зоны МСК для имени файла (или null).
+function mskFullZone(crs, centerLng) {
+  const d = _mskFullProjStr(crs, centerLng);
+  return d ? d.zone : null;
+}
+
 /**
  * Фабрика трансформации (lng, lat) → [x, y].
- * crs: 'wgs84' | 'msk86' | 'msk86_z3' | 'msk86_z4' | 'gsk2011'
- * centerLng не используется (зона определяется per-point или фиксирована), оставлен для совместимости.
+ * crs: 'wgs84' | 'msk86' | 'msk86_z3' | 'msk86_z4' | 'gsk2011' | 'mskfull:<регион>:<датум>'
+ * centerLng используется для выбора зоны у 'mskfull' (одна зона на весь экспорт).
  */
-function makeTransform(crs) {
+function makeTransform(crs, centerLng) {
   if (crs === 'wgs84' || !crs) {
     return (lng, lat) => [lng, lat];
+  }
+  if (typeof crs === 'string' && crs.indexOf('mskfull:') === 0) {
+    const d = _mskFullProjStr(crs, centerLng);
+    if (!d) throw new Error('Неизвестный регион МСК: ' + crs);
+    return (lng, lat) => { const [e, n] = proj4(_WGS84, d.proj, [lng, lat]); return [e, n]; };
   }
   if (crs === 'msk86') {
     return (lng, lat) => {
@@ -103,5 +136,6 @@ module.exports = {
   wgs84ToGsk2011,
   pickMsk86Zone,
   pickGsk2011Zone,
+  mskFullZone,
   makeTransform,
 };
