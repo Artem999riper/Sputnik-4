@@ -144,6 +144,27 @@ function mskFullToWgs(northing, easting, crsKey) {
   const [lon, lat] = proj4(projStr, _WGS84, [easting, northing]);
   return { lat, lon, zone: Math.max(1, Math.floor(easting / 1e6)) };
 }
+// Прямой пересчёт WGS-84 → МСК выбранного региона. Зона выбирается по долготе
+// курсора (ближайший осевой меридиан среди зон региона).
+function _mskFullPickZone(reg, lng) {
+  const zs = MSK_FULL && MSK_FULL.regions && MSK_FULL.regions[reg];
+  if (!zs || !zs.length) return null;
+  let best = zs[0], bd = Infinity;
+  for (const z of zs) { const d = Math.abs(z.lon - lng); if (d < bd) { bd = d; best = z; } }
+  return best;
+}
+function wgsToMskFull(lat, lng, reg, datumId) {
+  const z = _mskFullPickZone(reg, lng);
+  if (!z) return null;
+  const tw = (MSK_FULL.datums && MSK_FULL.datums[datumId || '2008']) ||
+             (MSK_FULL.datums && MSK_FULL.datums['2008']) ||
+             [23.57, -140.95, -79.8, 0, 0.35, 0.79, -0.22];
+  const ellps = MSK_FULL.ellps || 'krass';
+  const proj = `+proj=tmerc +lat_0=0 +lon_0=${z.lon} +k=1 +x_0=${z.x0} +y_0=${z.y0}` +
+               ` +ellps=${ellps} +towgs84=${tw.join(',')} +units=m +no_defs`;
+  const [easting, northing] = proj4(_WGS84, proj, [lng, lat]);
+  return { northing, easting, zone: z.z, region: reg };
+}
 
 // ── Форматирование ─────────────────────────────────────────
 function formatWGS(lat, lon) {
@@ -167,6 +188,13 @@ function formatProjected(c) {
          `X:&nbsp;<b>${c.northing.toFixed(2)}</b>&nbsp;&nbsp;` +
          `Y:&nbsp;<b>${c.easting.toFixed(2)}</b>`;
 }
+function formatProjectedFull(c) {
+  return `<span style="color:var(--tx3);font-size:10px">МСК-${c.region} з${c.zone}</span>&nbsp;` +
+         `X:&nbsp;<b>${c.northing.toFixed(2)}</b>&nbsp;&nbsp;` +
+         `Y:&nbsp;<b>${c.easting.toFixed(2)}</b>`;
+}
+// Выбранный регион МСК для плашки координат (запоминается).
+let coordMskRegion = (function(){ try { return localStorage.getItem('sputnik_msk_region') || '86'; } catch(e){ return '86'; } })();
 
 // ── Виджет ─────────────────────────────────────────────────
 function initCoordsWidget() {
@@ -180,13 +208,25 @@ function initCoordsWidget() {
   wrap.innerHTML = `
     <div id="coord-sys-btns">
       <button class="csb on" data-s="wgs" onclick="setCoordSys('wgs')">WGS-84</button>
-      <button class="csb"    data-s="msk" onclick="setCoordSys('msk')">МСК-86/89</button>
+      <button class="csb"    data-s="msk" onclick="setCoordSys('msk')">МСК</button>
       <button class="csb"    data-s="gsk" onclick="setCoordSys('gsk')">ГСК-2011</button>
+      <select id="coord-msk-reg" title="Регион МСК" style="display:none;font-family:inherit;font-size:10px;font-weight:700;border:1.5px solid var(--bd);border-radius:4px;background:var(--s2);color:var(--tx2);padding:2px 3px;cursor:pointer"></select>
     </div>
     <div id="coord-display">— наведите курсор на карту —</div>
     <div id="map-scale-display" title="Масштаб карты"></div>
   `;
   document.body.appendChild(wrap);
+  // Загружаем справочник МСК и наполняем список регионов
+  if (typeof loadMskFull === 'function') {
+    loadMskFull().then(() => {
+      const sel = document.getElementById('coord-msk-reg');
+      if (!sel || !MSK_FULL || !MSK_FULL.regions) return;
+      const regs = Object.keys(MSK_FULL.regions).sort((a,b)=>parseInt(a,10)-parseInt(b,10));
+      if (!regs.includes(coordMskRegion)) coordMskRegion = regs[0] || '86';
+      sel.innerHTML = regs.map(r=>`<option value="${r}"${r===coordMskRegion?' selected':''}>МСК-${r}</option>`).join('');
+      sel.onchange = function(){ coordMskRegion = sel.value; try{ localStorage.setItem('sputnik_msk_region', coordMskRegion); }catch(e){} };
+    }).catch(()=>{});
+  }
 
   const style = document.createElement('style');
   style.textContent = `
@@ -270,6 +310,8 @@ function setCoordSys(sys) {
   }
   coordSys = sys;
   document.querySelectorAll('.csb').forEach(b => b.classList.toggle('on', b.dataset.s === sys));
+  const sel = document.getElementById('coord-msk-reg');
+  if (sel) sel.style.display = (sys === 'msk') ? '' : 'none';
 }
 
 function _updateMapScale(lat) {
@@ -288,7 +330,12 @@ function onMapMouseMove(e) {
   const { lat, lng } = e.latlng;
   try {
     if      (coordSys === 'wgs') disp.innerHTML = formatWGS(lat, lng);
-    else if (coordSys === 'msk') disp.innerHTML = formatProjected(wgsToMsk(lat, lng));
+    else if (coordSys === 'msk') {
+      // Полный справочник МСК: регион выбран в списке, зона — по долготе курсора.
+      let c = null;
+      if (MSK_FULL && MSK_FULL.regions && typeof wgsToMskFull === 'function') c = wgsToMskFull(lat, lng, coordMskRegion);
+      disp.innerHTML = c ? formatProjectedFull(c) : formatProjected(wgsToMsk(lat, lng));
+    }
     else if (coordSys === 'gsk') disp.innerHTML = formatProjected(wgsToGsk(lat, lng));
   } catch(err) {
     disp.textContent = 'Ошибка конвертации';
