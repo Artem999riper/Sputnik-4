@@ -343,6 +343,27 @@ function openDEMPanel() {
   );
   setTimeout(demRefreshTileCache, 100);
   setTimeout(_demLoadTilesDir, 120);
+  // Добавляем в список СК все региональные МСК (авто зона по центру области)
+  if (typeof loadMskFull === 'function') {
+    loadMskFull().then(_demAppendMskOptions).catch(()=>{});
+  }
+}
+
+// Дописывает в выпадающий список проекций все регионы МСК (из msk-zones.json).
+function _demAppendMskOptions() {
+  const sel = document.getElementById('dem-proj');
+  if (!sel || typeof MSK_FULL !== 'object' || !MSK_FULL || !MSK_FULL.regions) return;
+  if (sel.querySelector('optgroup[data-msk]')) return;      // уже добавлено
+  const og = document.createElement('optgroup');
+  og.label = 'МСК (все регионы, авто зона)';
+  og.setAttribute('data-msk', '1');
+  Object.keys(MSK_FULL.regions).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(r => {
+    const o = document.createElement('option');
+    o.value = 'mskfull:' + r;
+    o.textContent = 'МСК-' + r + ' (авто зона)';
+    og.appendChild(o);
+  });
+  sel.appendChild(og);
 }
 
 
@@ -558,6 +579,21 @@ function _demToggleSatOnly() {
 }
 
 // ── Выгрузка ───────────────────────────────────────────────
+// Строит объект проекции для выбранной региональной МСК (projId = "mskfull:<регион>").
+// Зона — по центральному меридиану выбранной области.
+function _demBuildMskProj(projId) {
+  if (typeof projId !== 'string' || projId.indexOf('mskfull:') !== 0) return null;
+  if (typeof MSK_FULL !== 'object' || !MSK_FULL || !MSK_FULL.regions || !_demBbox) return null;
+  const reg = projId.split(':')[1];
+  const clng = (_demBbox.minLng + _demBbox.maxLng) / 2;
+  const z = (typeof _mskFullPickZone === 'function') ? _mskFullPickZone(reg, clng) : null;
+  if (!z) return null;
+  const tw = (MSK_FULL.datums && MSK_FULL.datums['2008']) || [23.57,-140.95,-79.8,0,0.35,0.79,-0.22];
+  const ellps = MSK_FULL.ellps || 'krass';
+  const proj4 = `+proj=tmerc +lat_0=0 +lon_0=${z.lon} +k=1 +x_0=${z.x0} +y_0=${z.y0}` +
+                ` +ellps=${ellps} +towgs84=${tw.join(',')} +units=m +no_defs`;
+  return { id: projId, proj4, epsg: null, name: `MSK-${reg}_z${z.z}` };
+}
 async function demExport() {
   if (!_demBbox) { toast('Сначала нарисуйте область на карте', 'err'); return; }
 
@@ -575,7 +611,8 @@ async function demExport() {
   const satSourceId = document.getElementById('dem-sat-source')?.value || 'esri';
   const satSourceObj = DEM_SAT_SOURCES.find(s => s.id === satSourceId) || DEM_SAT_SOURCES[0];
 
-  const proj = DEM_PROJECTIONS.find(p => p.id === projId);
+  const proj = DEM_PROJECTIONS.find(p => p.id === projId) || _demBuildMskProj(projId);
+  if (!proj) { toast('Выберите систему координат', 'err'); return; }
   const fmt  = { id: 'dxf', ext: '.zip' };
 
   // Показываем прогресс
