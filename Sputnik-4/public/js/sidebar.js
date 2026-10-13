@@ -388,6 +388,15 @@ function _mskFullPickerHtml(prefix, pad){
       </select>
     </div>`;
 }
+// UTM (север) с выбором зоны — для импорта (восток не кодирует зону, её нужно задать).
+function _utmPickerHtml(prefix, pad){
+  const p = pad||'3px';
+  let opts=''; for(let z=1;z<=60;z++) opts+=`<option value="${z}"${z===41?' selected':''}>зона ${z}N</option>`;
+  return `<label style="display:block;padding:${p} 0"><input type="radio" name="${prefix}-crs" id="${prefix}-crs-utm" value="utm"> UTM / WGS-84 (сев.):</label>
+    <div style="margin:2px 0 2px 20px">
+      <select id="${prefix}-utmzone" onchange="var r=document.getElementById('${prefix}-crs-utm');if(r)r.checked=true" style="font-size:12px;padding:3px;border:1px solid var(--bd);border-radius:4px;background:var(--s2);color:var(--tx)">${opts}</select>
+    </div>`;
+}
 function _mskReadCrs(prefix, fallback){
   const sel = document.querySelector(`input[name="${prefix}-crs"]:checked`);
   const v = sel ? sel.value : (fallback||'wgs84');
@@ -395,6 +404,10 @@ function _mskReadCrs(prefix, fallback){
     const reg = document.getElementById(`${prefix}-mskreg`)?.value || '';
     const dat = document.getElementById(`${prefix}-mskdatum`)?.value || '2008';
     return reg ? `mskfull:${reg}:${dat}` : (fallback||'wgs84');
+  }
+  if(v==='utm'){
+    const z = document.getElementById(`${prefix}-utmzone`)?.value || '';
+    return z ? `utm:${z}` : (fallback||'wgs84');
   }
   return v;
 }
@@ -408,6 +421,7 @@ function _showDxfCrsModal(){
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′, фикс.)</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′, фикс.)</label>
         ${_mskFullPickerHtml('dxf')}
+        ${_utmPickerHtml('dxf')}
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="gsk2011"> ГСК-2011</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="wgs84"> WGS-84 (градусы)</label>
       </div>`;
@@ -497,6 +511,7 @@ function _showTabCrsModal(reason){
         <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′, фикс.)</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′, фикс.)</label>
         ${_mskFullPickerHtml('tab')}
+        ${_utmPickerHtml('tab')}
         <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="gsk2011"> ГСК-2011</label>
       </div>
       <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;cursor:pointer">
@@ -664,6 +679,7 @@ function _showCsvConfigModal(text, fileName) {
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′)</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′)</label>
             ${_mskFullPickerHtml('csv','2px')}
+            ${_utmPickerHtml('csv','2px')}
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="gsk2011"> ГСК-2011</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="wgs84"> WGS-84 (широта / долгота)</label>
           </div>
@@ -778,6 +794,10 @@ async function _importCsv(file, text) {
       } else if (typeof isMskFull === 'function' && isMskFull(crs)) {
         // МСК любого региона (2001/2008) — зона по префиксу Y
         const res = mskFullToWgs(x, y, crs);
+        lat = res.lat; lng = res.lon;
+      } else if (typeof isUtm === 'function' && isUtm(crs)) {
+        // UTM (север): зона задана явно (utm:<zone>); X=север, Y=восток
+        const res = utmToWgs(x, y, parseInt(crs.split(':')[1], 10));
         lat = res.lat; lng = res.lon;
       } else if (typeof isRegionalMsk === 'function' && isRegionalMsk(crs)) {
         // МСК-66 / МСК-72 — зона по префиксу Y

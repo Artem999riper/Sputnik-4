@@ -149,6 +149,8 @@ function _dxfFindFirstX(dxfLayers) {
 // Нужно из-за российской традиции (X=север, Y=восток): в NonEarth-наборах порядок
 // столбцов часто перепутан. Восток МСК/ГСК имеет префикс зоны и ≈ zone*1e6+500000.
 function _orderEN(a, b, crs) {
+  // UTM: восток 166000–834000 (без префикса зоны), порядок берём как в источнике.
+  if (typeof crs === 'string' && crs.indexOf('utm:') === 0) return [a, b];
   let x0 = null;
   if (crs === 'msk86_z3') x0 = 3500000;
   else if (crs === 'msk86_z4') x0 = 4500000;
@@ -197,6 +199,13 @@ function makeDxfInverseTransform(crs, sampleX) {
   if (typeof crs === 'string' && crs.indexOf('mskfull:') === 0) {
     const projStr = _mskFullProjStr(crs, sx);
     if (!projStr) throw new Error('Неизвестный регион МСК: ' + crs);
+    return (x, y) => { const [lng, lat] = proj4(projStr, _DXF_WGS84, [x, y]); return [lng, lat]; };
+  }
+  // UTM (север), зона задана явно: crs вида "utm:<zone>"
+  if (typeof crs === 'string' && crs.indexOf('utm:') === 0) {
+    const zone = parseInt(crs.split(':')[1], 10);
+    if (!(zone >= 1 && zone <= 60)) throw new Error('Неверная зона UTM: ' + crs);
+    const projStr = `+proj=utm +zone=${zone} +datum=WGS84 +units=m +no_defs`;
     return (x, y) => { const [lng, lat] = proj4(projStr, _DXF_WGS84, [x, y]); return [lng, lat]; };
   }
   // Региональные МСК-66 / МСК-72 — зона по префиксу X (восток)
@@ -864,6 +873,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     else if (crsKey === 'msk86_z4') zoneInfo = '_z4';
     else if (crsKey === 'gsk2011') zoneInfo = `_z${pickGsk2011Zone(centerLng)}`;
     else if (typeof crsKey === 'string' && crsKey.indexOf('mskfull:') === 0) { const _p = crsKey.split(':'); const _z = mskFullZone(crsKey, centerLng); zoneInfo = `_MSK${_p[1]}${_z ? '_z' + _z : ''}`; }
+    else if (crsKey === 'utmauto' || (typeof crsKey === 'string' && crsKey.indexOf('utm:') === 0)) { const _z = crsKey === 'utmauto' ? (Math.floor((((centerLng % 360) + 540) % 360) / 6) + 1) : parseInt(crsKey.split(':')[1], 10); zoneInfo = `_UTM${_z}N`; }
 
     const layers = rows.map(r => ({
       name: r.name,
@@ -907,6 +917,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     else if (crsKey === 'msk86_z4') zoneInfo = '_z4';
     else if (crsKey === 'gsk2011') zoneInfo = `_z${pickGsk2011Zone(centerLng)}`;
     else if (typeof crsKey === 'string' && crsKey.indexOf('mskfull:') === 0) { const _p = crsKey.split(':'); const _z = mskFullZone(crsKey, centerLng); zoneInfo = `_MSK${_p[1]}${_z ? '_z' + _z : ''}`; }
+    else if (crsKey === 'utmauto' || (typeof crsKey === 'string' && crsKey.indexOf('utm:') === 0)) { const _z = crsKey === 'utmauto' ? (Math.floor((((centerLng % 360) + 540) % 360) / 6) + 1) : parseInt(crsKey.split(':')[1], 10); zoneInfo = `_UTM${_z}N`; }
 
     const { mif, mid } = buildLayersMIF({ layers: rows, transform, isGeo });
     const base = `layers_${crsKey}${zoneInfo}`.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
@@ -945,6 +956,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     else if (crsKey === 'msk86_z4') zoneInfo = '_z4';
     else if (crsKey === 'gsk2011') zoneInfo = `_z${pickGsk2011Zone(centerLng)}`;
     else if (typeof crsKey === 'string' && crsKey.indexOf('mskfull:') === 0) { const _p = crsKey.split(':'); const _z = mskFullZone(crsKey, centerLng); zoneInfo = `_MSK${_p[1]}${_z ? '_z' + _z : ''}`; }
+    else if (crsKey === 'utmauto' || (typeof crsKey === 'string' && crsKey.indexOf('utm:') === 0)) { const _z = crsKey === 'utmauto' ? (Math.floor((((centerLng % 360) + 540) % 360) / 6) + 1) : parseInt(crsKey.split(':')[1], 10); zoneInfo = `_UTM${_z}N`; }
 
     const base = `layers_${crsKey}${zoneInfo}`.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
     const { mif, mid } = buildLayersMIF({ layers: rows, transform, isGeo });

@@ -1881,6 +1881,7 @@ function openLayerExportDialog() {
         <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=66°, фиксированная)</label>
         <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=72°, фиксированная)</label>
         <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="gsk2011"> ГСК-2011 (6° зоны)</label>
+        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="utmauto"> UTM / WGS-84 (авто зона, сев.)</label>
         ${typeof _mskFullPickerHtml==='function' ? _mskFullPickerHtml('lex','2px') : ''}
       </div>
       <div>

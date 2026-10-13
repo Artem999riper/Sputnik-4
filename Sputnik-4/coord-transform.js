@@ -104,6 +104,15 @@ function makeTransform(crs, centerLng) {
     if (!d) throw new Error('Неизвестный регион МСК: ' + crs);
     return (lng, lat) => { const [e, n] = proj4(_WGS84, d.proj, [lng, lat]); return [e, n]; };
   }
+  if (typeof crs === 'string' && (crs === 'utmauto' || crs.indexOf('utm:') === 0)) {
+    // utmauto → зона по долготе центра; utm:<zone> → фиксированная зона
+    let zone;
+    if (crs === 'utmauto') { zone = Math.floor((((centerLng % 360) + 540) % 360) / 6) + 1; }
+    else { zone = parseInt(crs.split(':')[1], 10); }
+    if (!(zone >= 1 && zone <= 60)) throw new Error('Неверная зона UTM: ' + crs);
+    const projStr = `+proj=utm +zone=${zone} +datum=WGS84 +units=m +no_defs`;
+    return (lng, lat) => { const [e, n] = proj4(_WGS84, projStr, [lng, lat]); return [e, n]; };
+  }
   if (crs === 'msk86') {
     return (lng, lat) => {
       const r = wgs84ToMsk86(lat, lng);

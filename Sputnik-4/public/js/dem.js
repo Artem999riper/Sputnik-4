@@ -347,6 +347,23 @@ function openDEMPanel() {
   if (typeof loadMskFull === 'function') {
     loadMskFull().then(_demAppendMskOptions).catch(()=>{});
   }
+  _demAppendUtmOption();
+}
+
+// UTM (WGS-84, северное полушарие) — авто зона по центру области.
+function _demAppendUtmOption() {
+  const sel = document.getElementById('dem-proj');
+  if (!sel || sel.querySelector('option[value="utmauto"]')) return;
+  const o = document.createElement('option');
+  o.value = 'utmauto';
+  o.textContent = 'UTM / WGS-84 (авто зона, сев.)';
+  sel.appendChild(o);
+}
+function _demBuildUtmProj(projId) {
+  if (projId !== 'utmauto' || !_demBbox) return null;
+  const clng = (_demBbox.minLng + _demBbox.maxLng) / 2;
+  const zone = (typeof utmZoneFromLng === 'function') ? utmZoneFromLng(clng) : (Math.floor((clng + 180) / 6) + 1);
+  return { id: projId, proj4: `+proj=utm +zone=${zone} +datum=WGS84 +units=m +no_defs`, epsg: 32600 + zone, name: `UTM${zone}N` };
 }
 
 // Дописывает в выпадающий список проекций все регионы МСК (из msk-zones.json).
@@ -611,7 +628,7 @@ async function demExport() {
   const satSourceId = document.getElementById('dem-sat-source')?.value || 'esri';
   const satSourceObj = DEM_SAT_SOURCES.find(s => s.id === satSourceId) || DEM_SAT_SOURCES[0];
 
-  const proj = DEM_PROJECTIONS.find(p => p.id === projId) || _demBuildMskProj(projId);
+  const proj = DEM_PROJECTIONS.find(p => p.id === projId) || _demBuildMskProj(projId) || _demBuildUtmProj(projId);
   if (!proj) { toast('Выберите систему координат', 'err'); return; }
   const fmt  = { id: 'dxf', ext: '.zip' };
 

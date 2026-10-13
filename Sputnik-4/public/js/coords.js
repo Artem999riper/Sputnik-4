@@ -166,6 +166,27 @@ function wgsToMskFull(lat, lng, reg, datumId) {
   return { northing, easting, zone: z.z, region: reg };
 }
 
+// ── UTM / WGS-84 (только северное полушарие) ───────────────
+// Зона по долготе: 6°-полосы, зона 1 начинается с 180°з.д. EPSG 326xx.
+function utmZoneFromLng(lng) {
+  let z = Math.floor((((lng % 360) + 540) % 360) / 6) + 1;
+  if (z < 1) z = 1; if (z > 60) z = 60;
+  return z;
+}
+function _utmProj(zone) { return `+proj=utm +zone=${zone} +datum=WGS84 +units=m +no_defs`; }
+// WGS-84 → UTM (север). Возвращает {northing, easting, zone}. Зона авто по долготе.
+function wgsToUtm(lat, lng) {
+  const zone = utmZoneFromLng(lng);
+  const [easting, northing] = proj4(_WGS84, _utmProj(zone), [lng, lat]);
+  return { northing, easting, zone };
+}
+// UTM (север) X=север, Y=восток, зона явно → WGS-84.
+function utmToWgs(northing, easting, zone) {
+  const [lon, lat] = proj4(_utmProj(zone), _WGS84, [easting, northing]);
+  return { lat, lon };
+}
+function isUtm(crsKey) { return typeof crsKey === 'string' && crsKey.indexOf('utm:') === 0; }
+
 // ── Форматирование ─────────────────────────────────────────
 function formatWGS(lat, lon) {
   const latH = lat >= 0 ? 'N' : 'S';
@@ -210,6 +231,7 @@ function initCoordsWidget() {
       <button class="csb on" data-s="wgs" onclick="setCoordSys('wgs')">WGS-84</button>
       <button class="csb"    data-s="msk" onclick="setCoordSys('msk')">МСК</button>
       <button class="csb"    data-s="gsk" onclick="setCoordSys('gsk')">ГСК-2011</button>
+      <button class="csb"    data-s="utm" onclick="setCoordSys('utm')">UTM</button>
       <select id="coord-msk-reg" title="Регион МСК" style="display:none;font-family:inherit;font-size:10px;font-weight:700;border:1.5px solid var(--bd);border-radius:4px;background:var(--s2);color:var(--tx2);padding:2px 3px;cursor:pointer"></select>
     </div>
     <div id="coord-display">— наведите курсор на карту —</div>
@@ -337,6 +359,7 @@ function onMapMouseMove(e) {
       disp.innerHTML = c ? formatProjectedFull(c) : formatProjected(wgsToMsk(lat, lng));
     }
     else if (coordSys === 'gsk') disp.innerHTML = formatProjected(wgsToGsk(lat, lng));
+    else if (coordSys === 'utm') { const c = wgsToUtm(lat, lng); disp.innerHTML = `<span style="color:var(--tx3);font-size:10px">UTM ${c.zone}N</span>&nbsp;X:&nbsp;<b>${c.northing.toFixed(2)}</b>&nbsp;&nbsp;Y:&nbsp;<b>${c.easting.toFixed(2)}</b>`; }
   } catch(err) {
     disp.textContent = 'Ошибка конвертации';
   }
