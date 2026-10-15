@@ -1124,12 +1124,12 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
 
   app.post('/api/dem/export', async (req, res) => {
     if (!demProcessor) return res.status(503).json({ error: 'DEM процессор не доступен' });
-    const { bbox, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite, satelliteOnly, cacheOnly, satZoom, satSourceUrl, satSourceSubdomains } = req.body;
+    const { bbox, clip, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite, satelliteOnly, cacheOnly, satZoom, satSourceUrl, satSourceSubdomains } = req.body;
     if (!bbox || !bbox.minLat) return res.status(400).json({ error: 'Не указана область (bbox)' });
     let tmpDir = null;
     try {
       const result = await demProcessor.processDEM({
-        bbox, projId, proj4, epsg, projName,
+        bbox, clip, projId, proj4, epsg, projName,
         format: format || 'dxf',
         interval: parseFloat(interval) || 2,
         useGeoid: useGeoid !== false,

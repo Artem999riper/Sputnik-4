@@ -713,7 +713,7 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
 
 
 // ── Главная функция ────────────────────────────────────────
-async function processDEM({bbox,projId,proj4,epsg,projName,format,
+async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
                             interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,
                             satelliteOnly,cacheOnly,satZoom,satSourceUrl,satSourceSubdomains,onProgress}) {
   gridStep = (gridStep !== undefined && gridStep !== null && gridStep !== '') ? parseInt(gridStep) : 20;
@@ -907,14 +907,37 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
       if(!geoidOk) log.push('Geoid skip (нет grid-файлов)');
     }
 
-    // 4. Репроекция
+    // 4. Репроекция (+ обрезка по контуру/коридору, если задан clip-полигон)
     onProgress&&onProgress(36,'Перепроецирование...');
     const reprojTif=path.join(tmpDir,'reproj.tif');
     const targetSrs=proj4?proj4:`EPSG:${epsg||4326}`;
-    await runGDAL('gdalwarp',[
-      '-of','GTiff','-t_srs',targetSrs,'-r','bilinear',
-      '-co','COMPRESS=LZW','-co','TILED=YES','-co','BIGTIFF=IF_SAFER',demTif,reprojTif,
-    ]);
+    const warpArgs=['-of','GTiff','-t_srs',targetSrs,'-r','bilinear',
+      '-co','COMPRESS=LZW','-co','TILED=YES','-co','BIGTIFF=IF_SAFER'];
+    // clip: GeoJSON-полигон в WGS-84 ([lng,lat]); gdalwarp сам перепроецирует его в targetSrs
+    let cutFile=null;
+    if (clip && clip.type==='Polygon' && Array.isArray(clip.coordinates)) {
+      try {
+        cutFile=path.join(tmpDir,'cutline.geojson');
+        fs.writeFileSync(cutFile, JSON.stringify({
+          type:'FeatureCollection',
+          crs:{type:'name',properties:{name:'urn:ogc:def:crs:OGC:1.3:CRS84'}},
+          features:[{type:'Feature',properties:{},geometry:clip}],
+        }));
+        warpArgs.push('-cutline',cutFile,'-crop_to_cutline');
+        log.push('Clip by polygon ON');
+      } catch(e){ cutFile=null; log.push('Clip WARN: '+e.message.slice(0,60)); }
+    }
+    warpArgs.push(demTif,reprojTif);
+    try {
+      await runGDAL('gdalwarp',warpArgs);
+    } catch(e) {
+      // Если обрезка по cutline не удалась — повторяем без неё, чтобы экспорт не падал
+      if (cutFile) {
+        log.push('Clip FAILED, fallback без обрезки: '+e.message.slice(0,60));
+        await runGDAL('gdalwarp',['-of','GTiff','-t_srs',targetSrs,'-r','bilinear',
+          '-co','COMPRESS=LZW','-co','TILED=YES','-co','BIGTIFF=IF_SAFER',demTif,reprojTif]);
+      } else { throw e; }
+    }
     log.push('Reproject OK');
 
     if (format==='geotiff') return {file:reprojTif,tmpDir,log,mime:'image/tiff'};

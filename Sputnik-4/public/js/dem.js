@@ -9,6 +9,12 @@ let _demStart     = null;    // первая точка bbox
 let _demTmpLayer  = null;    // временный прямоугольник при рисовании
 let _demBbox      = null;    // итоговый bbox {minLat,minLng,maxLat,maxLng}
 let _demLastBbox  = (() => { try { return JSON.parse(localStorage.getItem('dem_last_bbox')); } catch(e) { return null; } })();
+let _demClip      = null;    // GeoJSON-полигон обрезки (для полигона/коридора), [lng,lat]; null = весь bbox
+let _demVerts     = null;    // вершины текущего полигона/линии при рисовании
+let _demVertMode  = null;    // 'polygon' | 'line'
+let _demVertTmp   = null;    // временный слой (линия/полигон) при рисовании
+let _demVertMouse = null;    // «резиновая» линия до курсора
+let _demBufferM   = 100;     // буфер коридора (м), фиксируется при старте рисования линии
 
 // ── Источники тайлов для подложки ─────────────────────────
 const DEM_SAT_SOURCES = [
@@ -119,12 +125,17 @@ function openDEMPanel() {
     <div class="fgr">
       <div class="fg s2">
         <label>1. Область на карте</label>
-        <div style="display:flex;gap:6px;align-items:center">
-          <button class="btn bp bsm" style="flex:1" onclick="demStartDraw()">
-            ✏️ Нарисовать прямоугольник
-          </button>
-          ${_demLastBbox ? `<button class="btn bs bsm" style="white-space:nowrap" onclick="demRestoreLast()" title="Восстановить предыдущую область">↩ Предыдущее</button>` : ''}
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <button class="btn bp bsm" onclick="demStartDraw()" title="Прямоугольная область">▭ Прямоугольник</button>
+          <button class="btn bs bsm" onclick="demStartPolygon()" title="Произвольный полигон — кликайте вершины, двойной клик для завершения">⬠ Полигон</button>
+          <button class="btn bs bsm" onclick="demStartLine()" title="Линия с буфером (для линейных объектов) — кликайте точки, двойной клик для завершения">〰 Линия+буфер</button>
+          ${_demLastBbox ? `<button class="btn bs bsm" style="white-space:nowrap" onclick="demRestoreLast()" title="Восстановить предыдущую область">↩ Пред.</button>` : ''}
           <button class="btn bs bsm" onclick="demClearDraw()">✕</button>
+        </div>
+        <div id="dem-buf-row" style="display:flex;margin-top:5px;align-items:center;gap:6px">
+          <span style="font-size:11px;color:var(--tx2)">Буфер от линии (м):</span>
+          <input id="dem-buffer" type="number" value="100" min="1" max="100000" step="10"
+            style="width:90px;font-size:12px;padding:4px 7px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
         </div>
         <div id="dem-bbox-info" style="margin-top:5px;font-size:10px;color:var(--tx3)">
           Область не выбрана
@@ -382,6 +393,8 @@ function _demAppendMskOptions() {
 // ── Начать рисование bbox ──────────────────────────────────
 function demStartDraw() {
   closeModal();
+  _demCancelVerts();            // прервать незавершённый полигон/линию, если был
+  _demClip = null;
   _demDrawing = true;
   _demStart   = null;
   if (_demRect) { try { map.removeLayer(_demRect); } catch(e) {} _demRect = null; }
@@ -440,13 +453,18 @@ function _demSecondClick(e) {
     color: '#f59e0b', weight: 2.5,
     fillColor: '#f59e0b', fillOpacity: 0.18,
   }).addTo(map);
+  _demClip = null;                 // прямоугольник — без обрезки по контуру
+  _demFinalize(b);
+}
 
+// Общий финал после выбора области (прямоугольник/полигон/линия+буфер).
+function _demFinalize(b) {
   _demDrawing = false;
   map.getContainer().style.cursor = '';
   const bnr = document.getElementById('bnr');
   if (bnr) { bnr.className = ''; bnr.style.display = 'none'; }
 
-  // Считаем площадь
+  // Считаем площадь bbox
   const latDist = (b.getNorth() - b.getSouth()) * 111320;
   const lngDist = (b.getEast()  - b.getWest())  * 111320 *
                   Math.cos(b.getCenter().lat * Math.PI / 180);
@@ -459,9 +477,11 @@ function _demSecondClick(e) {
     const info = document.getElementById('dem-bbox-info');
     if (info) {
       info.style.color = 'var(--grn)';
+      const clipNote = _demClip
+        ? (_demVertMode === 'line' ? ' · обрезка по коридору линии' : ' · обрезка по полигону')
+        : '';
       info.textContent =
-        `✅ Выбрано: ${latDist.toFixed(0)}м × ${lngDist.toFixed(0)}м` +
-        ` ≈ ${areaSqKm.toFixed(1)} км²`;
+        `✅ Область: ${latDist.toFixed(0)}м × ${lngDist.toFixed(0)}м ≈ ${areaSqKm.toFixed(1)} км²${clipNote}`;
     }
 
     // Автовыбор подходящей зоны проекции по центральному меридиану
@@ -500,9 +520,147 @@ function _demSecondClick(e) {
   }, 100);
 }
 
+// ── Рисование полигона / линии+буфера ──────────────────────
+function demStartPolygon() { _demStartVerts('polygon'); }
+function demStartLine() {
+  // Буфер считываем ДО закрытия панели (во время рисования поля нет в DOM)
+  const bi = document.getElementById('dem-buffer');
+  _demBufferM = Math.max(1, parseFloat(bi && bi.value) || 100);
+  _demStartVerts('line');
+}
+
+function _demStartVerts(mode) {
+  closeModal();
+  _demCancelVerts();
+  _demVertMode = mode;
+  _demVerts = [];
+  _demDrawing = true;
+  map.getContainer().style.cursor = 'crosshair';
+  const bnr = document.getElementById('bnr');
+  if (bnr) {
+    bnr.className = 'show draw';
+    document.getElementById('bnr-t').textContent = mode === 'line'
+      ? '〰 Кликайте точки линии · двойной клик — завершить · Esc — отмена'
+      : '⬠ Кликайте вершины полигона · двойной клик — завершить · Esc — отмена';
+    bnr.style.display = 'flex';
+  }
+  map.on('click', _demVertClick);
+  map.on('mousemove', _demVertMoveRubber);
+  map.on('dblclick', _demVertFinish);
+  document.addEventListener('keydown', _demVertEsc);
+  // отключаем зум по двойному клику, чтобы dblclick = завершение
+  if (map.doubleClickZoom) map.doubleClickZoom.disable();
+}
+
+function _demVertEsc(e) { if (e.key === 'Escape') { _demCancelVerts(); } }
+
+function _demVertClick(e) {
+  if (!_demVertMode) return;
+  _demVerts.push(e.latlng);
+  _demRedrawVerts(null);
+}
+
+function _demVertMoveRubber(e) {
+  if (!_demVertMode || !_demVerts.length) return;
+  _demRedrawVerts(e.latlng);
+}
+
+function _demRedrawVerts(cursor) {
+  const pts = cursor ? _demVerts.concat([cursor]) : _demVerts.slice();
+  if (_demVertTmp) { try { map.removeLayer(_demVertTmp); } catch(e) {} _demVertTmp = null; }
+  if (pts.length < 1) return;
+  if (_demVertMode === 'polygon' && pts.length >= 3) {
+    _demVertTmp = L.polygon(pts, { color:'#f59e0b', weight:2, dashArray:'6 4', fillColor:'#f59e0b', fillOpacity:0.12 }).addTo(map);
+  } else {
+    _demVertTmp = L.polyline(pts, { color:'#f59e0b', weight:2.5, dashArray:'6 4' }).addTo(map);
+  }
+}
+
+function _demVertFinish() {
+  if (!_demVertMode) return;
+  const mode = _demVertMode;
+  const verts = _demVerts.slice();
+  const need = mode === 'line' ? 2 : 3;
+  if (verts.length < need) { toast(mode === 'line' ? 'Нужно минимум 2 точки' : 'Нужно минимум 3 вершины', 'err'); return; }
+
+  // Строим полигон обрезки (для линии — коридор по буферу)
+  let ring; // массив [lng,lat]
+  if (mode === 'line') {
+    ring = _demBufferLine(verts, _demBufferM);
+    if (!ring) { toast('Не удалось построить буфер', 'err'); return; }
+  } else {
+    ring = verts.map(p => [p.lng, p.lat]);
+    ring.push([verts[0].lng, verts[0].lat]); // замкнуть
+  }
+
+  // bbox по кольцу
+  let minLat=90, maxLat=-90, minLng=180, maxLng=-180;
+  for (const [lng, lat] of ring) { if (lat<minLat)minLat=lat; if (lat>maxLat)maxLat=lat; if (lng<minLng)minLng=lng; if (lng>maxLng)maxLng=lng; }
+  _demBbox = { minLat, maxLat, minLng, maxLng };
+  _demLastBbox = _demBbox;
+  try { localStorage.setItem('dem_last_bbox', JSON.stringify(_demLastBbox)); } catch(e) {}
+  _demClip = { type:'Polygon', coordinates:[ring] };
+
+  _demCleanupVertListeners();
+  if (_demVertTmp) { try { map.removeLayer(_demVertTmp); } catch(e) {} _demVertTmp = null; }
+  if (_demRect) { try { map.removeLayer(_demRect); } catch(e) {} _demRect = null; }
+  // Рисуем итоговую фигуру (храним в _demRect, чтобы demClearDraw её убрал)
+  _demRect = L.polygon(ring.map(c => [c[1], c[0]]), { color:'#f59e0b', weight:2.5, fillColor:'#f59e0b', fillOpacity:0.18 }).addTo(map);
+
+  _demFinalize(L.latLngBounds([minLat, minLng], [maxLat, maxLng]));
+}
+
+function _demCleanupVertListeners() {
+  map.off('click', _demVertClick);
+  map.off('mousemove', _demVertMoveRubber);
+  map.off('dblclick', _demVertFinish);
+  document.removeEventListener('keydown', _demVertEsc);
+  setTimeout(() => { if (map.doubleClickZoom) map.doubleClickZoom.enable(); }, 300);
+}
+
+function _demCancelVerts() {
+  _demCleanupVertListeners();
+  _demVertMode = null; _demVerts = null; _demDrawing = false;
+  map.getContainer().style.cursor = '';
+  const bnr = document.getElementById('bnr'); if (bnr) { bnr.className = ''; bnr.style.display = 'none'; }
+  if (_demVertTmp) { try { map.removeLayer(_demVertTmp); } catch(e) {} _demVertTmp = null; }
+}
+
+// Буфер (коридор) вокруг ломаной линии: возвращает кольцо [lng,lat].
+// Смещение вершин в локальной метрической плоскости на bufM метров в обе стороны.
+function _demBufferLine(latlngs, bufM) {
+  if (!latlngs || latlngs.length < 2) return null;
+  const lat0 = latlngs.reduce((s,p)=>s+p.lat,0)/latlngs.length;
+  const mLat = 111320, mLng = 111320 * Math.cos(lat0*Math.PI/180);
+  const P = latlngs.map(p => ({ x:p.lng*mLng, y:p.lat*mLat }));
+  const n = P.length;
+  const segN = [];
+  for (let i=0;i<n-1;i++){ let dx=P[i+1].x-P[i].x, dy=P[i+1].y-P[i].y; const l=Math.hypot(dx,dy)||1; segN.push({x:-dy/l, y:dx/l}); }
+  const vN = [];
+  for (let i=0;i<n;i++){
+    let nx, ny;
+    if (i===0){ nx=segN[0].x; ny=segN[0].y; }
+    else if (i===n-1){ nx=segN[n-2].x; ny=segN[n-2].y; }
+    else {
+      nx=segN[i-1].x+segN[i].x; ny=segN[i-1].y+segN[i].y; const l=Math.hypot(nx,ny)||1; nx/=l; ny/=l;
+      const cosHalf = Math.max(0.25, segN[i-1].x*nx + segN[i-1].y*ny);
+      const scale = Math.min(4, 1/cosHalf); nx*=scale; ny*=scale;
+    }
+    vN.push({x:nx, y:ny});
+  }
+  const left=[], right=[];
+  for (let i=0;i<n;i++){ left.push({x:P[i].x+vN[i].x*bufM, y:P[i].y+vN[i].y*bufM}); right.push({x:P[i].x-vN[i].x*bufM, y:P[i].y-vN[i].y*bufM}); }
+  const ringM = left.concat(right.reverse());
+  const ring = ringM.map(p => [p.x/mLng, p.y/mLat]);
+  ring.push(ring[0]);
+  return ring;
+}
+
 function demClearDraw() {
+  _demCancelVerts();
   if (_demRect) { try { map.removeLayer(_demRect); } catch(e) {} _demRect = null; }
   _demBbox = null;
+  _demClip = null;
   const info = document.getElementById('dem-bbox-info');
   if (info) { info.style.color = 'var(--tx3)'; info.textContent = 'Область не выбрана'; }
   const warn = document.getElementById('dem-size-warn');
@@ -511,7 +669,9 @@ function demClearDraw() {
 
 function demRestoreLast() {
   if (!_demLastBbox) return;
+  _demCancelVerts();
   _demBbox = _demLastBbox;
+  _demClip = null;              // «Предыдущее» восстанавливает прямоугольник bbox без обрезки
   if (_demRect) { try { map.removeLayer(_demRect); } catch(e) {} _demRect = null; }
   const b = L.latLngBounds(
     [_demBbox.minLat, _demBbox.minLng],
@@ -672,6 +832,7 @@ async function demExport() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         bbox:     _demBbox,
+        clip:     _demClip || null,
         projId:   proj.id,
         proj4:    proj.proj4 || null,
         epsg:     proj.epsg  || null,
