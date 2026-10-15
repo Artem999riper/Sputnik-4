@@ -82,7 +82,8 @@ echo.
 echo    Starting server...
 rem Без /d: новое окно наследует текущую папку (подключённый pushd-диск),
 rem поэтому запуск работает и с сетевого UNC-пути.
-start "PurGeoCom Server" cmd /k node server.js
+rem server-loop.bat сам перезапускает node при падении (сбой сети и т.п.).
+start "PurGeoCom Server" cmd /k server-loop.bat
 timeout /t 2 /nobreak >nul
 start "" http://localhost:3000
 goto MENU

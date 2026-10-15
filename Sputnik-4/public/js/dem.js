@@ -366,6 +366,24 @@ function _demBuildUtmProj(projId) {
   return { id: projId, proj4: `+proj=utm +zone=${zone} +datum=WGS84 +units=m +no_defs`, epsg: 32600 + zone, name: `UTM${zone}N` };
 }
 
+// Оценка спутниковой подложки для области (та же математика, что на сервере).
+// Возвращает {zoom, tilesX, tilesY, tiles, w, h}. Чем больше контур — тем мельче
+// зум и грубее подложка; при очень больших — предупреждаем заранее.
+function _demSatEstimate(b) {
+  const TILE = 256, MINZ = 5, target = 6000;  // как в buildSatellite на сервере
+  const lon2t = (lon, z) => Math.floor((lon + 180) / 360 * Math.pow(2, z));
+  const lat2t = (lat, z) => { const r = Math.log(Math.tan((90 + lat) * Math.PI / 360)) / (Math.PI / 180); return Math.floor((1 - r / 180) * Math.pow(2, z) / 2); };
+  let z = MINZ;
+  for (let zz = 17; zz >= MINZ; zz--) {
+    const tx = Math.abs(lon2t(b.maxLng, zz) - lon2t(b.minLng, zz)) + 1;
+    const ty = Math.abs(lat2t(b.minLat, zz) - lat2t(b.maxLat, zz)) + 1;
+    if (tx * TILE <= target && ty * TILE <= target) { z = zz; break; }
+  }
+  const tilesX = Math.abs(lon2t(b.maxLng, z) - lon2t(b.minLng, z)) + 1;
+  const tilesY = Math.abs(lat2t(b.minLat, z) - lat2t(b.maxLat, z)) + 1;
+  return { zoom: z, tilesX, tilesY, tiles: tilesX * tilesY, w: tilesX * TILE, h: tilesY * TILE };
+}
+
 // Дописывает в выпадающий список проекций все регионы МСК (из msk-zones.json).
 function _demAppendMskOptions() {
   const sel = document.getElementById('dem-proj');
@@ -484,13 +502,23 @@ function _demSecondClick(e) {
         if (hint) hint.textContent = `💡 Авто: ${projSel.options[projSel.selectedIndex]?.text||''}`;
       }
     }
-    // Предупреждение о большой площади
+    // Предупреждение о площади + ранняя оценка спутниковой подложки
     const warn = document.getElementById('dem-size-warn');
-    if (warn && areaSqKm > 100) {
-      warn.style.display = 'block';
-      warn.textContent =
-        `⚠️ Большая область (${areaSqKm.toFixed(0)} км²). ` +
-        `Загрузка может занять несколько минут.`;
+    if (warn && _demBbox) {
+      const satOn = document.getElementById('dem-satellite')?.checked !== false;
+      const est = _demSatEstimate(_demBbox);
+      const msgs = [];
+      if (areaSqKm > 100) msgs.push(`⚠️ Большая область (${areaSqKm.toFixed(0)} км²) — загрузка может занять несколько минут.`);
+      if (satOn) {
+        if (est.zoom <= 13) {
+          msgs.push(`🛰 Контур большой для спутниковой подложки: она будет грубой — zoom ${est.zoom}, ~${est.w}×${est.h} px. ` +
+                    `Для детального спутника уменьшите область (или снимите галочку «Спутник»).`);
+        } else {
+          msgs.push(`🛰 Спутник: zoom ${est.zoom}, ~${est.w}×${est.h} px (${est.tiles} тайлов).`);
+        }
+      }
+      if (msgs.length) { warn.style.display = 'block'; warn.innerHTML = msgs.join('<br>'); }
+      else warn.style.display = 'none';
     }
   }, 100);
 }

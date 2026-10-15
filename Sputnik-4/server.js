@@ -4,6 +4,17 @@ const path    = require('path');
 const fs      = require('fs');
 const os      = require('os');
 
+// ── УСТОЙЧИВОСТЬ: сервер НЕ должен падать из-за единичной ошибки ────────────────
+// Частая причина обрыва — сбой сети при обращении к внешним сервисам (ArcticDEM,
+// спутниковые тайлы): исключение/отклонённый промис раньше «убивали» процесс.
+// Теперь такие ошибки логируются, а сервер продолжает работать.
+process.on('uncaughtException', (err) => {
+  console.error('⚠️  Непойманная ошибка (сервер продолжает работать):', (err && err.stack) || err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️  Необработанный промис (сервер продолжает работать):', (reason && reason.stack) || reason);
+});
+
 // LAN IPv4 адрес сервера (для построения ссылок, доступных другим машинам).
 // Предпочитаем приватные диапазоны 192.168/10/172.16-31.
 function lanIp() {
@@ -188,13 +199,25 @@ getDb().then(database => {
     res.json({ lanUrl: ip ? `http://${ip}:${PORT}` : null, ip, port: PORT });
   });
 
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     const ip = lanIp();
     console.log(`\n  ✅  ПурГеоКом запущен: http://localhost:${PORT}`);
     if (ip) console.log(`  🌐  Для других в сети: http://${ip}:${PORT}\n`);
     else console.log('');
     try { require('child_process').exec(`start http://localhost:${PORT}`); } catch(e) {}
   });
+  // Ошибка самого HTTP-сервера (например, порт занят) — не валим процесс молча
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.error(`\n  ⚠️  Порт ${PORT} уже занят — возможно, сервер уже запущен в другом окне.\n`);
+    } else {
+      console.error('  ⚠️  Ошибка HTTP-сервера:', (err && err.message) || err);
+    }
+  });
+  // Не рвать соединения по таймауту клиента (долгие выгрузки рельефа)
+  server.keepAliveTimeout = 0;
+  server.headersTimeout = 0;
+  server.requestTimeout = 0;
 
   // Запустить периодический автобэкап и сделать первый через 3 секунды (если бэкапов ещё нет)
   scheduleAutoBackup();

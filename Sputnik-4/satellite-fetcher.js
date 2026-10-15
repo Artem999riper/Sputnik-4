@@ -32,7 +32,11 @@ function tile2lat(y, zoom) {
 // Оптимальный зум для bbox и целевого разрешения
 function getBestZoom(bbox, targetPixels) {
   const { minLat, maxLat, minLng, maxLng } = bbox;
-  for (let z = 17; z >= 10; z--) {
+  // От детального зума к обзорному: берём самый подробный, который укладывается
+  // в целевой размер. Если даже обзорный зум не влезает — возвращаем самый
+  // МЕЛКИЙ (минимальный зум = наименьшее изображение), а не промежуточный.
+  const MIN_Z = 5;
+  for (let z = 17; z >= MIN_Z; z--) {
     const xMin = lon2tile(minLng, z);
     const xMax = lon2tile(maxLng, z);
     const yMin = lat2tile(maxLat, z);
@@ -43,7 +47,16 @@ function getBestZoom(bbox, targetPixels) {
       return z;
     }
   }
-  return 12;
+  return MIN_Z;
+}
+// Оценка размера спутниковой подложки для области: {zoom, tilesX, tilesY, px}.
+// Используется и сервером, и клиентом (через /api/dem/sat-estimate) для раннего
+// предупреждения, что контур слишком большой.
+function estimateSatellite(bbox, targetPixels) {
+  const z = getBestZoom(bbox, targetPixels || 4000);
+  const tilesX = Math.abs(lon2tile(bbox.maxLng, z) - lon2tile(bbox.minLng, z)) + 1;
+  const tilesY = Math.abs(lat2tile(bbox.minLat, z) - lat2tile(bbox.maxLat, z)) + 1;
+  return { zoom: z, tilesX, tilesY, w: tilesX * TILE_SIZE, h: tilesY * TILE_SIZE, tiles: tilesX * tilesY };
 }
 
 // Скачать один тайл
@@ -239,4 +252,4 @@ async function fetchSatellite({ bbox, tmpDir, proj4, epsg, gdalBin, gdalEnvFn, o
   return { jpegFile: jpegOut, jgwFile: jgwOut };
 }
 
-module.exports = { fetchSatellite };
+module.exports = { fetchSatellite, estimateSatellite };

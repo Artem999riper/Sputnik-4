@@ -528,18 +528,27 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   const targetSrs = proj4 ? proj4 : `EPSG:${epsg||4326}`;
 
   // Шаг 1: скачиваем тайлы для всего bbox сразу (не секциями — один проход)
-  // Выбираем zoom: явный (satZoom > 0) или авто — первый что помещается в 6000×6000 px
-  let zoom = 14;
+  // Выбираем zoom так, чтобы итоговое изображение НЕ превышало безопасный размер.
+  // Для больших контуров зум понижается (подложка грубее), но экспорт не падает.
+  const SAT_CAP = 8000;   // макс. сторона изображения, px (безопасно для GDAL/JPEG)
+  const _satDims = (z) => {
+    const tx = Math.abs(lon2tile(maxLng, z) - lon2tile(minLng, z)) + 1;
+    const ty = Math.abs(lat2tile(minLat, z) - lat2tile(maxLat, z)) + 1;
+    return { tx, ty, w: tx * 256, h: ty * 256 };
+  };
+  let zoom = 5;
   if (satZoom && satZoom > 0) {
-    zoom = Math.min(Math.max(satZoom, 8), 17);
-    console.log(`[SAT] zoom=${zoom} (задан вручную)`);
+    zoom = Math.min(Math.max(satZoom, 5), 17);
+    // Даже при ручном зуме не допускаем гигантское изображение — понижаем зум
+    while (zoom > 5) { const d = _satDims(zoom); if (d.w <= SAT_CAP && d.h <= SAT_CAP) break; zoom--; }
+    console.log(`[SAT] zoom=${zoom} (задан вручную, с учётом ограничения размера)`);
   } else {
-    for (let z = 17; z >= 8; z--) {
-      const tx = Math.abs(lon2tile(maxLng,z) - lon2tile(minLng,z)) + 1;
-      const ty = Math.abs(lat2tile(minLat,z) - lat2tile(maxLat,z)) + 1;
-      if (tx*256 <= 6000 && ty*256 <= 6000) { zoom = z; break; }
+    for (let z = 17; z >= 5; z--) {
+      const d = _satDims(z);
+      if (d.w <= 6000 && d.h <= 6000) { zoom = z; break; }
     }
   }
+  { const d = _satDims(zoom); console.log(`[SAT] итоговое изображение ~${d.w}×${d.h} px на zoom ${zoom}`); }
 
   const xMin = lon2tile(minLng,zoom), xMax = lon2tile(maxLng,zoom);
   const yMin = lat2tile(maxLat,zoom), yMax = lat2tile(minLat,zoom);
