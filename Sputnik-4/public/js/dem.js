@@ -144,10 +144,16 @@ function openDEMPanel() {
 
       <div class="fg">
         <label>Система координат</label>
-        <select id="dem-proj" style="width:100%;font-size:12px;padding:5px 8px;
+        <select id="dem-proj" onchange="_demUpdateZoneSelect()" style="width:100%;font-size:12px;padding:5px 8px;
           border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
           ${projOpts}
         </select>
+        <div id="dem-zone-wrap" style="display:none;margin-top:5px;align-items:center;gap:6px">
+          <span style="font-size:11px;color:var(--tx2);white-space:nowrap">Зона:</span>
+          <select id="dem-zone" style="flex:1;font-size:12px;padding:4px 7px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
+            <option value="">Авто (по центру области)</option>
+          </select>
+        </div>
         <div id="dem-proj-hint" style="font-size:10px;color:var(--grn);margin-top:3px"></div>
       </div>
 
@@ -333,9 +339,10 @@ function openDEMPanel() {
   setTimeout(_demLoadTilesDir, 120);
   // Добавляем в список СК все региональные МСК (авто зона по центру области)
   if (typeof loadMskFull === 'function') {
-    loadMskFull().then(_demAppendMskOptions).catch(()=>{});
+    loadMskFull().then(() => { _demAppendMskOptions(); _demUpdateZoneSelect(); }).catch(()=>{});
   }
   _demAppendUtmOption();
+  setTimeout(_demUpdateZoneSelect, 60);
 }
 
 // UTM (WGS-84, северное полушарие) — авто зона по центру области.
@@ -347,11 +354,37 @@ function _demAppendUtmOption() {
   o.textContent = 'UTM / WGS-84 (авто зона, сев.)';
   sel.appendChild(o);
 }
-function _demBuildUtmProj(projId) {
+function _demBuildUtmProj(projId, forcedZone) {
   if (projId !== 'utmauto' || !_demBbox) return null;
-  const clng = (_demBbox.minLng + _demBbox.maxLng) / 2;
-  const zone = (typeof utmZoneFromLng === 'function') ? utmZoneFromLng(clng) : (Math.floor((clng + 180) / 6) + 1);
+  let zone = parseInt(forcedZone) || 0;
+  if (!(zone >= 1 && zone <= 60)) {
+    const clng = (_demBbox.minLng + _demBbox.maxLng) / 2;
+    zone = (typeof utmZoneFromLng === 'function') ? utmZoneFromLng(clng) : (Math.floor((clng + 180) / 6) + 1);
+  }
   return { id: projId, proj4: `+proj=utm +zone=${zone} +datum=WGS84 +units=m +no_defs`, epsg: 32600 + zone, name: `UTM${zone}N` };
+}
+
+// Наполняет селектор зоны в зависимости от выбранной СК. Для систем с зонами
+// (МСК по региону, UTM) показывает список зон + «Авто»; иначе прячет.
+function _demUpdateZoneSelect() {
+  const projSel = document.getElementById('dem-proj');
+  const zoneSel = document.getElementById('dem-zone');
+  const wrap = document.getElementById('dem-zone-wrap');
+  if (!projSel || !zoneSel || !wrap) return;
+  const v = projSel.value || '';
+  let opts = '<option value="">Авто (по центру области)</option>';
+  let show = false;
+  if (v.indexOf('mskfull:') === 0) {
+    const reg = v.split(':')[1];
+    const zs = (typeof MSK_FULL === 'object' && MSK_FULL && MSK_FULL.regions && MSK_FULL.regions[reg]) || [];
+    zs.forEach(z => { opts += `<option value="${z.z}">зона ${z.z} (ЦМ ${z.lon}°)</option>`; });
+    show = zs.length > 1;
+  } else if (v === 'utmauto') {
+    for (let z = 1; z <= 60; z++) opts += `<option value="${z}">зона ${z}N</option>`;
+    show = true;
+  }
+  zoneSel.innerHTML = opts;
+  wrap.style.display = show ? 'flex' : 'none';
 }
 
 // Оценка спутниковой подложки для области (та же математика, что на сервере).
@@ -498,6 +531,7 @@ function _demFinalize(b) {
         const hint = document.getElementById('dem-proj-hint');
         if (hint) hint.textContent = `💡 Авто: ${projSel.options[projSel.selectedIndex]?.text||''}`;
       }
+      _demUpdateZoneSelect();
     }
     // Предупреждение о площади + ранняя оценка спутниковой подложки
     const warn = document.getElementById('dem-size-warn');
@@ -540,19 +574,41 @@ function _demStartVerts(mode) {
   if (bnr) {
     bnr.className = 'show draw';
     document.getElementById('bnr-t').textContent = mode === 'line'
-      ? '〰 Кликайте точки линии · двойной клик — завершить · Esc — отмена'
-      : '⬠ Кликайте вершины полигона · двойной клик — завершить · Esc — отмена';
+      ? '〰 Кликайте точки линии · ПКМ или Enter — завершить · Esc — отмена'
+      : '⬠ Кликайте вершины полигона · ПКМ или Enter — завершить · Esc — отмена';
     bnr.style.display = 'flex';
   }
   map.on('click', _demVertClick);
   map.on('mousemove', _demVertMoveRubber);
-  map.on('dblclick', _demVertFinish);
-  document.addEventListener('keydown', _demVertEsc);
-  // отключаем зум по двойному клику, чтобы dblclick = завершение
-  if (map.doubleClickZoom) map.doubleClickZoom.disable();
+  map.on('contextmenu', _demVertCtx);        // ПКМ → меню «Завершить / Отмена»
+  document.addEventListener('keydown', _demVertKey);
 }
 
-function _demVertEsc(e) { if (e.key === 'Escape') { _demCancelVerts(); } }
+// ПКМ во время рисования: меню завершения
+function _demVertCtx(e) {
+  if (!_demVertMode) return;
+  if (e.originalEvent) { e.originalEvent.preventDefault(); L.DomEvent.stopPropagation(e); }
+  const need = _demVertMode === 'line' ? 2 : 3;
+  const enough = (_demVerts || []).length >= need;
+  const cx = e.originalEvent ? e.originalEvent.clientX : 100;
+  const cy = e.originalEvent ? e.originalEvent.clientY : 100;
+  showCtx(cx, cy, [
+    { i:'✅', l: enough ? 'Завершить' : `Нужно ещё точек (мин. ${need})`, f: enough ? _demVertFinish : null, cls: enough ? '' : '' },
+    ...((_demVerts || []).length ? [{ i:'↩', l:'Удалить последнюю точку', f:_demVertUndo }] : []),
+    { sep:true },
+    { i:'✕', l:'Отмена', cls:'dan', f:_demCancelVerts },
+  ]);
+}
+function _demVertUndo() {
+  if (_demVerts && _demVerts.length) { _demVerts.pop(); _demRedrawVerts(null); }
+}
+
+// Клавиши: Enter — завершить, Esc — отмена
+function _demVertKey(e) {
+  if (!_demVertMode) return;
+  if (e.key === 'Enter') { e.preventDefault(); _demVertFinish(); }
+  else if (e.key === 'Escape') { _demCancelVerts(); }
+}
 
 function _demVertClick(e) {
   if (!_demVertMode) return;
@@ -613,9 +669,8 @@ function _demVertFinish() {
 function _demCleanupVertListeners() {
   map.off('click', _demVertClick);
   map.off('mousemove', _demVertMoveRubber);
-  map.off('dblclick', _demVertFinish);
-  document.removeEventListener('keydown', _demVertEsc);
-  setTimeout(() => { if (map.doubleClickZoom) map.doubleClickZoom.enable(); }, 300);
+  map.off('contextmenu', _demVertCtx);
+  document.removeEventListener('keydown', _demVertKey);
 }
 
 function _demCancelVerts() {
@@ -763,12 +818,18 @@ function _demToggleSatOnly() {
 // ── Выгрузка ───────────────────────────────────────────────
 // Строит объект проекции для выбранной региональной МСК (projId = "mskfull:<регион>").
 // Зона — по центральному меридиану выбранной области.
-function _demBuildMskProj(projId) {
+function _demBuildMskProj(projId, forcedZone) {
   if (typeof projId !== 'string' || projId.indexOf('mskfull:') !== 0) return null;
   if (typeof MSK_FULL !== 'object' || !MSK_FULL || !MSK_FULL.regions || !_demBbox) return null;
   const reg = projId.split(':')[1];
-  const clng = (_demBbox.minLng + _demBbox.maxLng) / 2;
-  const z = (typeof _mskFullPickZone === 'function') ? _mskFullPickZone(reg, clng) : null;
+  const zs = MSK_FULL.regions[reg] || [];
+  let z = null;
+  const fz = parseInt(forcedZone) || 0;
+  if (fz) z = zs.find(q => q.z === fz) || null;
+  if (!z) {
+    const clng = (_demBbox.minLng + _demBbox.maxLng) / 2;
+    z = (typeof _mskFullPickZone === 'function') ? _mskFullPickZone(reg, clng) : null;
+  }
   if (!z) return null;
   const tw = (MSK_FULL.datums && MSK_FULL.datums['2008']) || [23.57,-140.95,-79.8,0,0.35,0.79,-0.22];
   const ellps = MSK_FULL.ellps || 'krass';
@@ -793,7 +854,8 @@ async function demExport() {
   const satSourceId = document.getElementById('dem-sat-source')?.value || 'esri';
   const satSourceObj = DEM_SAT_SOURCES.find(s => s.id === satSourceId) || DEM_SAT_SOURCES[0];
 
-  const proj = DEM_PROJECTIONS.find(p => p.id === projId) || _demBuildMskProj(projId) || _demBuildUtmProj(projId);
+  const forcedZone = parseInt(document.getElementById('dem-zone')?.value) || 0;
+  const proj = DEM_PROJECTIONS.find(p => p.id === projId) || _demBuildMskProj(projId, forcedZone) || _demBuildUtmProj(projId, forcedZone);
   if (!proj) { toast('Выберите систему координат', 'err'); return; }
   const fmt  = { id: 'dxf', ext: '.zip' };
 
