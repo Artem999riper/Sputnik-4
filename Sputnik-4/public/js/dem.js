@@ -879,6 +879,22 @@ async function demExport() {
     if (progBar)  progBar.style.width  = pct + '%';
   };
 
+  // Проверка: сервер (node) должен быть той же версии, что и страница.
+  // Если файлы обновили, а окно сервера не перезапустили — выгрузка уйдёт
+  // в старом формате (JPG, без режима «1 пиксель = 1 метр»).
+  try {
+    const si = await fetch(`${API}/server-info`).then(r => r.json());
+    if (!si || !Array.isArray(si.features) || !si.features.includes('sat-geotiff-1m')) {
+      alert('⚠️ Сервер запущен со СТАРОЙ версией программы.\n\n' +
+            'Страница обновлена, а сервер — нет, поэтому подложка выгрузится в старом формате ' +
+            '(satellite.jpg, неверный масштаб/положение в МенуГЕО).\n\n' +
+            'Закройте ВСЕ чёрные окна сервера, проверьте, что новые файлы (dem-processor.js, ' +
+            'routes/misc.js, server.js) скопированы в папку программы, и запустите start.bat заново.');
+      if (progWrap) progWrap.style.display = 'none';
+      return;
+    }
+  } catch (e) {}
+
   // Блокируем кнопку
   const btns = document.querySelectorAll('#mft .btn');
   btns.forEach(b => b.disabled = true);

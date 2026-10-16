@@ -199,7 +199,9 @@ getDb().then(database => {
   // Сетевой адрес сервера — чтобы клиент строил общие ссылки, доступные другим ПК
   app.get('/api/server-info', (req, res) => {
     const ip = lanIp();
-    res.json({ lanUrl: ip ? `http://${ip}:${PORT}` : null, ip, port: PORT });
+    // features — по ним страница проверяет, что сервер не устарел
+    res.json({ lanUrl: ip ? `http://${ip}:${PORT}` : null, ip, port: PORT,
+               features: ['sat-geotiff-1m'] });
   });
 
   const server = app.listen(PORT, () => {
