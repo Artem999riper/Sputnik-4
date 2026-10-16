@@ -761,10 +761,7 @@ function _satReadme(sections) {
     `  Это ГЕОРЕФЕРЕНС. GeoTIFF — привязка И масштаб хранятся ВНУТРИ файла.\r\n` +
     `  • AutoCAD / Robur / QGIS: просто приложите satellite*.tif (IMAGEATTACH /\r\n` +
     `    вставка растра) — подложка сразу встанет на место с правильным размером,\r\n` +
-    `    НИЧЕГО масштабировать вручную не нужно.\r\n` +
-    `  • Если ваш CAD всё же не подхватил масштаб — запустите attach_satellite.scr\r\n` +
-    `    (команда SCRIPT / _SCRIPT). Если .tif не рядом с чертежом, скрипт откроет\r\n` +
-    `    окно выбора — укажите любой .tif из этой выгрузки, остальные встанут сами.\r\n`;
+    `    НИЧЕГО масштабировать вручную не нужно.\r\n`;
   if (Math.abs(secs[0].pixelSizeM - 1) < 1e-6) {
     t += `  • Режим «1 пиксель = 1 метр»: в МенуГЕО масштаб при вставке сразу верный.\r\n`;
   } else {
@@ -775,35 +772,6 @@ function _satReadme(sections) {
   for (const s of secs) { const ll = _satLowerLeft(s); t += `    ${path.basename(s.tif)}:  X=${ll.x.toFixed(3)}  Y=${ll.y.toFixed(3)}   (${s.imgWidthPx}x${s.imgHeightPx} пкс)\r\n`; }
   return t;
 }
-// AutoCAD-скрипт: вставляет все части подложки с точной привязкой и масштабом.
-function _writeSatScript(sections, tmpDir) {
-  const secs = (sections || []).filter(s => s && s.tif && s.gt && s.pixelSizeM && s.imgHeightPx);
-  if (!secs.length) return null;
-  const first = path.basename(secs[0].tif);
-  const lines = [
-    '; Вставка спутниковой подложки в AutoCAD с точной привязкой и масштабом.',
-    '; Запуск: команда SCRIPT (_SCRIPT) -> выберите этот файл.',
-    '; AutoCAD ищет картинки в папке ЧЕРТЕЖА, а не скрипта. Поэтому скрипт сам',
-    '; определяет папку подложки: если .tif лежат рядом с чертежом — берёт её,',
-    '; иначе откроет окно выбора файла — укажите любой .tif из этой выгрузки.',
-    // папка = путь до последнего «\» в выбранном файле (без vl-функций)
-    '(defun #satdir (f / i) (setq i (strlen f)) (while (and (> i 0) (/= (substr f i 1) "\\\\")) (setq i (1- i))) (substr f 1 i))',
-    `(setq #satd (if (findfile (strcat (getvar "DWGPREFIX") "${first}")) (getvar "DWGPREFIX") ` +
-      `(progn (setq #satf (getfiled "Satellite: select any .tif from this export" "" "tif" 0)) (if #satf (#satdir #satf) ""))))`,
-  ];
-  for (const s of secs) {
-    const ll = _satLowerLeft(s);
-    // «-IMAGE → Attach» есть во всех версиях AutoCAD (включая LT и старые),
-    // в отличие от «-IMAGEATTACH», которой в части версий/локализаций нет.
-    // Имя файла — полный путь (папка из #satd), иначе «Изображение не найдено».
-    lines.push('_-IMAGE', '_A', `(strcat #satd "${path.basename(s.tif)}")`,
-      `${ll.x.toFixed(4)},${ll.y.toFixed(4)}`, s.pixelSizeM.toFixed(8), '0');
-  }
-  const scr = path.join(tmpDir, 'attach_satellite.scr');
-  try { fs.writeFileSync(scr, lines.join('\r\n') + '\r\n'); return scr; }
-  catch (e) { return null; }
-}
-
 // ── Главная функция ────────────────────────────────────────
 async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
                             interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,
@@ -832,8 +800,6 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
         if (sec.prj && fs.existsSync(sec.prj)) satFiles.push(sec.prj);
       }
       onProgress&&onProgress(90,'Упаковка архива...');
-      const scrFile=_writeSatScript(satRes,tmpDir);
-      if (scrFile) satFiles.push(scrFile);
       const infoFile=path.join(tmpDir,'readme.txt');
       fs.writeFileSync(infoFile,`ArcticDEM Satellite Export\r\n=========================\r\nДата: ${new Date().toLocaleString('ru')}\r\nСК: ${projName||projId} ${proj4||''}\r\nРежим: только подложка (JPEG + геопривязка)${_satReadme(satRes)}`);
       const zipFile=path.join(tmpDir,'satellite_export.zip');
@@ -1151,8 +1117,6 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
           if (sec.tfw && fs.existsSync(sec.tfw)) satFiles.push(sec.tfw);
           if (sec.prj && fs.existsSync(sec.prj)) satFiles.push(sec.prj);
         }
-        const scrFile=_writeSatScript(satSections,tmpDir);
-        if (scrFile) satFiles.push(scrFile);
         log.push(`Satellite: ${satSections.length} частей, ${satFiles.length} файлов`);
       }catch(e){
         log.push('Satellite WARN: '+e.message.slice(0,80));
