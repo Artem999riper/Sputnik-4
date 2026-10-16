@@ -629,8 +629,6 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
 
   // Шаг 3: репроецируем из EPSG:3857 → целевая СК, обрезаем ТОЧНО по extent DEM-растра
   const satTif  = path.join(tmpDir,'sat_reproj.tif');
-  const satJpeg = path.join(tmpDir,'satellite.jpg');
-  const satJgw  = path.join(tmpDir,'satellite.jgw');
   const satPrj  = path.join(tmpDir,'satellite.prj');
 
   let teArgs;
@@ -684,34 +682,39 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   } catch(e) { console.warn('[SAT] gdalinfo fail:', e.message); }
 
   if (!gt || !W || !H) {
-    // Фолбэк: как раньше, один JPEG без детальной привязки
-    await runGDAL('gdal_translate', ['-of','JPEG','-co','QUALITY=90', satTif, satJpeg]);
-    return [{ jpeg: satJpeg, idx:'0_0' }];
+    // Фолбэк: геореференс. GeoTIFF «как есть» (масштаб/привязка внутри файла)
+    const out0 = path.join(tmpDir, 'satellite.tif');
+    await runGDAL('gdal_translate', ['-of','GTiff','-co','COMPRESS=JPEG','-co','PHOTOMETRIC=YCBCR',
+      '-co','TILED=YES','-co','JPEG_QUALITY=90', satTif, out0]);
+    return [{ tif: out0, idx:'0_0' }];
   }
 
   const pixW = Math.abs(gt[1]);
-  // Общий .prj (WKT) — один на все части
   if (wkt) { try { fs.writeFileSync(satPrj, wkt); } catch(e) {} }
 
-  // Хелпер: записать одну часть (окно srcwin) в JPEG + её JGW
-  const _writeSection = async (xoff, yoff, xs, ys, idx, outJpg, outJgw) => {
-    await runGDAL('gdal_translate', ['-of','JPEG','-co','QUALITY=90',
-      '-srcwin', String(xoff), String(yoff), String(xs), String(ys), satTif, outJpg]);
-    // GeoTransform этой части: смещаем начало на (xoff,yoff) пикселей
+  // Одна часть → ГЕОРЕФЕРЕНС. GeoTIFF (JPEG-сжатие внутри) + world-файл .tfw.
+  // Привязка И масштаб хранятся ВНУТРИ .tif — поэтому при вставке в CAD/ГИС
+  // подложка сразу встаёт на место с правильным размером, без ручного масштаба.
+  const _writeSection = async (xoff, yoff, xs, ys, idx, outTif, outTfw) => {
+    await runGDAL('gdal_translate', ['-of','GTiff',
+      '-srcwin', String(xoff), String(yoff), String(xs), String(ys),
+      '-co','COMPRESS=JPEG','-co','PHOTOMETRIC=YCBCR','-co','TILED=YES','-co','JPEG_QUALITY=90',
+      satTif, outTif]);
     const sGt0 = gt[0] + xoff*gt[1] + yoff*gt[2];
     const sGt3 = gt[3] + xoff*gt[4] + yoff*gt[5];
-    const jgw = [ gt[1].toFixed(6), gt[4].toFixed(6), gt[2].toFixed(6), gt[5].toFixed(6),
-      (sGt0 + gt[1]*0.5 + gt[2]*0.5).toFixed(3), (sGt3 + gt[4]*0.5 + gt[5]*0.5).toFixed(3) ].join('\r\n');
-    fs.writeFileSync(outJgw, jgw);
-    return { jpeg: outJpg, jgw: outJgw, idx, pixelSizeM: pixW, imgWidthPx: xs, imgHeightPx: ys,
+    // world-файл .tfw (на случай ПО, которое читает его, а не теги GeoTIFF)
+    const tfw = [ gt[1].toFixed(8), gt[4].toFixed(8), gt[2].toFixed(8), gt[5].toFixed(8),
+      (sGt0 + gt[1]*0.5 + gt[2]*0.5).toFixed(4), (sGt3 + gt[4]*0.5 + gt[5]*0.5).toFixed(4) ].join('\r\n');
+    fs.writeFileSync(outTfw, tfw);
+    return { tif: outTif, tfw: outTfw, idx, pixelSizeM: pixW, imgWidthPx: xs, imgHeightPx: ys,
              gt: [sGt0, gt[1], gt[2], sGt3, gt[4], gt[5]] };
   };
 
-  // Одна часть — отдаём как satellite.jpg (совместимо со старым поведением)
   if (W <= SECTION_PX && H <= SECTION_PX) {
-    const sec = await _writeSection(0, 0, W, H, '0_0', satJpeg, satJgw);
+    const sec = await _writeSection(0, 0, W, H, '0_0',
+      path.join(tmpDir, 'satellite.tif'), path.join(tmpDir, 'satellite.tfw'));
     if (wkt) sec.prj = satPrj;
-    console.log(`[SAT] Done: 1 часть ${W}×${H}px, пиксель ${pixW.toFixed(3)} м`);
+    console.log(`[SAT] Done: 1 GeoTIFF ${W}×${H}px, пиксель ${pixW.toFixed(3)} м`);
     return [sec];
   }
 
@@ -724,15 +727,14 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
       const xoff = c * SECTION_PX, yoff = r * SECTION_PX;
       const xs = Math.min(SECTION_PX, W - xoff), ys = Math.min(SECTION_PX, H - yoff);
       const idx = `r${r}_c${c}`;
-      const outJpg = path.join(tmpDir, `satellite_${idx}.jpg`);
-      const outJgw = path.join(tmpDir, `satellite_${idx}.jgw`);
-      const sec = await _writeSection(xoff, yoff, xs, ys, idx, outJpg, outJgw);
-      if (wkt && n === 0) sec.prj = satPrj;   // .prj прикладываем один раз
+      const sec = await _writeSection(xoff, yoff, xs, ys, idx,
+        path.join(tmpDir, `satellite_${idx}.tif`), path.join(tmpDir, `satellite_${idx}.tfw`));
+      if (wkt && n === 0) sec.prj = satPrj;
       sections.push(sec);
       n++;
     }
   }
-  console.log(`[SAT] Done: ${sections.length} частей (${cols}×${rows}), часть до ${SECTION_PX}px, пиксель ${pixW.toFixed(3)} м`);
+  console.log(`[SAT] Done: ${sections.length} GeoTIFF-частей (${cols}×${rows})`);
   return sections;
 }
 
@@ -746,39 +748,32 @@ function _satLowerLeft(s) {
 }
 // Текст инструкции по привязке спутниковой подложки (1 или несколько частей).
 function _satReadme(sections) {
-  const secs = (sections || []).filter(s => s && s.jpeg && s.gt && s.pixelSizeM && s.imgHeightPx);
-  if (!secs.length) return `\r\nСпутник: приложите файлы satellite*.jpg (привязка в .jgw рядом).\r\n`;
+  const secs = (sections || []).filter(s => s && s.tif && s.gt && s.pixelSizeM && s.imgHeightPx);
+  if (!secs.length) return `\r\nСпутник: приложите файлы satellite*.tif (геопривязка внутри файла).\r\n`;
   const scaleF = secs[0].pixelSizeM.toFixed(6);
-  let t = `\r\nСПУТНИКОВАЯ ПОДЛОЖКА — как поставить без ручного масштабирования:\r\n` +
-    `  Проще всего: команда SCRIPT (_SCRIPT) -> выберите «attach_satellite.scr»\r\n` +
-    `  (лежит в этом архиве). Все части встанут на свои места с нужным масштабом.\r\n` +
-    `  Важно: распакуйте .jpg и .scr В ОДНУ ПАПКУ.\r\n`;
-  if (secs.length === 1) {
-    const s = secs[0], ll = _satLowerLeft(s);
-    t += `\r\nВручную (IMAGEATTACH ${path.basename(s.jpeg)}):\r\n` +
-      `  Точка вставки (НИЖНИЙ-ЛЕВЫЙ угол): X=${ll.x.toFixed(3)}  Y=${ll.y.toFixed(3)}  Z=0\r\n` +
-      `  Масштаб (scale): ${scaleF}   Поворот: 0\r\n` +
-      `  Размер: ${s.imgWidthPx}x${s.imgHeightPx} пкс, пиксель = ${scaleF} м\r\n`;
-  } else {
-    t += `\r\nВручную — ${secs.length} частей, масштаб у всех = ${scaleF}, поворот 0.\r\n` +
-      `  Точка вставки = НИЖНИЙ-ЛЕВЫЙ угол (X, Y, Z=0):\r\n`;
-    for (const s of secs) { const ll = _satLowerLeft(s); t += `    ${path.basename(s.jpeg)}:  X=${ll.x.toFixed(3)}  Y=${ll.y.toFixed(3)}   (${s.imgWidthPx}x${s.imgHeightPx} пкс)\r\n`; }
-  }
-  t += `  Robur и большинство ГИС читают .jgw сами — там часто ничего вводить не нужно.\r\n`;
+  let t = `\r\nСПУТНИКОВАЯ ПОДЛОЖКА (${secs.length === 1 ? '1 файл' : secs.length + ' частей'}) — файлы satellite*.tif:\r\n` +
+    `  Это ГЕОРЕФЕРЕНС. GeoTIFF — привязка И масштаб хранятся ВНУТРИ файла.\r\n` +
+    `  • AutoCAD / Robur / QGIS: просто приложите satellite*.tif (IMAGEATTACH /\r\n` +
+    `    вставка растра) — подложка сразу встанет на место с правильным размером,\r\n` +
+    `    НИЧЕГО масштабировать вручную не нужно.\r\n` +
+    `  • Если ваш CAD всё же не подхватил масштаб — запустите attach_satellite.scr\r\n` +
+    `    (команда SCRIPT / _SCRIPT), держа .tif и .scr в одной папке.\r\n`;
+  t += `\r\nСправочно (ручная вставка, НИЖНИЙ-ЛЕВЫЙ угол; масштаб ${scaleF}, поворот 0):\r\n`;
+  for (const s of secs) { const ll = _satLowerLeft(s); t += `    ${path.basename(s.tif)}:  X=${ll.x.toFixed(3)}  Y=${ll.y.toFixed(3)}   (${s.imgWidthPx}x${s.imgHeightPx} пкс)\r\n`; }
   return t;
 }
 // AutoCAD-скрипт: вставляет все части подложки с точной привязкой и масштабом.
 function _writeSatScript(sections, tmpDir) {
-  const secs = (sections || []).filter(s => s && s.jpeg && s.gt && s.pixelSizeM && s.imgHeightPx);
+  const secs = (sections || []).filter(s => s && s.tif && s.gt && s.pixelSizeM && s.imgHeightPx);
   if (!secs.length) return null;
   const lines = [
     '; Вставка спутниковой подложки в AutoCAD с точной привязкой и масштабом.',
     '; Запуск: команда SCRIPT (_SCRIPT) -> выберите этот файл.',
-    '; Файлы .jpg должны лежать В ОДНОЙ ПАПКЕ с этим скриптом.',
+    '; Файлы .tif должны лежать В ОДНОЙ ПАПКЕ с этим скриптом.',
   ];
   for (const s of secs) {
     const ll = _satLowerLeft(s);
-    lines.push('_-IMAGEATTACH', path.basename(s.jpeg),
+    lines.push('_-IMAGEATTACH', path.basename(s.tif),
       `${ll.x.toFixed(4)},${ll.y.toFixed(4)}`, s.pixelSizeM.toFixed(8), '0');
   }
   const scr = path.join(tmpDir, 'attach_satellite.scr');
@@ -809,9 +804,9 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
       const satRes = await buildSatellite(bbox,tmpDir,proj4,epsg,null,satZoom,satSourceUrl,satSourceSubdomains);
       const satFiles=[];
       for (const sec of satRes) {
-        if (sec.jpeg && fs.existsSync(sec.jpeg)) satFiles.push(sec.jpeg);
-        if (sec.jgw  && fs.existsSync(sec.jgw))  satFiles.push(sec.jgw);
-        if (sec.prj  && fs.existsSync(sec.prj))  satFiles.push(sec.prj);
+        if (sec.tif && fs.existsSync(sec.tif)) satFiles.push(sec.tif);
+        if (sec.tfw && fs.existsSync(sec.tfw)) satFiles.push(sec.tfw);
+        if (sec.prj && fs.existsSync(sec.prj)) satFiles.push(sec.prj);
       }
       onProgress&&onProgress(90,'Упаковка архива...');
       const scrFile=_writeSatScript(satRes,tmpDir);
@@ -1129,9 +1124,9 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
       try{
         satSections=await buildSatellite(bbox,tmpDir,proj4,epsg,reprojTif,satZoom,satSourceUrl,satSourceSubdomains);
         for (const sec of satSections) {
-          if (sec.jpeg && fs.existsSync(sec.jpeg)) satFiles.push(sec.jpeg);
-          if (sec.jgw  && fs.existsSync(sec.jgw))  satFiles.push(sec.jgw);
-          if (sec.prj  && fs.existsSync(sec.prj))  satFiles.push(sec.prj);
+          if (sec.tif && fs.existsSync(sec.tif)) satFiles.push(sec.tif);
+          if (sec.tfw && fs.existsSync(sec.tfw)) satFiles.push(sec.tfw);
+          if (sec.prj && fs.existsSync(sec.prj)) satFiles.push(sec.prj);
         }
         const scrFile=_writeSatScript(satSections,tmpDir);
         if (scrFile) satFiles.push(scrFile);

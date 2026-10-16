@@ -120,7 +120,7 @@ function openDEMPanel() {
     `<div style="font-size:11px;color:var(--tx2);margin-bottom:10px;line-height:1.6;
                  background:var(--accl);border:1.5px solid var(--accm);border-radius:var(--rs);
                  padding:8px 11px">
-      <b>Результат:</b> ZIP архив с DXF (горизонтали + точки) и JPEG спутником
+      <b>Результат:</b> ZIP архив с DXF (горизонтали + точки) и спутником (GeoTIFF с геопривязкой)
     </div>
     <div class="fgr">
       <div class="fg s2">
@@ -213,14 +213,14 @@ function openDEMPanel() {
           <input type="checkbox" id="dem-sat-only"
             style="width:14px;height:14px;accent-color:var(--acc)"
             onchange="_demToggleSatOnly()">
-          <span>🛰 Только спутник <b>JPEG + JGW</b> (без горизонталей и пикетов)</span>
+          <span>🛰 Только спутник <b>GeoTIFF</b> с геопривязкой (без горизонталей)</span>
         </label>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;
                padding:6px 9px;background:var(--s2);border:1.5px solid var(--bd);
                border-radius:var(--rs);font-size:11px;margin-bottom:5px">
           <input type="checkbox" id="dem-satellite" checked
             style="width:14px;height:14px;accent-color:var(--acc)">
-          <span>🛰 Добавить спутник <b>JPEG + JGW</b> (геопривязка)</span>
+          <span>🛰 Добавить спутник <b>GeoTIFF</b> (геопривязка внутри файла)</span>
         </label>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;
                padding:6px 9px;background:var(--s2);border:1.5px solid var(--bd);
@@ -544,7 +544,7 @@ function _demFinalize(b) {
         if (est.zoom <= 13) {
           msgs.push(`🛰 На «Авто» спутник для этой площади будет грубоват (zoom ${est.zoom}). ` +
                     `Для <b>большой площади в хорошем качестве</b> поднимите «Масштаб подложки» ниже (z15–z17) — ` +
-                    `подложка автоматически разобьётся на части (несколько JPEG с привязкой).`);
+                    `подложка автоматически разобьётся на части (несколько GeoTIFF с привязкой).`);
         } else {
           msgs.push(`🛰 Спутник (Авто): zoom ${est.zoom}, ~${est.w}×${est.h} px. ` +
                     `Нужен крупнее — поднимите «Масштаб подложки» (большие области разбиваются на части).`);
@@ -786,7 +786,7 @@ function _demToggleCacheOnly() {
   const desc = document.querySelector('#mft .fgr > div:first-child b');
   if (desc) desc.textContent = cacheOnly
     ? 'Результат: только .tif в кэш ArcticDEM (для профиля и отметок высот)'
-    : 'Результат: ZIP архив с DXF (горизонтали + точки) и JPEG спутником';
+    : 'Результат: ZIP архив с DXF (горизонтали + точки) и спутником (GeoTIFF с геопривязкой)';
 }
 
 function _demToggleSatOnly() {
@@ -813,8 +813,8 @@ function _demToggleSatOnly() {
   // Обновляем описание в шапке
   const desc = document.querySelector('#mft .fgr > div:first-child b');
   if (desc) desc.textContent = satOnly
-    ? 'Результат: ZIP архив с JPEG спутником и геопривязкой (без DXF)'
-    : 'Результат: ZIP архив с DXF (горизонтали + точки) и JPEG спутником';
+    ? 'Результат: ZIP архив со спутником (GeoTIFF с геопривязкой) (без DXF)'
+    : 'Результат: ZIP архив с DXF (горизонтали + точки) и спутником (GeoTIFF с геопривязкой)';
 }
 
 // ── Выгрузка ───────────────────────────────────────────────
