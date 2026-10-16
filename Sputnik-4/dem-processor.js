@@ -673,7 +673,7 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
 
   // Шаг 4: геопривязка satTif + при необходимости РАЗБИЕНИЕ на части (для больших
   // площадей в хорошем качестве — чтобы не упираться в предел размера одного JPEG).
-  const SECTION_PX = 4096;   // размер одной части подложки по стороне
+  const SECTION_PX = 16000;  // размер одной части подложки по стороне (16000 пкс = 16 км при 1 м/пикс)
   let gt = null, W = null, H = null, wkt = null;
   try {
     const {stdout} = await execFileP(gdal('gdalinfo'), ['-json', satTif],
