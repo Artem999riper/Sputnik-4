@@ -781,11 +781,14 @@ function _writeSatScript(sections, tmpDir) {
   const lines = [
     '; Вставка спутниковой подложки в AutoCAD с точной привязкой и масштабом.',
     '; Запуск: команда SCRIPT (_SCRIPT) -> выберите этот файл.',
-    '; Файлы .tif должны лежать В ОДНОЙ ПАПКЕ с этим скриптом.',
+    '; Файлы .tif должны лежать В ОДНОЙ ПАПКЕ с этим скриптом и чертежом (.dwg),',
+    '; либо откройте/сохраните чертёж в папке с подложкой перед запуском.',
   ];
   for (const s of secs) {
     const ll = _satLowerLeft(s);
-    lines.push('_-IMAGEATTACH', path.basename(s.tif),
+    // «-IMAGE → Attach» есть во всех версиях AutoCAD (включая LT и старые),
+    // в отличие от «-IMAGEATTACH», которой в части версий/локализаций нет.
+    lines.push('_-IMAGE', '_A', path.basename(s.tif),
       `${ll.x.toFixed(4)},${ll.y.toFixed(4)}`, s.pixelSizeM.toFixed(8), '0');
   }
   const scr = path.join(tmpDir, 'attach_satellite.scr');
