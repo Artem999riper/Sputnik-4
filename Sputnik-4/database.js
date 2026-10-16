@@ -32,10 +32,29 @@ async function getDb() {
 
   _db = new Database(DB_PATH);
 
-  // WAL-режим: параллельные чтения, быстрая запись, не блокирует файл
-  _db.pragma('journal_mode = WAL');
-  _db.pragma('synchronous = NORMAL');
+  // Ждать до 15 с при блокировке файла (другой процесс/антивирус/синхронизация),
+  // а не падать сразу с ошибкой.
+  _db.pragma('busy_timeout = 15000');
   _db.pragma('foreign_keys = ON');
+
+  // ── Режим журнала ─────────────────────────────────────────────────────────
+  // WAL быстрее, НО требует общий shared-memory файл (survey.db-shm) и НЕ работает
+  // на сетевых дисках / UNC-путях / в синхронизируемых папках (OneDrive и т.п.) —
+  // там SQLite выдаёт «disk I/O error». Поэтому по умолчанию используем DELETE —
+  // надёжный режим, работающий ВЕЗДЕ. WAL можно включить переменной окружения
+  // SPUTNIK_WAL=1 (только если база на локальном SSD).
+  const isUNC = /^\\\\/.test(DB_PATH);               // путь вида \\сервер\папка
+  let mode = 'delete';
+  if (process.env.SPUTNIK_WAL === '1' && !isUNC) {
+    try { mode = String(_db.pragma('journal_mode = WAL', { simple: true }) || '').toLowerCase(); }
+    catch (e) { mode = 'delete'; }
+  }
+  if (mode !== 'wal') {
+    try { _db.pragma('journal_mode = DELETE'); } catch (e) {}
+    mode = 'delete';
+  }
+  _db.pragma('synchronous = NORMAL');
+  console.log(`[DB] journal_mode = ${mode.toUpperCase()}${isUNC ? ' (сетевой путь UNC)' : ''}`);
 
   _db.exec(`
     CREATE TABLE IF NOT EXISTS bases (

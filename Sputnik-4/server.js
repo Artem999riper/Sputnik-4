@@ -64,6 +64,9 @@ app.use('/api/layers', express.json({ limit: '50mb' }));
 app.use('/api/sites', express.json({ limit: '50mb' }));
 app.use(express.json({ limit: '8mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+// Браузер автоматически запрашивает иконку — отвечаем «нет содержимого»,
+// чтобы в консоли не было безобидной ошибки 404 favicon.ico.
+app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 // ── SHARED STATE ───────────────────────────────────────────────────────────────
 let db;
