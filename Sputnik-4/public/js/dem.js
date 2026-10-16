@@ -315,6 +315,11 @@ function openDEMPanel() {
         <div style="font-size:10px;color:var(--tx3);margin-top:3px">
           Чем выше зум — тем крупнее файл и дольше загрузка
         </div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:6px;
+               padding:6px 9px;background:var(--s2);border:1.5px solid var(--bd);border-radius:var(--rs);font-size:11px">
+          <input type="checkbox" id="dem-sat-1m" style="width:14px;height:14px;accent-color:var(--acc)">
+          <span>📐 Подложка <b>1 пиксель = 1 метр</b> (для МенуГЕО/AutoCAD: масштаб при вставке сразу верный, без домножения; детализация до 1 м)</span>
+        </label>
       </div>
     </div>
 
@@ -897,6 +902,7 @@ async function demExport() {
       body: JSON.stringify({
         bbox:     _demBbox,
         clip:     _demClip || null,
+        satMPP:   document.getElementById('dem-sat-1m')?.checked ? 1 : 0,
         projId:   proj.id,
         proj4:    proj.proj4 || null,
         epsg:     proj.epsg  || null,

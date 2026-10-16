@@ -516,7 +516,7 @@ function fetchTile(z,x,y,urlTemplate,subdomains) {
   });
 }
 
-async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, satSourceUrl, satSourceSubdomains) {
+async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, satSourceUrl, satSourceSubdomains, satMPP) {
   const {minLat,maxLat,minLng,maxLng} = bbox;
 
   // Вычисляем размер области в км для решения о зуме
@@ -656,14 +656,20 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
               '-te_srs','EPSG:4326'];
   }
 
+  // satMPP>0 → жёстко задаём размер пикселя (метров/пиксель), пиксели квадратные.
+  // Нужно для ПО, которое вставляет растр «1 пиксель = 1 единица» (напр. МенуГЕО):
+  // при satMPP=1 масштаб вставки получается верным сразу, без ручного домножения.
+  const mpp = (satMPP && satMPP > 0) ? satMPP : 0;
+  const trArgs = mpp ? ['-tr', String(mpp), String(mpp)] : [];
   await runGDAL('gdalwarp', [
     '-s_srs','EPSG:3857',   // источник — Web Mercator (родная проекция тайлов)
     '-t_srs', targetSrs,
-    ...teArgs,
+    ...teArgs, ...trArgs,
     '-r','lanczos',
     '-co','COMPRESS=LZW','-co','TILED=YES','-co','BIGTIFF=IF_SAFER',
     vrtFile, satTif,
   ]);
+  if (mpp) console.log(`[SAT] фиксированный размер пикселя: ${mpp} м/пиксель`);
 
   // Шаг 4: геопривязка satTif + при необходимости РАЗБИЕНИЕ на части (для больших
   // площадей в хорошем качестве — чтобы не упираться в предел размера одного JPEG).
@@ -784,7 +790,7 @@ function _writeSatScript(sections, tmpDir) {
 // ── Главная функция ────────────────────────────────────────
 async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
                             interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,
-                            satelliteOnly,cacheOnly,satZoom,satSourceUrl,satSourceSubdomains,onProgress}) {
+                            satelliteOnly,cacheOnly,satZoom,satMPP,satSourceUrl,satSourceSubdomains,onProgress}) {
   gridStep = (gridStep !== undefined && gridStep !== null && gridStep !== '') ? parseInt(gridStep) : 20;
   if (isNaN(gridStep)) gridStep = 20;
   const jMin = parseFloat(jitterMin)||0;
@@ -801,7 +807,7 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
     // ── Режим «только спутник»: пропускаем весь DEM-пайплайн ──────────────
     if (satelliteOnly) {
       onProgress&&onProgress(10,'Загрузка спутника...');
-      const satRes = await buildSatellite(bbox,tmpDir,proj4,epsg,null,satZoom,satSourceUrl,satSourceSubdomains);
+      const satRes = await buildSatellite(bbox,tmpDir,proj4,epsg,null,satZoom,satSourceUrl,satSourceSubdomains,satMPP);
       const satFiles=[];
       for (const sec of satRes) {
         if (sec.tif && fs.existsSync(sec.tif)) satFiles.push(sec.tif);
@@ -1122,7 +1128,7 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
     if (exportSatellite){
       onProgress&&onProgress(85,'Загрузка спутника...');
       try{
-        satSections=await buildSatellite(bbox,tmpDir,proj4,epsg,reprojTif,satZoom,satSourceUrl,satSourceSubdomains);
+        satSections=await buildSatellite(bbox,tmpDir,proj4,epsg,reprojTif,satZoom,satSourceUrl,satSourceSubdomains,satMPP);
         for (const sec of satSections) {
           if (sec.tif && fs.existsSync(sec.tif)) satFiles.push(sec.tif);
           if (sec.tfw && fs.existsSync(sec.tfw)) satFiles.push(sec.tfw);

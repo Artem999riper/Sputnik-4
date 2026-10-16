@@ -1124,7 +1124,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
 
   app.post('/api/dem/export', async (req, res) => {
     if (!demProcessor) return res.status(503).json({ error: 'DEM процессор не доступен' });
-    const { bbox, clip, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite, satelliteOnly, cacheOnly, satZoom, satSourceUrl, satSourceSubdomains } = req.body;
+    const { bbox, clip, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite, satelliteOnly, cacheOnly, satZoom, satMPP, satSourceUrl, satSourceSubdomains } = req.body;
     if (!bbox || !bbox.minLat) return res.status(400).json({ error: 'Не указана область (bbox)' });
     let tmpDir = null;
     try {
@@ -1140,6 +1140,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
         satelliteOnly: !!satelliteOnly,
         cacheOnly: !!cacheOnly,
         satZoom: parseInt(satZoom) || 0,
+        satMPP: parseFloat(satMPP) || 0,
         satSourceUrl: satSourceUrl || null,
         satSourceSubdomains: satSourceSubdomains || [],
         onProgress: (pct, text) => {
