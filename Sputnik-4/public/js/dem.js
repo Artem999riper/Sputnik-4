@@ -317,7 +317,9 @@ function openDEMPanel() {
         </div>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:6px;
                padding:6px 9px;background:var(--s2);border:1.5px solid var(--bd);border-radius:var(--rs);font-size:11px">
-          <input type="checkbox" id="dem-sat-1m" style="width:14px;height:14px;accent-color:var(--acc)">
+          <input type="checkbox" id="dem-sat-1m" style="width:14px;height:14px;accent-color:var(--acc)"
+            ${(() => { try { return localStorage.getItem('dem_sat_1m') === '0' ? '' : 'checked'; } catch(e) { return 'checked'; } })()}
+            onchange="try{localStorage.setItem('dem_sat_1m',this.checked?'1':'0')}catch(e){}">
           <span>📐 Подложка <b>1 пиксель = 1 метр</b> (для МенуГЕО/AutoCAD: масштаб при вставке сразу верный, без домножения; детализация до 1 м)</span>
         </label>
       </div>

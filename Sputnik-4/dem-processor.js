@@ -764,6 +764,12 @@ function _satReadme(sections) {
     `    НИЧЕГО масштабировать вручную не нужно.\r\n` +
     `  • Если ваш CAD всё же не подхватил масштаб — запустите attach_satellite.scr\r\n` +
     `    (команда SCRIPT / _SCRIPT), держа .tif и .scr в одной папке.\r\n`;
+  if (Math.abs(secs[0].pixelSizeM - 1) < 1e-6) {
+    t += `  • Режим «1 пиксель = 1 метр»: в МенуГЕО масштаб при вставке сразу верный.\r\n`;
+  } else {
+    t += `  • Для МенуГЕО включите галочку «Подложка 1 пиксель = 1 метр» — иначе масштаб\r\n` +
+         `    придётся умножать на ${scaleF}.\r\n`;
+  }
   t += `\r\nСправочно (ручная вставка, НИЖНИЙ-ЛЕВЫЙ угол; масштаб ${scaleF}, поворот 0):\r\n`;
   for (const s of secs) { const ll = _satLowerLeft(s); t += `    ${path.basename(s.tif)}:  X=${ll.x.toFixed(3)}  Y=${ll.y.toFixed(3)}   (${s.imgWidthPx}x${s.imgHeightPx} пкс)\r\n`; }
   return t;
