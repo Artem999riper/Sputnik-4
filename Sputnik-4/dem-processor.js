@@ -763,7 +763,8 @@ function _satReadme(sections) {
     `    вставка растра) — подложка сразу встанет на место с правильным размером,\r\n` +
     `    НИЧЕГО масштабировать вручную не нужно.\r\n` +
     `  • Если ваш CAD всё же не подхватил масштаб — запустите attach_satellite.scr\r\n` +
-    `    (команда SCRIPT / _SCRIPT), держа .tif и .scr в одной папке.\r\n`;
+    `    (команда SCRIPT / _SCRIPT). Если .tif не рядом с чертежом, скрипт откроет\r\n` +
+    `    окно выбора — укажите любой .tif из этой выгрузки, остальные встанут сами.\r\n`;
   if (Math.abs(secs[0].pixelSizeM - 1) < 1e-6) {
     t += `  • Режим «1 пиксель = 1 метр»: в МенуГЕО масштаб при вставке сразу верный.\r\n`;
   } else {
@@ -778,17 +779,24 @@ function _satReadme(sections) {
 function _writeSatScript(sections, tmpDir) {
   const secs = (sections || []).filter(s => s && s.tif && s.gt && s.pixelSizeM && s.imgHeightPx);
   if (!secs.length) return null;
+  const first = path.basename(secs[0].tif);
   const lines = [
     '; Вставка спутниковой подложки в AutoCAD с точной привязкой и масштабом.',
     '; Запуск: команда SCRIPT (_SCRIPT) -> выберите этот файл.',
-    '; Файлы .tif должны лежать В ОДНОЙ ПАПКЕ с этим скриптом и чертежом (.dwg),',
-    '; либо откройте/сохраните чертёж в папке с подложкой перед запуском.',
+    '; AutoCAD ищет картинки в папке ЧЕРТЕЖА, а не скрипта. Поэтому скрипт сам',
+    '; определяет папку подложки: если .tif лежат рядом с чертежом — берёт её,',
+    '; иначе откроет окно выбора файла — укажите любой .tif из этой выгрузки.',
+    // папка = путь до последнего «\» в выбранном файле (без vl-функций)
+    '(defun #satdir (f / i) (setq i (strlen f)) (while (and (> i 0) (/= (substr f i 1) "\\\\")) (setq i (1- i))) (substr f 1 i))',
+    `(setq #satd (if (findfile (strcat (getvar "DWGPREFIX") "${first}")) (getvar "DWGPREFIX") ` +
+      `(progn (setq #satf (getfiled "Satellite: select any .tif from this export" "" "tif" 0)) (if #satf (#satdir #satf) ""))))`,
   ];
   for (const s of secs) {
     const ll = _satLowerLeft(s);
     // «-IMAGE → Attach» есть во всех версиях AutoCAD (включая LT и старые),
     // в отличие от «-IMAGEATTACH», которой в части версий/локализаций нет.
-    lines.push('_-IMAGE', '_A', path.basename(s.tif),
+    // Имя файла — полный путь (папка из #satd), иначе «Изображение не найдено».
+    lines.push('_-IMAGE', '_A', `(strcat #satd "${path.basename(s.tif)}")`,
       `${ll.x.toFixed(4)},${ll.y.toFixed(4)}`, s.pixelSizeM.toFixed(8), '0');
   }
   const scr = path.join(tmpDir, 'attach_satellite.scr');
