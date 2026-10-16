@@ -737,27 +737,53 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
 }
 
 
+// Точка вставки для IMAGEATTACH = НИЖНИЙ-ЛЕВЫЙ угол растра (AutoCAD вставляет
+// изображение от нижнего-левого угла, масштабируя вверх-вправо). Берём именно его,
+// иначе при масштабировании картинка «уезжает».
+function _satLowerLeft(s) {
+  // gt = [x0, px, 0, y0, 0, -py]; верх-лево = (gt0, gt3); низ = gt3 + H*gt5
+  return { x: s.gt[0], y: s.gt[3] + (s.imgHeightPx || 0) * s.gt[5] };
+}
 // Текст инструкции по привязке спутниковой подложки (1 или несколько частей).
 function _satReadme(sections) {
-  const secs = (sections || []).filter(s => s && s.jpeg && s.gt && s.pixelSizeM);
+  const secs = (sections || []).filter(s => s && s.jpeg && s.gt && s.pixelSizeM && s.imgHeightPx);
   if (!secs.length) return `\r\nСпутник: приложите файлы satellite*.jpg (привязка в .jgw рядом).\r\n`;
   const scaleF = secs[0].pixelSizeM.toFixed(6);
-  const ins = s => ({ x:(s.gt[0]+s.gt[1]*0.5+s.gt[2]*0.5).toFixed(3), y:(s.gt[3]+s.gt[4]*0.5+s.gt[5]*0.5).toFixed(3) });
+  let t = `\r\nСПУТНИКОВАЯ ПОДЛОЖКА — как поставить без ручного масштабирования:\r\n` +
+    `  Проще всего: команда SCRIPT (_SCRIPT) -> выберите «attach_satellite.scr»\r\n` +
+    `  (лежит в этом архиве). Все части встанут на свои места с нужным масштабом.\r\n` +
+    `  Важно: распакуйте .jpg и .scr В ОДНУ ПАПКУ.\r\n`;
   if (secs.length === 1) {
-    const s = secs[0], p = ins(s);
-    return `\r\nСпутник в AutoCAD/Robur:\r\n` +
-      `  IMAGEATTACH → ${path.basename(s.jpeg)}\r\n` +
-      `  Точка вставки: X=${p.x}  Y=${p.y}  Z=0\r\n` +
-      `  Масштаб (scale factor): ${scaleF}\r\n` +
-      `  Размер: ${s.imgWidthPx}x${s.imgHeightPx} пкс, пиксель = ${scaleF} м\r\n` +
-      `  Рядом .jgw (привязка) и .prj (система координат).\r\n`;
+    const s = secs[0], ll = _satLowerLeft(s);
+    t += `\r\nВручную (IMAGEATTACH ${path.basename(s.jpeg)}):\r\n` +
+      `  Точка вставки (НИЖНИЙ-ЛЕВЫЙ угол): X=${ll.x.toFixed(3)}  Y=${ll.y.toFixed(3)}  Z=0\r\n` +
+      `  Масштаб (scale): ${scaleF}   Поворот: 0\r\n` +
+      `  Размер: ${s.imgWidthPx}x${s.imgHeightPx} пкс, пиксель = ${scaleF} м\r\n`;
+  } else {
+    t += `\r\nВручную — ${secs.length} частей, масштаб у всех = ${scaleF}, поворот 0.\r\n` +
+      `  Точка вставки = НИЖНИЙ-ЛЕВЫЙ угол (X, Y, Z=0):\r\n`;
+    for (const s of secs) { const ll = _satLowerLeft(s); t += `    ${path.basename(s.jpeg)}:  X=${ll.x.toFixed(3)}  Y=${ll.y.toFixed(3)}   (${s.imgWidthPx}x${s.imgHeightPx} пкс)\r\n`; }
   }
-  let t = `\r\nСпутник: подложка разбита на ${secs.length} частей (большая площадь в хорошем качестве).\r\n` +
-    `  Приложите ВСЕ файлы satellite_*.jpg (IMAGEATTACH). Масштаб у всех одинаковый = ${scaleF}.\r\n` +
-    `  Точки вставки (X, Y, Z=0):\r\n`;
-  for (const s of secs) { const p = ins(s); t += `    ${path.basename(s.jpeg)}:  X=${p.x}  Y=${p.y}   (${s.imgWidthPx}x${s.imgHeightPx} пкс)\r\n`; }
-  t += `  У каждого .jpg есть свой .jgw — если CAD читает world-файлы, части встанут автоматически.\r\n`;
+  t += `  Robur и большинство ГИС читают .jgw сами — там часто ничего вводить не нужно.\r\n`;
   return t;
+}
+// AutoCAD-скрипт: вставляет все части подложки с точной привязкой и масштабом.
+function _writeSatScript(sections, tmpDir) {
+  const secs = (sections || []).filter(s => s && s.jpeg && s.gt && s.pixelSizeM && s.imgHeightPx);
+  if (!secs.length) return null;
+  const lines = [
+    '; Вставка спутниковой подложки в AutoCAD с точной привязкой и масштабом.',
+    '; Запуск: команда SCRIPT (_SCRIPT) -> выберите этот файл.',
+    '; Файлы .jpg должны лежать В ОДНОЙ ПАПКЕ с этим скриптом.',
+  ];
+  for (const s of secs) {
+    const ll = _satLowerLeft(s);
+    lines.push('_-IMAGEATTACH', path.basename(s.jpeg),
+      `${ll.x.toFixed(4)},${ll.y.toFixed(4)}`, s.pixelSizeM.toFixed(8), '0');
+  }
+  const scr = path.join(tmpDir, 'attach_satellite.scr');
+  try { fs.writeFileSync(scr, lines.join('\r\n') + '\r\n'); return scr; }
+  catch (e) { return null; }
 }
 
 // ── Главная функция ────────────────────────────────────────
@@ -788,6 +814,8 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
         if (sec.prj  && fs.existsSync(sec.prj))  satFiles.push(sec.prj);
       }
       onProgress&&onProgress(90,'Упаковка архива...');
+      const scrFile=_writeSatScript(satRes,tmpDir);
+      if (scrFile) satFiles.push(scrFile);
       const infoFile=path.join(tmpDir,'readme.txt');
       fs.writeFileSync(infoFile,`ArcticDEM Satellite Export\r\n=========================\r\nДата: ${new Date().toLocaleString('ru')}\r\nСК: ${projName||projId} ${proj4||''}\r\nРежим: только подложка (JPEG + геопривязка)${_satReadme(satRes)}`);
       const zipFile=path.join(tmpDir,'satellite_export.zip');
@@ -1105,6 +1133,8 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
           if (sec.jgw  && fs.existsSync(sec.jgw))  satFiles.push(sec.jgw);
           if (sec.prj  && fs.existsSync(sec.prj))  satFiles.push(sec.prj);
         }
+        const scrFile=_writeSatScript(satSections,tmpDir);
+        if (scrFile) satFiles.push(scrFile);
         log.push(`Satellite: ${satSections.length} частей, ${satFiles.length} файлов`);
       }catch(e){
         log.push('Satellite WARN: '+e.message.slice(0,80));
