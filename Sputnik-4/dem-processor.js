@@ -527,28 +527,29 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   // Целевая СК
   const targetSrs = proj4 ? proj4 : `EPSG:${epsg||4326}`;
 
-  // Шаг 1: скачиваем тайлы для всего bbox сразу (не секциями — один проход)
-  // Выбираем zoom так, чтобы итоговое изображение НЕ превышало безопасный размер.
-  // Для больших контуров зум понижается (подложка грубее), но экспорт не падает.
-  const SAT_CAP = 8000;   // макс. сторона изображения, px (безопасно для GDAL/JPEG)
+  // Шаг 1: выбираем zoom. Большая подложка в хорошем качестве достигается не
+  // понижением зума, а разбиением готового изображения на части (ниже). Поэтому:
+  //  • ручной зум уважаем как есть (качество не режем);
+  //  • «Авто» — берём максимально детальный зум в пределах AUTO_MAX_PX;
+  //  • предохранитель MAX_TILES ограничивает объём загрузки (чтобы не висло вечно).
+  const AUTO_MAX_PX = 16000;   // при «Авто» одиночное изображение не крупнее этого
+  const MAX_TILES   = 20000;   // максимум тайлов на загрузку (защита от бесконечности)
   const _satDims = (z) => {
     const tx = Math.abs(lon2tile(maxLng, z) - lon2tile(minLng, z)) + 1;
     const ty = Math.abs(lat2tile(minLat, z) - lat2tile(maxLat, z)) + 1;
     return { tx, ty, w: tx * 256, h: ty * 256 };
   };
-  let zoom = 5;
+  let zoom;
   if (satZoom && satZoom > 0) {
-    zoom = Math.min(Math.max(satZoom, 5), 17);
-    // Даже при ручном зуме не допускаем гигантское изображение — понижаем зум
-    while (zoom > 5) { const d = _satDims(zoom); if (d.w <= SAT_CAP && d.h <= SAT_CAP) break; zoom--; }
-    console.log(`[SAT] zoom=${zoom} (задан вручную, с учётом ограничения размера)`);
+    zoom = Math.min(Math.max(satZoom, 5), 19);           // ручной — как есть
   } else {
-    for (let z = 17; z >= 5; z--) {
-      const d = _satDims(z);
-      if (d.w <= 6000 && d.h <= 6000) { zoom = z; break; }
-    }
+    zoom = 5;
+    for (let z = 17; z >= 5; z--) { const d = _satDims(z); if (d.w <= AUTO_MAX_PX && d.h <= AUTO_MAX_PX) { zoom = z; break; } }
   }
-  { const d = _satDims(zoom); console.log(`[SAT] итоговое изображение ~${d.w}×${d.h} px на zoom ${zoom}`); }
+  // Предохранитель по числу тайлов: если на выбранном зуме их слишком много —
+  // понижаем зум, пока не уложимся (иначе загрузка/сборка займёт слишком долго).
+  while (zoom > 5) { const d = _satDims(zoom); if (d.tx * d.ty <= MAX_TILES) break; zoom--; }
+  { const d = _satDims(zoom); console.log(`[SAT] zoom=${zoom}, полное изображение ~${d.w}×${d.h} px, тайлов ${d.tx*d.ty}`); }
 
   const xMin = lon2tile(minLng,zoom), xMax = lon2tile(maxLng,zoom);
   const yMin = lat2tile(maxLat,zoom), yMax = lat2tile(minLat,zoom);
@@ -666,51 +667,98 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
     vrtFile, satTif,
   ]);
 
-  // Шаг 4: конвертируем в JPEG
-  await runGDAL('gdal_translate', ['-of','JPEG','-co','QUALITY=90', satTif, satJpeg]);
-
-  // Шаг 5: JGW + PRJ по точному GeoTransform репроецированного TIF
-  const result = {jpeg:satJpeg, idx:'0_0', pixelSizeM:null, imgWidthPx:null};
+  // Шаг 4: геопривязка satTif + при необходимости РАЗБИЕНИЕ на части (для больших
+  // площадей в хорошем качестве — чтобы не упираться в предел размера одного JPEG).
+  const SECTION_PX = 4096;   // размер одной части подложки по стороне
+  let gt = null, W = null, H = null, wkt = null;
   try {
     const {stdout} = await execFileP(gdal('gdalinfo'), ['-json', satTif],
-      {env:gdalEnv(), timeout:30000, maxBuffer:10*1024*1024});
+      {env:gdalEnv(), timeout:60000, maxBuffer:16*1024*1024});
     const info = JSON.parse(stdout);
-    const gt = info.geoTransform;
-    if (gt) {
-      // Размер пикселя в метрах (для метрических СК = gt[1])
-      const pixW = Math.abs(gt[1]);
-      const pixH = Math.abs(gt[5]);
-      result.pixelSizeM = pixW;
-      result.imgWidthPx  = info.size ? info.size[0] : null;
-      result.imgHeightPx = info.size ? info.size[1] : null;
-      result.gt = gt;
-
-      const jgwContent = [
-        gt[1].toFixed(6),
-        gt[4].toFixed(6),
-        gt[2].toFixed(6),
-        gt[5].toFixed(6),
-        (gt[0] + gt[1]*0.5 + gt[2]*0.5).toFixed(3),
-        (gt[3] + gt[4]*0.5 + gt[5]*0.5).toFixed(3),
-      ].join('\r\n');
-      fs.writeFileSync(satJgw, jgwContent);
-      result.jgw = satJgw;
-      console.log(`[SAT] pixel size: ${pixW.toFixed(4)} x ${pixH.toFixed(4)} m, image: ${result.imgWidthPx}x${result.imgHeightPx}px`);
-    }
-    // PRJ — WKT для AutoCAD
+    gt = info.geoTransform; W = info.size ? info.size[0] : null; H = info.size ? info.size[1] : null;
     try {
       const {stdout:wktOut} = await execFileP(gdal('gdalsrsinfo'), ['-o','wkt', satTif],
         {env:gdalEnv(), timeout:15000, maxBuffer:1*1024*1024});
-      if (wktOut && wktOut.trim()) { fs.writeFileSync(satPrj, wktOut.trim()); result.prj = satPrj; }
-    } catch(e2) {
-      if (info.coordinateSystem?.wkt) { fs.writeFileSync(satPrj, info.coordinateSystem.wkt); result.prj = satPrj; }
-    }
-  } catch(e) { console.warn('[SAT] jgw fail:',e.message); }
+      wkt = (wktOut && wktOut.trim()) || (info.coordinateSystem && info.coordinateSystem.wkt) || null;
+    } catch(e2) { wkt = info.coordinateSystem && info.coordinateSystem.wkt || null; }
+  } catch(e) { console.warn('[SAT] gdalinfo fail:', e.message); }
 
-  console.log(`[SAT] Done: satellite.jpg + jgw + prj`);
-  return [result];
+  if (!gt || !W || !H) {
+    // Фолбэк: как раньше, один JPEG без детальной привязки
+    await runGDAL('gdal_translate', ['-of','JPEG','-co','QUALITY=90', satTif, satJpeg]);
+    return [{ jpeg: satJpeg, idx:'0_0' }];
+  }
+
+  const pixW = Math.abs(gt[1]);
+  // Общий .prj (WKT) — один на все части
+  if (wkt) { try { fs.writeFileSync(satPrj, wkt); } catch(e) {} }
+
+  // Хелпер: записать одну часть (окно srcwin) в JPEG + её JGW
+  const _writeSection = async (xoff, yoff, xs, ys, idx, outJpg, outJgw) => {
+    await runGDAL('gdal_translate', ['-of','JPEG','-co','QUALITY=90',
+      '-srcwin', String(xoff), String(yoff), String(xs), String(ys), satTif, outJpg]);
+    // GeoTransform этой части: смещаем начало на (xoff,yoff) пикселей
+    const sGt0 = gt[0] + xoff*gt[1] + yoff*gt[2];
+    const sGt3 = gt[3] + xoff*gt[4] + yoff*gt[5];
+    const jgw = [ gt[1].toFixed(6), gt[4].toFixed(6), gt[2].toFixed(6), gt[5].toFixed(6),
+      (sGt0 + gt[1]*0.5 + gt[2]*0.5).toFixed(3), (sGt3 + gt[4]*0.5 + gt[5]*0.5).toFixed(3) ].join('\r\n');
+    fs.writeFileSync(outJgw, jgw);
+    return { jpeg: outJpg, jgw: outJgw, idx, pixelSizeM: pixW, imgWidthPx: xs, imgHeightPx: ys,
+             gt: [sGt0, gt[1], gt[2], sGt3, gt[4], gt[5]] };
+  };
+
+  // Одна часть — отдаём как satellite.jpg (совместимо со старым поведением)
+  if (W <= SECTION_PX && H <= SECTION_PX) {
+    const sec = await _writeSection(0, 0, W, H, '0_0', satJpeg, satJgw);
+    if (wkt) sec.prj = satPrj;
+    console.log(`[SAT] Done: 1 часть ${W}×${H}px, пиксель ${pixW.toFixed(3)} м`);
+    return [sec];
+  }
+
+  // Несколько частей: сетка окон SECTION_PX × SECTION_PX
+  const cols = Math.ceil(W / SECTION_PX), rows = Math.ceil(H / SECTION_PX);
+  const sections = [];
+  let n = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const xoff = c * SECTION_PX, yoff = r * SECTION_PX;
+      const xs = Math.min(SECTION_PX, W - xoff), ys = Math.min(SECTION_PX, H - yoff);
+      const idx = `r${r}_c${c}`;
+      const outJpg = path.join(tmpDir, `satellite_${idx}.jpg`);
+      const outJgw = path.join(tmpDir, `satellite_${idx}.jgw`);
+      const sec = await _writeSection(xoff, yoff, xs, ys, idx, outJpg, outJgw);
+      if (wkt && n === 0) sec.prj = satPrj;   // .prj прикладываем один раз
+      sections.push(sec);
+      n++;
+    }
+  }
+  console.log(`[SAT] Done: ${sections.length} частей (${cols}×${rows}), часть до ${SECTION_PX}px, пиксель ${pixW.toFixed(3)} м`);
+  return sections;
 }
 
+
+// Текст инструкции по привязке спутниковой подложки (1 или несколько частей).
+function _satReadme(sections) {
+  const secs = (sections || []).filter(s => s && s.jpeg && s.gt && s.pixelSizeM);
+  if (!secs.length) return `\r\nСпутник: приложите файлы satellite*.jpg (привязка в .jgw рядом).\r\n`;
+  const scaleF = secs[0].pixelSizeM.toFixed(6);
+  const ins = s => ({ x:(s.gt[0]+s.gt[1]*0.5+s.gt[2]*0.5).toFixed(3), y:(s.gt[3]+s.gt[4]*0.5+s.gt[5]*0.5).toFixed(3) });
+  if (secs.length === 1) {
+    const s = secs[0], p = ins(s);
+    return `\r\nСпутник в AutoCAD/Robur:\r\n` +
+      `  IMAGEATTACH → ${path.basename(s.jpeg)}\r\n` +
+      `  Точка вставки: X=${p.x}  Y=${p.y}  Z=0\r\n` +
+      `  Масштаб (scale factor): ${scaleF}\r\n` +
+      `  Размер: ${s.imgWidthPx}x${s.imgHeightPx} пкс, пиксель = ${scaleF} м\r\n` +
+      `  Рядом .jgw (привязка) и .prj (система координат).\r\n`;
+  }
+  let t = `\r\nСпутник: подложка разбита на ${secs.length} частей (большая площадь в хорошем качестве).\r\n` +
+    `  Приложите ВСЕ файлы satellite_*.jpg (IMAGEATTACH). Масштаб у всех одинаковый = ${scaleF}.\r\n` +
+    `  Точки вставки (X, Y, Z=0):\r\n`;
+  for (const s of secs) { const p = ins(s); t += `    ${path.basename(s.jpeg)}:  X=${p.x}  Y=${p.y}   (${s.imgWidthPx}x${s.imgHeightPx} пкс)\r\n`; }
+  t += `  У каждого .jpg есть свой .jgw — если CAD читает world-файлы, части встанут автоматически.\r\n`;
+  return t;
+}
 
 // ── Главная функция ────────────────────────────────────────
 async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
@@ -734,23 +782,14 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
       onProgress&&onProgress(10,'Загрузка спутника...');
       const satRes = await buildSatellite(bbox,tmpDir,proj4,epsg,null,satZoom,satSourceUrl,satSourceSubdomains);
       const satFiles=[];
-      let satPixelSizeM=null,satImgW=null,satImgH=null,satGt=null;
       for (const sec of satRes) {
         if (sec.jpeg && fs.existsSync(sec.jpeg)) satFiles.push(sec.jpeg);
         if (sec.jgw  && fs.existsSync(sec.jgw))  satFiles.push(sec.jgw);
         if (sec.prj  && fs.existsSync(sec.prj))  satFiles.push(sec.prj);
-        if (sec.pixelSizeM){ satPixelSizeM=sec.pixelSizeM; satImgW=sec.imgWidthPx; satImgH=sec.imgHeightPx; satGt=sec.gt; }
       }
       onProgress&&onProgress(90,'Упаковка архива...');
       const infoFile=path.join(tmpDir,'readme.txt');
-      let satScaleInfo='';
-      if (satPixelSizeM&&satImgW&&satGt){
-        const scaleF=satPixelSizeM.toFixed(6);
-        const insX=(satGt[0]+satGt[1]*0.5+satGt[2]*0.5).toFixed(3);
-        const insY=(satGt[3]+satGt[4]*0.5+satGt[5]*0.5).toFixed(3);
-        satScaleInfo=`\r\nСпутник в AutoCAD:\r\n  IMAGEATTACH → satellite.jpg\r\n  Insertion point: X=${insX}  Y=${insY}  Z=0\r\n  Scale factor: ${scaleF}\r\n  Размер: ${satImgW}x${satImgH} пкс, пиксель=${scaleF} м\r\n`;
-      }
-      fs.writeFileSync(infoFile,`ArcticDEM Satellite Export\r\n=========================\r\nДата: ${new Date().toLocaleString('ru')}\r\nСК: ${projName||projId} ${proj4||''}\r\nРежим: только подложка (JPEG + геопривязка)${satScaleInfo}`);
+      fs.writeFileSync(infoFile,`ArcticDEM Satellite Export\r\n=========================\r\nДата: ${new Date().toLocaleString('ru')}\r\nСК: ${projName||projId} ${proj4||''}\r\nРежим: только подложка (JPEG + геопривязка)${_satReadme(satRes)}`);
       const zipFile=path.join(tmpDir,'satellite_export.zip');
       const filesToZip=[...satFiles,infoFile].filter(f=>fs.existsSync(f));
       await new Promise((resolve,reject)=>{
@@ -1056,19 +1095,17 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
 
     // 8. Спутник
     let satFiles=[];
-    let satPixelSizeM=null, satImgW=null, satImgH=null, satGt=null;
+    let satSections=[];
     if (exportSatellite){
       onProgress&&onProgress(85,'Загрузка спутника...');
       try{
-        const satSections=await buildSatellite(bbox,tmpDir,proj4,epsg,reprojTif,satZoom,satSourceUrl,satSourceSubdomains);
+        satSections=await buildSatellite(bbox,tmpDir,proj4,epsg,reprojTif,satZoom,satSourceUrl,satSourceSubdomains);
         for (const sec of satSections) {
           if (sec.jpeg && fs.existsSync(sec.jpeg)) satFiles.push(sec.jpeg);
           if (sec.jgw  && fs.existsSync(sec.jgw))  satFiles.push(sec.jgw);
           if (sec.prj  && fs.existsSync(sec.prj))  satFiles.push(sec.prj);
-          // Сохраняем метаданные для readme
-          if (sec.pixelSizeM) { satPixelSizeM=sec.pixelSizeM; satImgW=sec.imgWidthPx; satImgH=sec.imgHeightPx; satGt=sec.gt; }
         }
-        log.push(`Satellite: ${satFiles.length} files, px=${satPixelSizeM?.toFixed(4)}m`);
+        log.push(`Satellite: ${satSections.length} частей, ${satFiles.length} файлов`);
       }catch(e){
         log.push('Satellite WARN: '+e.message.slice(0,80));
         console.warn('[DEM] Satellite fail:',e.message);
@@ -1085,31 +1122,7 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
     // Нужный scale: scaleFactor = pixelSize_metres (т.к. INSUNITS=6, единицы чертежа = метры)
     // При вставке: Insert point = точка привязки левого верхнего угла из JGW
     //              Scale = pixelSizeM (это и есть правильный масштаб)
-    let satScaleInfo = '';
-    if (satPixelSizeM && satImgW && satGt) {
-      const scaleF = satPixelSizeM.toFixed(6);
-      const insX   = (satGt[0] + satGt[1]*0.5 + satGt[2]*0.5).toFixed(3);
-      const insY   = (satGt[3] + satGt[4]*0.5 + satGt[5]*0.5).toFixed(3);
-      satScaleInfo =
-        `\r\nСпутник в AutoCAD — точная инструкция:\r\n` +
-        `  1. Распакуйте архив — satellite.jpg, satellite.jgw, satellite.prj должны\r\n` +
-        `     лежать В ОДНОЙ ПАПКЕ с одинаковым именем\r\n` +
-        `  2. Insert → Raster Image Reference (IMAGEATTACH) → satellite.jpg\r\n` +
-        `  3. В диалоге IMAGEATTACH:\r\n` +
-        `       Insertion point: X=${insX}  Y=${insY}  Z=0\r\n` +
-        `       Scale factor:    ${scaleF}\r\n` +
-        `       (или оставьте "Specify on-screen" и введите scale=${scaleF})\r\n` +
-        `  4. ЛИБО просто нажмите OK с дефолтами и введите в командной строке:\r\n` +
-        `       SCALE → выберите изображение → base point 0,0 → scale factor ${scaleF}\r\n` +
-        `\r\n` +
-        `  Размер растра: ${satImgW}x${satImgH} пикс, пиксель = ${scaleF} м\r\n` +
-        `  Файлы: satellite.jpg + satellite.jgw (геопривязка) + satellite.prj (СК)\r\n`;
-    } else {
-      satScaleInfo =
-        `\r\nСпутник в AutoCAD:\r\n` +
-        `  Insert → Raster Image Reference → satellite.jpg\r\n` +
-        `  Scale factor = размер_пикселя_в_метрах (см. satellite.jgw строка 1)\r\n`;
-    }
+    const satScaleInfo = satSections.length ? _satReadme(satSections) : '';
 
     fs.writeFileSync(infoFile,
       `ArcticDEM Export\r\n` +
