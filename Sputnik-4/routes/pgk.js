@@ -208,10 +208,10 @@ module.exports = (app, getDb, L) => {
     const err = required(['name'], req.body);
     if (err) return res.status(400).json({ error: err });
     const id = uuid();
-    const { name, type, serial_number, base_id, status, responsible, notes, group_id } = req.body;
+    const { name, type, serial_number, base_id, status, responsible, notes, group_id, site_id } = req.body;
     const d = db();
-    run(d, 'INSERT INTO pgk_equipment(id,name,type,serial_number,base_id,status,responsible,notes,group_id)VALUES(?,?,?,?,?,?,?,?,?)',
-      [id, name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '', group_id || '']);
+    run(d, 'INSERT INTO pgk_equipment(id,name,type,serial_number,base_id,status,responsible,notes,group_id,site_id)VALUES(?,?,?,?,?,?,?,?,?,?)',
+      [id, name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '', group_id || '', site_id || '']);
     if (responsible) {
       run(d, 'INSERT INTO equipment_responsible_history(id,equipment_id,responsible)VALUES(?,?,?)', [uuid(), id, responsible]);
     }
@@ -223,9 +223,11 @@ module.exports = (app, getDb, L) => {
     if (err) return res.status(400).json({ error: err });
     const { name, type, serial_number, base_id, status, responsible, notes, group_id } = req.body;
     const d = db();
-    const prev = get(d, 'SELECT responsible FROM pgk_equipment WHERE id=?', [req.params.id]);
-    run(d, 'UPDATE pgk_equipment SET name=?,type=?,serial_number=?,base_id=?,status=?,responsible=?,notes=?,group_id=? WHERE id=?',
-      [name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '', group_id || '', req.params.id]);
+    const prev = get(d, 'SELECT responsible, site_id FROM pgk_equipment WHERE id=?', [req.params.id]);
+    // site_id не прислали (старый клиент/другая форма) — сохраняем прежний объект
+    const site_id = req.body.site_id !== undefined ? (req.body.site_id || '') : ((prev && prev.site_id) || '');
+    run(d, 'UPDATE pgk_equipment SET name=?,type=?,serial_number=?,base_id=?,status=?,responsible=?,notes=?,group_id=?,site_id=? WHERE id=?',
+      [name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '', group_id || '', site_id, req.params.id]);
     if (responsible && (!prev || prev.responsible !== responsible)) {
       run(d, 'INSERT INTO equipment_responsible_history(id,equipment_id,responsible)VALUES(?,?,?)', [uuid(), req.params.id, responsible]);
     }

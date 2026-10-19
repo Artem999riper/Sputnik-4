@@ -61,6 +61,17 @@ async function pgkCellEdit(ev, td, entityType, id, field) {
     opts=[['','— Снять с базы —'],...bases.map(b=>[b.id,b.name])];
   } else if (field==='amount') {
     editorType='number';
+  } else if (entityType==='equipment' && field==='group_id') {
+    editorType='select';
+    opts=[['','— без группы —'],...pgkEquipGroups.map(g=>[g.id,g.name])];
+  } else if (entityType==='equipment' && field==='site_id') {
+    editorType='select';
+    opts=[['','— не назначено —'],...(sites||[]).map(x=>[x.id,x.name])];
+  } else if (entityType==='equipment' && field==='responsible') {
+    editorType='select';
+    opts=[['','— не назначен —'],...(pgkWorkers||[]).map(w=>[w.name,w.name+(w.role?' ('+w.role+')':'')])];
+    // текущее значение не из списка сотрудников (введено раньше вручную) — не терять
+    if (currentVal && !(pgkWorkers||[]).some(w=>w.name===currentVal)) opts.push([currentVal,currentVal]);
   }
 
   // Build editor element
@@ -1285,6 +1296,9 @@ function pgkPageEquipment(pb){
   const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
   const statLbl={working:'✅ В работе',idle:'Не используется',broken:'🔴 Неисправно'};
   const getBase=e=>(bases.find(x=>x.id===e.base_id)||{}).name||'';
+  const getGrp=e=>(pgkEquipGroups.find(g=>g.id===e.group_id)||{}).name||'';
+  const getSite=e=>((sites||[]).find(x=>x.id===e.site_id)||{}).name||'';
+  const searchStr=e=>(e.name+' '+(e.type||'')+' '+(e.serial_number||'')+' '+(e.responsible||'')+' '+getBase(e)+' '+getGrp(e)+' '+getSite(e)+' '+(e.notes||'')).toLowerCase();
 
   let filtered=[...pgkEquipment].filter(e=>{
     if(_egGrp==='__none'){if(e.group_id)return false;}
@@ -1294,15 +1308,19 @@ function pgkPageEquipment(pb){
     return true;
   });
   const _q=(window._pgkESearchVal||'').toLowerCase().trim();
-  if(_q)filtered=filtered.filter(e=>(e.name+' '+(e.type||'')+' '+(e.serial_number||'')+' '+(e.responsible||'')+' '+getBase(e)+' '+(e.notes||'')).toLowerCase().includes(_q));
+  if(_q)filtered=filtered.filter(e=>searchStr(e).includes(_q));
   filtered.sort((a,b)=>{
     let va,vb;
     if(_es==='base'){va=getBase(a);vb=getBase(b);}
+    else if(_es==='group'){va=getGrp(a);vb=getGrp(b);}
+    else if(_es==='site'){va=getSite(a);vb=getSite(b);}
     else{va=a[_es]||'';vb=b[_es]||'';}
+    // пустые значения — всегда в конце списка
+    if(!va!==!vb)return va?-1:1;
     return String(va).localeCompare(String(vb),'ru')*(_ea?1:-1);
   });
 
-  const thSort=(col,lbl)=>`<th class="${_es===col?(_ea?'wt-asc':'wt-desc'):''}" onclick="if(window._pgkESort==='${col}'){window._pgkEAsc=!(window._pgkEAsc!==false);}else{window._pgkESort='${col}';window._pgkEAsc=true;}renderPGK()">${lbl}</th>`;
+  const thSort=(col,lbl)=>`<th data-col="${col}" class="${_es===col?(_ea?'wt-asc':'wt-desc'):''}" onclick="if(window._pgkESort==='${col}'){window._pgkEAsc=!(window._pgkEAsc!==false);}else{window._pgkESort='${col}';window._pgkEAsc=true;}renderPGK()">${lbl}</th>`;
   const baseOpts=`<option value="">Все базы</option>`+bases.map(b=>`<option value="${b.id}" ${_efBase===b.id?'selected':''}>${esc(b.name)}</option>`).join('');
   const statOpts=`<option value="">Все статусы</option>`+Object.entries(statLbl).map(([k,v])=>`<option value="${k}" ${_efStatus===k?'selected':''}>${v}</option>`).join('');
   const byCnt={working:0,idle:0,broken:0};
@@ -1336,16 +1354,19 @@ function pgkPageEquipment(pb){
     const b=bases.find(x=>x.id===e.base_id);
     const st=e.status||'working';
     const _id=escAttr(e.id);
-    return `<tr data-eid="${e.id}" data-search="${esc((e.name+' '+(e.type||'')+' '+(e.serial_number||'')+' '+(e.responsible||'')+' '+getBase(e)+' '+(e.notes||'')).toLowerCase())}" draggable="true"
+    const grpNm=getGrp(e), siteNm=getSite(e);
+    return `<tr data-eid="${e.id}" data-search="${esc(searchStr(e))}" draggable="true"
       ondragstart="equipDragStart(event,'${_id}')"
       oncontextmenu="event.preventDefault();equipCtxMenu(event,'${_id}')">
       <td style="text-align:center;width:28px;color:var(--tx3);font-size:10px;font-weight:600" class="eq-rownum">${i+1}</td>
       <td class="td-link" style="font-weight:600" onclick="openEquipDetail('${_id}')">🔩 ${esc(e.name)}</td>
       <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','type')">${esc(e.type||'—')}</td>
+      <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','group_id')">${grpNm?esc(grpNm):'<span style="color:var(--tx3)">—</span>'}</td>
       <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','status')"><span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span></td>
       <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','base_id')">${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
+      <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','site_id')">${siteNm?`<span style="color:var(--acc)">📍 ${esc(siteNm)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
       <td style="font-size:10px">${esc(e.serial_number||'—')}</td>
-      <td style="font-size:11px">${e.responsible?'👤 '+esc(e.responsible):'<span style="color:var(--tx3)">—</span>'}</td>
+      <td class="td-editable" style="font-size:11px" onclick="pgkCellEdit(event,this,'equipment','${_id}','responsible')">${e.responsible?'👤 '+esc(e.responsible):'<span style="color:var(--tx3)">—</span>'}</td>
       <td class="td-notes" title="${esc(e.notes||'')}">${esc(e.notes||'')}</td>
     </tr>`;
   }).join('');
@@ -1379,18 +1400,20 @@ function pgkPageEquipment(pb){
         <span id="eq-sel-info" style="color:var(--acc);display:none">Выбрано: <b id="eq-sel-cnt">0</b> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="equipMoveSelected()">→ В группу</button> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="document.querySelectorAll('#et-tbody tr.lasso-sel').forEach(r=>r.classList.remove('lasso-sel'));_equipUpdateSelInfo()">✕</button></span>
       </div>
       <div class="spare-tbl-wrap">
-        <table class="wt-tbl" style="min-width:600px">
+        <table class="wt-tbl" id="et-table" style="min-width:600px">
           <thead><tr>
-            <th class="no-sort" style="width:28px;text-align:center;color:var(--tx3)">#</th>
+            <th class="no-sort" data-col="num" style="width:28px;text-align:center;color:var(--tx3)">#</th>
             ${thSort('name','Название')}
             ${thSort('type','Тип')}
+            ${thSort('group','Группа')}
             ${thSort('status','Статус')}
             ${thSort('base','База')}
-            <th class="no-sort">Серийный №</th>
+            ${thSort('site','Объект')}
+            <th class="no-sort" data-col="serial">Серийный №</th>
             ${thSort('responsible','Ответственный')}
-            <th class="no-sort" style="min-width:120px">Примечания</th>
+            <th class="no-sort" data-col="notes" style="min-width:120px">Примечания</th>
           </tr></thead>
-          <tbody id="et-tbody">${rows||`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx3)">Нет оборудования</td></tr>`}</tbody>
+          <tbody id="et-tbody">${rows||`<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--tx3)">Нет оборудования</td></tr>`}</tbody>
         </table>
       </div>
     </div>
@@ -1399,6 +1422,69 @@ function pgkPageEquipment(pb){
   if(_q){setTimeout(()=>equipSearchFilter(_q),0);}
   // Init lasso selection
   setTimeout(()=>_initLasso('et-tbody',_equipUpdateSelInfo),0);
+  // Ширина столбцов — перетаскиванием правой границы заголовка (как в Excel)
+  _initColResize(document.getElementById('et-table'),'equipment');
+}
+
+// ── Изменение ширины столбцов таблицы перетаскиванием (как в Excel) ─────────
+// Тянем правую границу заголовка; двойной щелчок по границе — сбросить ширину.
+// Ширины запоминаются в браузере (localStorage) по ключу таблицы и data-col.
+function _initColResize(table,key){
+  if(!table||table._colRsz)return;
+  table._colRsz=true;
+  const LS='colw_'+key;
+  let saved={};try{saved=JSON.parse(localStorage.getItem(LS)||'{}')||{};}catch(e){}
+  const ths=[...table.querySelectorAll('thead th')];
+  const colKey=(th,i)=>th.dataset.col||String(i);
+  const freeze=()=>{ // зафиксировать текущие ширины → дальше таблица слушается заданных
+    if(table.style.tableLayout==='fixed')return;
+    const w=ths.map(th=>th.getBoundingClientRect().width);
+    ths.forEach((th,i)=>{th.style.width=th.style.minWidth=th.style.maxWidth='';th.style.width=w[i]+'px';});
+    table.style.tableLayout='fixed';
+    table.classList.add('wt-rsz');
+    table.style.width=w.reduce((a,b)=>a+b,0)+'px';
+  };
+  const save=()=>{
+    const o={};ths.forEach((th,i)=>{o[colKey(th,i)]=Math.round(th.getBoundingClientRect().width);});
+    try{localStorage.setItem(LS,JSON.stringify(o));}catch(e){}
+  };
+  if(Object.keys(saved).length){
+    freeze();
+    ths.forEach((th,i)=>{const w=saved[colKey(th,i)];if(w>0)th.style.width=w+'px';});
+    table.style.width=ths.reduce((a,th)=>a+parseFloat(th.style.width||th.getBoundingClientRect().width),0)+'px';
+  }
+  ths.forEach((th,i)=>{
+    if(getComputedStyle(th).position==='static')th.style.position='relative';
+    const h=document.createElement('div');
+    h.className='col-rsz';
+    h.title='Потяните, чтобы изменить ширину (двойной щелчок — сброс)';
+    th.appendChild(h);
+    h.addEventListener('click',e=>e.stopPropagation()); // не сортировать
+    h.addEventListener('dblclick',e=>{
+      e.stopPropagation();
+      try{localStorage.removeItem(LS);}catch(_){}
+      ths.forEach(t=>{t.style.width='';});
+      table.style.tableLayout='';table.style.width='';table.classList.remove('wt-rsz');
+    });
+    h.addEventListener('mousedown',e=>{
+      if(e.button!==0)return;
+      e.preventDefault();e.stopPropagation();
+      freeze();
+      const x0=e.clientX, w0=th.getBoundingClientRect().width, tw0=table.getBoundingClientRect().width;
+      h.classList.add('on');document.body.style.cursor='col-resize';
+      const mv=ev=>{
+        const w=Math.max(30,w0+ev.clientX-x0);
+        th.style.width=w+'px';
+        table.style.width=(tw0+w-w0)+'px';
+      };
+      const up=()=>{
+        window.removeEventListener('mousemove',mv);window.removeEventListener('mouseup',up);
+        h.classList.remove('on');document.body.style.cursor='';
+        save();
+      };
+      window.addEventListener('mousemove',mv);window.addEventListener('mouseup',up);
+    });
+  });
 }
 
 function equipSearchFilter(val){
@@ -2617,6 +2703,7 @@ function _equipFormHtml(e){
       <option value="broken" ${e&&e.status==='broken'?'selected':''}>🔴 Неисправно</option>
     </select></div>
     <div class="fg s2"><label>Группа</label><select id="f-grp">${grpOpts}</select></div>
+    <div class="fg s2"><label>Объект</label><select id="f-site"><option value="">— не назначено —</option>${(sites||[]).map(x=>`<option value="${escAttr(x.id)}" ${e&&e.site_id===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
     <div class="fg s2"><label>База</label><select id="f-b"><option value="">— не назначено —</option>${bases.map(b=>`<option value="${b.id}" ${e&&e.base_id===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}</select></div>
     <div class="fg s2"><label>Ответственный</label><select id="f-resp">${respOpts}</select></div>
     <div class="fg s2"><label>Примечания</label><textarea id="f-nt">${esc(e?e.notes:'')}</textarea></div>
@@ -2631,7 +2718,7 @@ function pgkEditEquip(id){
 }
 async function savePGKEquip(id){
   const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
-  const data={name,type:v('f-t'),serial_number:v('f-sr'),status:v('f-st'),base_id:v('f-b')||null,responsible:v('f-resp')||'',notes:v('f-nt'),group_id:v('f-grp')||''};
+  const data={name,type:v('f-t'),serial_number:v('f-sr'),status:v('f-st'),base_id:v('f-b')||null,responsible:v('f-resp')||'',notes:v('f-nt'),group_id:v('f-grp')||'',site_id:v('f-site')||''};
   if(id)await fetch(`${API}/pgk/equipment/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   else  await fetch(`${API}/pgk/equipment`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   closeModal();await loadPGK();toast(id?'Обновлено':'Добавлено','ok');

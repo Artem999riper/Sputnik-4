@@ -318,3 +318,8 @@
 .lgr:last-child{border-bottom:none}
 .lgt{font-size:9px;color:var(--tx3);flex-shrink:0;width:85px;padding-top:1px}
 .lga{font-size:11px;font-weight:600;color:var(--tx)}.lgd{font-size:10px;color:var(--tx2);margin-top:1px}
+
+/* ── Изменение ширины столбцов перетаскиванием (как в Excel) ── */
+.wt-tbl thead th .col-rsz{position:absolute;top:0;right:0;width:7px;height:100%;cursor:col-resize;z-index:3;user-select:none}
+.wt-tbl thead th .col-rsz:hover,.wt-tbl thead th .col-rsz.on{background:var(--acc);opacity:.45}
+.wt-tbl.wt-rsz td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
