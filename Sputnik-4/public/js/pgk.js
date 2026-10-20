@@ -18,6 +18,10 @@ async function loadPGK(){
     fetch(`${API}/equip_groups`).then(r=>r.json()).catch(()=>[]),
     fetch(`${API}/mat_groups`).then(r=>r.json()).catch(()=>[])
   ]);
+  // Объекты нужны для столбца «Объект» в оборудовании — подгружаем, если ещё нет
+  if(!Array.isArray(sites)||!sites.length){
+    try{const sr=await fetch(`${API}/sites`);if(sr.ok)sites=await sr.json();}catch(e){}
+  }
   await renderPGK();
 }
 async function renderPGK(){
@@ -68,6 +72,8 @@ async function pgkCellEdit(ev, td, entityType, id, field) {
     opts=[['','— Снять с базы —'],...bases.map(b=>[b.id,b.name])];
   } else if (field==='amount') {
     editorType='number';
+  } else if (field==='calib_date') {
+    editorType='date';
   } else if (entityType==='equipment' && field==='group_id') {
     editorType='select';
     opts=[['','— без группы —'],...pgkEquipGroups.map(g=>[g.id,g.name])];
@@ -117,7 +123,7 @@ async function pgkCellEdit(ev, td, entityType, id, field) {
       body={...entity,[field]:newVal,user_name:un()};
     } else if (entityType==='equipment') {
       url=`${API}/pgk/equipment/${id}`;
-      body={...entity,[field]:newVal};
+      body={...entity,[field]:newVal,user_name:un()};
     } else if (entityType==='material') {
       url=`${API}/materials/${id}`;
       body={...entity,[field]:newVal};
@@ -1287,43 +1293,132 @@ function machCtxMenu(ev,mid){
   ]);
 }
 
+// ── Оборудование: вспомогательные ─────────────────────────────────────────
+// Состояние поверки по дате следующей поверки: over — просрочена, soon — ≤30 дней
+function _calibState(d){
+  if(!d)return '';
+  const t=new Date();t.setHours(0,0,0,0);
+  const x=new Date(d+'T00:00:00');if(isNaN(x))return '';
+  const days=Math.round((x-t)/86400000);
+  return days<0?'over':(days<=30?'soon':'ok');
+}
+function _fmtDateRu(d){if(!d)return '';const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d);return m?`${m[3]}.${m[2]}.${m[1]}`:d;}
+// Нормализованный серийный номер (для поиска дубликатов)
+function _serialKey(s){
+  const k=String(s||'').toLowerCase().replace(/[\s\-_.]/g,'');
+  return (!k||k==='бн'||k==='нет'||k==='—')?'':k;
+}
+function _equipDupMap(){
+  const m={};(pgkEquipment||[]).forEach(e=>{const k=_serialKey(e.serial_number);if(k)m[k]=(m[k]||0)+1;});
+  return m;
+}
+// Столбцы таблицы оборудования (key → подпись). Скрытые — в localStorage.
+const EQ_COLS=[
+  ['num','#'],['name','Название'],['type','Тип'],['group','Группа'],['status','Статус'],
+  ['base','База'],['site','Объект'],['serial','Серийный №'],['calib','Поверка'],
+  ['responsible','Ответственный'],['notes','Примечания'],
+];
+function _equipHiddenCols(){try{return new Set(JSON.parse(localStorage.getItem('eq_hidden_cols')||'[]'));}catch(e){return new Set();}}
+function _equipColsMenu(ev){
+  ev.preventDefault();
+  const hidden=_equipHiddenCols();
+  document.getElementById('eq-cols-menu')?.remove();
+  const box=document.createElement('div');
+  box.id='eq-cols-menu';
+  box.style.cssText='position:fixed;z-index:10000;background:var(--s1);border:1.5px solid var(--bd);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:8px 10px;font-size:12px;min-width:190px';
+  box.innerHTML=`<div style="font-weight:800;font-size:11px;color:var(--tx2);margin-bottom:6px">Показывать столбцы</div>`+
+    EQ_COLS.filter(([k])=>k!=='name').map(([k,l])=>`<label style="display:flex;gap:6px;align-items:center;padding:3px 0;cursor:pointer">
+      <input type="checkbox" data-k="${k}" ${hidden.has(k)?'':'checked'}> ${esc(l==='#'?'№ п/п':l)}</label>`).join('')+
+    `<div style="display:flex;gap:6px;margin-top:8px"><button class="btn bs bsm" data-act="all">Все</button><button class="btn bs bsm" data-act="w">Сбросить ширину</button></div>`;
+  document.body.appendChild(box);
+  box.style.left=Math.min(ev.clientX,window.innerWidth-box.offsetWidth-8)+'px';
+  box.style.top=Math.min(ev.clientY,window.innerHeight-box.offsetHeight-8)+'px';
+  const save=set=>{try{localStorage.setItem('eq_hidden_cols',JSON.stringify([...set]));}catch(e){}renderPGK();};
+  box.addEventListener('change',e=>{
+    const k=e.target.dataset.k;if(!k)return;
+    const h=_equipHiddenCols();e.target.checked?h.delete(k):h.add(k);save(h);
+  });
+  box.addEventListener('click',e=>{
+    const a=e.target.dataset.act;if(!a)return;
+    if(a==='all'){box.remove();save(new Set());}
+    if(a==='w'){box.remove();try{localStorage.removeItem('colw_equipment');}catch(_){}renderPGK();}
+  });
+  const outside=e=>{if(!box.contains(e.target)){box.remove();document.removeEventListener('mousedown',outside,true);}};
+  setTimeout(()=>document.addEventListener('mousedown',outside,true),0);
+}
+
 function pgkPageEquipment(pb){
   const _egGrp=window._pgkEGrp||'';
   const _es=window._pgkESort||'name', _ea=window._pgkEAsc!==false;
   const _efBase=window._pgkEFBase||'';
   const _efStatus=window._pgkEFStatus||'';
+  const _efSite=window._pgkEFSite||'';
+  const _efResp=window._pgkEFResp||'';
+  const _efCalib=window._pgkECalib||'';     // over | soon
+  const _efDup=!!window._pgkEDup;            // только дубли S/N
+  const _gBy=window._pgkEGroupBy||'';        // группировка строк
+  const hidden=_equipHiddenCols();
+  const show=k=>!hidden.has(k);
   const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
   const statLbl={working:'✅ В работе',idle:'Не используется',broken:'🔴 Неисправно'};
   const getBase=e=>(bases.find(x=>x.id===e.base_id)||{}).name||'';
   const getGrp=e=>(pgkEquipGroups.find(g=>g.id===e.group_id)||{}).name||'';
   const getSite=e=>((sites||[]).find(x=>x.id===e.site_id)||{}).name||'';
   const searchStr=e=>(e.name+' '+(e.type||'')+' '+(e.serial_number||'')+' '+(e.responsible||'')+' '+getBase(e)+' '+getGrp(e)+' '+getSite(e)+' '+(e.notes||'')).toLowerCase();
+  const dup=_equipDupMap();
+  const isDup=e=>{const k=_serialKey(e.serial_number);return k&&dup[k]>1;};
 
   let filtered=[...pgkEquipment].filter(e=>{
     if(_egGrp==='__none'){if(e.group_id)return false;}
     else if(_egGrp&&e.group_id!==_egGrp)return false;
     if(_efBase&&e.base_id!==_efBase)return false;
     if(_efStatus&&(e.status||'working')!==_efStatus)return false;
+    if(_efSite==='__none'){if(e.site_id)return false;}
+    else if(_efSite&&e.site_id!==_efSite)return false;
+    if(_efResp==='__none'){if(e.responsible)return false;}
+    else if(_efResp&&e.responsible!==_efResp)return false;
+    if(_efCalib&&_calibState(e.calib_date)!==_efCalib)return false;
+    if(_efDup&&!isDup(e))return false;
     return true;
   });
   const _q=(window._pgkESearchVal||'').toLowerCase().trim();
   if(_q)filtered=filtered.filter(e=>searchStr(e).includes(_q));
+  const sortVal=(e,col)=>col==='base'?getBase(e):col==='group'?getGrp(e):col==='site'?getSite(e)
+    :col==='calib'?(e.calib_date||''):col==='serial'?(e.serial_number||''):(e[col]||'');
   filtered.sort((a,b)=>{
-    let va,vb;
-    if(_es==='base'){va=getBase(a);vb=getBase(b);}
-    else if(_es==='group'){va=getGrp(a);vb=getGrp(b);}
-    else if(_es==='site'){va=getSite(a);vb=getSite(b);}
-    else{va=a[_es]||'';vb=b[_es]||'';}
-    // пустые значения — всегда в конце списка
-    if(!va!==!vb)return va?-1:1;
-    return String(va).localeCompare(String(vb),'ru')*(_ea?1:-1);
+    const va=sortVal(a,_es), vb=sortVal(b,_es);
+    if(!va!==!vb)return va?-1:1;   // пустые значения — всегда в конце списка
+    return String(va).localeCompare(String(vb),'ru',{numeric:true})*(_ea?1:-1);
   });
+  // Группировка: стабильно сортируем по ключу группы (внутри — текущая сортировка)
+  const gKey=e=>_gBy==='site'?getSite(e):_gBy==='responsible'?(e.responsible||''):_gBy==='group'?getGrp(e)
+    :_gBy==='base'?getBase(e):_gBy==='status'?(statLbl[e.status||'working']||''):'';
+  if(_gBy){
+    const order=new Map();
+    filtered.forEach(e=>{const k=gKey(e);if(!order.has(k))order.set(k,0);});
+    const keys=[...order.keys()].sort((a,b)=>(!a!==!b)?(a?-1:1):a.localeCompare(b,'ru'));
+    keys.forEach((k,i)=>order.set(k,i));
+    filtered=filtered.map((e,i)=>[e,i]).sort((x,y)=>(order.get(gKey(x[0]))-order.get(gKey(y[0])))||(x[1]-y[1])).map(x=>x[0]);
+  }
+  window._eqShownIds=filtered.map(e=>e.id);
+  if(!window._eqSel)window._eqSel=new Set();
+  // убрать из выделения удалённые позиции
+  window._eqSel.forEach(id=>{if(!pgkEquipment.some(e=>e.id===id))window._eqSel.delete(id);});
 
   const thSort=(col,lbl)=>`<th data-col="${col}" class="${_es===col?(_ea?'wt-asc':'wt-desc'):''}" onclick="if(window._pgkESort==='${col}'){window._pgkEAsc=!(window._pgkEAsc!==false);}else{window._pgkESort='${col}';window._pgkEAsc=true;}renderPGK()">${lbl}</th>`;
-  const baseOpts=`<option value="">Все базы</option>`+bases.map(b=>`<option value="${b.id}" ${_efBase===b.id?'selected':''}>${esc(b.name)}</option>`).join('');
-  const statOpts=`<option value="">Все статусы</option>`+Object.entries(statLbl).map(([k,v])=>`<option value="${k}" ${_efStatus===k?'selected':''}>${v}</option>`).join('');
+  const sel=(id,opts,onch)=>`<select id="${id}" style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);max-width:170px" onchange="${onch}">${opts}</select>`;
+  const o=(v,l,cur)=>`<option value="${escAttr(v)}" ${cur===v?'selected':''}>${esc(l)}</option>`;
+  const baseOpts=o('','Все базы',_efBase)+bases.map(b=>o(b.id,b.name,_efBase)).join('');
+  const statOpts=o('','Все статусы',_efStatus)+Object.entries(statLbl).map(([k,v])=>o(k,v,_efStatus)).join('');
+  const siteOpts=o('','Все объекты',_efSite)+o('__none','— без объекта —',_efSite)+(sites||[]).map(s=>o(s.id,s.name,_efSite)).join('');
+  const respNames=[...new Set([...(pgkWorkers||[]).map(w=>w.name),...pgkEquipment.map(e=>e.responsible).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'ru'));
+  const respOpts=o('','Все ответственные',_efResp)+o('__none','— не назначен —',_efResp)+respNames.map(n=>o(n,n,_efResp)).join('');
+  const grpByOpts=[['','Без группировки'],['site','Группировать: объект'],['responsible','Группировать: ответственный'],['group','Группировать: группа'],['base','Группировать: база'],['status','Группировать: статус']].map(([k,l])=>o(k,l,_gBy)).join('');
   const byCnt={working:0,idle:0,broken:0};
   pgkEquipment.forEach(e=>{byCnt[e.status||'working']=(byCnt[e.status||'working']||0)+1;});
+  const calOver=pgkEquipment.filter(e=>_calibState(e.calib_date)==='over').length;
+  const calSoon=pgkEquipment.filter(e=>_calibState(e.calib_date)==='soon').length;
+  const dupCnt=pgkEquipment.filter(isDup).length;
 
   const grpSidebar=`
     <div class="spare-grp-item${!_egGrp?' on':''}" onclick="window._pgkEGrp='';renderPGK()">
@@ -1349,26 +1444,57 @@ function pgkPageEquipment(pb){
     }).join('')}
     <button class="btn bs bsm" style="width:100%;margin-top:6px;font-size:11px" onclick="equipGrpAdd()">＋ Группа</button>`;
 
-  const rows=filtered.map((e,i)=>{
+  const dash='<span style="color:var(--tx3)">—</span>';
+  const nCols=1+EQ_COLS.filter(([k])=>show(k)).length;
+  let rowNum=0, lastG=null;
+  const rows=filtered.map(e=>{
+    let pre='';
+    if(_gBy){
+      const gk=gKey(e);
+      if(gk!==lastG){
+        lastG=gk;
+        const ck=_gBy+':'+gk;
+        const collapsed=(window._eqCollapsed||{})[ck];
+        const cnt=filtered.filter(x=>gKey(x)===gk).length;
+        pre=`<tr class="eq-gh" onclick="window._eqCollapsed=window._eqCollapsed||{};window._eqCollapsed['${escAttr(ck).replace(/'/g,"\\'")}']=!${collapsed?'true':'false'};renderPGK()">
+          <td colspan="${nCols}">${collapsed?'▸':'▾'} ${gk?esc(gk):'<i>— не указано —</i>'} <span style="color:var(--tx3);font-weight:600">· ${cnt}</span></td></tr>`;
+      }
+      if((window._eqCollapsed||{})[_gBy+':'+gk])return pre;
+    }
     const b=bases.find(x=>x.id===e.base_id);
     const st=e.status||'working';
     const _id=escAttr(e.id);
     const grpNm=getGrp(e), siteNm=getSite(e);
-    return `<tr data-eid="${e.id}" data-search="${esc(searchStr(e))}" draggable="true"
+    const cs=_calibState(e.calib_date);
+    const isSel=window._eqSel.has(e.id);
+    const dupN=isDup(e)?dup[_serialKey(e.serial_number)]:0;
+    const td={
+      num:`<td style="text-align:center;width:28px;color:var(--tx3);font-size:10px;font-weight:600" class="eq-rownum">${++rowNum}</td>`,
+      name:`<td class="td-link" style="font-weight:600" onclick="openEquipDetail('${_id}')">🔩 ${esc(e.name)}</td>`,
+      type:`<td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','type')">${esc(e.type||'—')}</td>`,
+      group:`<td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','group_id')">${grpNm?esc(grpNm):dash}</td>`,
+      status:`<td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','status')"><span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span></td>`,
+      base:`<td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','base_id')">${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:dash}</td>`,
+      site:`<td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','site_id')">${siteNm?`<span style="color:var(--acc)">📍 ${esc(siteNm)}</span>`:dash}</td>`,
+      serial:`<td class="td-editable${dupN?' eq-dup':''}" style="font-size:10px" ${dupN?`title="Дубликат серийного номера: таких позиций ${dupN}"`:''} onclick="pgkCellEdit(event,this,'equipment','${_id}','serial_number')">${dupN?'⚠ ':''}${esc(e.serial_number||'—')}</td>`,
+      calib:`<td class="td-editable eq-cal-${cs||'none'}" style="font-size:11px" title="${cs==='over'?'Поверка просрочена':cs==='soon'?'Поверка в ближайшие 30 дней':''}" onclick="pgkCellEdit(event,this,'equipment','${_id}','calib_date')">${e.calib_date?(cs==='over'?'⛔ ':cs==='soon'?'⏰ ':'')+_fmtDateRu(e.calib_date):dash}</td>`,
+      responsible:`<td class="td-editable" style="font-size:11px" onclick="pgkCellEdit(event,this,'equipment','${_id}','responsible')">${e.responsible?'👤 '+esc(e.responsible):dash}</td>`,
+      notes:`<td class="td-notes td-editable" title="${esc(e.notes||'')}" onclick="pgkCellEdit(event,this,'equipment','${_id}','notes')">${esc(e.notes||'')}</td>`,
+    };
+    return pre+`<tr data-eid="${e.id}" class="${isSel?'lasso-sel':''}" data-search="${esc(searchStr(e))}" draggable="true"
       ondragstart="equipDragStart(event,'${_id}')"
       oncontextmenu="event.preventDefault();equipCtxMenu(event,'${_id}')">
-      <td style="text-align:center;width:28px;color:var(--tx3);font-size:10px;font-weight:600" class="eq-rownum">${i+1}</td>
-      <td class="td-link" style="font-weight:600" onclick="openEquipDetail('${_id}')">🔩 ${esc(e.name)}</td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','type')">${esc(e.type||'—')}</td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','group_id')">${grpNm?esc(grpNm):'<span style="color:var(--tx3)">—</span>'}</td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','status')"><span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span></td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','base_id')">${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','site_id')">${siteNm?`<span style="color:var(--acc)">📍 ${esc(siteNm)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
-      <td style="font-size:10px">${esc(e.serial_number||'—')}</td>
-      <td class="td-editable" style="font-size:11px" onclick="pgkCellEdit(event,this,'equipment','${_id}','responsible')">${e.responsible?'👤 '+esc(e.responsible):'<span style="color:var(--tx3)">—</span>'}</td>
-      <td class="td-notes td-editable" title="${esc(e.notes||'')}" onclick="pgkCellEdit(event,this,'equipment','${_id}','notes')">${esc(e.notes||'')}</td>
+      <td class="eq-chk-td"><input type="checkbox" class="eq-chk" ${isSel?'checked':''}></td>
+      ${EQ_COLS.filter(([k])=>show(k)).map(([k])=>td[k]).join('')}
     </tr>`;
   }).join('');
+
+  const chip=(on,txt,clr,act)=>`<span style="cursor:pointer;color:${clr};${on?'text-decoration:underline;font-weight:800':''}" onclick="${act};renderPGK()" title="Нажмите, чтобы показать только эти позиции">${txt}</span>`;
+  const anyFilter=_egGrp||_efBase||_efStatus||_efSite||_efResp||_efCalib||_efDup||_q;
+  const hdCells=EQ_COLS.filter(([k])=>show(k)).map(([k,l])=>
+    k==='num'?`<th class="no-sort" data-col="num" style="width:28px;text-align:center;color:var(--tx3)">#</th>`
+    :k==='notes'?`<th class="no-sort" data-col="notes" style="min-width:120px">Примечания</th>`
+    :thSort(k,l)).join('');
 
   pb.innerHTML=`<div class="spare-layout" style="height:100%">
     <div class="spare-sidebar">
@@ -1376,54 +1502,140 @@ function pgkPageEquipment(pb){
       ${grpSidebar}
     </div>
     <div class="spare-main">
-      <div class="spare-main-hd">
+      <div class="spare-main-hd" style="flex-wrap:wrap;row-gap:6px">
         <span style="font-size:13px;font-weight:800;flex-shrink:0">🔩 Оборудование</span>
         <input id="pgk-e-search" type="search" placeholder="🔍 Поиск…" value="${esc(_q)}"
           style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:140px;flex:1"
           oninput="equipSearchFilter(this.value)" />
-        <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFStatus=this.value;renderPGK()">${statOpts}</select>
-        <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkEFBase=this.value;renderPGK()">${baseOpts}</select>
         <div style="display:flex;gap:4px;flex-shrink:0">
           <button class="btn bs bsm" onclick="pgkImportEquip()" title="Импорт из Excel">📥</button>
-          <button class="btn bs bsm" onclick="exportEquipmentExcel()" title="Экспорт в Excel">📤</button>
+          <button class="btn bs bsm" onclick="_equipExportMenu(event)" title="Экспорт в Excel">📤</button>
           <button class="btn bs bsm" onclick="openEquipActModal()" title="Акт приёма-передачи">📄 Акт</button>
           <button class="btn bp bsm" onclick="pgkAddEquip()">＋ Добавить</button>
         </div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;width:100%;align-items:center">
+          ${sel('eq-f-status',statOpts,"window._pgkEFStatus=this.value;renderPGK()")}
+          ${sel('eq-f-base',baseOpts,"window._pgkEFBase=this.value;renderPGK()")}
+          ${sel('eq-f-site',siteOpts,"window._pgkEFSite=this.value;renderPGK()")}
+          ${sel('eq-f-resp',respOpts,"window._pgkEFResp=this.value;renderPGK()")}
+          ${sel('eq-f-gby',grpByOpts,"window._pgkEGroupBy=this.value;renderPGK()")}
+          ${anyFilter?`<button class="btn bs bsm" style="font-size:10px" onclick="window._pgkEGrp='';window._pgkEFBase='';window._pgkEFStatus='';window._pgkEFSite='';window._pgkEFResp='';window._pgkECalib='';window._pgkEDup=false;window._pgkESearchVal='';renderPGK()">✕ Сбросить фильтры</button>`:''}
+        </div>
       </div>
-      <div class="wt-summary" style="padding:4px 12px">
+      <div class="wt-summary" style="padding:4px 12px;flex-wrap:wrap">
         <span>Всего: <b>${pgkEquipment.length}</b></span>
         <span style="color:#15803d">✅ <b>${byCnt.working||0}</b></span>
         <span style="color:#a16207">⏸ <b>${byCnt.idle||0}</b></span>
         <span style="color:#b91c1c">🔴 <b>${byCnt.broken||0}</b></span>
+        ${calOver?chip(_efCalib==='over',`⛔ Поверка просрочена: <b>${calOver}</b>`,'#b91c1c',`window._pgkECalib=window._pgkECalib==='over'?'':'over'`):''}
+        ${calSoon?chip(_efCalib==='soon',`⏰ Поверка ≤30 дн: <b>${calSoon}</b>`,'#a16207',`window._pgkECalib=window._pgkECalib==='soon'?'':'soon'`):''}
+        ${dupCnt?chip(_efDup,`⚠ Дубли S/N: <b>${dupCnt}</b>`,'#b91c1c',`window._pgkEDup=!window._pgkEDup`):''}
         ${filtered.length<pgkEquipment.length?`<span style="color:var(--acc)">Показано: <b>${filtered.length}</b></span>`:''}
-        <span id="eq-sel-info" style="color:var(--acc);display:none">Выбрано: <b id="eq-sel-cnt">0</b> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="equipMoveSelected()">→ В группу</button> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="document.querySelectorAll('#et-tbody tr.lasso-sel').forEach(r=>r.classList.remove('lasso-sel'));_equipUpdateSelInfo()">✕</button></span>
+        <span id="eq-sel-info" style="color:var(--acc);display:none">Выбрано: <b id="eq-sel-cnt">0</b> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="equipMoveSelected()">→ В группу</button> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="_equipClearSel()">✕</button></span>
+        <span style="margin-left:auto;color:var(--tx3);font-size:10px" title="Выделение: галочки, Ctrl+клик — добавить/убрать строку, Shift+клик — диапазон, рамка мышью. ПКМ по выделенным — действия для всех. ПКМ по заголовку — выбор столбцов.">ℹ️ подсказка</span>
       </div>
       <div class="spare-tbl-wrap">
         <table class="wt-tbl" id="et-table" style="min-width:600px">
-          <thead><tr>
-            <th class="no-sort" data-col="num" style="width:28px;text-align:center;color:var(--tx3)">#</th>
-            ${thSort('name','Название')}
-            ${thSort('type','Тип')}
-            ${thSort('group','Группа')}
-            ${thSort('status','Статус')}
-            ${thSort('base','База')}
-            ${thSort('site','Объект')}
-            <th class="no-sort" data-col="serial">Серийный №</th>
-            ${thSort('responsible','Ответственный')}
-            <th class="no-sort" data-col="notes" style="min-width:120px">Примечания</th>
+          <thead oncontextmenu="_equipColsMenu(event)"><tr>
+            <th class="no-sort eq-chk-td" data-col="chk" style="width:26px"><input type="checkbox" id="eq-chk-all" title="Выделить все показанные"></th>
+            ${hdCells}
           </tr></thead>
-          <tbody id="et-tbody">${rows||`<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--tx3)">Нет оборудования</td></tr>`}</tbody>
+          <tbody id="et-tbody">${rows||`<tr><td colspan="${nCols}" style="text-align:center;padding:24px;color:var(--tx3)">Нет оборудования</td></tr>`}</tbody>
         </table>
       </div>
     </div>
   </div>`;
-  // Re-apply search filter after render
   if(_q){setTimeout(()=>equipSearchFilter(_q),0);}
-  // Init lasso selection
-  setTimeout(()=>_initLasso('et-tbody',_equipUpdateSelInfo),0);
+  setTimeout(()=>{_initLasso('et-tbody',_equipUpdateSelInfo);_equipUpdateSelInfo();},0);
+  _equipInitSelect();
   // Ширина столбцов — перетаскиванием правой границы заголовка (как в Excel)
   _initColResize(document.getElementById('et-table'),'equipment');
 }
+
+// Выделение строк: галочки, Ctrl+клик, Shift+клик (диапазон), «выделить все»
+function _equipInitSelect(){
+  const tb=document.getElementById('et-tbody');if(!tb)return;
+  const visRows=()=>[...tb.querySelectorAll('tr[data-eid]')].filter(r=>r.style.display!=='none');
+  const setRow=(tr,on)=>{tr.classList.toggle('lasso-sel',on);const c=tr.querySelector('.eq-chk');if(c)c.checked=on;};
+  tb.addEventListener('click',ev=>{
+    const tr=ev.target.closest('tr[data-eid]');if(!tr)return;
+    const isChk=ev.target.classList&&ev.target.classList.contains('eq-chk');
+    const onChkCell=!!ev.target.closest('.eq-chk-td');
+    if(!isChk&&!onChkCell&&!ev.ctrlKey&&!ev.metaKey&&!ev.shiftKey)return; // обычный клик — правка ячейки
+    ev.stopPropagation();
+    if(!isChk)ev.preventDefault();
+    const rows=visRows();
+    if(ev.shiftKey&&window._eqAnchor){
+      const a=rows.findIndex(r=>r.dataset.eid===window._eqAnchor), b=rows.indexOf(tr);
+      if(a>=0&&b>=0){const [x,y]=a<b?[a,b]:[b,a];for(let i=x;i<=y;i++)setRow(rows[i],true);}
+    }else{
+      setRow(tr,isChk?ev.target.checked:!tr.classList.contains('lasso-sel'));
+      window._eqAnchor=tr.dataset.eid;
+    }
+    _equipUpdateSelInfo();
+  },true);
+  const all=document.getElementById('eq-chk-all');
+  if(all)all.addEventListener('change',()=>{visRows().forEach(r=>setRow(r,all.checked));_equipUpdateSelInfo();});
+}
+function _equipClearSel(){
+  document.querySelectorAll('#et-tbody tr.lasso-sel').forEach(r=>{r.classList.remove('lasso-sel');const c=r.querySelector('.eq-chk');if(c)c.checked=false;});
+  _equipUpdateSelInfo();
+}
+
+function equipSearchFilter(val){
+  window._pgkESearchVal=val;
+  const q=val.toLowerCase().trim();
+  let n=0;
+  document.querySelectorAll('#et-tbody tr[data-eid]').forEach(tr=>{
+    const show=!q||tr.dataset.search.includes(q);
+    tr.style.display=show?'':'none';
+    if(show){const c=tr.querySelector('.eq-rownum');if(c)c.textContent=++n;}
+  });
+  // заголовки групп без видимых строк — скрыть
+  document.querySelectorAll('#et-tbody tr.eq-gh').forEach(gh=>{
+    let r=gh.nextElementSibling, any=false;
+    while(r&&!r.classList.contains('eq-gh')){if(r.style.display!=='none'){any=true;break;}r=r.nextElementSibling;}
+    gh.style.display=(any||!q)?'':'none';
+  });
+}
+function _equipUpdateSelInfo(){
+  const rows=[...document.querySelectorAll('#et-tbody tr[data-eid]')];
+  if(!window._eqSel)window._eqSel=new Set();
+  rows.forEach(r=>{
+    const on=r.classList.contains('lasso-sel');
+    on?window._eqSel.add(r.dataset.eid):window._eqSel.delete(r.dataset.eid);
+    const c=r.querySelector('.eq-chk');if(c&&c.checked!==on)c.checked=on;
+  });
+  const n=rows.filter(r=>r.classList.contains('lasso-sel')).length;
+  const si=document.getElementById('eq-sel-info');
+  const sc=document.getElementById('eq-sel-cnt');
+  if(si&&sc){si.style.display=n?'':'none';sc.textContent=n;}
+  const all=document.getElementById('eq-chk-all');
+  if(all){const vis=rows.filter(r=>r.style.display!=='none');all.checked=vis.length>0&&vis.every(r=>r.classList.contains('lasso-sel'));}
+}
+
+// Экспорт: всё / показанное (с фильтрами и сортировкой) / выделенное
+function _equipExportMenu(ev){
+  const r=ev.currentTarget.getBoundingClientRect();
+  const shown=(window._eqShownIds||[]).map(id=>pgkEquipment.find(e=>e.id===id)).filter(Boolean);
+  const selIds=_equipSelectedIds();
+  const selected=shown.filter(e=>selIds.includes(e.id));
+  showCtx(r.left,r.bottom+4,[
+    {i:'📤',l:`Всё оборудование (${pgkEquipment.length})`,f:()=>exportEquipmentExcel(pgkEquipment)},
+    {i:'🔎',l:`Только показанное (${shown.length})`,f:()=>exportEquipmentExcel(shown)},
+    ...(selected.length?[{i:'☑️',l:`Только выделенное (${selected.length})`,f:()=>exportEquipmentExcel(selected)}]:[]),
+  ]);
+}
+
+// Таблицы других вкладок: ширина столбцов тоже меняется мышью. Они
+// перерисовываются из разных мест, поэтому подхватываем их наблюдателем DOM.
+const _COLRSZ_TABLES={'pgk-workers-tbl':'workers','mch-park-tbl':'machinery','mat-tbl':'materials'};
+(function(){
+  let pend=false;
+  const scan=()=>{pend=false;for(const id in _COLRSZ_TABLES){const t=document.getElementById(id);if(t&&!t._colRsz)_initColResize(t,_COLRSZ_TABLES[id]);}};
+  const start=()=>new MutationObserver(()=>{if(!pend){pend=true;requestAnimationFrame(scan);}}).observe(document.body,{childList:true,subtree:true});
+  if(document.body)start();else document.addEventListener('DOMContentLoaded',start);
+})();
 
 // ── Изменение ширины столбцов таблицы перетаскиванием (как в Excel) ─────────
 // Тянем правую границу заголовка; двойной щелчок по границе — сбросить ширину.
@@ -1484,23 +1696,6 @@ function _initColResize(table,key){
       window.addEventListener('mousemove',mv);window.addEventListener('mouseup',up);
     });
   });
-}
-
-function equipSearchFilter(val){
-  window._pgkESearchVal=val;
-  const q=val.toLowerCase().trim();
-  let n=0;
-  document.querySelectorAll('#et-tbody tr[data-eid]').forEach(tr=>{
-    const show=!q||tr.dataset.search.includes(q);
-    tr.style.display=show?'':'none';
-    if(show){const c=tr.querySelector('.eq-rownum');if(c)c.textContent=++n;}
-  });
-}
-function _equipUpdateSelInfo(){
-  const sel=document.querySelectorAll('#et-tbody tr.lasso-sel');
-  const si=document.getElementById('eq-sel-info');
-  const sc=document.getElementById('eq-sel-cnt');
-  if(si&&sc){si.style.display=sel.length?'':'none';sc.textContent=sel.length;}
 }
 
 // ── Lasso (rubber-band) row selection ─────────────────────
@@ -1637,6 +1832,8 @@ async function openEquipDetail(eid){
           <div style="color:var(--tx3)">Серийный №</div><div style="font-family:monospace">${esc(e.serial_number||'—')}</div>
           <div style="color:var(--tx3)">База</div><div>${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</div>
           <div style="color:var(--tx3)">Группа</div><div>${grp?esc(grp.name):'<span style="color:var(--tx3)">—</span>'}</div>
+          <div style="color:var(--tx3)">Объект</div><div>${(()=>{const s_=(sites||[]).find(x=>x.id===e.site_id);return s_?`<span style="color:var(--acc)">📍 ${esc(s_.name)}</span>`:'<span style="color:var(--tx3)">—</span>';})()}</div>
+          <div style="color:var(--tx3)">Поверка до</div><div>${e.calib_date?(()=>{const c=_calibState(e.calib_date);return `<span style="color:${c==='over'?'var(--red)':c==='soon'?'#a16207':'inherit'}">${c==='over'?'⛔ ':c==='soon'?'⏰ ':''}${_fmtDateRu(e.calib_date)}</span>`;})():'<span style="color:var(--tx3)">—</span>'}</div>
         </div>
         ${e.notes?`<div style="font-size:11px;color:var(--tx2);background:var(--s2);border-radius:6px;padding:8px 10px;margin-bottom:12px">📝 ${esc(e.notes)}</div>`:''}
         <div style="font-size:10px;font-weight:700;color:var(--tx3);margin-bottom:6px">НАЗНАЧИТЬ НА БАЗУ</div>
@@ -1673,7 +1870,7 @@ async function openEquipDetail(eid){
   </div>
   <div class="wdc-tabs">
     <button class="wdc-tab${_tab==='main'?' on':''}" onclick="window._pgkEqDetailTab='main';document.getElementById('eq-tab-main').classList.add('on');document.getElementById('eq-tab-hist').classList.remove('on');document.getElementById('eq-body-main').style.display='';document.getElementById('eq-body-hist').style.display='none';" id="eq-tab-main">Основное</button>
-    <button class="wdc-tab${_tab==='hist'?' on':''}" onclick="window._pgkEqDetailTab='hist';document.getElementById('eq-tab-hist').classList.add('on');document.getElementById('eq-tab-main').classList.remove('on');document.getElementById('eq-body-hist').style.display='';document.getElementById('eq-body-main').style.display='none';loadEquipHistory('${_eid}')" id="eq-tab-hist">История ответственных</button>
+    <button class="wdc-tab${_tab==='hist'?' on':''}" onclick="window._pgkEqDetailTab='hist';document.getElementById('eq-tab-hist').classList.add('on');document.getElementById('eq-tab-main').classList.remove('on');document.getElementById('eq-body-hist').style.display='';document.getElementById('eq-body-main').style.display='none';loadEquipHistory('${_eid}')" id="eq-tab-hist">История перемещений</button>
   </div>
   <div id="eq-body-main" style="display:${_tab==='main'?'':'none'}">${renderEqTab('main')}</div>
   <div id="eq-body-hist" style="display:${_tab==='hist'?'':'none'}">${renderEqTab('hist')}</div>`;
@@ -1684,11 +1881,24 @@ async function openEquipDetail(eid){
 async function loadEquipHistory(eid){
   const panel=document.getElementById('eq-body-hist');if(!panel)return;
   panel.innerHTML='<div class="wdc-panel"><div style="font-size:11px;color:var(--tx3)">Загрузка...</div></div>';
-  const hist=await fetch(`${API}/equip_responsible_history/${eid}`).then(r=>r.json()).catch(()=>[]);
-  if(!hist.length){panel.innerHTML='<div class="wdc-panel"><div style="font-size:11px;color:var(--tx3);padding:12px 0">История пуста</div></div>';return;}
-  panel.innerHTML=`<div class="wdc-panel">${hist.map(h=>`<div class="wdc-shift">
-    <div style="font-size:12px;font-weight:600">👤 ${esc(h.responsible)}</div>
-    <div style="font-size:10px;color:var(--tx3);margin-top:2px">${(h.assigned_at||'').replace('T',' ').slice(0,16)}</div>
+  const [hist,old]=await Promise.all([
+    fetch(`${API}/pgk/equipment/${eid}/history`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/equip_responsible_history/${eid}`).then(r=>r.json()).catch(()=>[]),
+  ]);
+  const F={status:['🔄','Статус'],base_id:['🏕','База'],site_id:['📍','Объект'],responsible:['👤','Ответственный'],group_id:['📁','Группа']};
+  const rows=(Array.isArray(hist)?hist:[]).map(h=>({at:h.at||'',icon:(F[h.field]||['•'])[0],what:(F[h.field]||['',h.field])[1],
+    from:h.old_value||'',to:h.new_value||'',user:h.user_name||''}));
+  // Старые записи (до появления журнала) — только смена ответственного
+  const firstNew=rows.length?rows[rows.length-1].at:null;
+  (Array.isArray(old)?old:[]).forEach(h=>{
+    if(firstNew&&(h.assigned_at||'')>=firstNew)return;
+    rows.push({at:h.assigned_at||'',icon:'👤',what:'Ответственный',from:'',to:h.responsible||'',user:''});
+  });
+  if(!rows.length){panel.innerHTML='<div class="wdc-panel"><div style="font-size:11px;color:var(--tx3);padding:12px 0">История пуста</div></div>';return;}
+  const fmt=t=>{const m=/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(t);return m?`${m[3]}.${m[2]}.${m[1]} ${m[4]}:${m[5]}`:t;};
+  panel.innerHTML=`<div class="wdc-panel">${rows.map(h=>`<div class="wdc-shift">
+    <div style="font-size:12px"><b>${h.icon} ${esc(h.what)}:</b> ${h.from?`<span style="color:var(--tx3);text-decoration:line-through">${esc(h.from)}</span> → `:''}${h.to?esc(h.to):'<span style="color:var(--tx3)">— снято —</span>'}</div>
+    <div style="font-size:10px;color:var(--tx3);margin-top:2px">${esc(fmt(h.at))}${h.user?' · '+esc(h.user):''}</div>
   </div>`).join('')}</div>`;
 }
 
@@ -1729,6 +1939,8 @@ function equipCtxMenu(ev,eid){
     {i:'📍',l:'Объект…',f:()=>_equipPickField(ids,'site_id',x,y)},
     {i:'🏕',l:'База…',f:()=>_equipPickField(ids,'base_id',x,y)},
     {i:'📝',l:'Примечание…',f:()=>_equipEditNotes(ids)},
+    {i:'📅',l:'Дата поверки…',f:()=>_equipEditCalib(ids)},
+    {i:'📄',l:multi?`Акт приёма-передачи на выбранное (${ids.length})`:'Акт приёма-передачи',f:()=>_equipActSelected(ids,x,y)},
     {sep:true},
     {i:'🔄',l:'Изменить статус ▸',f:()=>{}},
     ...statItems,
@@ -1742,7 +1954,7 @@ async function _equipApply(ids,patch,msg){
   const list=ids.map(id=>pgkEquipment.find(x=>x.id===id)).filter(Boolean);
   try{
     await Promise.all(list.map(e=>fetch(`${API}/pgk/equipment/${e.id}`,{method:'PUT',
-      headers:{'Content-Type':'application/json'},body:JSON.stringify({...e,...patch})})));
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({...e,...patch,user_name:un()})})));
   }catch(err){toast('Ошибка сохранения','err');}
   await loadPGK();
   if(msg)toast(list.length>1?`${msg}: ${list.length} поз.`:msg,'ok');
@@ -1803,6 +2015,46 @@ async function _equipBulkDelete(ids){
   await loadPGK();
   if(items.length)showUndoBar(`Удалено: ${items.length} поз.`,{items},loadPGK);
   else toast('Не удалось удалить','err');
+}
+
+// Дата следующей поверки — одной или сразу нескольким позициям
+function _equipEditCalib(ids){
+  const one=ids.length===1?pgkEquipment.find(e=>e.id===ids[0]):null;
+  showModal(one?'📅 Дата поверки':`📅 Дата поверки — ${ids.length} поз.`,`<div class="fgr">
+    <div class="fg s2"><label>Следующая поверка / калибровка</label><input id="f-calib" type="date" value="${esc(one?one.calib_date||'':'')}"></div>
+    <div class="fg s2" style="font-size:11px;color:var(--tx3)">Пусто — дата не задана. За 30 дней строка подсветится жёлтым, после даты — красным.</div>
+  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const d=v('f-calib')||'';closeModal();await _equipApply(ids,{calib_date:d},'Дата поверки сохранена');
+  }}]);
+}
+
+// Акт приёма-передачи на выбранные позиции: выбрать получателя → (закрепить) → .docx
+function _equipActSelected(ids,x,y){
+  const items=(pgkWorkers||[]).map(w=>({v:w.name,l:w.name,sub:w.role||''}));
+  _searchPick({x,y,title:`📄 Акт: кому передаётся (${ids.length} поз.)`,items,current:null,onPick:async name=>{
+    if(!name)return;
+    const list=ids.map(id=>pgkEquipment.find(e=>e.id===id)).filter(Boolean);
+    const other=list.filter(e=>e.responsible!==name);
+    if(other.length&&await confirmDlg(`Закрепить за «${name}» выбранное оборудование (${other.length} поз.)?\n\nЕсли нет — акт будет сформирован без изменения ответственного.`)){
+      await _equipApply(ids,{responsible:name},'Ответственный назначен');
+    }
+    await _equipDownloadAct(name,ids);
+  }});
+}
+async function _equipDownloadAct(resp,ids){
+  try{
+    let url=`${API}/pgk/equipment/act?responsible=${encodeURIComponent(resp)}`;
+    if(ids&&ids.length)url+=`&ids=${encodeURIComponent(ids.join(','))}`;
+    const r=await fetch(url);
+    if(!r.ok){const e=await r.json().catch(()=>({}));toast(e.error||'Ошибка формирования акта','err');return;}
+    const blob=await r.blob();
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`Акт_${resp.replace(/\s+/g,'_')}_${new Date().toISOString().split('T')[0]}.docx`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('Акт сформирован','ok');
+  }catch(e){toast('Ошибка: '+e.message,'err');}
 }
 
 // ── Всплывающий список с поиском (универсальный) ─────────────────
@@ -1961,7 +2213,7 @@ async function pgkPageMaterials(pb){
         <span id="mat-sel-info" style="color:var(--acc);display:none">Выбрано: <b id="mat-sel-cnt">0</b> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="matMoveSelected()">→ В группу</button> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="document.querySelectorAll('#pgk-mat-tbody tr.lasso-sel').forEach(r=>r.classList.remove('lasso-sel'));_matUpdateSelInfo()">✕</button></span>
       </div>
       <div class="spare-tbl-wrap">
-        <table class="wt-tbl" style="min-width:600px">
+        <table class="wt-tbl" id="mat-tbl" style="min-width:600px">
           <thead><tr>
             <th class="no-sort" style="width:28px;text-align:center;color:var(--tx3)">#</th>
             ${thSort('name','Название')}
@@ -2834,6 +3086,7 @@ function _equipFormHtml(e){
       <option value="broken" ${e&&e.status==='broken'?'selected':''}>🔴 Неисправно</option>
     </select></div>
     <div class="fg s2"><label>Группа</label><select id="f-grp">${grpOpts}</select></div>
+    <div class="fg"><label>Поверка до</label><input id="f-calib" type="date" value="${esc(e?e.calib_date||'':'')}"></div>
     <div class="fg s2"><label>Объект</label><select id="f-site"><option value="">— не назначено —</option>${(sites||[]).map(x=>`<option value="${escAttr(x.id)}" ${e&&e.site_id===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
     <div class="fg s2"><label>База</label><select id="f-b"><option value="">— не назначено —</option>${bases.map(b=>`<option value="${b.id}" ${e&&e.base_id===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}</select></div>
     <div class="fg s2"><label>Ответственный</label><select id="f-resp">${respOpts}</select></div>
@@ -2849,7 +3102,11 @@ function pgkEditEquip(id){
 }
 async function savePGKEquip(id){
   const name=v('f-n').trim();if(!name){toast('Введите название','err');return;}
-  const data={name,type:v('f-t'),serial_number:v('f-sr'),status:v('f-st'),base_id:v('f-b')||null,responsible:v('f-resp')||'',notes:v('f-nt'),group_id:v('f-grp')||'',site_id:v('f-site')||''};
+  const data={name,type:v('f-t'),serial_number:v('f-sr'),status:v('f-st'),base_id:v('f-b')||null,responsible:v('f-resp')||'',notes:v('f-nt'),group_id:v('f-grp')||'',site_id:v('f-site')||'',calib_date:v('f-calib')||'',user_name:un()};
+  // Предупредить о дубликате серийного номера
+  const sk=_serialKey(data.serial_number);
+  const twin=sk&&pgkEquipment.find(x=>x.id!==id&&_serialKey(x.serial_number)===sk);
+  if(twin&&!await confirmDlg(`Серийный № «${data.serial_number}» уже есть у «${twin.name}».\n\nВсё равно сохранить?`))return;
   if(id)await fetch(`${API}/pgk/equipment/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   else  await fetch(`${API}/pgk/equipment`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   closeModal();await loadPGK();toast(id?'Обновлено':'Добавлено','ok');
@@ -2949,14 +3206,15 @@ function exportMaterialsExcel(){
   toast('Excel сохранён','ok');
 }
 
-function exportEquipmentExcel(){
-  if(!pgkEquipment||!pgkEquipment.length){toast('Нет оборудования для экспорта','warn');return;}
+function exportEquipmentExcel(list){
+  list=Array.isArray(list)?list:pgkEquipment;
+  if(!list||!list.length){toast('Нет оборудования для экспорта','warn');return;}
   const wb=XLSX.utils.book_new();
   const todayDate=new Date();
   const todayStr=todayDate.toISOString().split('T')[0];
   const todayFmt=todayDate.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
 
-  const COLS=10;
+  const COLS=11;
   const hdrFill='C3D69B';
   const rowFill='B9CCE4';
   const titleFill='D9E1F2';
@@ -2966,12 +3224,12 @@ function exportEquipmentExcel(){
   const leftAlign={horizontal:'left',vertical:'center',wrapText:true};
 
   const statLbl={working:'В работе',idle:'Не используется',broken:'Неисправно'};
-  const hdr=['№','Название','Тип','Группа','Статус','База','Объект','Серийный №','Ответственный','Примечания'];
+  const hdr=['№','Название','Тип','Группа','Статус','База','Объект','Серийный №','Поверка до','Ответственный','Примечания'];
 
   const aoa=[
     ['Реестр оборудования — '+todayFmt],
     hdr,
-    ...pgkEquipment.map((e,i)=>{
+    ...list.map((e,i)=>{
       const b=(bases||[]).find(x=>x.id===e.base_id);
       const grp=(pgkEquipGroups||[]).find(g=>g.id===e.group_id);
       const st=(sites||[]).find(x=>x.id===e.site_id);
@@ -2984,6 +3242,7 @@ function exportEquipmentExcel(){
         b?b.name:'',
         st?st.name:'',
         e.serial_number||'',
+        _fmtDateRu(e.calib_date||''),
         e.responsible||'',
         e.notes||''
       ];
@@ -2991,7 +3250,7 @@ function exportEquipmentExcel(){
   ];
 
   const ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols']=[{wch:5},{wch:32},{wch:18},{wch:18},{wch:16},{wch:20},{wch:24},{wch:16},{wch:24},{wch:30}];
+  ws['!cols']=[{wch:5},{wch:32},{wch:18},{wch:18},{wch:16},{wch:20},{wch:24},{wch:16},{wch:12},{wch:24},{wch:30}];
   ws['!rows']=[{hpx:32},{hpx:40}];
   ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:COLS-1}}];
   ws['!views']=[{state:'frozen',xSplit:0,ySplit:2}];
@@ -3002,18 +3261,18 @@ function exportEquipmentExcel(){
 
   setStyle(ref(0,0),{font:{name:'Times New Roman',bold:true,sz:14},alignment:{horizontal:'center',vertical:'center'},fill:{patternType:'solid',fgColor:{rgb:titleFill}},border});
   for(let c=0;c<COLS;c++)setStyle(ref(1,c),{font:{name:'Times New Roman',bold:true,sz:11},alignment:baseAlign,fill:{patternType:'solid',fgColor:{rgb:hdrFill}},border});
-  pgkEquipment.forEach((_,i)=>{
+  list.forEach((_,i)=>{
     const r=i+2;
     const fill=i%2===0?{patternType:'solid',fgColor:{rgb:rowFill}}:{patternType:'solid',fgColor:{rgb:'FFFFFF'}};
     for(let c=0;c<COLS;c++){
-      const align=(c===0||c===4||c===7)?baseAlign:leftAlign;
+      const align=(c===0||c===4||c===7||c===8)?baseAlign:leftAlign;
       setStyle(ref(r,c),{font:{name:'Times New Roman',sz:11},alignment:align,fill,border:thinBorder});
     }
   });
 
   // Сводный лист по ответственным
   const byResp={};
-  pgkEquipment.forEach(e=>{const r=e.responsible||'— не назначен —';if(!byResp[r])byResp[r]=[];byResp[r].push(e);});
+  list.forEach(e=>{const r=e.responsible||'— не назначен —';if(!byResp[r])byResp[r]=[];byResp[r].push(e);});
   const sumAoa=[
     ['Сводка по ответственным'],
     ['Ответственный','Кол-во','В работе','Неисправно'],
@@ -3048,18 +3307,7 @@ function openEquipActModal(){
       const resp=(document.getElementById('f-act-resp').value||'').trim();
       if(!resp)return;
       closeModal();
-      try{
-        const url=`${API}/pgk/equipment/act?responsible=${encodeURIComponent(resp)}`;
-        const r=await fetch(url);
-        if(!r.ok){const e=await r.json().catch(()=>({}));toast(e.error||'Ошибка формирования акта','err');return;}
-        const blob=await r.blob();
-        const a=document.createElement('a');
-        a.href=URL.createObjectURL(blob);
-        a.download=`Акт_${resp.replace(/\s+/g,'_')}_${new Date().toISOString().split('T')[0]}.docx`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-        toast('Акт сформирован','ok');
-      }catch(e){toast('Ошибка: '+e.message,'err');}
+      await _equipDownloadAct(resp,null);
     }}
   ]);
 }

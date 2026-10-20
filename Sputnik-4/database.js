@@ -219,6 +219,10 @@ async function getDb() {
   ta(`CREATE TABLE IF NOT EXISTS equipment_responsible_history (id TEXT PRIMARY KEY, equipment_id TEXT NOT NULL, responsible TEXT NOT NULL, assigned_at TEXT DEFAULT (datetime('now')), notes TEXT DEFAULT '')`);
   ta("ALTER TABLE pgk_equipment ADD COLUMN group_id TEXT DEFAULT ''");
   ta("ALTER TABLE pgk_equipment ADD COLUMN site_id TEXT DEFAULT ''");  // объект, на котором оборудование
+  ta("ALTER TABLE pgk_equipment ADD COLUMN calib_date TEXT DEFAULT ''"); // дата следующей поверки/калибровки (YYYY-MM-DD)
+  // Журнал изменений оборудования: кто/где/статус — для истории перемещений в карточке
+  ta(`CREATE TABLE IF NOT EXISTS equipment_history (id TEXT PRIMARY KEY, equipment_id TEXT NOT NULL, field TEXT NOT NULL, old_value TEXT DEFAULT '', new_value TEXT DEFAULT '', user_name TEXT DEFAULT '', at TEXT DEFAULT (datetime('now','localtime')))`);
+  ta("CREATE INDEX IF NOT EXISTS idx_equipment_history ON equipment_history(equipment_id)");
   ta("ALTER TABLE kml_layers ADD COLUMN show_labels INTEGER DEFAULT 0");
   ta("ALTER TABLE kml_layers ADD COLUMN fill_opacity REAL DEFAULT 0.2");
   // МТО — материально-техническое обеспечение (справка о технических средствах)

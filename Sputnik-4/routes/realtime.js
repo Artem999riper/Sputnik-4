@@ -19,6 +19,7 @@ const RESTORABLE_TABLES = new Set([
   'cargo_orders','kml_layers','site_bases','mto_items',
   'worker_shifts','machine_moves','materials_log','photos',
   'equipment_responsible_history','fuel_reserves','fuel_transactions',
+  'equipment_history',
 ]);
 
 // ── SSE ────────────────────────────────────────────────────

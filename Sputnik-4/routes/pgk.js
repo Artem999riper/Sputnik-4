@@ -204,14 +204,42 @@ module.exports = (app, getDb, L) => {
     res.json(all(db(), 'SELECT * FROM pgk_equipment ORDER BY name'))
   ));
 
+  // ── История оборудования: пишем изменения важных полей «как их видит человек» ──
+  const EQ_HIST_FIELDS = ['status', 'base_id', 'site_id', 'responsible', 'group_id'];
+  const EQ_STATUS = { working: 'В работе', idle: 'Не используется', broken: 'Неисправно' };
+  function eqHistText(d, field, v) {
+    if (!v) return '';
+    try {
+      if (field === 'base_id')  return (get(d, 'SELECT name FROM bases WHERE id=?', [v]) || {}).name || v;
+      if (field === 'site_id')  return (get(d, 'SELECT name FROM sites WHERE id=?', [v]) || {}).name || v;
+      if (field === 'group_id') return (get(d, 'SELECT name FROM equipment_groups WHERE id=?', [v]) || {}).name || v;
+    } catch (e) {}
+    if (field === 'status') return EQ_STATUS[v] || v;
+    return String(v);
+  }
+  function eqHistLog(d, eqId, prev, next, user) {
+    for (const f of EQ_HIST_FIELDS) {
+      const a = (prev && prev[f]) || '', b = (next && next[f]) || '';
+      if (a === b) continue;
+      try {
+        run(d, 'INSERT INTO equipment_history(id,equipment_id,field,old_value,new_value,user_name)VALUES(?,?,?,?,?,?)',
+          [uuid(), eqId, f, eqHistText(d, f, a), eqHistText(d, f, b), user || '']);
+      } catch (e) {}
+    }
+  }
+  app.get('/api/pgk/equipment/:id/history', wrap((req, res) =>
+    res.json(all(db(), 'SELECT * FROM equipment_history WHERE equipment_id=? ORDER BY at DESC, rowid DESC', [req.params.id]))
+  ));
+
   app.post('/api/pgk/equipment', wrap((req, res) => {
     const err = required(['name'], req.body);
     if (err) return res.status(400).json({ error: err });
     const id = uuid();
-    const { name, type, serial_number, base_id, status, responsible, notes, group_id, site_id } = req.body;
+    const { name, type, serial_number, base_id, status, responsible, notes, group_id, site_id, calib_date } = req.body;
     const d = db();
-    run(d, 'INSERT INTO pgk_equipment(id,name,type,serial_number,base_id,status,responsible,notes,group_id,site_id)VALUES(?,?,?,?,?,?,?,?,?,?)',
-      [id, name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '', group_id || '', site_id || '']);
+    run(d, 'INSERT INTO pgk_equipment(id,name,type,serial_number,base_id,status,responsible,notes,group_id,site_id,calib_date)VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+      [id, name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '', group_id || '', site_id || '', calib_date || '']);
+    eqHistLog(d, id, {}, { status: status || 'working', base_id, site_id, responsible, group_id }, req.body.user_name);
     if (responsible) {
       run(d, 'INSERT INTO equipment_responsible_history(id,equipment_id,responsible)VALUES(?,?,?)', [uuid(), id, responsible]);
     }
@@ -223,11 +251,13 @@ module.exports = (app, getDb, L) => {
     if (err) return res.status(400).json({ error: err });
     const { name, type, serial_number, base_id, status, responsible, notes, group_id } = req.body;
     const d = db();
-    const prev = get(d, 'SELECT responsible, site_id FROM pgk_equipment WHERE id=?', [req.params.id]);
-    // site_id не прислали (старый клиент/другая форма) — сохраняем прежний объект
-    const site_id = req.body.site_id !== undefined ? (req.body.site_id || '') : ((prev && prev.site_id) || '');
-    run(d, 'UPDATE pgk_equipment SET name=?,type=?,serial_number=?,base_id=?,status=?,responsible=?,notes=?,group_id=?,site_id=? WHERE id=?',
-      [name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '', group_id || '', site_id, req.params.id]);
+    const prev = get(d, 'SELECT * FROM pgk_equipment WHERE id=?', [req.params.id]);
+    // поле не прислали (старый клиент/другая форма) — сохраняем прежнее значение
+    const keep = f => req.body[f] !== undefined ? (req.body[f] || '') : ((prev && prev[f]) || '');
+    const site_id = keep('site_id'), calib_date = keep('calib_date');
+    run(d, 'UPDATE pgk_equipment SET name=?,type=?,serial_number=?,base_id=?,status=?,responsible=?,notes=?,group_id=?,site_id=?,calib_date=? WHERE id=?',
+      [name, type || '', serial_number || '', base_id || null, status || 'working', responsible || '', notes || '', group_id || '', site_id, calib_date, req.params.id]);
+    eqHistLog(d, req.params.id, prev, { status: status || 'working', base_id, site_id, responsible, group_id }, req.body.user_name);
     if (responsible && (!prev || prev.responsible !== responsible)) {
       run(d, 'INSERT INTO equipment_responsible_history(id,equipment_id,responsible)VALUES(?,?,?)', [uuid(), req.params.id, responsible]);
     }
@@ -239,6 +269,7 @@ module.exports = (app, getDb, L) => {
     const _restore = d.transaction(() => trashAndDelete(d, 'pgk_equipment', req.params.id, {
       children: [
         { table: 'equipment_responsible_history', fkColumn: 'equipment_id' },
+        { table: 'equipment_history',             fkColumn: 'equipment_id' },
         { table: 'photos',                        fkColumn: 'entity_id' },
       ],
     }))();
@@ -247,7 +278,10 @@ module.exports = (app, getDb, L) => {
   }));
 
   app.put('/api/pgk/equipment/:id/group', wrap((req, res) => {
-    run(db(), 'UPDATE pgk_equipment SET group_id=? WHERE id=?', [req.body.group_id || null, req.params.id]);
+    const d = db();
+    const prev = get(d, 'SELECT * FROM pgk_equipment WHERE id=?', [req.params.id]);
+    run(d, 'UPDATE pgk_equipment SET group_id=? WHERE id=?', [req.body.group_id || null, req.params.id]);
+    if (prev) eqHistLog(d, req.params.id, prev, { ...prev, group_id: req.body.group_id || '' }, req.body.user_name);
     res.json({ success: true });
   }));
 
@@ -489,7 +523,11 @@ module.exports = (app, getDb, L) => {
     const responsible = req.query.responsible;
     if (!responsible) return res.status(400).json({ error: 'responsible обязателен' });
     const d = db();
-    const items = all(d, "SELECT * FROM pgk_equipment WHERE responsible=? ORDER BY name", [responsible]);
+    // ids=a,b,c — акт только на выбранные позиции; иначе — всё, что закреплено за сотрудником
+    const ids = String(req.query.ids || '').split(',').map(s => s.trim()).filter(Boolean);
+    const items = ids.length
+      ? all(d, `SELECT * FROM pgk_equipment WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY name`, ids)
+      : all(d, "SELECT * FROM pgk_equipment WHERE responsible=? ORDER BY name", [responsible]);
     if (!items.length) return res.status(404).json({ error: 'У этого сотрудника нет закреплённого оборудования' });
     const buf = await generateEquipActDocx(responsible, items);
     const fname = `Акт_${responsible.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.docx`;
