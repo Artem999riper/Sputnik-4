@@ -55,7 +55,7 @@ async function pgkCellEdit(ev, td, entityType, id, field) {
   const origHTML = td.innerHTML;
 
   // Ответственный / Объект у оборудования — список с поиском
-  if (entityType==='equipment' && (field==='responsible'||field==='site_id')) {
+  if (entityType==='equipment' && (field==='responsible'||field==='site_id'||field==='type')) {
     const r=td.getBoundingClientRect();
     _equipPickField([id], field, r.left, r.bottom+2);
     return;
@@ -1577,6 +1577,17 @@ function _equipInitSelect(){
   const all=document.getElementById('eq-chk-all');
   if(all)all.addEventListener('change',()=>{visRows().forEach(r=>setRow(r,all.checked));_equipUpdateSelInfo();});
 }
+// Esc — снять выделение в оборудовании (если не открыто окно/меню и не идёт ввод текста)
+document.addEventListener('keydown',ev=>{
+  if(ev.key!=='Escape'||typeof pgkTab==='undefined'||pgkTab!=='equipment')return;
+  if(!document.querySelector('#et-tbody tr.lasso-sel'))return;
+  if(document.getElementById('search-pick')||document.getElementById('eq-cols-menu'))return;
+  if(document.querySelector('#ctx.show'))return;
+  const mo=document.getElementById('mov');if(mo&&mo.classList.contains('open'))return;
+  const a=document.activeElement;
+  if(a&&(a.tagName==='INPUT'&&a.type!=='checkbox'||a.tagName==='TEXTAREA'||a.tagName==='SELECT')&&a.closest('#et-tbody'))return;
+  _equipClearSel();
+});
 function _equipClearSel(){
   document.querySelectorAll('#et-tbody tr.lasso-sel').forEach(r=>{r.classList.remove('lasso-sel');const c=r.querySelector('.eq-chk');if(c)c.checked=false;});
   _equipUpdateSelInfo();
@@ -1935,6 +1946,7 @@ function equipCtxMenu(ev,eid){
       {i:'✏️',l:'Редактировать',f:()=>pgkEditEquip(eid)},
     ]),
     {i:'👤',l:(!multi&&e.responsible)?`Ответственный: ${e.responsible}`:'Назначить ответственного',f:()=>_equipPickField(ids,'responsible',x,y)},
+    {i:'🏷',l:'Тип…',f:()=>_equipPickField(ids,'type',x,y)},
     {i:'📁',l:'Группа…',f:()=>_equipPickField(ids,'group_id',x,y)},
     {i:'📍',l:'Объект…',f:()=>_equipPickField(ids,'site_id',x,y)},
     {i:'🏕',l:'База…',f:()=>_equipPickField(ids,'base_id',x,y)},
@@ -1974,6 +1986,13 @@ function _equipPickField(ids,field,x,y){
   }else if(field==='group_id'){
     title='📁 Группа';msg='Группа изменена';
     items=[{v:'',l:'— без группы —'},...pgkEquipGroups.map(g=>({v:g.id,l:g.name}))];
+  }else if(field==='type'){
+    title='🏷 Тип';msg='Тип изменён';
+    const cnt={};pgkEquipment.forEach(e=>{const t=(e.type||'').trim();if(t)cnt[t]=(cnt[t]||0)+1;});
+    items=[{v:'',l:'— без типа —'},...Object.keys(cnt).sort((a,b)=>a.localeCompare(b,'ru')).map(t=>({v:t,l:t,sub:cnt[t]+' шт.'}))];
+    _searchPick({x,y,title:ids.length>1?`${title} — ${ids.length} поз.`:title,items,current:cur,addLabel:'тип',
+      onPick:v=>_equipApply(ids,{type:v||''},msg)});
+    return;
   }else if(field==='base_id'){
     title='🏕 База';msg='База изменена';
     items=[{v:'',l:'— снять с базы —'},...bases.map(b=>({v:b.id,l:b.name}))];
@@ -2058,7 +2077,7 @@ async function _equipDownloadAct(resp,ids){
 
 // ── Всплывающий список с поиском (универсальный) ─────────────────
 // items: [{v, l, sub}] ; onPick(v). Ввод фильтрует, ↑↓ — выбор, Enter — применить, Esc — закрыть.
-function _searchPick({x,y,title,items,current,onPick}){
+function _searchPick({x,y,title,items,current,onPick,addLabel}){
   document.getElementById('search-pick')?.remove();
   const box=document.createElement('div');
   box.id='search-pick';
@@ -2074,8 +2093,12 @@ function _searchPick({x,y,title,items,current,onPick}){
   const draw=()=>{
     const q=inp.value.toLowerCase().trim();
     shown=items.filter(it=>!q||(it.l+' '+(it.sub||'')).toLowerCase().includes(q));
+    // addLabel — можно добавить новое значение (например, новый тип), если точного совпадения нет
+    const raw=inp.value.trim();
+    if(addLabel&&raw&&!items.some(it=>it.v&&String(it.l).toLowerCase()===raw.toLowerCase()))
+      shown.push({v:raw,l:`＋ Добавить ${addLabel} «${raw}»`,isAdd:true});
     if(hi>=shown.length)hi=Math.max(0,shown.length-1);
-    list.innerHTML=shown.length?shown.map((it,i)=>`<div data-i="${i}" style="padding:5px 8px;border-radius:5px;cursor:pointer;display:flex;gap:6px;align-items:baseline;${i===hi?'background:var(--accl);':''}${it.v===''?'color:var(--tx3);':''}">
+    list.innerHTML=shown.length?shown.map((it,i)=>`<div data-i="${i}" style="padding:5px 8px;border-radius:5px;cursor:pointer;display:flex;gap:6px;align-items:baseline;${i===hi?'background:var(--accl);':''}${it.v===''?'color:var(--tx3);':''}${it.isAdd?'color:var(--acc);font-weight:700;border-top:1px dashed var(--bd);':''}">
         <span style="width:12px;flex-shrink:0;color:var(--acc)">${current!=null&&it.v===current?'✓':''}</span>
         <span style="flex:1;min-width:0">${esc(it.l)}</span>${it.sub?`<span style="font-size:10px;color:var(--tx3);max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(it.sub)}">${esc(it.sub)}</span>`:''}</div>`).join('')
       :'<div style="padding:8px;color:var(--tx3)">Ничего не найдено</div>';
@@ -2083,6 +2106,7 @@ function _searchPick({x,y,title,items,current,onPick}){
   };
   list.addEventListener('mousedown',ev=>{const d=ev.target.closest('[data-i]');if(d){ev.preventDefault();pick(shown[+d.dataset.i]);}});
   list.addEventListener('mousemove',ev=>{const d=ev.target.closest('[data-i]');if(d&&+d.dataset.i!==hi){hi=+d.dataset.i;draw();}});
+  if(addLabel)inp.placeholder='🔍 Поиск или новое значение…';
   inp.addEventListener('input',()=>{hi=0;draw();});
   inp.addEventListener('keydown',ev=>{
     if(ev.key==='ArrowDown'){ev.preventDefault();hi=Math.min(shown.length-1,hi+1);draw();}
@@ -3077,7 +3101,8 @@ function _equipFormHtml(e){
   const respOpts=`<option value="">— не назначен —</option>`+(pgkWorkers||[]).map(w=>`<option value="${esc(w.name)}" ${e&&e.responsible===w.name?'selected':''}>${esc(w.name)}${w.role?' ('+esc(w.role)+')':''}</option>`).join('');
   return `<div class="fgr">
     <div class="fg s2"><label>Название *</label><input id="f-n" value="${esc(e?e.name:'')}"></div>
-    <div class="fg"><label>Тип</label><input id="f-t" value="${esc(e?e.type:'')}"></div>
+    <div class="fg"><label>Тип</label><input id="f-t" list="f-t-list" placeholder="выберите или введите новый" value="${esc(e?e.type||'':'')}">
+      <datalist id="f-t-list">${[...new Set(pgkEquipment.map(x=>(x.type||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru')).map(t=>`<option value="${esc(t)}">`).join('')}</datalist></div>
     <div class="fg"><label>Серийный №</label><input id="f-sr" value="${esc(e?e.serial_number:'')}"></div>
     <div class="fg s2"><label>Статус</label><select id="f-st">
       <option value="working" ${!e||e.status==='working'?'selected':''}>✅ В работе</option>
