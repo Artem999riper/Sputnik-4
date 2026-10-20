@@ -96,7 +96,7 @@ async function pgkCellEdit(ev, td, entityType, id, field) {
     if (editorType==='number'){editor.step='any';editor.min='0';}
     editor.value=currentVal!=null?currentVal:'';
   }
-  editor.style.cssText='width:100%;min-width:60px;font-size:11px;padding:2px 4px;border:1.5px solid var(--acc);border-radius:4px;background:var(--s1);color:var(--tx);box-sizing:border-box';
+  editor.style.cssText='width:100%;min-width:60px;font-size:11px;padding:2px 4px;border:1.5px solid var(--acc);border-radius:4px;background:var(--s);color:var(--tx);box-sizing:border-box';
 
   td.innerHTML='';
   td.appendChild(editor);
@@ -1325,7 +1325,7 @@ function _equipColsMenu(ev){
   document.getElementById('eq-cols-menu')?.remove();
   const box=document.createElement('div');
   box.id='eq-cols-menu';
-  box.style.cssText='position:fixed;z-index:10000;background:var(--s1);border:1.5px solid var(--bd);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:8px 10px;font-size:12px;min-width:190px';
+  box.style.cssText='position:fixed;z-index:10000;background:var(--s);border:1.5px solid var(--bd);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:8px 10px;font-size:12px;min-width:190px';
   box.innerHTML=`<div style="font-weight:800;font-size:11px;color:var(--tx2);margin-bottom:6px">Показывать столбцы</div>`+
     EQ_COLS.filter(([k])=>k!=='name').map(([k,l])=>`<label style="display:flex;gap:6px;align-items:center;padding:3px 0;cursor:pointer">
       <input type="checkbox" data-k="${k}" ${hidden.has(k)?'':'checked'}> ${esc(l==='#'?'№ п/п':l)}</label>`).join('')+
@@ -1922,7 +1922,7 @@ function equipCtxMenu(ev,eid){
   const multi=ids.length>1;
   const statLbl={working:'✅ В работе',idle:'⏸ Не используется',broken:'🔴 Неисправно'};
   const statItems=Object.entries(statLbl).map(([k,v])=>({
-    i:'  ',l:(!multi&&(e.status||'working')===k)?'✓ '+v:v,f:()=>_equipApply(ids,{status:k},'Статус изменён')
+    i:'',l:'Статус: '+((!multi&&(e.status||'working')===k)?'✓ '+v:v),f:()=>_equipApply(ids,{status:k},'Статус изменён')
   }));
   const head=multi
     ?{i:'☑️',l:`<b>Выбрано: ${ids.length}</b>`,html:true,f:()=>{}}
@@ -1942,7 +1942,6 @@ function equipCtxMenu(ev,eid){
     {i:'📅',l:'Дата поверки…',f:()=>_equipEditCalib(ids)},
     {i:'📄',l:multi?`Акт приёма-передачи на выбранное (${ids.length})`:'Акт приёма-передачи',f:()=>_equipActSelected(ids,x,y)},
     {sep:true},
-    {i:'🔄',l:'Изменить статус ▸',f:()=>{}},
     ...statItems,
     {sep:true},
     {i:'🗑',l:multi?`Удалить выбранные (${ids.length})`:'Удалить',cls:'cxi-red',f:()=>multi?_equipBulkDelete(ids):pgkDelEquip(eid)},
@@ -1988,11 +1987,11 @@ function _equipEditNotes(ids){
   const one=ids.length===1?pgkEquipment.find(e=>e.id===ids[0]):null;
   showModal(one?'📝 Примечание':`📝 Примечание — ${ids.length} поз.`,`<div class="fgr">
     <div class="fg s2"><textarea id="f-nt" style="min-height:90px">${esc(one?one.notes||'':'')}</textarea></div>
-    ${one?'':`<div class="fg s2" style="font-size:11px;display:flex;gap:14px">
-      <label style="display:flex;gap:4px;align-items:center"><input type="radio" name="f-ntm" value="replace" checked> заменить</label>
-      <label style="display:flex;gap:4px;align-items:center"><input type="radio" name="f-ntm" value="append"> дописать в конец</label>
-    </div>`}
-  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+  </div>
+  ${one?'':`<div style="display:flex;gap:18px;align-items:center;margin-top:8px;font-size:12px">
+    <label style="display:inline-flex;gap:6px;align-items:center;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--tx);margin:0"><input type="radio" name="f-ntm" value="replace" checked style="width:auto;margin:0;accent-color:var(--acc)"> Заменить текст</label>
+    <label style="display:inline-flex;gap:6px;align-items:center;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--tx);margin:0"><input type="radio" name="f-ntm" value="append" style="width:auto;margin:0;accent-color:var(--acc)"> Дописать в конец</label>
+  </div>`}`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
     const txt=v('f-nt');
     const mode=(document.querySelector('input[name="f-ntm"]:checked')||{}).value||'replace';
     closeModal();
@@ -2063,7 +2062,7 @@ function _searchPick({x,y,title,items,current,onPick}){
   document.getElementById('search-pick')?.remove();
   const box=document.createElement('div');
   box.id='search-pick';
-  box.style.cssText='position:fixed;z-index:10000;width:280px;background:var(--s1);border:1.5px solid var(--bd);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:6px;font-size:12px';
+  box.style.cssText='position:fixed;z-index:10000;width:330px;background:var(--s);border:1.5px solid var(--bd);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:6px;font-size:12px';
   box.innerHTML=`<div style="font-weight:800;font-size:11px;color:var(--tx2);padding:2px 4px 6px">${esc(title||'')}</div>
     <input type="search" placeholder="🔍 Поиск…" style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;border:1.5px solid var(--acc);border-radius:6px;background:var(--s2);color:var(--tx);outline:none">
     <div class="sp-list" style="max-height:280px;overflow:auto;margin-top:4px"></div>`;
@@ -2078,7 +2077,7 @@ function _searchPick({x,y,title,items,current,onPick}){
     if(hi>=shown.length)hi=Math.max(0,shown.length-1);
     list.innerHTML=shown.length?shown.map((it,i)=>`<div data-i="${i}" style="padding:5px 8px;border-radius:5px;cursor:pointer;display:flex;gap:6px;align-items:baseline;${i===hi?'background:var(--accl);':''}${it.v===''?'color:var(--tx3);':''}">
         <span style="width:12px;flex-shrink:0;color:var(--acc)">${current!=null&&it.v===current?'✓':''}</span>
-        <span style="flex:1">${esc(it.l)}</span>${it.sub?`<span style="font-size:10px;color:var(--tx3)">${esc(it.sub)}</span>`:''}</div>`).join('')
+        <span style="flex:1;min-width:0">${esc(it.l)}</span>${it.sub?`<span style="font-size:10px;color:var(--tx3);max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(it.sub)}">${esc(it.sub)}</span>`:''}</div>`).join('')
       :'<div style="padding:8px;color:var(--tx3)">Ничего не найдено</div>';
     list.querySelector(`[data-i="${hi}"]`)?.scrollIntoView({block:'nearest'});
   };

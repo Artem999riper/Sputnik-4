@@ -276,7 +276,7 @@ function openDEMPanel() {
               <div style="display:flex;gap:4px">
                 <input id="dem-tiles-dir-input" type="text" placeholder="Например: D:\\DEM_Cache или /mnt/data/dem_tiles"
                   style="flex:1;font-size:10px;padding:3px 6px;border:1.5px solid var(--bd);
-                  border-radius:3px;background:var(--s1)">
+                  border-radius:3px;background:var(--s)">
                 <button onclick="demSaveTilesDir()"
                   style="font-size:9px;padding:2px 10px;background:var(--acc);color:#fff;border:none;
                   border-radius:3px;cursor:pointer;white-space:nowrap">
