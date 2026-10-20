@@ -50,6 +50,13 @@ async function pgkCellEdit(ev, td, entityType, id, field) {
   const currentVal = entity[field];
   const origHTML = td.innerHTML;
 
+  // Ответственный / Объект у оборудования — список с поиском
+  if (entityType==='equipment' && (field==='responsible'||field==='site_id')) {
+    const r=td.getBoundingClientRect();
+    _equipPickField([id], field, r.left, r.bottom+2);
+    return;
+  }
+
   // Determine editor type
   let editorType='text', opts=null;
   if (field==='status') {
@@ -64,14 +71,6 @@ async function pgkCellEdit(ev, td, entityType, id, field) {
   } else if (entityType==='equipment' && field==='group_id') {
     editorType='select';
     opts=[['','— без группы —'],...pgkEquipGroups.map(g=>[g.id,g.name])];
-  } else if (entityType==='equipment' && field==='site_id') {
-    editorType='select';
-    opts=[['','— не назначено —'],...(sites||[]).map(x=>[x.id,x.name])];
-  } else if (entityType==='equipment' && field==='responsible') {
-    editorType='select';
-    opts=[['','— не назначен —'],...(pgkWorkers||[]).map(w=>[w.name,w.name+(w.role?' ('+w.role+')':'')])];
-    // текущее значение не из списка сотрудников (введено раньше вручную) — не терять
-    if (currentVal && !(pgkWorkers||[]).some(w=>w.name===currentVal)) opts.push([currentVal,currentVal]);
   }
 
   // Build editor element
@@ -1367,7 +1366,7 @@ function pgkPageEquipment(pb){
       <td class="td-editable" onclick="pgkCellEdit(event,this,'equipment','${_id}','site_id')">${siteNm?`<span style="color:var(--acc)">📍 ${esc(siteNm)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
       <td style="font-size:10px">${esc(e.serial_number||'—')}</td>
       <td class="td-editable" style="font-size:11px" onclick="pgkCellEdit(event,this,'equipment','${_id}','responsible')">${e.responsible?'👤 '+esc(e.responsible):'<span style="color:var(--tx3)">—</span>'}</td>
-      <td class="td-notes" title="${esc(e.notes||'')}">${esc(e.notes||'')}</td>
+      <td class="td-notes td-editable" title="${esc(e.notes||'')}" onclick="pgkCellEdit(event,this,'equipment','${_id}','notes')">${esc(e.notes||'')}</td>
     </tr>`;
   }).join('');
 
@@ -1702,21 +1701,153 @@ async function pgkEquipQuickStatus(eid,status){
 
 function equipCtxMenu(ev,eid){
   const e=pgkEquipment.find(x=>x.id===eid);if(!e)return;
-  const statItems=Object.entries({working:'✅ В работе',idle:'⏸ Не используется',broken:'🔴 Неисправно'}).map(([k,v])=>({
-    i:'',l:(e.status||'working')===k?'✓ '+v:v,f:()=>pgkEquipQuickStatus(eid,k)
+  const x=ev.clientX,y=ev.clientY;
+  // Если ПКМ по одной из выделенных строк — действия применяются ко ВСЕМ выделенным.
+  let sel=_equipSelectedIds();
+  if(sel.length&&!sel.includes(eid)){ // ПКМ мимо выделения — сбросить его
+    document.querySelectorAll('#et-tbody tr.lasso-sel').forEach(r=>r.classList.remove('lasso-sel'));
+    _equipUpdateSelInfo();sel=[];
+  }
+  const ids=sel.length>1?sel:[eid];
+  const multi=ids.length>1;
+  const statLbl={working:'✅ В работе',idle:'⏸ Не используется',broken:'🔴 Неисправно'};
+  const statItems=Object.entries(statLbl).map(([k,v])=>({
+    i:'  ',l:(!multi&&(e.status||'working')===k)?'✓ '+v:v,f:()=>_equipApply(ids,{status:k},'Статус изменён')
   }));
-  showCtx(ev.clientX,ev.clientY,[
-    {i:'🔩',l:`<b>${esc(e.name)}</b>`,html:true,f:()=>openEquipDetail(eid)},
+  const head=multi
+    ?{i:'☑️',l:`<b>Выбрано: ${ids.length}</b>`,html:true,f:()=>{}}
+    :{i:'🔩',l:`<b>${esc(e.name)}</b>`,html:true,f:()=>openEquipDetail(eid)};
+  showCtx(x,y,[
+    head,
     {sep:true},
-    {i:'📋',l:'Открыть карточку',f:()=>openEquipDetail(eid)},
-    {i:'✏️',l:'Редактировать',f:()=>pgkEditEquip(eid)},
-    {i:'👤',l:e.responsible?`Ответственный: ${e.responsible}`:'Назначить ответственного',f:()=>pgkAssignEquipResponsible(eid)},
+    ...(multi?[]:[
+      {i:'📋',l:'Открыть карточку',f:()=>openEquipDetail(eid)},
+      {i:'✏️',l:'Редактировать',f:()=>pgkEditEquip(eid)},
+    ]),
+    {i:'👤',l:(!multi&&e.responsible)?`Ответственный: ${e.responsible}`:'Назначить ответственного',f:()=>_equipPickField(ids,'responsible',x,y)},
+    {i:'📁',l:'Группа…',f:()=>_equipPickField(ids,'group_id',x,y)},
+    {i:'📍',l:'Объект…',f:()=>_equipPickField(ids,'site_id',x,y)},
+    {i:'🏕',l:'База…',f:()=>_equipPickField(ids,'base_id',x,y)},
+    {i:'📝',l:'Примечание…',f:()=>_equipEditNotes(ids)},
     {sep:true},
     {i:'🔄',l:'Изменить статус ▸',f:()=>{}},
-    ...statItems.map(si=>({i:'  ',l:si.l,f:si.f})),
+    ...statItems,
     {sep:true},
-    {i:'🗑',l:'Удалить',cls:'cxi-red',f:()=>pgkDelEquip(eid)},
+    {i:'🗑',l:multi?`Удалить выбранные (${ids.length})`:'Удалить',cls:'cxi-red',f:()=>multi?_equipBulkDelete(ids):pgkDelEquip(eid)},
   ]);
+}
+
+// Применить изменения сразу к нескольким позициям оборудования
+async function _equipApply(ids,patch,msg){
+  const list=ids.map(id=>pgkEquipment.find(x=>x.id===id)).filter(Boolean);
+  try{
+    await Promise.all(list.map(e=>fetch(`${API}/pgk/equipment/${e.id}`,{method:'PUT',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({...e,...patch})})));
+  }catch(err){toast('Ошибка сохранения','err');}
+  await loadPGK();
+  if(msg)toast(list.length>1?`${msg}: ${list.length} поз.`:msg,'ok');
+}
+
+// Выбор значения поля из списка с поиском (ответственный / объект / группа / база)
+function _equipPickField(ids,field,x,y){
+  const first=pgkEquipment.find(e=>e.id===ids[0])||{};
+  const cur=ids.length===1?(first[field]||''):null;
+  let items, title, msg;
+  if(field==='responsible'){
+    title='👤 Ответственный';msg='Ответственный назначен';
+    items=[{v:'',l:'— не назначен —'},...(pgkWorkers||[]).map(w=>({v:w.name,l:w.name,sub:w.role||''}))];
+    if(cur&&!(pgkWorkers||[]).some(w=>w.name===cur))items.push({v:cur,l:cur,sub:'не из списка сотрудников'});
+  }else if(field==='site_id'){
+    title='📍 Объект';msg='Объект назначен';
+    items=[{v:'',l:'— не назначено —'},...(sites||[]).map(s=>({v:s.id,l:s.name,sub:s.client||''}))];
+  }else if(field==='group_id'){
+    title='📁 Группа';msg='Группа изменена';
+    items=[{v:'',l:'— без группы —'},...pgkEquipGroups.map(g=>({v:g.id,l:g.name}))];
+  }else if(field==='base_id'){
+    title='🏕 База';msg='База изменена';
+    items=[{v:'',l:'— снять с базы —'},...bases.map(b=>({v:b.id,l:b.name}))];
+  }else return;
+  if(ids.length>1)title+=` — ${ids.length} поз.`;
+  _searchPick({x,y,title,items,current:cur,onPick:v=>_equipApply(ids,{[field]:v||(field==='base_id'?null:'')},msg)});
+}
+
+// Примечание: одно — правится текущее; несколько — заменить или дописать всем
+function _equipEditNotes(ids){
+  const one=ids.length===1?pgkEquipment.find(e=>e.id===ids[0]):null;
+  showModal(one?'📝 Примечание':`📝 Примечание — ${ids.length} поз.`,`<div class="fgr">
+    <div class="fg s2"><textarea id="f-nt" style="min-height:90px">${esc(one?one.notes||'':'')}</textarea></div>
+    ${one?'':`<div class="fg s2" style="font-size:11px;display:flex;gap:14px">
+      <label style="display:flex;gap:4px;align-items:center"><input type="radio" name="f-ntm" value="replace" checked> заменить</label>
+      <label style="display:flex;gap:4px;align-items:center"><input type="radio" name="f-ntm" value="append"> дописать в конец</label>
+    </div>`}
+  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
+    const txt=v('f-nt');
+    const mode=(document.querySelector('input[name="f-ntm"]:checked')||{}).value||'replace';
+    closeModal();
+    if(mode==='append'){
+      const list=ids.map(id=>pgkEquipment.find(x=>x.id===id)).filter(Boolean);
+      await Promise.all(list.map(e=>fetch(`${API}/pgk/equipment/${e.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({...e,notes:(e.notes?e.notes+' ':'')+txt})})));
+      await loadPGK();toast(`Примечание дописано: ${list.length} поз.`,'ok');
+    }else await _equipApply(ids,{notes:txt},'Примечание сохранено');
+  }}]);
+  setTimeout(()=>document.getElementById('f-nt')?.focus(),50);
+}
+
+async function _equipBulkDelete(ids){
+  if(!await confirmDlg(`Удалить выбранное оборудование (${ids.length} поз.)?`))return;
+  const items=[];
+  for(const id of ids){
+    try{const r=await fetch(`${API}/pgk/equipment/${id}`,{method:'DELETE'}).then(r=>r.json());if(r&&r._restore)items.push(r._restore);}catch(e){}
+  }
+  await loadPGK();
+  if(items.length)showUndoBar(`Удалено: ${items.length} поз.`,{items},loadPGK);
+  else toast('Не удалось удалить','err');
+}
+
+// ── Всплывающий список с поиском (универсальный) ─────────────────
+// items: [{v, l, sub}] ; onPick(v). Ввод фильтрует, ↑↓ — выбор, Enter — применить, Esc — закрыть.
+function _searchPick({x,y,title,items,current,onPick}){
+  document.getElementById('search-pick')?.remove();
+  const box=document.createElement('div');
+  box.id='search-pick';
+  box.style.cssText='position:fixed;z-index:10000;width:280px;background:var(--s1);border:1.5px solid var(--bd);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:6px;font-size:12px';
+  box.innerHTML=`<div style="font-weight:800;font-size:11px;color:var(--tx2);padding:2px 4px 6px">${esc(title||'')}</div>
+    <input type="search" placeholder="🔍 Поиск…" style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;border:1.5px solid var(--acc);border-radius:6px;background:var(--s2);color:var(--tx);outline:none">
+    <div class="sp-list" style="max-height:280px;overflow:auto;margin-top:4px"></div>`;
+  document.body.appendChild(box);
+  const inp=box.querySelector('input'), list=box.querySelector('.sp-list');
+  let shown=[], hi=0;
+  const close=()=>{box.remove();document.removeEventListener('mousedown',outside,true);};
+  const pick=it=>{close();onPick&&onPick(it.v);};
+  const draw=()=>{
+    const q=inp.value.toLowerCase().trim();
+    shown=items.filter(it=>!q||(it.l+' '+(it.sub||'')).toLowerCase().includes(q));
+    if(hi>=shown.length)hi=Math.max(0,shown.length-1);
+    list.innerHTML=shown.length?shown.map((it,i)=>`<div data-i="${i}" style="padding:5px 8px;border-radius:5px;cursor:pointer;display:flex;gap:6px;align-items:baseline;${i===hi?'background:var(--accl);':''}${it.v===''?'color:var(--tx3);':''}">
+        <span style="width:12px;flex-shrink:0;color:var(--acc)">${current!=null&&it.v===current?'✓':''}</span>
+        <span style="flex:1">${esc(it.l)}</span>${it.sub?`<span style="font-size:10px;color:var(--tx3)">${esc(it.sub)}</span>`:''}</div>`).join('')
+      :'<div style="padding:8px;color:var(--tx3)">Ничего не найдено</div>';
+    list.querySelector(`[data-i="${hi}"]`)?.scrollIntoView({block:'nearest'});
+  };
+  list.addEventListener('mousedown',ev=>{const d=ev.target.closest('[data-i]');if(d){ev.preventDefault();pick(shown[+d.dataset.i]);}});
+  list.addEventListener('mousemove',ev=>{const d=ev.target.closest('[data-i]');if(d&&+d.dataset.i!==hi){hi=+d.dataset.i;draw();}});
+  inp.addEventListener('input',()=>{hi=0;draw();});
+  inp.addEventListener('keydown',ev=>{
+    if(ev.key==='ArrowDown'){ev.preventDefault();hi=Math.min(shown.length-1,hi+1);draw();}
+    else if(ev.key==='ArrowUp'){ev.preventDefault();hi=Math.max(0,hi-1);draw();}
+    else if(ev.key==='Enter'){ev.preventDefault();if(shown[hi])pick(shown[hi]);}
+    else if(ev.key==='Escape'){ev.preventDefault();close();}
+  });
+  const outside=ev=>{if(!box.contains(ev.target))close();};
+  setTimeout(()=>document.addEventListener('mousedown',outside,true),0);
+  // текущий — подсветить
+  if(current!=null){const i=items.findIndex(it=>it.v===current);if(i>=0)hi=i;}
+  draw();
+  const bw=box.offsetWidth, bh=box.offsetHeight;
+  box.style.left=Math.max(8,Math.min(x,window.innerWidth-bw-8))+'px';
+  box.style.top=Math.max(8,Math.min(y,window.innerHeight-bh-8))+'px';
+  inp.focus();
 }
 
 async function pgkPageMaterials(pb){
@@ -2825,7 +2956,7 @@ function exportEquipmentExcel(){
   const todayStr=todayDate.toISOString().split('T')[0];
   const todayFmt=todayDate.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
 
-  const COLS=8;
+  const COLS=10;
   const hdrFill='C3D69B';
   const rowFill='B9CCE4';
   const titleFill='D9E1F2';
@@ -2835,7 +2966,7 @@ function exportEquipmentExcel(){
   const leftAlign={horizontal:'left',vertical:'center',wrapText:true};
 
   const statLbl={working:'В работе',idle:'Не используется',broken:'Неисправно'};
-  const hdr=['№','Название','Тип','Серийный №','Статус','База','Ответственный','Примечания'];
+  const hdr=['№','Название','Тип','Группа','Статус','База','Объект','Серийный №','Ответственный','Примечания'];
 
   const aoa=[
     ['Реестр оборудования — '+todayFmt],
@@ -2843,13 +2974,16 @@ function exportEquipmentExcel(){
     ...pgkEquipment.map((e,i)=>{
       const b=(bases||[]).find(x=>x.id===e.base_id);
       const grp=(pgkEquipGroups||[]).find(g=>g.id===e.group_id);
+      const st=(sites||[]).find(x=>x.id===e.site_id);
       return[
         i+1,
-        (grp?'['+grp.name+'] ':'')+e.name,
+        e.name,
         e.type||'',
-        e.serial_number||'',
+        grp?grp.name:'',
         statLbl[e.status||'working']||e.status||'',
         b?b.name:'',
+        st?st.name:'',
+        e.serial_number||'',
         e.responsible||'',
         e.notes||''
       ];
@@ -2857,7 +2991,7 @@ function exportEquipmentExcel(){
   ];
 
   const ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols']=[{wch:5},{wch:32},{wch:18},{wch:16},{wch:16},{wch:20},{wch:24},{wch:30}];
+  ws['!cols']=[{wch:5},{wch:32},{wch:18},{wch:18},{wch:16},{wch:20},{wch:24},{wch:16},{wch:24},{wch:30}];
   ws['!rows']=[{hpx:32},{hpx:40}];
   ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:COLS-1}}];
   ws['!views']=[{state:'frozen',xSplit:0,ySplit:2}];
@@ -2872,7 +3006,7 @@ function exportEquipmentExcel(){
     const r=i+2;
     const fill=i%2===0?{patternType:'solid',fgColor:{rgb:rowFill}}:{patternType:'solid',fgColor:{rgb:'FFFFFF'}};
     for(let c=0;c<COLS;c++){
-      const align=(c===1||c===2||c===5||c===6||c===7)?leftAlign:baseAlign;
+      const align=(c===0||c===4||c===7)?baseAlign:leftAlign;
       setStyle(ref(r,c),{font:{name:'Times New Roman',sz:11},alignment:align,fill,border:thinBorder});
     }
   });
@@ -2931,16 +3065,7 @@ function openEquipActModal(){
 }
 
 function pgkAssignEquipResponsible(eid){
-  const e=pgkEquipment.find(x=>x.id===eid);if(!e)return;
-  const opts=`<option value="">— снять ответственного —</option>`+(pgkWorkers||[]).map(w=>`<option value="${esc(w.name)}" ${e.responsible===w.name?'selected':''}>${esc(w.name)}${w.role?' ('+esc(w.role)+')':''}</option>`).join('');
-  showModal('👤 Ответственный',`<div class="fgr">
-    <div class="fg s2"><label>Оборудование</label><input disabled value="${esc(e.name)}"></div>
-    <div class="fg s2"><label>Ответственный</label><select id="f-resp" style="width:100%;font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">${opts}</select></div>
-  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:async()=>{
-    const responsible=v('f-resp')||'';
-    await fetch(`${API}/pgk/equipment/${eid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...e,responsible})});
-    closeModal();await loadPGK();toast('Ответственный обновлён','ok');
-  }}]);
+  _equipPickField([eid],'responsible',window.innerWidth/2-140,window.innerHeight/3);
 }
 
 // ═══════════════════════════════════════════════════════════

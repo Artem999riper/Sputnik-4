@@ -129,6 +129,17 @@ function restoreFromData(db, data) {
 
 function attachUndo(app, getDb) {
   app.post('/api/restore', (req, res) => {
+    // Пакетное восстановление (массовое удаление): { items:[{table,row,children}, …] }
+    if (Array.isArray(req.body && req.body.items)) {
+      let ok = 0; const errors = [];
+      for (const it of req.body.items) {
+        if (!it || !it.table || !it.row) continue;
+        const r = restoreFromData(getDb(), { table: it.table, row: it.row, children: it.children || [] });
+        if (r.ok) ok++; else errors.push(r.reason);
+      }
+      if (!ok && errors.length) return res.status(422).json({ error: 'Не удалось восстановить: ' + errors[0] });
+      return res.json({ ok: true, restored: ok });
+    }
     const { table, row, children } = req.body || {};
     if (!table || !row) return res.status(400).json({ error: 'Не переданы данные для восстановления' });
     const result = restoreFromData(getDb(), { table, row, children: children || [] });
