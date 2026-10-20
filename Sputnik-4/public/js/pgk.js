@@ -54,6 +54,13 @@ async function pgkCellEdit(ev, td, entityType, id, field) {
   const currentVal = entity[field];
   const origHTML = td.innerHTML;
 
+  // Связанные поля сотрудников/техники/материалов — список с поиском
+  const _pickF={worker:['role','base_id'],machinery:['type','base_id','driver_id'],material:['category','unit']};
+  if (_pickF[entityType] && _pickF[entityType].includes(field)) {
+    const r=td.getBoundingClientRect();
+    _pgkPick(entityType,[id],field,r.left,r.bottom+2);
+    return;
+  }
   // Ответственный / Объект у оборудования — список с поиском
   if (entityType==='equipment' && (field==='responsible'||field==='site_id'||field==='type')) {
     const r=td.getBoundingClientRect();
@@ -70,7 +77,7 @@ async function pgkCellEdit(ev, td, entityType, id, field) {
   } else if (field==='base_id') {
     editorType='select';
     opts=[['','— Снять с базы —'],...bases.map(b=>[b.id,b.name])];
-  } else if (field==='amount') {
+  } else if (field==='amount'||field==='weight'||field==='min_amount') {
     editorType='number';
   } else if (field==='calib_date') {
     editorType='date';
@@ -105,7 +112,7 @@ async function pgkCellEdit(ev, td, entityType, id, field) {
 
   const doSave=async()=>{
     let newVal=editor.value;
-    if (field==='amount') newVal=parseFloat(newVal)||0;
+    if (field==='amount'||field==='weight'||field==='min_amount') newVal=parseFloat(newVal)||0;
     else if (newVal==='') newVal=null;
 
     td.innerHTML=origHTML;
@@ -156,12 +163,18 @@ async function pgkCellEdit(ev, td, entityType, id, field) {
   }
 }
 
+const W_COLS=[['num','#'],['name','Ф.И.О.'],['role','Должность'],['status','Статус'],['base','База / Объект'],
+  ['days','Дней'],['last_shift_end','Посл. выезд'],['rest_days','Дней отдыха'],['last_shift_volume','Объём'],['notes','Примечания']];
 function pgkPageWorkers(pb){
   const today=new Date();
   const _ws=window._pgkWSort||'name', _wa=window._pgkWAsc!==false;
   const _wfStatus=window._pgkWFStatus||'';
   const _wfBase=window._pgkWFBase||'';
   const _wfRole=window._pgkWFRole||'';
+  const _gBy=window._pgkWGroupBy||'';
+  const hidden=TK.hidden('workers');
+  const show=k=>!hidden.has(k);
+  TK.rerender.workers=()=>renderPGK();
 
   const statusCls={working:'wbs-working',idle:'wbs-idle',sick:'wbs-sick',home:'wbs-home',fired:'wbs-fired'};
 
@@ -170,13 +183,15 @@ function pgkPageWorkers(pb){
   // Derive effective status: if worker has days on shift → working; if shift ended → home overrides
   const effSt=w=>w.start_date?'working':(w.status||'home');
   const getStatus=w=>WORKER_STATUSES[effSt(w)]||'';
+  const searchStr=w=>(w.name+' '+(w.role||'')+' '+getBase(w)+' '+(w.notes||'')).toLowerCase();
 
   const byStatus={working:[],idle:[],sick:[],home:[],fired:[]};
   pgkWorkers.forEach(w=>{const s=effSt(w);(byStatus[s]=byStatus[s]||[]).push(w);});
 
   let filtered=[...pgkWorkers].filter(w=>{
     if(_wfStatus&&effSt(w)!==_wfStatus)return false;
-    if(_wfBase&&w.base_id!==_wfBase)return false;
+    if(_wfBase==='__none'){if(w.base_id)return false;}
+    else if(_wfBase&&w.base_id!==_wfBase)return false;
     if(_wfRole&&(w.role||'')!==_wfRole)return false;
     return true;
   });
@@ -196,16 +211,20 @@ function pgkPageWorkers(pb){
     if(typeof va==='number'&&typeof vb==='number')return(va-vb)*(_wa?1:-1);
     return String(va).localeCompare(String(vb),'ru')*(_wa?1:-1);
   });
+  window._wShownIds=filtered.map(w=>w.id);
 
-  const thCls=col=>`class="${_ws===col?(_wa?'wt-asc':'wt-desc'):''}"`;
-  const thSort=(col,lbl)=>`<th ${thCls(col)} onclick="if(window._pgkWSort==='${col}'){window._pgkWAsc=!(window._pgkWAsc!==false);}else{window._pgkWSort='${col}';window._pgkWAsc=true;}renderPGK()">${lbl}</th>`;
-
-  const baseOpts=`<option value="">Все базы</option>`+bases.map(b=>`<option value="${b.id}" ${_wfBase===b.id?'selected':''}>${esc(b.name)}</option>`).join('');
-  const statusOpts=`<option value="">Все статусы</option>`+Object.entries(WORKER_STATUSES).map(([k,v])=>`<option value="${k}" ${_wfStatus===k?'selected':''}>${v}</option>`).join('');
+  const thSort=(col,lbl)=>`<th data-col="${col}" class="${_ws===col?(_wa?'wt-asc':'wt-desc'):''}" onclick="if(window._pgkWSort==='${col}'){window._pgkWAsc=!(window._pgkWAsc!==false);}else{window._pgkWSort='${col}';window._pgkWAsc=true;}renderPGK()">${lbl}</th>`;
+  const o=(v,l,cur)=>`<option value="${escAttr(v)}" ${cur===v?'selected':''}>${esc(l)}</option>`;
+  const baseOpts=o('','Все базы',_wfBase)+o('__none','— без базы —',_wfBase)+bases.map(b=>o(b.id,b.name,_wfBase)).join('');
+  const statusOpts=o('','Все статусы',_wfStatus)+Object.entries(WORKER_STATUSES).map(([k,v])=>o(k,v,_wfStatus)).join('');
   const roles=[...new Set(pgkWorkers.map(w=>w.role||'').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru'));
-  const roleOpts=`<option value="">Все должности</option>`+roles.map(r=>`<option value="${esc(r)}" ${_wfRole===r?'selected':''}>${esc(r)}</option>`).join('');
+  const roleOpts=o('','Все должности',_wfRole)+roles.map(r=>o(r,r,_wfRole)).join('');
+  const gbyOpts=[['','Без группировки'],['status','Группировать: статус'],['base','Группировать: база'],['role','Группировать: должность']].map(([k,l])=>o(k,l,_gBy)).join('');
+  const sel=(opts,onch)=>`<select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);max-width:170px" onchange="${onch}">${opts}</select>`;
+  const dash='<span style="color:var(--tx3)">—</span>';
+  const selSet=TK.set('workers');
 
-  const rows=filtered.map((w,i)=>{
+  const rowHtml=(w,i)=>{
     const b=bases.find(x=>x.id===w.base_id);
     const days=getDays(w);
     const st=effSt(w);
@@ -214,61 +233,69 @@ function pgkPageWorkers(pb){
     const restDays=w.rest_days!=null?w.rest_days+' дн.':'—';
     const lastOut=w.last_shift_end?fmt(w.last_shift_end):'—';
     const vol=w.last_shift_volume!=null?w.last_shift_volume:'—';
-    const notesPreview=esc((w.notes||'').replace(/\n/g,' ').slice(0,60));
-    return `<tr class="${isFired?'wt-fired':''}" data-wid="${w.id}"
-      data-search="${esc((w.name+' '+(w.role||'')+' '+(b?b.name:'')+' '+(w.notes||'')).toLowerCase())}"
+    const on=selSet.has(w.id);
+    const td={
+      num:`<td class="tk-num" style="text-align:center;color:var(--tx3);font-size:10px;font-weight:600">${i}</td>`,
+      name:`<td class="td-link" style="font-weight:600" onclick="openWorkerDetail('${_id}')">${esc(w.name.trim())}</td>`,
+      role:`<td class="td-editable" onclick="pgkCellEdit(event,this,'worker','${_id}','role')">${w.role?esc(w.role):dash}</td>`,
+      status:`<td class="td-editable" onclick="pgkCellEdit(event,this,'worker','${_id}','status')"><span class="wt-badge ${statusCls[st]||'wbs-home'}">${WORKER_STATUSES[st]||st}</span></td>`,
+      base:`<td class="td-editable" onclick="pgkCellEdit(event,this,'worker','${_id}','base_id')">${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:dash}</td>`,
+      days:`<td class="td-days">${w.start_date?`<span title="с ${fmt(w.start_date)}">${days}</span>`:'—'}</td>`,
+      last_shift_end:`<td style="text-align:center;font-size:11px;color:var(--tx2)">${lastOut}</td>`,
+      rest_days:`<td style="text-align:center;font-size:11px;${w.rest_days!=null&&w.rest_days>=30?'color:#92400e;font-weight:700':'color:var(--tx2)'}">${restDays}</td>`,
+      last_shift_volume:`<td style="text-align:right;font-size:11px;color:var(--acc);padding:2px 6px">${vol}</td>`,
+      notes:`<td class="td-notes td-editable" title="${esc(w.notes||'')}" onclick="pgkCellEdit(event,this,'worker','${_id}','notes')">${w.notes?esc(w.notes):dash}</td>`,
+    };
+    return `<tr class="${isFired?'wt-fired':''}${on?' lasso-sel':''}" data-wid="${w.id}" data-rid="${w.id}"
+      data-search="${esc(searchStr(w))}"
       oncontextmenu="event.preventDefault();workerCtxMenu(event,'${_id}')">
-      <td style="text-align:center;color:var(--tx3);font-size:10px;font-weight:600">${i+1}</td>
-      <td class="td-link" style="font-weight:600" onclick="openWorkerDetail('${_id}')">${esc(w.name.trim())}</td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'worker','${_id}','role')">${esc(w.role||'—')}</td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'worker','${_id}','status')"><span class="wt-badge ${statusCls[st]||'wbs-home'}">${WORKER_STATUSES[st]||st}</span></td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'worker','${_id}','base_id')">${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
-      <td class="td-days">${w.start_date?`<span title="с ${fmt(w.start_date)}">${days}</span>`:'—'}</td>
-      <td style="text-align:center;font-size:11px;color:var(--tx2)">${lastOut}</td>
-      <td style="text-align:center;font-size:11px;${w.rest_days!=null&&w.rest_days>=30?'color:#92400e;font-weight:700':'color:var(--tx2)'}">${restDays}</td>
-      <td style="text-align:right;font-size:11px;color:var(--acc);padding:2px 6px">${vol}</td>
-      <td class="td-notes td-link" style="color:var(--tx)" title="${notesPreview}" onclick="pgkNotesModal('${_id}')">${notesPreview||'<span style="color:var(--tx3)">—</span>'}</td>
+      ${TK.chkTd(on)}${W_COLS.filter(([k])=>show(k)).map(([k])=>td[k]).join('')}
     </tr>`;
-  }).join('');
+  };
+  const nCols=1+W_COLS.filter(([k])=>show(k)).length;
+  const gKey=w=>_gBy==='status'?(WORKER_STATUSES[effSt(w)]||''):_gBy==='base'?getBase(w):_gBy==='role'?(w.role||''):'';
+  const rows=_gBy?TK.grouped(filtered,gKey,'workers',nCols,rowHtml):filtered.map((w,i)=>rowHtml(w,i+1)).join('');
+  const anyFilter=_wfStatus||_wfBase||_wfRole||window._pgkWSearchVal;
+  const hdCells=W_COLS.filter(([k])=>show(k)).map(([k,l])=>
+    k==='num'?`<th class="no-sort" data-col="num" style="width:36px;text-align:center;color:var(--tx3)">#</th>`
+    :k==='notes'?`<th class="no-sort" data-col="notes" style="min-width:200px">Примечания</th>`
+    :k==='base'?thSort('base',l):thSort(k,l)).join('');
 
   pb.innerHTML=`<div class="wt-outer">
-    <div class="wt-toolbar">
+    <div class="wt-toolbar" style="flex-wrap:wrap;row-gap:6px">
       <span style="font-size:13px;font-weight:800;flex-shrink:0">👷 Сотрудники</span>
       <input id="pgk-w-search" type="search" placeholder="🔍 Поиск по имени, должности…"
         style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:150px;flex-shrink:0"
         oninput="pgkWorkerSearchFilter(this.value)" />
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkWFStatus=this.value;renderPGK()">${statusOpts}</select>
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkWFBase=this.value;renderPGK()">${baseOpts}</select>
-      <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkWFRole=this.value;renderPGK()">${roleOpts}</select>
+      ${sel(statusOpts,"window._pgkWFStatus=this.value;renderPGK()")}
+      ${sel(baseOpts,"window._pgkWFBase=this.value;renderPGK()")}
+      ${sel(roleOpts,"window._pgkWFRole=this.value;renderPGK()")}
+      ${sel(gbyOpts,"window._pgkWGroupBy=this.value;renderPGK()")}
+      ${anyFilter?`<button class="btn bs bsm" style="font-size:10px" onclick="window._pgkWFStatus='';window._pgkWFBase='';window._pgkWFRole='';window._pgkWSearchVal='';renderPGK()">✕ Сбросить фильтры</button>`:''}
       <div style="margin-left:auto;display:flex;gap:4px;flex-shrink:0">
-        <button class="btn bs bsm" onclick="pgkExcelMenu()" title="Импорт / экспорт Excel">📊 Excel</button>
+        <button class="btn bs bsm" onclick="pgkImportWorkers()" title="Импорт из Excel">📥</button>
+        <button class="btn bs bsm" onclick="_workersExportMenu(event)" title="Экспорт в Excel">📤</button>
         <button class="btn bp bsm" onclick="pgkAddWorker()">＋ Добавить</button>
       </div>
     </div>
     <div class="wt-summary">
       <span>Всего: <b>${pgkWorkers.length}</b></span>
       <span style="color:#15803d">🟢 В работе: <b>${byStatus.working.length}</b></span>
-      <span style="color:#a16207">⏸ Простой: <b>${byStatus.idle.length}</b></span>
-      <span style="color:#b91c1c">🏥 Больничный: <b>${byStatus.sick.length}</b></span>
+      ${byStatus.idle.length?`<span style="color:#a16207">⏸ Простой: <b>${byStatus.idle.length}</b></span>`:''}
+      ${byStatus.sick.length?`<span style="color:#b91c1c">🏥 Больничный: <b>${byStatus.sick.length}</b></span>`:''}
       <span>🏠 Дома: <b>${byStatus.home.length}</b></span>
       ${byStatus.fired.length?`<span style="color:#9ca3af">🚫 Уволен: <b>${byStatus.fired.length}</b></span>`:''}
+      ${filtered.length<pgkWorkers.length?`<span style="color:var(--acc)">Показано: <b>${filtered.length}</b></span>`:''}
       <span id="wt-shown-count" style="color:var(--acc);margin-left:4px;display:none">Найдено: <b id="wt-shown-n">0</b></span>
+      ${TK.selBar('workers')}
+      <span style="margin-left:auto;color:var(--tx3);font-size:10px" title="Выделение: галочки, Ctrl+клик, Shift+клик, рамка мышью, Esc — снять. ПКМ по выделенным — действия для всех. ПКМ по заголовку — выбор столбцов. Границу заголовка можно тянуть.">ℹ️ подсказка</span>
     </div>
     <div class="wt-scroll">
       <table class="wt-tbl" id="pgk-workers-tbl">
-        <thead><tr id="pgk-workers-hdr">
-          <th class="no-sort" style="width:36px;text-align:center;color:var(--tx3)">#</th>
-          ${thSort('name','Ф.И.О.')}
-          ${thSort('role','Должность')}
-          ${thSort('status','Статус')}
-          ${thSort('base','База / Объект')}
-          ${thSort('days','Дней')}
-          ${thSort('last_shift_end','Посл. выезд')}
-          ${thSort('rest_days','Дней отдыха')}
-          ${thSort('last_shift_volume','Объём')}
-          <th class="no-sort" style="min-width:260px">Примечания</th>
+        <thead oncontextmenu="TK.colsMenu(event,'workers',W_COLS.filter(c=>c[0]!=='name'),()=>renderPGK())"><tr id="pgk-workers-hdr">
+          ${TK.chkTh('workers')}${hdCells}
         </tr></thead>
-        <tbody id="wt-tbody">${rows||`<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--tx3)">Нет сотрудников</td></tr>`}</tbody>
+        <tbody id="wt-tbody">${rows||`<tr><td colspan="${nCols}" style="text-align:center;padding:24px;color:var(--tx3)">Нет сотрудников</td></tr>`}</tbody>
       </table>
     </div>
   </div>`;
@@ -279,7 +306,15 @@ function pgkPageWorkers(pb){
     if(inp)inp.value=srch;
     pgkWorkerSearchFilter(srch);
   }
-  _pgkInitColResize('pgk-workers-hdr');
+  TK.initSelect('wt-tbody','workers');
+}
+
+function _workersExportMenu(ev){
+  const by=id=>pgkWorkers.find(w=>w.id===id);
+  const shown=(window._wShownIds||[]).map(by).filter(Boolean);
+  const selIds=TK.selectedIds('workers');
+  TK.exportMenu(ev,{all:pgkWorkers,shown,selected:shown.filter(w=>selIds.includes(w.id)),
+    run:list=>{if(typeof exportPersonnelExcel==='function')exportPersonnelExcel(list);else toast('Экспорт недоступен','err');}});
 }
 
 function pgkWorkerSearchFilter(val){
@@ -294,7 +329,13 @@ function pgkWorkerSearchFilter(val){
   });
   // Renumber visible rows from 1
   let num=1;
-  rows.forEach(tr=>{if(tr.style.display!=='none'){const c=tr.querySelector('td:first-child');if(c)c.textContent=num++;}});
+  rows.forEach(tr=>{if(tr.style.display!=='none'){const c=tr.querySelector('.tk-num');if(c)c.textContent=num++;}});
+  // заголовки групп без видимых строк — скрыть
+  document.querySelectorAll('#wt-tbody tr.tk-gh').forEach(gh=>{
+    let r=gh.nextElementSibling, any=false;
+    while(r&&!r.classList.contains('tk-gh')){if(r.style.display!=='none'){any=true;break;}r=r.nextElementSibling;}
+    gh.style.display=(any||!q)?'':'none';
+  });
   const cntWrap=document.getElementById('wt-shown-count');
   const cntN=document.getElementById('wt-shown-n');
   if(cntWrap&&cntN){
@@ -345,24 +386,34 @@ function _pgkInitColResize(trId){
 function workerCtxMenu(ev,wid){
   const w=pgkWorkers.find(x=>x.id===wid);
   if(!w)return;
+  const x=ev.clientX,y=ev.clientY;
+  const ids=TK.ctxIds('workers',wid);
+  const multi=ids.length>1;
   const statusItems=Object.entries(WORKER_STATUSES).map(([k,v])=>({
-    i:'', l:(w.status||'home')===k?'✓ '+v:v,
-    f:()=>pgkChangeWorkerStatus(wid,k)
+    i:'', l:'Статус: '+((!multi&&(w.status||'home')===k)?'✓ '+v:v),
+    f:()=>_pgkApply('worker',ids,{status:k},'Статус изменён')
   }));
-  showCtx(ev.clientX,ev.clientY,[
-    {i:'👤',l:'<b>'+esc(w.name.trim())+'</b>',html:true,f:()=>openWorkerDetail(wid)},
+  showCtx(x,y,[
+    multi?{i:'☑️',l:`<b>Выбрано: ${ids.length}</b>`,html:true,f:()=>{}}
+         :{i:'👤',l:'<b>'+esc(w.name.trim())+'</b>',html:true,f:()=>openWorkerDetail(wid)},
     {sep:true},
-    {i:'📋',l:'Открыть карточку',f:()=>openWorkerDetail(wid)},
-    {i:'✏️',l:'Редактировать',f:()=>pgkEditWorker(wid)},
-    {i:'📝',l:'Добавить примечание',f:()=>pgkEditWorkerNotes(wid)},
+    ...(multi?[]:[
+      {i:'📋',l:'Открыть карточку',f:()=>openWorkerDetail(wid)},
+      {i:'✏️',l:'Редактировать',f:()=>pgkEditWorker(wid)},
+    ]),
+    {i:'💼',l:'Должность…',f:()=>_pgkPick('worker',ids,'role',x,y)},
+    {i:'🏕',l:'База…',f:()=>_pgkPick('worker',ids,'base_id',x,y)},
+    {i:'📝',l:'Примечание…',f:()=>_pgkNotes('worker',ids)},
+    ...(multi?[]:[
+      {sep:true},
+      {i:'🏕',l:'Начать вахту',f:()=>openStartShiftModal(wid)},
+      ...(w.start_date?[{i:'🏁',l:'Завершить вахту',f:()=>openEndShiftModal(wid)}]:[]),
+    ]),
     {sep:true},
-    {i:'🏕',l:'Начать вахту',f:()=>openStartShiftModal(wid)},
-    ...(w.start_date?[{i:'🏁',l:'Завершить вахту',f:()=>openEndShiftModal(wid)}]:[]),
+    ...statusItems,
     {sep:true},
-    {i:'🔄',l:'Изменить статус ▸',f:()=>{}},
-    ...statusItems.map(si=>({i:'  ',l:si.l,f:si.f})),
-    {sep:true},
-    {i:'🗑',l:'Удалить сотрудника',cls:'cxi-red',f:()=>pgkDelWorker(wid)},
+    {i:'🗑',l:multi?`Удалить выбранных (${ids.length})`:'Удалить сотрудника',cls:'cxi-red',
+      f:()=>multi?TK.bulkDelete(ids,id=>`/pgk/workers/${id}`,async()=>{await loadPGK();if(typeof loadAll==='function')await loadAll();},'чел.'):pgkDelWorker(wid)},
   ]);
 }
 
@@ -551,7 +602,7 @@ function pgkPageMachinery(pb){
       </div><button class="btn bp bsm" onclick="pgkAddMach()">＋ Добавить</button>`:''}
       ${tab==='fuel'?`<button class="btn bp bsm" onclick="mchFuelRecord()">＋ Записать</button>`:''}
       ${tab==='spares'?`<button class="btn bs bsm" onclick="mchSpareAddGroup()">＋ Группа</button><button class="btn bp bsm" onclick="mchSpareAdd()">＋ Запчасть</button>`:''}
-      <button class="btn bg bsm" onclick="techExportExcel()" title="Экспорт всей вкладки в Excel">📤 Excel</button>
+      <button class="btn bg bsm" onclick="${tab==='park'?'_mchExportMenu(event)':'techExportExcel()'}" title="Экспорт в Excel">📤 Excel</button>
     </div>
   </div>
   <div id="mch-park" class="mch-panel${tab==='park'?' active':''}">${_mchBuildPark(view)}</div>
@@ -560,6 +611,29 @@ function pgkPageMachinery(pb){
   <div id="mch-spares" class="mch-panel${tab==='spares'?' active':''}">${_mchBuildSpares()}</div>
   </div>`;
   if(tab==='park'){const s=window._pgkMSearchVal||'';if(s){const inp=document.getElementById('mch-search');if(inp){inp.value=s;_mchParkSearch(s);}}}
+  if(tab==='park'&&view==='table')TK.initSelect('mch-park-tbl-body','machinery');
+}
+function _mchExportMenu(ev){
+  const by=id=>pgkMachinery.find(m=>m.id===id);
+  const shown=(window._mchShownIds||[]).map(by).filter(Boolean);
+  const selIds=TK.selectedIds('machinery');
+  TK.exportMenu(ev,{all:pgkMachinery,shown,selected:shown.filter(m=>selIds.includes(m.id)),run:_mchExportList,
+    extra:[{sep:true},{i:'📚',l:'Вся вкладка (парк, топливо, запчасти, водители)',f:()=>techExportExcel()}]});
+}
+// Список техники в Excel (выбранные строки/фильтр)
+function _mchExportList(list){
+  if(!list||!list.length){toast('Нет техники для экспорта','warn');return;}
+  const statLbl={working:'В работе',idle:'Простой',broken:'Сломана'};
+  const aoa=[['Реестр техники — '+new Date().toLocaleDateString('ru-RU')],
+    ['№','Название','Тип','Гос. номер','Статус','База','Водитель','Примечания'],
+    ...list.map((m,i)=>[i+1,m.name,m.type||'',m.plate_number||'',statLbl[m.status||'working']||m.status||'',
+      (bases.find(b=>b.id===m.base_id)||{}).name||'',(pgkWorkers.find(w=>w.id===m.driver_id)||{}).name||'',m.notes||''])];
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:5},{wch:30},{wch:16},{wch:14},{wch:12},{wch:20},{wch:24},{wch:30}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:7}}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Техника');
+  XLSX.writeFile(wb,`Техника_список_${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast('Excel сохранён','ok');
 }
 function _setMchTab(t){window._mchTab=t;const pb=document.getElementById('machinery-page');if(pb)pgkPageMachinery(pb);}
 function _setMchView(v){window._mchView=v;const pb=document.getElementById('machinery-page');if(pb)pgkPageMachinery(pb);}
@@ -774,6 +848,7 @@ async function techExportExcel(){
   toast('✓ Excel сохранён','ok');
 }
 
+const MCH_COLS=[['num','#'],['name','Название'],['type','Тип'],['plate_number','Номер'],['status','Статус'],['base','База'],['driver','Водитель'],['notes','Примечания']];
 function _mchBuildPark(view){
   const statCls={working:'wbs-working',idle:'wbs-idle',broken:'wbs-sick'};
   const statLbl={working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'};
@@ -799,9 +874,13 @@ function _mchBuildPark(view){
     <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFStatus=this.value;_setMchTab('park')">${statOpts}</select>
     <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFType=this.value;_setMchTab('park')">${typeOpts}</select>
     <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFBase=this.value;_setMchTab('park')">${baseOpts}</select>
+    ${view==='table'?`<select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._mchGroupBy=this.value;_setMchTab('park')">${[['','Без группировки'],['type','Группировать: тип'],['status','Группировать: статус'],['base','Группировать: база'],['driver','Группировать: водитель']].map(([k,l])=>`<option value="${k}" ${(window._mchGroupBy||'')===k?'selected':''}>${l}</option>`).join('')}</select>`:''}
+    ${(_mfBase||_mfStatus||_mfType||window._pgkMSearchVal)?`<button class="btn bs bsm" style="font-size:10px" onclick="window._pgkMFBase='';window._pgkMFStatus='';window._pgkMFType='';window._pgkMSearchVal='';_setMchTab('park')">✕ Сбросить фильтры</button>`:''}
     <span style="font-size:10px;color:var(--tx3);white-space:nowrap">
       <span style="color:#15803d">✅ ${cnt.working}</span> · <span style="color:#a16207">⏸ ${cnt.idle}</span> · <span style="color:#b91c1c">🔴 ${cnt.broken}</span>
+      ${filtered.length<pgkMachinery.length?` · <span style="color:var(--acc)">Показано: <b>${filtered.length}</b></span>`:''}
     </span>
+    ${view==='table'?TK.selBar('machinery'):''}
   </div>`;
   if(view==='cards'){
     const cards=filtered.map(m=>{
@@ -824,6 +903,10 @@ function _mchBuildPark(view){
   }
   // ── Sortable table view ────────────────────────────────────
   const _ms=window._mchSort||'name', _ma=window._mchAsc!==false;
+  const _gBy=window._mchGroupBy||'';
+  const hidden=TK.hidden('machinery');
+  const show=k=>!hidden.has(k);
+  TK.rerender.machinery=()=>_setMchTab('park');
   const getBase=m=>(bases.find(x=>x.id===m.base_id)||{}).name||'';
   const getDriver=m=>{const w=pgkWorkers.find(x=>x.id===m.driver_id);return w?w.name:'';};
   const getStatus=m=>statLbl[m.status||'working']||m.status||'';
@@ -833,39 +916,45 @@ function _mchBuildPark(view){
     else if(_ms==='driver'){va=getDriver(a);vb=getDriver(b);}
     else if(_ms==='status'){va=getStatus(a);vb=getStatus(b);}
     else{va=a[_ms]||'';vb=b[_ms]||'';}
-    return String(va).localeCompare(String(vb),'ru')*(_ma?1:-1);
+    if(!va!==!vb)return va?-1:1;
+    return String(va).localeCompare(String(vb),'ru',{numeric:true})*(_ma?1:-1);
   });
-  const thCls=col=>`class="${_ms===col?(_ma?'wt-asc':'wt-desc'):''}"`;
+  window._mchShownIds=filtered.map(m=>m.id);
+  const thCls=col=>`data-col="${col}" class="${_ms===col?(_ma?'wt-asc':'wt-desc'):''}"`;
   const thS=(col,lbl)=>`<th ${thCls(col)} onclick="if(window._mchSort==='${col}'){window._mchAsc=!(window._mchAsc!==false);}else{window._mchSort='${col}';window._mchAsc=true;}const pb2=document.getElementById('machinery-page');if(pb2)pgkPageMachinery(pb2);">${lbl}</th>`;
-  const rows=filtered.map((m,i)=>{
+  const dash='<span style="color:var(--tx3)">—</span>';
+  const selSet=TK.set('machinery');
+  const rowHtml=(m,i)=>{
     const b=bases.find(x=>x.id===m.base_id);
     const driver=pgkWorkers.find(x=>x.id===m.driver_id);
     const st=m.status||'working';const _id=escAttr(m.id);
-    const notesPreview=esc((m.notes||'').replace(/\n/g,' ').slice(0,80));
-    return `<tr data-search="${esc((m.name+' '+(m.type||'')+' '+(m.plate_number||'')+' '+(b?b.name:'')+' '+(driver?driver.name:'')+' '+(m.notes||'')).toLowerCase())}"
+    const on=selSet.has(m.id);
+    const td={
+      num:`<td class="tk-num" style="text-align:center;color:var(--tx3);font-size:10px;width:32px">${i}</td>`,
+      name:`<td class="td-link" onclick="openMachDetail('${_id}')"><span style="font-size:14px">${MICONS[m.type]||'🔧'}</span> <b>${esc(m.name)}</b></td>`,
+      type:`<td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','type')">${esc(m.type||'—')}</td>`,
+      plate_number:`<td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','plate_number')">${m.plate_number?`<code style="font-size:11px;background:var(--s2);padding:1px 5px;border-radius:3px">${esc(m.plate_number)}</code>`:dash}</td>`,
+      status:`<td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','status')"><span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span></td>`,
+      base:`<td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','base_id')">${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:dash}</td>`,
+      driver:`<td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','driver_id')">${driver?`👤 ${esc(driver.name)}`:dash}</td>`,
+      notes:`<td class="td-notes td-editable" title="${esc(m.notes||'')}" onclick="pgkCellEdit(event,this,'machinery','${_id}','notes')">${m.notes?esc(m.notes):dash}</td>`,
+    };
+    return `<tr data-rid="${m.id}" class="${on?'lasso-sel':''}" data-search="${esc((m.name+' '+(m.type||'')+' '+(m.plate_number||'')+' '+(b?b.name:'')+' '+(driver?driver.name:'')+' '+(m.notes||'')).toLowerCase())}"
       oncontextmenu="event.preventDefault();machCtxMenu(event,'${_id}')">
-      <td style="text-align:center;color:var(--tx3);font-size:10px;width:32px">${i+1}</td>
-      <td class="td-link" onclick="openMachDetail('${_id}')"><span style="font-size:14px">${MICONS[m.type]||'🔧'}</span> <b>${esc(m.name)}</b></td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','type')">${esc(m.type||'—')}</td>
-      <td>${m.plate_number?`<code style="font-size:11px;background:var(--s2);padding:1px 5px;border-radius:3px">${esc(m.plate_number)}</code>`:'<span style="color:var(--tx3)">—</span>'}</td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','status')"><span class="wt-badge ${statCls[st]||'wbs-idle'}">${statLbl[st]||st}</span></td>
-      <td class="td-editable" onclick="pgkCellEdit(event,this,'machinery','${_id}','base_id')">${b?`<span style="color:var(--bpc)">🏕 ${esc(b.name)}</span>`:'<span style="color:var(--tx3)">—</span>'}</td>
-      <td>${driver?`👤 ${esc(driver.name)}`:'<span style="color:var(--tx3)">—</span>'}</td>
-      <td class="td-notes td-link" style="color:var(--tx)" title="${notesPreview}" onclick="machNotesModal('${_id}')">${notesPreview||'<span style="color:var(--tx3)">—</span>'}</td>
+      ${TK.chkTd(on)}${MCH_COLS.filter(([k])=>show(k)).map(([k])=>td[k]).join('')}
     </tr>`;
-  }).join('');
+  };
+  const nCols=1+MCH_COLS.filter(([k])=>show(k)).length;
+  const gKey=m=>_gBy==='type'?(m.type||''):_gBy==='status'?getStatus(m):_gBy==='base'?getBase(m):_gBy==='driver'?getDriver(m):'';
+  const rows=_gBy?TK.grouped(filtered,gKey,'machinery',nCols,rowHtml):filtered.map((m,i)=>rowHtml(m,i+1)).join('');
+  const hdCells=MCH_COLS.filter(([k])=>show(k)).map(([k,l])=>
+    k==='num'?`<th class="no-sort" data-col="num" style="width:32px;text-align:center">#</th>`
+    :k==='notes'?`<th class="no-sort" data-col="notes" style="min-width:100px">Примечания</th>`:thS(k,l)).join('');
   return toolbar+`<div class="wt-scroll"><table class="wt-tbl" id="mch-park-tbl" style="min-width:720px">
-    <thead><tr>
-      <th class="no-sort" style="width:32px;text-align:center">#</th>
-      ${thS('name','Название')}
-      ${thS('type','Тип')}
-      ${thS('plate_number','Номер')}
-      ${thS('status','Статус')}
-      ${thS('base','База')}
-      ${thS('driver','Водитель')}
-      <th class="no-sort" style="min-width:100px">Примечания</th>
+    <thead oncontextmenu="TK.colsMenu(event,'machinery',MCH_COLS.filter(c=>c[0]!=='name'),()=>_setMchTab('park'))"><tr>
+      ${TK.chkTh('machinery')}${hdCells}
     </tr></thead>
-    <tbody id="mch-park-tbl-body">${rows||`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx3)">Нет техники</td></tr>`}</tbody>
+    <tbody id="mch-park-tbl-body">${rows||`<tr><td colspan="${nCols}" style="text-align:center;padding:24px;color:var(--tx3)">Нет техники</td></tr>`}</tbody>
   </table></div>`;
 }
 function _mchParkSearch(val){
@@ -875,7 +964,7 @@ function _mchParkSearch(val){
   document.querySelectorAll('#mch-park-tbl tbody tr[data-search]').forEach(r=>{
     const show=!q||r.dataset.search.includes(q);
     r.style.display=show?'':'none';
-    if(show){const c=r.querySelector('td:first-child');if(c)c.textContent=++n;}
+    if(show){const c=r.querySelector('.tk-num');if(c)c.textContent=++n;}
   });
 }
 
@@ -1274,22 +1363,32 @@ async function pgkAssignMachBaseModal(mid){
 
 function machCtxMenu(ev,mid){
   const m=pgkMachinery.find(x=>x.id===mid);if(!m)return;
+  const x=ev.clientX,y=ev.clientY;
+  // выделение есть только в табличном виде
+  const ids=document.getElementById('mch-park-tbl-body')?TK.ctxIds('machinery',mid):[mid];
+  const multi=ids.length>1;
   const statItems=Object.entries({working:'✅ В работе',idle:'⏸ Простой',broken:'🔴 Сломана'}).map(([k,v])=>({
-    i:'',l:(m.status||'working')===k?'✓ '+v:v,f:()=>{pgkQuickStatus(mid,k);}
+    i:'',l:'Статус: '+((!multi&&(m.status||'working')===k)?'✓ '+v:v),
+    f:()=>multi?_pgkApply('machinery',ids,{status:k},'Статус изменён'):pgkQuickStatus(mid,k)
   }));
-  showCtx(ev.clientX,ev.clientY,[
-    {i:MICONS[m.type]||'🔧',l:`<b>${esc(m.name)}</b>`,html:true,f:()=>openMachDetail(mid)},
+  showCtx(x,y,[
+    multi?{i:'☑️',l:`<b>Выбрано: ${ids.length}</b>`,html:true,f:()=>{}}
+         :{i:MICONS[m.type]||'🔧',l:`<b>${esc(m.name)}</b>`,html:true,f:()=>openMachDetail(mid)},
     {sep:true},
-    {i:'📋',l:'Открыть карточку',f:()=>openMachDetail(mid)},
-    {i:'✏️',l:'Редактировать',f:()=>pgkEditMach(mid)},
+    ...(multi?[]:[
+      {i:'📋',l:'Открыть карточку',f:()=>openMachDetail(mid)},
+      {i:'✏️',l:'Редактировать',f:()=>pgkEditMach(mid)},
+    ]),
+    {i:'🚛',l:'Тип…',f:()=>_pgkPick('machinery',ids,'type',x,y)},
+    {i:'🏕',l:'База…',f:()=>_pgkPick('machinery',ids,'base_id',x,y)},
+    {i:'👤',l:'Водитель…',f:()=>_pgkPick('machinery',ids,'driver_id',x,y)},
+    {i:'📝',l:'Примечание…',f:()=>_pgkNotes('machinery',ids)},
     {sep:true},
-    {i:'🏕',l:'Назначить на базу',f:()=>pgkAssignMachBaseModal(mid)},
+    ...statItems,
+    ...(!multi&&m.lat&&m.lng?[{sep:true},{i:'📍',l:'Найти на карте',f:()=>flyToMach(mid)}]:[]),
     {sep:true},
-    {i:'🔄',l:'Изменить статус ▸',f:()=>{}},
-    ...statItems.map(si=>({i:'  ',l:si.l,f:si.f})),
-    ...(m.lat&&m.lng?[{sep:true},{i:'📍',l:'Найти на карте',f:()=>flyToMach(mid)}]:[]),
-    {sep:true},
-    {i:'🗑',l:'Удалить',cls:'cxi-red',f:()=>pgkDelMach(mid)},
+    {i:'🗑',l:multi?`Удалить выбранную (${ids.length})`:'Удалить',cls:'cxi-red',
+      f:()=>multi?TK.bulkDelete(ids,id=>`/pgk/machinery/${id}`,async()=>{await loadPGK();if(typeof loadAll==='function')await loadAll();},'ед.'):pgkDelMach(mid)},
   ]);
 }
 
@@ -1643,7 +1742,7 @@ function _equipExportMenu(ev){
 
 // Таблицы других вкладок: ширина столбцов тоже меняется мышью. Они
 // перерисовываются из разных мест, поэтому подхватываем их наблюдателем DOM.
-const _COLRSZ_TABLES={'pgk-workers-tbl':'workers','mch-park-tbl':'machinery','mat-tbl':'materials'};
+const _COLRSZ_TABLES={'pgk-workers-tbl':'workers','mch-park-tbl':'machinery','mat-tbl':'materials','mto-tbl':'mto'};
 (function(){
   let pend=false;
   const scan=()=>{pend=false;for(const id in _COLRSZ_TABLES){const t=document.getElementById(id);if(t&&!t._colRsz)_initColResize(t,_COLRSZ_TABLES[id]);}};
@@ -1716,7 +1815,7 @@ function _initColResize(table,key){
 function _initLasso(tbodyId, onChangeCallback){
   const tbody=document.getElementById(tbodyId);
   if(!tbody)return;
-  const scroller=tbody.closest('.spare-tbl-wrap')||tbody.closest('.wt-scroll');
+  const scroller=tbody.closest('.spare-tbl-wrap')||tbody.closest('.wt-scroll')||(tbody.closest('table')||{}).parentElement;
   if(!scroller)return;
   let startX,startY,rect,box,dragging=false,startTarget;
   const overlay=document.createElement('div');
@@ -1724,7 +1823,7 @@ function _initLasso(tbodyId, onChangeCallback){
   document.body.appendChild(overlay);
   function rowsInBox(x1,y1,x2,y2){
     const left=Math.min(x1,x2),top=Math.min(y1,y2),right=Math.max(x1,x2),bot=Math.max(y1,y2);
-    const rows=[...tbody.querySelectorAll('tr[data-eid],tr[data-matid]')].filter(tr=>tr.style.display!=='none');
+    const rows=[...tbody.querySelectorAll('tr[data-eid],tr[data-matid],tr[data-rid]')].filter(tr=>tr.style.display!=='none');
     return rows.filter(tr=>{
       const r=tr.getBoundingClientRect();
       return r.bottom>top&&r.top<bot&&r.right>left&&r.left<right;
@@ -1737,7 +1836,7 @@ function _initLasso(tbodyId, onChangeCallback){
   scroller.addEventListener('mousedown',e=>{
     if(e.button!==0)return;
     const tr=e.target.closest('tr');
-    if(tr&&(tr.dataset.eid||tr.dataset.matid)&&!e.target.closest('button,a,input,select')){
+    if(tr&&(tr.dataset.eid||tr.dataset.matid||tr.dataset.rid)&&!e.target.closest('button,a,input,select')){
       startTarget=tr;dragging=false;
       rect=scroller.getBoundingClientRect();
       startX=e.clientX;startY=e.clientY;
@@ -2004,6 +2103,80 @@ function _equipPickField(ids,field,x,y){
   _searchPick({x,y,title,items,current:cur,onPick:v=>_equipApply(ids,{[field]:v||(field==='base_id'?null:'')},msg)});
 }
 
+// ── Общие: выбор значения и применение к нескольким записям ──────────────
+// type: worker | machinery | material  (оборудование — _equipPickField/_equipApply)
+function _matById(id){
+  for(const b of (bases||[])){const m=(b.materials||[]).find(x=>x.id===id);if(m)return {...m,base_name:b.name};}
+  return null;
+}
+function _pgkItem(type,id){
+  return type==='worker'?pgkWorkers.find(x=>x.id===id)
+    :type==='machinery'?pgkMachinery.find(x=>x.id===id)
+    :type==='material'?_matById(id):null;
+}
+async function _pgkApply(type,ids,patch,msg){
+  const list=ids.map(id=>_pgkItem(type,id)).filter(Boolean);
+  try{
+    await Promise.all(list.map(e=>{
+      const p=typeof patch==='function'?patch(e):patch;   // patch может зависеть от записи
+      if(type==='worker'&&Object.keys(p).length===1&&'status' in p)
+        return fetch(`${API}/pgk/workers/${e.id}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:p.status,user_name:un()})});
+      const url=type==='worker'?`/pgk/workers/${e.id}`:type==='machinery'?`/pgk/machinery/${e.id}`:`/materials/${e.id}`;
+      const body={...e,...p,user_name:un()};delete body.base_name;
+      return fetch(`${API}${url}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    }));
+  }catch(err){toast('Ошибка сохранения','err');}
+  await loadPGK();
+  if(type!=='machinery'&&typeof loadAll==='function'){try{await loadAll();}catch(e){}}
+  if(msg)toast(list.length>1?`${msg}: ${list.length} поз.`:msg,'ok');
+}
+function _pgkPick(type,ids,field,x,y){
+  const first=_pgkItem(type,ids[0])||{};
+  const cur=ids.length===1?(first[field]||''):null;
+  let items,title,msg,addLabel=null,map=v=>v;
+  if(field==='base_id'){
+    title='🏕 База';msg='База изменена';
+    items=[{v:'',l:'— снять с базы —'},...bases.map(b=>({v:b.id,l:b.name}))];
+    map=v=>v||null;
+  }else if(type==='worker'&&field==='role'){
+    title='💼 Должность';msg='Должность изменена';addLabel='должность';
+    items=[{v:'',l:'— не указана —'},...TK.distinct(pgkWorkers,w=>w.role)];
+  }else if(type==='machinery'&&field==='type'){
+    title='🚛 Тип техники';msg='Тип изменён';addLabel='тип';
+    const ex=TK.distinct(pgkMachinery,m=>m.type);
+    MTYPES.forEach(t=>{if(!ex.some(i=>i.v===t))ex.push({v:t,l:t});});
+    ex.sort((a,b)=>a.l.localeCompare(b.l,'ru'));
+    items=ex.map(i=>({...i,l:(MICONS[i.v]||'🔧')+' '+i.v}));
+  }else if(type==='machinery'&&field==='driver_id'){
+    title='👤 Водитель';msg='Водитель назначен';
+    items=[{v:'',l:'— без водителя —'},...pgkWorkers.filter(w=>w.status!=='fired').map(w=>({v:w.id,l:w.name.trim(),sub:w.role||''}))];
+    map=v=>v||null;
+  }else if(type==='material'&&field==='category'){
+    title='📁 Группа';msg='Группа изменена';addLabel='группу';
+    items=[{v:'',l:'— без группы —'},...pgkMatGroups.map(g=>({v:g.name,l:g.name}))];
+  }else if(type==='material'&&field==='unit'){
+    title='📏 Единица';msg='Единица изменена';addLabel='единицу';
+    const all=bases.flatMap(b=>b.materials||[]);
+    items=TK.distinct(all,m=>m.unit);
+    ['шт','кг','т','л','м','м²','м³','компл','упак'].forEach(u=>{if(!items.some(i=>i.v===u))items.push({v:u,l:u});});
+  }else return;
+  if(ids.length>1)title+=` — ${ids.length} поз.`;
+  _searchPick({x,y,title,items,current:cur,addLabel,onPick:async v=>{
+    // новая группа материалов — сразу создаём, чтобы она появилась слева
+    if(type==='material'&&field==='category'&&v&&!pgkMatGroups.some(g=>g.name===v)){
+      try{await fetch(`${API}/mat_groups`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:v})});}catch(e){}
+    }
+    await _pgkApply(type,ids,{[field]:map(v)},msg);
+  }});
+}
+function _pgkNotes(type,ids){
+  const one=ids.length===1?_pgkItem(type,ids[0]):null;
+  TK.notesModal(ids.length,one?one.notes:'',async(txt,append)=>{
+    if(!append)return _pgkApply(type,ids,{notes:txt},'Примечание сохранено');
+    await _pgkApply(type,ids,e=>({notes:(e.notes?e.notes+' ':'')+txt}),'Примечание дописано');
+  });
+}
+
 // Примечание: одно — правится текущее; несколько — заменить или дописать всем
 function _equipEditNotes(ids){
   const one=ids.length===1?pgkEquipment.find(e=>e.id===ids[0]):null;
@@ -2128,6 +2301,8 @@ function _searchPick({x,y,title,items,current,onPick,addLabel}){
   inp.focus();
 }
 
+const MAT_COLS=[['num','#'],['name','Название'],['category','Группа'],['base','База'],['amount','Кол-во'],['unit','Ед.'],
+  ['min_amount','Мин. запас'],['weight','Вес, кг'],['stock','Запас'],['notes','Примечания']];
 async function pgkPageMaterials(pb){
   const allMats=bases.flatMap(b=>(b.materials||[]).map(m=>({...m,base_name:b.name})));
   const _mfGroup=window._pgkMFGroup||'';
@@ -2135,14 +2310,21 @@ async function pgkPageMaterials(pb){
   const _ms=window._pgkMSortM||'name';
   const _ma=window._pgkMAscM!==false;
   const _q=(window._pgkMSearchM||'').toLowerCase().trim();
+  const _low=!!window._pgkMLow;
+  const _gBy=window._pgkMGroupBy||'';
+  const hidden=TK.hidden('materials');
+  const show=k=>!hidden.has(k);
+  TK.rerender.materials=()=>renderPGK();
 
-  const lowStock=allMats.filter(m=>m.min_amount>0&&m.amount<m.min_amount).length;
+  const isLow=m=>m.min_amount>0&&m.amount<m.min_amount;
+  const lowStock=allMats.filter(isLow).length;
   const _knownGrpNames=new Set(pgkMatGroups.map(g=>g.name));
 
   let filtered=allMats.filter(m=>{
     if(_mfGroup==='__none'){if(m.category&&_knownGrpNames.has(m.category))return false;}
     else if(_mfGroup&&(m.category||'')!==_mfGroup)return false;
     if(_mfBase&&m.base_id!==_mfBase)return false;
+    if(_low&&!isLow(m))return false;
     if(_q){const hay=(m.name+' '+(m.category||'')+' '+(m.base_name||'')+' '+(m.notes||'')).toLowerCase();if(!hay.includes(_q))return false;}
     return true;
   });
@@ -2150,19 +2332,23 @@ async function pgkPageMaterials(pb){
     let va,vb;
     if(_ms==='amount'){va=+a.amount||0;vb=+b.amount||0;}
     else if(_ms==='weight'){va=+a.weight||0;vb=+b.weight||0;}
+    else if(_ms==='min_amount'){va=+a.min_amount||0;vb=+b.min_amount||0;}
     else if(_ms==='base'){va=a.base_name||'';vb=b.base_name||'';}
     else if(_ms==='category'){va=a.category||'';vb=b.category||'';}
     else{va=a[_ms]||'';vb=b[_ms]||'';}
     if(typeof va==='number'&&typeof vb==='number')return(va-vb)*(_ma?1:-1);
-    return String(va).localeCompare(String(vb),'ru')*(_ma?1:-1);
+    if(!va!==!vb)return va?-1:1;
+    return String(va).localeCompare(String(vb),'ru',{numeric:true})*(_ma?1:-1);
   });
+  window._matShownIds=filtered.map(m=>m.id);
 
-  const thSort=(col,lbl)=>`<th class="${_ms===col?(_ma?'wt-asc':'wt-desc'):''}"
-    onclick="window._pgkMSortM==='${col}'?(window._pgkMAscM=!(_ma)):(window._pgkMSortM='${col}',window._pgkMAscM=true);renderPGK()">${lbl}</th>`;
-  const baseOpts=`<option value="">Все базы</option>`+bases.map(b=>`<option value="${b.id}" ${_mfBase===b.id?'selected':''}>${esc(b.name)}</option>`).join('');
+  const thSort=(col,lbl)=>`<th data-col="${col}" class="${_ms===col?(_ma?'wt-asc':'wt-desc'):''}"
+    onclick="window._pgkMSortM==='${col}'?(window._pgkMAscM=!(${_ma})):(window._pgkMSortM='${col}',window._pgkMAscM=true);renderPGK()">${lbl}</th>`;
+  const o=(v,l,cur)=>`<option value="${escAttr(v)}" ${cur===v?'selected':''}>${esc(l)}</option>`;
+  const baseOpts=o('','Все базы',_mfBase)+bases.map(b=>o(b.id,b.name,_mfBase)).join('');
+  const gbyOpts=[['','Без группировки'],['category','Группировать: группа'],['base','Группировать: база']].map(([k,l])=>o(k,l,_gBy)).join('');
+  const sel=(opts,onch)=>`<select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);max-width:170px" onchange="${onch}">${opts}</select>`;
 
-  const grpCounts={};allMats.forEach(m=>{const g=m.category||'__none';grpCounts[g]=(grpCounts[g]||0)+1;});
-  // Count materials that don't belong to any known group
   const knownNames=new Set(pgkMatGroups.map(g=>g.name));
   const noneCount=allMats.filter(m=>!m.category||!knownNames.has(m.category)).length;
 
@@ -2190,30 +2376,46 @@ async function pgkPageMaterials(pb){
     }).join('')}
     <button class="btn bs bsm" style="width:100%;margin-top:6px;font-size:11px" onclick="matGrpAdd()">＋ Группа</button>`;
 
-  const rows=filtered.map((m,i)=>{
+  const dash='<span style="color:var(--tx3)">—</span>';
+  const selSet=TK.set('materials');
+  const rowHtml=(m,i)=>{
     const pct=m.min_amount>0?Math.min(100,Math.round(m.amount/m.min_amount*100)):null;
-    const low=m.min_amount>0&&m.amount<m.min_amount;
+    const low=isLow(m);
     const _id=escAttr(m.id);
-    return `<tr data-matid="${m.id}" data-search="${esc((m.name+' '+(m.category||'')+' '+(m.base_name||'')+' '+(m.notes||'')).toLowerCase())}" draggable="true"
-      ondragstart="matDragStart(event,'${_id}')"
-      oncontextmenu="event.preventDefault();pgkMatCtxMenu(event,'${_id}')">
-      <td style="text-align:center;width:28px;color:var(--tx3);font-size:10px;font-weight:600" class="mat-rownum">${i+1}</td>
-      <td class="td-link" style="font-weight:600" title="${esc(m.name)}" onclick="pgkMatDetail('${_id}')">📦 ${esc(m.name)}</td>
-      <td><span style="background:var(--s3);border:1px solid var(--bd);border-radius:20px;padding:1px 7px;font-size:10px;font-weight:600;color:var(--tx2)">${esc(m.category||'—')}</span></td>
-      <td style="color:var(--bpc)">🏕 ${esc(m.base_name||'—')}</td>
-      <td style="font-weight:700;color:var(--acc);text-align:right">${m.amount} <span style="font-weight:400;color:var(--tx3)">${esc(m.unit||'шт')}</span></td>
-      <td style="text-align:right;color:var(--tx2)">${m.weight?(+m.weight).toLocaleString('ru')+' <span style="font-weight:400;color:var(--tx3);font-size:10px">кг</span>':'<span style="color:var(--tx3)">—</span>'}</td>
-      <td style="text-align:center">
+    const on=selSet.has(m.id);
+    const td={
+      num:`<td style="text-align:center;width:28px;color:var(--tx3);font-size:10px;font-weight:600" class="mat-rownum tk-num">${i}</td>`,
+      name:`<td class="td-link" style="font-weight:600" title="${esc(m.name)}" onclick="pgkMatDetail('${_id}')">📦 ${esc(m.name)}</td>`,
+      category:`<td class="td-editable" onclick="pgkCellEdit(event,this,'material','${_id}','category')">${m.category?`<span style="background:var(--s3);border:1px solid var(--bd);border-radius:20px;padding:1px 7px;font-size:10px;font-weight:600;color:var(--tx2)">${esc(m.category)}</span>`:dash}</td>`,
+      base:`<td class="td-editable" style="color:var(--bpc)" title="Перевести на другую базу" onclick="event.stopPropagation();openTransferModal('material','${_id}')">🏕 ${esc(m.base_name||'—')}</td>`,
+      amount:`<td class="td-editable${low?' mat-low':''}" style="font-weight:700;color:${low?'var(--red)':'var(--acc)'};text-align:right" onclick="pgkCellEdit(event,this,'material','${_id}','amount')">${m.amount}</td>`,
+      unit:`<td class="td-editable" style="color:var(--tx2)" onclick="pgkCellEdit(event,this,'material','${_id}','unit')">${esc(m.unit||'шт')}</td>`,
+      min_amount:`<td class="td-editable" style="text-align:right;color:var(--tx2)" onclick="pgkCellEdit(event,this,'material','${_id}','min_amount')">${m.min_amount?m.min_amount:dash}</td>`,
+      weight:`<td class="td-editable" style="text-align:right;color:var(--tx2)" onclick="pgkCellEdit(event,this,'material','${_id}','weight')">${m.weight?(+m.weight).toLocaleString('ru')+' <span style="font-weight:400;color:var(--tx3);font-size:10px">кг</span>':dash}</td>`,
+      stock:`<td style="text-align:center">
         ${pct!==null?`<div style="display:flex;align-items:center;gap:4px;min-width:70px">
           <div style="flex:1;height:4px;background:var(--s3);border-radius:2px">
             <div style="width:${pct}%;height:4px;background:${low?'var(--red)':pct<50?'#f59e0b':'var(--grn)'};border-radius:2px"></div>
           </div>
           <span style="font-size:9px;color:${low?'var(--red)':'var(--tx3)'};min-width:26px">${pct}%</span>
         </div>`:'<span style="color:var(--tx3);font-size:10px">—</span>'}
-      </td>
-      <td class="td-notes" title="${esc(m.notes||'')}">${esc(m.notes||'')}</td>
+      </td>`,
+      notes:`<td class="td-notes td-editable" title="${esc(m.notes||'')}" onclick="pgkCellEdit(event,this,'material','${_id}','notes')">${esc(m.notes||'')}</td>`,
+    };
+    return `<tr data-matid="${m.id}" data-rid="${m.id}" class="${on?'lasso-sel':''}" data-search="${esc((m.name+' '+(m.category||'')+' '+(m.base_name||'')+' '+(m.notes||'')).toLowerCase())}" draggable="true"
+      ondragstart="matDragStart(event,'${_id}')"
+      oncontextmenu="event.preventDefault();pgkMatCtxMenu(event,'${_id}')">
+      ${TK.chkTd(on)}${MAT_COLS.filter(([k])=>show(k)).map(([k])=>td[k]).join('')}
     </tr>`;
-  }).join('');
+  };
+  const nCols=1+MAT_COLS.filter(([k])=>show(k)).length;
+  const gKey=m=>_gBy==='category'?(m.category||''):_gBy==='base'?(m.base_name||''):'';
+  const rows=_gBy?TK.grouped(filtered,gKey,'materials',nCols,rowHtml):filtered.map((m,i)=>rowHtml(m,i+1)).join('');
+  const hdCells=MAT_COLS.filter(([k])=>show(k)).map(([k,l])=>
+    k==='num'?`<th class="no-sort" data-col="num" style="width:28px;text-align:center;color:var(--tx3)">#</th>`
+    :k==='stock'?`<th class="no-sort" data-col="stock" style="min-width:80px">Запас</th>`
+    :k==='notes'?`<th class="no-sort" data-col="notes" style="min-width:120px">Примечания</th>`:thSort(k,l)).join('');
+  const anyFilter=_mfGroup||_mfBase||_low||_q;
 
   pb.innerHTML=`<div class="spare-layout" style="height:100%">
     <div class="spare-sidebar">
@@ -2221,44 +2423,47 @@ async function pgkPageMaterials(pb){
       ${grpSidebar}
     </div>
     <div class="spare-main">
-      <div class="spare-main-hd">
+      <div class="spare-main-hd" style="flex-wrap:wrap;row-gap:6px">
         <span style="font-size:13px;font-weight:800;flex-shrink:0">📦 Материалы</span>
         <input id="pgk-mat-search" type="search" placeholder="🔍 Поиск…" value="${esc(_q)}"
           style="font-size:11px;padding:3px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);outline:none;min-width:130px;flex:1"
           oninput="matSearchFilter(this.value)"/>
-        <select style="font-size:11px;padding:3px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)" onchange="window._pgkMFBaseM=this.value;renderPGK()">${baseOpts}</select>
         <button class="btn bs bsm" onclick="pgkImportMaterials()" title="Импорт заявки из Excel">📥 Импорт</button>
-        <button class="btn bs bsm" onclick="exportMaterialsExcel()" title="Экспорт в Excel">📤 Excel</button>
+        <button class="btn bs bsm" onclick="_matExportMenu(event)" title="Экспорт в Excel">📤 Excel</button>
         <button class="btn bp bsm" onclick="pgkAddMatGlobal()">＋ Добавить</button>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;width:100%;align-items:center">
+          ${sel(baseOpts,"window._pgkMFBaseM=this.value;renderPGK()")}
+          ${sel(gbyOpts,"window._pgkMGroupBy=this.value;renderPGK()")}
+          ${anyFilter?`<button class="btn bs bsm" style="font-size:10px" onclick="window._pgkMFGroup='';window._pgkMFBaseM='';window._pgkMLow=false;window._pgkMSearchM='';renderPGK()">✕ Сбросить фильтры</button>`:''}
+        </div>
       </div>
-      <div class="wt-summary" style="padding:4px 12px">
+      <div class="wt-summary" style="padding:4px 12px;flex-wrap:wrap">
         <span>Позиций: <b>${allMats.length}</b></span>
         <span>Баз: <b>${bases.length}</b></span>
-        ${lowStock?`<span style="color:var(--red)">⚠️ Ниже мин: <b>${lowStock}</b></span>`:''}
+        ${lowStock?`<span style="color:var(--red);cursor:pointer;${_low?'text-decoration:underline;font-weight:800':''}" title="Показать только эти позиции" onclick="window._pgkMLow=!window._pgkMLow;renderPGK()">⚠️ Ниже мин: <b>${lowStock}</b></span>`:''}
         ${filtered.length<allMats.length?`<span style="color:var(--acc)">Показано: <b>${filtered.length}</b></span>`:''}
-        <span id="mat-sel-info" style="color:var(--acc);display:none">Выбрано: <b id="mat-sel-cnt">0</b> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="matMoveSelected()">→ В группу</button> <button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="document.querySelectorAll('#pgk-mat-tbody tr.lasso-sel').forEach(r=>r.classList.remove('lasso-sel'));_matUpdateSelInfo()">✕</button></span>
+        ${TK.selBar('materials',`<button class="btn bs bsm" style="padding:1px 6px;font-size:10px" onclick="matMoveSelected()">→ В группу</button>`)}
+        <span style="margin-left:auto;color:var(--tx3);font-size:10px" title="Выделение: галочки, Ctrl+клик, Shift+клик, рамка мышью, Esc — снять. ПКМ по выделенным — действия для всех. ПКМ по заголовку — выбор столбцов.">ℹ️ подсказка</span>
       </div>
       <div class="spare-tbl-wrap">
         <table class="wt-tbl" id="mat-tbl" style="min-width:600px">
-          <thead><tr>
-            <th class="no-sort" style="width:28px;text-align:center;color:var(--tx3)">#</th>
-            ${thSort('name','Название')}
-            ${thSort('category','Группа')}
-            ${thSort('base','База')}
-            ${thSort('amount','Кол-во')}
-            ${thSort('weight','Вес, кг')}
-            <th class="no-sort" style="min-width:80px">Запас</th>
-            <th class="no-sort" style="min-width:120px">Примечания</th>
+          <thead oncontextmenu="TK.colsMenu(event,'materials',MAT_COLS.filter(c=>c[0]!=='name'),()=>renderPGK())"><tr>
+            ${TK.chkTh('materials')}${hdCells}
           </tr></thead>
-          <tbody id="pgk-mat-tbody">${rows||`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx3)">Нет материалов</td></tr>`}</tbody>
+          <tbody id="pgk-mat-tbody">${rows||`<tr><td colspan="${nCols}" style="text-align:center;padding:24px;color:var(--tx3)">Нет материалов</td></tr>`}</tbody>
         </table>
       </div>
     </div>
   </div>`;
-  // Re-apply search filter after render
   if(_q){setTimeout(()=>matSearchFilter(_q),0);}
-  // Init lasso selection
-  setTimeout(()=>_initLasso('pgk-mat-tbody',_matUpdateSelInfo),0);
+  TK.initSelect('pgk-mat-tbody','materials');
+}
+function _matExportMenu(ev){
+  const all=bases.flatMap(b=>(b.materials||[]).map(m=>({...m,base_name:b.name})));
+  const by=id=>all.find(m=>m.id===id);
+  const shown=(window._matShownIds||[]).map(by).filter(Boolean);
+  const selIds=TK.selectedIds('materials');
+  TK.exportMenu(ev,{all,shown,selected:shown.filter(m=>selIds.includes(m.id)),run:list=>exportMaterialsExcel(list)});
 }
 
 function matSearchFilter(val){
@@ -2271,11 +2476,7 @@ function matSearchFilter(val){
     if(show){const c=tr.querySelector('.mat-rownum');if(c)c.textContent=++n;}
   });
 }
-function _matUpdateSelInfo(){
-  const sel=document.querySelectorAll('#pgk-mat-tbody tr.lasso-sel');
-  const si=document.getElementById('mat-sel-info'),sc=document.getElementById('mat-sel-cnt');
-  if(si&&sc){si.style.display=sel.length?'':'none';sc.textContent=sel.length;}
-}
+function _matUpdateSelInfo(){TK.update('materials');}
 function _matSelectedIds(){return[...document.querySelectorAll('#pgk-mat-tbody tr.lasso-sel')].map(tr=>tr.dataset.matid);}
 function matDragStart(ev,mid){const sel=_matSelectedIds();ev.dataTransfer.setData('text/plain',sel.length?JSON.stringify(sel):JSON.stringify([mid]));ev.dataTransfer.effectAllowed='move';}
 async function matDropToGroup(ev,grpName){
@@ -2360,18 +2561,28 @@ function pgkMatDetail(matId){
 
 // Контекстное меню материала
 function pgkMatCtxMenu(ev,matId){
-  const b=bases.find(b=>(b.materials||[]).some(m=>m.id===matId));
-  const m=b&&(b.materials||[]).find(m=>m.id===matId);
+  const m=_matById(matId);
   if(!m)return;
-  showCtx(ev.clientX,ev.clientY,[
-    {i:'📦',l:`<b>${esc(m.name)}</b>`,html:true,f:()=>pgkMatDetail(matId)},
+  const x=ev.clientX,y=ev.clientY;
+  const ids=TK.ctxIds('materials',matId);
+  const multi=ids.length>1;
+  showCtx(x,y,[
+    multi?{i:'☑️',l:`<b>Выбрано: ${ids.length}</b>`,html:true,f:()=>{}}
+         :{i:'📦',l:`<b>${esc(m.name)}</b>`,html:true,f:()=>pgkMatDetail(matId)},
     {sep:true},
-    {i:'📝',l:'Актуализировать остаток',f:()=>openActualizeModal(matId)},
-    {i:'📋',l:'История актуализаций',f:()=>openMatLogModal(matId)},
-    {i:'🔄',l:'Перевести на другую базу',f:()=>openTransferModal('material',matId)},
+    ...(multi?[]:[
+      {i:'📝',l:'Актуализировать остаток',f:()=>openActualizeModal(matId)},
+      {i:'📋',l:'История актуализаций',f:()=>openMatLogModal(matId)},
+      {i:'🔄',l:'Перевести на другую базу',f:()=>openTransferModal('material',matId)},
+      {sep:true},
+    ]),
+    {i:'📁',l:'Группа…',f:()=>_pgkPick('material',ids,'category',x,y)},
+    {i:'📏',l:'Единица…',f:()=>_pgkPick('material',ids,'unit',x,y)},
+    {i:'🗒',l:'Примечание…',f:()=>_pgkNotes('material',ids)},
     {sep:true},
-    {i:'✏️',l:'Редактировать',f:()=>openEditMatModalGlobal(matId)},
-    {i:'🗑',l:'Удалить',cls:'cxi-red',f:()=>pgkDelMatGlobal(matId)},
+    ...(multi?[]:[{i:'✏️',l:'Редактировать',f:()=>openEditMatModalGlobal(matId)}]),
+    {i:'🗑',l:multi?`Удалить выбранные (${ids.length})`:'Удалить',cls:'cxi-red',
+      f:()=>multi?TK.bulkDelete(ids,id=>`/materials/${id}`,async()=>{await loadPGK();if(typeof loadAll==='function')await loadAll();}):pgkDelMatGlobal(matId)},
   ]);
 }
 
@@ -3140,8 +3351,8 @@ async function savePGKEquip(id){
 }
 async function pgkDelEquip(id){if(!await confirmDlg('Удалить?'))return;await apiDelUndo(`/pgk/equipment/${id}`,'Оборудование удалено',loadPGK);}
 
-function exportMaterialsExcel(){
-  const allMats=(bases||[]).flatMap(b=>(b.materials||[]).map(m=>({...m,base_name:b.name})));
+function exportMaterialsExcel(list){
+  const allMats=Array.isArray(list)?list:(bases||[]).flatMap(b=>(b.materials||[]).map(m=>({...m,base_name:b.name})));
   if(!allMats.length){toast('Нет материалов для экспорта','warn');return;}
   const wb=XLSX.utils.book_new();
   const todayDate=new Date();

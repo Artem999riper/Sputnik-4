@@ -332,3 +332,9 @@
 td.eq-cal-over{background:rgba(220,38,38,.12);color:#b91c1c;font-weight:700}
 td.eq-cal-soon{background:rgba(234,179,8,.16);color:#a16207;font-weight:700}
 td.eq-dup{background:rgba(220,38,38,.10);color:#b91c1c;font-weight:700}
+
+/* ── Общие таблицы (table-kit): галочки, заголовки групп ── */
+.tk-chk-td{width:26px;text-align:center;padding-left:4px!important;padding-right:4px!important}
+.tk-chk-td input{width:14px;height:14px;cursor:pointer;accent-color:var(--acc);margin:0}
+tr.tk-gh td{background:var(--s2);font-weight:800;font-size:11px;color:var(--tx2);cursor:pointer;padding:5px 10px;border-top:2px solid var(--bd)}
+tr.tk-gh:hover td{color:var(--acc)}

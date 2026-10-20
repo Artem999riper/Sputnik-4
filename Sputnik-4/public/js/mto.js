@@ -26,12 +26,29 @@ function _mtoCategories(){
   return out;
 }
 
+const MTO_COLS=[['num','#'],['name','Наименование'],['quantity','Кол-во'],['year','Год выпуска'],
+  ['condition','Состояние'],['ownership','Принадлежность'],['notes','Примечания'],['act','']];
+function _mtoFiltered(){
+  const q=(_mtoQ||'').toLowerCase();
+  return q?mtoItems.filter(it=>((it.name||'')+' '+(it.category||'')+' '+(it.ownership||'')+' '+(it.notes||'')).toLowerCase().includes(q)):mtoItems;
+}
 // Полная перерисовка страницы (каркас + строки).
 // При наборе в поиске НЕ вызывается — иначе innerHTML пересоздаёт input
 // и поле теряет фокус после каждой буквы; фильтр обновляет только tbody.
 function renderMTO(){
   const pg=document.getElementById('mto-page');if(!pg)return;
   const cats=_mtoCategories();
+  const hidden=TK.hidden('mto');
+  const show=k=>!hidden.has(k);
+  TK.rerender.mto=()=>renderMTO();
+  const hd={num:`<th class="no-sort" data-col="num" style="width:34px;text-align:center">#</th>`,
+    name:`<th class="no-sort" data-col="name">Наименование</th>`,
+    quantity:`<th class="no-sort" data-col="quantity" style="width:80px;text-align:center">Кол-во</th>`,
+    year:`<th class="no-sort" data-col="year" style="width:110px;text-align:center">Год выпуска</th>`,
+    condition:`<th class="no-sort" data-col="condition" style="width:110px;text-align:center">Состояние</th>`,
+    ownership:`<th class="no-sort" data-col="ownership" style="width:170px">Принадлежность</th>`,
+    notes:`<th class="no-sort" data-col="notes" style="min-width:120px">Примечания</th>`,
+    act:`<th class="no-sort" data-col="act" style="width:60px"></th>`};
   pg.innerHTML=`
     <div class="wt-toolbar" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1.5px solid var(--bd);flex-wrap:wrap">
       <span style="font-size:14px;font-weight:800">🛠 МТО</span>
@@ -44,26 +61,21 @@ function renderMTO(){
         📥 Импорт
         <input type="file" accept=".docx,.xlsx,.xls" style="display:none" onchange="mtoImportFile(this)">
       </label>
-      <button class="btn bs bsm" onclick="mtoExportDocx()" title="Скачать справку Word">📤 Word</button>
-      <button class="btn bs bsm" onclick="mtoExportXlsx()" title="Скачать Excel">📤 Excel</button>
+      <button class="btn bs bsm" onclick="_mtoExportMenu(event,'docx')" title="Скачать справку Word">📤 Word</button>
+      <button class="btn bs bsm" onclick="_mtoExportMenu(event,'xlsx')" title="Скачать Excel">📤 Excel</button>
       <button class="btn bp bsm" onclick="mtoAddItem()">＋ Добавить</button>
     </div>
-    <div class="wt-summary" style="padding:4px 14px;display:flex;gap:14px;font-size:11px;color:var(--tx2)">
+    <div class="wt-summary" style="padding:4px 14px;display:flex;gap:14px;font-size:11px;color:var(--tx2);flex-wrap:wrap">
       <span>Позиций: <b>${mtoItems.length}</b></span>
       <span>Разделов: <b>${cats.filter(c=>c).length}</b></span>
       <span id="mto-shown" style="color:var(--acc);display:none">Показано: <b id="mto-shown-n"></b></span>
+      ${TK.selBar('mto')}
+      <span style="margin-left:auto;color:var(--tx3);font-size:10px" title="Выделение: галочки, Ctrl+клик, Shift+клик, рамка мышью, Esc — снять. ПКМ по выделенным — действия для всех. ПКМ по заголовку — выбор столбцов. Щелчок по заголовку раздела — свернуть.">ℹ️ подсказка</span>
     </div>
-    <div style="flex:1;overflow:auto">
-      <table class="wt-tbl" style="min-width:900px">
-        <thead><tr>
-          <th class="no-sort" style="width:34px;text-align:center">#</th>
-          <th class="no-sort">Наименование</th>
-          <th class="no-sort" style="width:80px;text-align:center">Кол-во</th>
-          <th class="no-sort" style="width:110px;text-align:center">Год выпуска</th>
-          <th class="no-sort" style="width:100px;text-align:center">Состояние</th>
-          <th class="no-sort" style="width:170px">Принадлежность</th>
-          <th class="no-sort" style="min-width:120px">Примечания</th>
-          <th class="no-sort" style="width:60px"></th>
+    <div class="mto-scroll" style="flex:1;overflow:auto">
+      <table class="wt-tbl" id="mto-tbl" style="min-width:900px">
+        <thead oncontextmenu="TK.colsMenu(event,'mto',MTO_COLS.filter(c=>c[0]!=='name'&&c[0]!=='act'),()=>renderMTO())"><tr>
+          ${TK.chkTh('mto')}${MTO_COLS.filter(([k])=>show(k)).map(([k])=>hd[k]).join('')}
         </tr></thead>
         <tbody id="mto-tbody"></tbody>
       </table>
@@ -75,33 +87,45 @@ function renderMTO(){
 function mtoRenderRows(){
   const tb=document.getElementById('mto-tbody');if(!tb)return;
   const q=(_mtoQ||'').toLowerCase();
-  const filtered=q?mtoItems.filter(it=>((it.name||'')+' '+(it.category||'')+' '+(it.ownership||'')+' '+(it.notes||'')).toLowerCase().includes(q)):mtoItems;
+  const filtered=_mtoFiltered();
+  window._mtoShownIds=[];
+  const hidden=TK.hidden('mto');
+  const show=k=>!hidden.has(k);
+  const nCols=1+MTO_COLS.filter(([k])=>show(k)).length;
+  const col=TK.collapsed.mto||(TK.collapsed.mto={});
+  const selSet=TK.set('mto');
   let rows='',num=0;
   _mtoCategories().forEach(cat=>{
     const items=filtered.filter(it=>(it.category||'')===cat);
     if(!items.length)return;
-    rows+=`<tr style="background:var(--s2)">
-      <td colspan="8" style="padding:6px 10px;font-weight:800;font-size:11px;color:var(--acc)">
-        ${esc(cat||'Без раздела')} <span style="font-weight:400;color:var(--tx3)">· ${items.length}</span>
-      </td></tr>`;
+    const c=!!col[cat];
+    rows+=`<tr class="tk-gh" data-gk="${esc(cat)}" onclick="TK.toggleGroup('mto',this.dataset.gk)">
+      <td colspan="${nCols}" style="color:var(--acc)">${c?'▸':'▾'} ${esc(cat||'Без раздела')} <span style="font-weight:400;color:var(--tx3)">· ${items.length}</span></td></tr>`;
     items.forEach(it=>{
       num++;
-      rows+=`<tr oncontextmenu="event.preventDefault();mtoCtxMenu(event,'${escAttr(it.id)}')">
-        <td style="text-align:center;color:var(--tx3);font-size:10px;width:34px">${num}</td>
-        <td style="font-weight:600" class="td-link" onclick="mtoEditItem('${escAttr(it.id)}')" title="${esc(it.name)}">${esc(it.name)}</td>
-        <td style="text-align:center;font-weight:700;color:var(--acc)">${esc(it.quantity||'')}</td>
-        <td style="text-align:center">${esc(it.year||'')}</td>
-        <td style="text-align:center">${esc(it.condition||'')}</td>
-        <td>${esc(it.ownership||'')}</td>
-        <td class="td-notes" title="${esc(it.notes||'')}">${esc(it.notes||'')}</td>
-        <td style="white-space:nowrap;width:60px">
-          <button class="btn bg bxs" onclick="mtoEditItem('${escAttr(it.id)}')" title="Редактировать">✏️</button>
-          <button class="btn bg bxs" onclick="mtoDelItem('${escAttr(it.id)}')" title="Удалить">🗑</button>
-        </td>
+      window._mtoShownIds.push(it.id);
+      if(c)return;
+      const _id=escAttr(it.id), on=selSet.has(it.id);
+      const ed=f=>`class="td-editable" onclick="mtoCellEdit(event,this,'${_id}','${f}')"`;
+      const td={
+        num:`<td class="tk-num" style="text-align:center;color:var(--tx3);font-size:10px;width:34px">${num}</td>`,
+        name:`<td style="font-weight:600" class="td-link" onclick="mtoEditItem('${_id}')" title="${esc(it.name)}">${esc(it.name)}</td>`,
+        quantity:`<td ${ed('quantity')} style="text-align:center;font-weight:700;color:var(--acc)">${esc(it.quantity||'')}</td>`,
+        year:`<td ${ed('year')} style="text-align:center">${esc(it.year||'')}</td>`,
+        condition:`<td ${ed('condition')} style="text-align:center">${esc(it.condition||'')}</td>`,
+        ownership:`<td ${ed('ownership')}>${esc(it.ownership||'')}</td>`,
+        notes:`<td class="td-notes td-editable" title="${esc(it.notes||'')}" onclick="mtoCellEdit(event,this,'${_id}','notes')">${esc(it.notes||'')}</td>`,
+        act:`<td style="white-space:nowrap;width:60px">
+          <button class="btn bg bxs" onclick="mtoEditItem('${_id}')" title="Редактировать">✏️</button>
+          <button class="btn bg bxs" onclick="mtoDelItem('${_id}')" title="Удалить">🗑</button>
+        </td>`,
+      };
+      rows+=`<tr data-rid="${it.id}" class="${on?'lasso-sel':''}" oncontextmenu="event.preventDefault();mtoCtxMenu(event,'${_id}')">
+        ${TK.chkTd(on)}${MTO_COLS.filter(([k])=>show(k)).map(([k])=>td[k]).join('')}
       </tr>`;
     });
   });
-  tb.innerHTML=rows||`<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--tx3)">${
+  tb.innerHTML=rows||`<tr><td colspan="${nCols}" style="text-align:center;padding:32px;color:var(--tx3)">${
     q?'Ничего не найдено':'Список пуст — добавьте позицию или импортируйте таблицу (Word/Excel)'}</td></tr>`;
   const shown=document.getElementById('mto-shown');
   if(shown){
@@ -109,12 +133,67 @@ function mtoRenderRows(){
     shown.style.display=less?'':'none';
     if(less)document.getElementById('mto-shown-n').textContent=filtered.length;
   }
+  TK.initSelect('mto-tbody','mto');
+}
+
+// Правка ячейки: раздел/состояние/принадлежность — список с поиском, остальное — текст
+function mtoCellEdit(ev,td,id,field){
+  const it=mtoItems.find(x=>x.id===id);if(!it)return;
+  if(field==='condition'||field==='ownership'||field==='category'){
+    ev.stopPropagation();
+    const r=td.getBoundingClientRect();
+    _mtoPick([id],field,r.left,r.bottom+2);
+    return;
+  }
+  TK.cellText(ev,td,it[field]||'',v=>_mtoApply([id],{[field]:v.trim()},'Сохранено'));
+}
+async function _mtoApply(ids,patch,msg){
+  const list=ids.map(id=>mtoItems.find(x=>x.id===id)).filter(Boolean);
+  try{
+    await Promise.all(list.map(it=>{
+      const p=typeof patch==='function'?patch(it):patch;
+      return fetch(`${API}/mto/${it.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...it,...p,user_name:un()})});
+    }));
+  }catch(e){toast('Ошибка сохранения','err');}
+  await loadMTO();
+  if(msg)toast(list.length>1?`${msg}: ${list.length} поз.`:msg,'ok');
+}
+function _mtoPick(ids,field,x,y){
+  const one=ids.length===1?mtoItems.find(i=>i.id===ids[0]):null;
+  const T={category:['📁 Раздел','раздел','Раздел изменён'],condition:['🔧 Состояние','состояние','Состояние изменено'],ownership:['🏢 Принадлежность','значение','Принадлежность изменена']}[field];
+  let items=TK.distinct(mtoItems,i=>i[field]);
+  if(field==='condition')['Исправен','Неисправен','На ремонте','Списан'].forEach(v=>{if(!items.some(i=>i.v===v))items.push({v,l:v});});
+  if(field==='ownership')['Собственность','Аренда','Лизинг'].forEach(v=>{if(!items.some(i=>i.v===v))items.push({v,l:v});});
+  if(field==='category')items=[{v:'',l:'— без раздела —'},...items];
+  _searchPick({x,y,title:T[0]+(ids.length>1?` — ${ids.length} поз.`:''),items,current:one?(one[field]||''):null,addLabel:T[1],
+    onPick:v=>_mtoApply(ids,{[field]:v},T[2])});
+}
+function _mtoExportMenu(ev,fmt){
+  const by=id=>mtoItems.find(i=>i.id===id);
+  const shown=(window._mtoShownIds||[]).map(by).filter(Boolean);
+  const selIds=TK.selectedIds('mto');
+  TK.exportMenu(ev,{all:mtoItems,shown,selected:shown.filter(i=>selIds.includes(i.id)),
+    run:list=>fmt==='docx'?mtoExportDocx(list):mtoExportXlsx(list)});
 }
 
 function mtoCtxMenu(ev,id){
-  showCtx(ev.clientX,ev.clientY,[
-    {i:'✏️',l:'Редактировать',f:()=>mtoEditItem(id)},
-    {i:'🗑',l:'Удалить',cls:'dan',f:()=>mtoDelItem(id)},
+  const it=mtoItems.find(x=>x.id===id);if(!it)return;
+  const x=ev.clientX,y=ev.clientY;
+  const ids=TK.ctxIds('mto',id);
+  const multi=ids.length>1;
+  showCtx(x,y,[
+    multi?{i:'☑️',l:`<b>Выбрано: ${ids.length}</b>`,html:true,f:()=>{}}
+         :{i:'🛠',l:`<b>${esc(it.name)}</b>`,html:true,f:()=>mtoEditItem(id)},
+    {sep:true},
+    ...(multi?[]:[{i:'✏️',l:'Редактировать',f:()=>mtoEditItem(id)}]),
+    {i:'📁',l:'Раздел…',f:()=>_mtoPick(ids,'category',x,y)},
+    {i:'🔧',l:'Состояние…',f:()=>_mtoPick(ids,'condition',x,y)},
+    {i:'🏢',l:'Принадлежность…',f:()=>_mtoPick(ids,'ownership',x,y)},
+    {i:'📝',l:'Примечание…',f:()=>TK.notesModal(ids.length,multi?'':it.notes,async(txt,append)=>
+      _mtoApply(ids,append?(e=>({notes:(e.notes?e.notes+' ':'')+txt})):{notes:txt},append?'Примечание дописано':'Примечание сохранено'))},
+    {sep:true},
+    {i:'🗑',l:multi?`Удалить выбранные (${ids.length})`:'Удалить',cls:'cxi-red',
+      f:()=>multi?TK.bulkDelete(ids,i=>`/mto/${i}`,loadMTO):mtoDelItem(id)},
   ]);
 }
 
@@ -173,8 +252,7 @@ function mtoEditItem(id){
 }
 async function mtoDelItem(id){
   if(!await confirmDlg('Удалить позицию?'))return;
-  await fetch(`${API}/mto/${id}`,{method:'DELETE'});
-  await loadMTO();toast('Удалено','ok');
+  await apiDelUndo(`/mto/${id}`,'Позиция удалена',loadMTO);
 }
 
 // ── ИМПОРТ (.docx / .xlsx) ──────────────────────────────────
@@ -307,12 +385,13 @@ function _mtoImportPreview(items,fname){
 }
 
 // ── ЭКСПОРТ Excel ───────────────────────────────────────────
-function mtoExportXlsx(){
-  if(!mtoItems.length){toast('Список пуст','err');return;}
+function mtoExportXlsx(list){
+  const src=Array.isArray(list)?list:mtoItems;
+  if(!src.length){toast('Список пуст','err');return;}
   const aoa=[MTO_DOC_HEADERS];
   let num=0;
   _mtoCategories().forEach(cat=>{
-    const items=mtoItems.filter(it=>(it.category||'')===cat);
+    const items=src.filter(it=>(it.category||'')===cat);
     if(!items.length)return;
     if(cat)aoa.push([cat]);
     items.forEach(it=>{num++;aoa.push([num,it.name,it.quantity||'',it.year||'',it.condition||'',it.ownership||'',it.notes||'']);});
@@ -337,15 +416,16 @@ function _mtoDocxCell(text,opts){
   return `<w:tc><w:tcPr>${w}${span}${shd}<w:vAlign w:val="center"/></w:tcPr>`+
     `<w:p><w:pPr>${jc}</w:pPr><w:r><w:rPr>${b}<w:sz w:val="${opts.sz||20}"/></w:rPr><w:t xml:space="preserve">${_mtoXml(text)}</w:t></w:r></w:p></w:tc>`;
 }
-async function mtoExportDocx(){
-  if(!mtoItems.length){toast('Список пуст','err');return;}
+async function mtoExportDocx(list){
+  const src=Array.isArray(list)?list:mtoItems;
+  if(!src.length){toast('Список пуст','err');return;}
   let JSZip;
   try{JSZip=await _mtoLoadJSZip();}catch(e){toast(e.message,'err');return;}
   const widths=[600,4400,1000,1200,1300,1700,1200];
   let xmlRows='<w:tr>'+MTO_DOC_HEADERS.map((h,i)=>_mtoDocxCell(h,{bold:true,center:true,shade:true,w:widths[i],sz:18})).join('')+'</w:tr>';
   let num=0;
   _mtoCategories().forEach(cat=>{
-    const items=mtoItems.filter(it=>(it.category||'')===cat);
+    const items=src.filter(it=>(it.category||'')===cat);
     if(!items.length)return;
     if(cat)xmlRows+='<w:tr>'+_mtoDocxCell(cat,{bold:true,center:true,span:7,shade:true})+'</w:tr>';
     items.forEach(it=>{
