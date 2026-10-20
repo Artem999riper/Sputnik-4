@@ -55,7 +55,7 @@ async function pgkCellEdit(ev, td, entityType, id, field) {
   const origHTML = td.innerHTML;
 
   // Связанные поля сотрудников/техники/материалов — список с поиском
-  const _pickF={worker:['role','base_id'],machinery:['type','base_id','driver_id'],material:['category','unit']};
+  const _pickF={worker:['role','base_id'],machinery:['type','base_id','driver_id'],material:['category','unit','base_id']};
   if (_pickF[entityType] && _pickF[entityType].includes(field)) {
     const r=td.getBoundingClientRect();
     _pgkPick(entityType,[id],field,r.left,r.bottom+2);
@@ -1656,6 +1656,7 @@ function _equipInitSelect(){
   const tb=document.getElementById('et-tbody');if(!tb)return;
   const visRows=()=>[...tb.querySelectorAll('tr[data-eid]')].filter(r=>r.style.display!=='none');
   const setRow=(tr,on)=>{tr.classList.toggle('lasso-sel',on);const c=tr.querySelector('.eq-chk');if(c)c.checked=on;};
+  tb.addEventListener('mousedown',ev=>{if(ev.shiftKey||ev.ctrlKey||ev.metaKey)ev.preventDefault();},true);
   tb.addEventListener('click',ev=>{
     const tr=ev.target.closest('tr[data-eid]');if(!tr)return;
     const isChk=ev.target.classList&&ev.target.classList.contains('eq-chk');
@@ -1716,6 +1717,7 @@ function _equipUpdateSelInfo(){
     on?window._eqSel.add(r.dataset.eid):window._eqSel.delete(r.dataset.eid);
     const c=r.querySelector('.eq-chk');if(c&&c.checked!==on)c.checked=on;
   });
+  try{const sl=window.getSelection();const t=document.getElementById('et-table');if(sl&&!sl.isCollapsed&&t&&t.contains(sl.anchorNode))sl.removeAllRanges();}catch(e){}
   const n=rows.filter(r=>r.classList.contains('lasso-sel')).length;
   const si=document.getElementById('eq-sel-info');
   const sc=document.getElementById('eq-sel-cnt');
@@ -2161,6 +2163,10 @@ function _pgkPick(type,ids,field,x,y){
     ['шт','кг','т','л','м','м²','м³','компл','упак'].forEach(u=>{if(!items.some(i=>i.v===u))items.push({v:u,l:u});});
   }else return;
   if(ids.length>1)title+=` — ${ids.length} поз.`;
+  if(type==='material'&&field==='base_id'){
+    _searchPick({x,y,title:title.replace('База','Перевести на базу'),items:items.filter(i=>i.v),current:cur,onPick:v=>_matMove(ids,v)});
+    return;
+  }
   _searchPick({x,y,title,items,current:cur,addLabel,onPick:async v=>{
     // новая группа материалов — сразу создаём, чтобы она появилась слева
     if(type==='material'&&field==='category'&&v&&!pgkMatGroups.some(g=>g.name===v)){
@@ -2168,6 +2174,21 @@ function _pgkPick(type,ids,field,x,y){
     }
     await _pgkApply(type,ids,{[field]:map(v)},msg);
   }});
+}
+// Перевод материалов на другую базу (одинаковые на целевой базе — суммируются)
+async function _matMove(ids,baseId){
+  if(!baseId)return;
+  let merged=0,moved=0;
+  for(const id of ids){
+    try{
+      const r=await fetch(`${API}/materials/${id}/move`,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({base_id:baseId,user_name:un()})}).then(r=>r.json());
+      if(r&&r.ok&&!r.same){r.merged?merged++:moved++;}
+    }catch(e){}
+  }
+  await loadPGK();if(typeof loadAll==='function'){try{await loadAll();}catch(e){}}
+  const bn=(bases.find(b=>b.id===baseId)||{}).name||'';
+  toast(`Переведено на «${bn}»: ${moved+merged}${merged?` (объединено с имеющимися: ${merged})`:''}`,'ok');
 }
 function _pgkNotes(type,ids){
   const one=ids.length===1?_pgkItem(type,ids[0]):null;
@@ -2387,7 +2408,7 @@ async function pgkPageMaterials(pb){
       num:`<td style="text-align:center;width:28px;color:var(--tx3);font-size:10px;font-weight:600" class="mat-rownum tk-num">${i}</td>`,
       name:`<td class="td-link" style="font-weight:600" title="${esc(m.name)}" onclick="pgkMatDetail('${_id}')">📦 ${esc(m.name)}</td>`,
       category:`<td class="td-editable" onclick="pgkCellEdit(event,this,'material','${_id}','category')">${m.category?`<span style="background:var(--s3);border:1px solid var(--bd);border-radius:20px;padding:1px 7px;font-size:10px;font-weight:600;color:var(--tx2)">${esc(m.category)}</span>`:dash}</td>`,
-      base:`<td class="td-editable" style="color:var(--bpc)" title="Перевести на другую базу" onclick="event.stopPropagation();openTransferModal('material','${_id}')">🏕 ${esc(m.base_name||'—')}</td>`,
+      base:`<td class="td-editable" style="color:var(--bpc)" title="Перевести на другую базу" onclick="pgkCellEdit(event,this,'material','${_id}','base_id')">🏕 ${esc(m.base_name||'—')}</td>`,
       amount:`<td class="td-editable${low?' mat-low':''}" style="font-weight:700;color:${low?'var(--red)':'var(--acc)'};text-align:right" onclick="pgkCellEdit(event,this,'material','${_id}','amount')">${m.amount}</td>`,
       unit:`<td class="td-editable" style="color:var(--tx2)" onclick="pgkCellEdit(event,this,'material','${_id}','unit')">${esc(m.unit||'шт')}</td>`,
       min_amount:`<td class="td-editable" style="text-align:right;color:var(--tx2)" onclick="pgkCellEdit(event,this,'material','${_id}','min_amount')">${m.min_amount?m.min_amount:dash}</td>`,
@@ -2576,6 +2597,7 @@ function pgkMatCtxMenu(ev,matId){
       {i:'🔄',l:'Перевести на другую базу',f:()=>openTransferModal('material',matId)},
       {sep:true},
     ]),
+    {i:'🏕',l:multi?'Перевести на базу…':'База…',f:()=>_pgkPick('material',ids,'base_id',x,y)},
     {i:'📁',l:'Группа…',f:()=>_pgkPick('material',ids,'category',x,y)},
     {i:'📏',l:'Единица…',f:()=>_pgkPick('material',ids,'unit',x,y)},
     {i:'🗒',l:'Примечание…',f:()=>_pgkNotes('material',ids)},

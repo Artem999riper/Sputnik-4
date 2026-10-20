@@ -68,6 +68,9 @@ const TK = {
       on ? set.add(r.dataset.rid) : set.delete(r.dataset.rid);
       const c = r.querySelector('.tk-chk'); if (c && c.checked !== on) c.checked = on;
     });
+    // убрать «синее» выделение текста, которое браузер ставит при Shift+клике и протягивании рамкой
+    try { const sl = window.getSelection(); const tb = document.getElementById(tbId);
+      if (sl && !sl.isCollapsed && tb && tb.closest('table').contains(sl.anchorNode)) sl.removeAllRanges(); } catch (e) {}
     const n = rows.filter(r => r.classList.contains('lasso-sel')).length;
     const si = document.getElementById(key + '-sel-info'), sc = document.getElementById(key + '-sel-cnt');
     if (si && sc) { si.style.display = n ? '' : 'none'; sc.textContent = n; }
@@ -92,6 +95,8 @@ const TK = {
     // повторный вызов для того же tbody (перерисованы только строки) — обработчики уже есть
     if (tb._tkInit) { TK.update(key); return; }
     tb._tkInit = true;
+    // Shift/Ctrl+щелчок не должен выделять текст строк
+    tb.addEventListener('mousedown', ev => { if (ev.shiftKey || ev.ctrlKey || ev.metaKey) ev.preventDefault(); }, true);
     tb.addEventListener('click', ev => {
       const tr = ev.target.closest('tr[data-rid]'); if (!tr) return;
       const isChk = ev.target.classList && ev.target.classList.contains('tk-chk');

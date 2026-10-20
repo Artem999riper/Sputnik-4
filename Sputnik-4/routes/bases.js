@@ -151,6 +151,41 @@ module.exports = (app, getDb, L) => {
     res.json({ ok: true, change });
   }));
 
+  // ── ПЕРЕМЕСТИТЬ МАТЕРИАЛ НА ДРУГУЮ БАЗУ ───────────────────
+  // Если на целевой базе уже есть такой же (имя+ед.) — количество суммируется,
+  // а исходная позиция удаляется; иначе позиция просто переезжает (с историей).
+  app.post('/api/materials/:id/move', wrap((req, res) => {
+    const { base_id, user_name } = req.body || {};
+    if (!base_id) return res.status(400).json({ error: 'base_id обязателен' });
+    const d = db();
+    const mat = get(d, 'SELECT * FROM materials WHERE id=?', [req.params.id]);
+    if (!mat) return res.status(404).json({ error: 'Not found' });
+    if (mat.base_id === base_id) return res.json({ ok: true, same: true });
+    const target = get(d, 'SELECT name FROM bases WHERE id=?', [base_id]);
+    if (!target) return res.status(404).json({ error: 'База не найдена' });
+    const src = get(d, 'SELECT name FROM bases WHERE id=?', [mat.base_id]) || {};
+    const key = s => String(s || '').trim().toLowerCase();
+    const twin = all(d, 'SELECT * FROM materials WHERE base_id=?', [base_id])
+      .find(x => key(x.name) === key(mat.name) && key(x.unit || 'шт') === key(mat.unit || 'шт'));
+    const today = new Date().toISOString().split('T')[0];
+    d.transaction(() => {
+      if (twin) {
+        const prev = twin.amount || 0, next = prev + (mat.amount || 0);
+        run(d, 'INSERT INTO materials_log(id,material_id,base_id,prev_amount,new_amount,change_amount,act_date,notes,user_name)VALUES(?,?,?,?,?,?,?,?,?)',
+          [uuid(), twin.id, base_id, prev, next, mat.amount || 0, today, `Приход при переводе с базы ${src.name || ''}`, user_name || 'Система']);
+        run(d, 'UPDATE materials SET amount=? WHERE id=?', [next, twin.id]);
+        run(d, 'DELETE FROM materials_log WHERE material_id=?', [mat.id]);
+        run(d, 'DELETE FROM materials WHERE id=?', [mat.id]);
+      } else {
+        run(d, 'UPDATE materials SET base_id=? WHERE id=?', [base_id, mat.id]);
+        run(d, 'INSERT INTO materials_log(id,material_id,base_id,prev_amount,new_amount,change_amount,act_date,notes,user_name)VALUES(?,?,?,?,?,?,?,?,?)',
+          [uuid(), mat.id, base_id, mat.amount || 0, mat.amount || 0, 0, today, `Перевод с базы ${src.name || ''} на ${target.name}`, user_name || 'Система']);
+      }
+    })();
+    L(null, base_id, 'Перевод материала', `${mat.name}: ${src.name || ''} → ${target.name}`, user_name);
+    res.json({ ok: true, merged: !!twin });
+  }));
+
   // ── MERGE DUPLICATE MATERIALS ──────────────────────────────
   app.post('/api/bases/:id/materials/merge', wrap((req, res) => {
     const d = db();
