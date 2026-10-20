@@ -1627,6 +1627,9 @@ function _equipUpdateSelInfo(){
 
 // Экспорт: всё / показанное (с фильтрами и сортировкой) / выделенное
 function _equipExportMenu(ev){
+  // не дать этому же щелчку дойти до document и сразу закрыть меню
+  ev.stopPropagation();
+  window._ctxKeepUntil=Date.now()+250;
   const r=ev.currentTarget.getBoundingClientRect();
   const shown=(window._eqShownIds||[]).map(id=>pgkEquipment.find(e=>e.id===id)).filter(Boolean);
   const selIds=_equipSelectedIds();
