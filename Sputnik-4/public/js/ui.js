@@ -50,6 +50,20 @@ function confirmDlg(msg,opts){
   });
 }
 
+// Esc закрывает открытое контекстное меню (ПКМ) и меню выбора столбцов.
+// Срабатывает раньше остальных обработчиков Esc, поэтому первым нажатием
+// закрывается только меню — выделение строк остаётся (второй Esc снимет его).
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape')return;
+  const ctx=document.getElementById('ctx');
+  const menus=[...document.querySelectorAll('#tk-cols-menu,#eq-cols-menu')];
+  if((ctx&&ctx.classList.contains('show'))||menus.length){
+    window._ctxKeepUntil=0;
+    if(ctx)ctx.classList.remove('show');
+    menus.forEach(m=>m.remove());
+    e.preventDefault();e.stopImmediatePropagation();
+  }
+},true);
 function hideCtx(){
   // Гвард: меню, открытое программно сразу после клика по пункту другого меню,
   // не должно закрываться «хвостом» того же клика
