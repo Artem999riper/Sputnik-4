@@ -1784,6 +1784,7 @@ function renderLayerGroupsWithSymbols() {
                 try { map.flyToBounds(layer.getBounds ? layer.getBounds() : L.latLngBounds([[layer.getLatLng().lat,layer.getLatLng().lng]]), {padding:[60,60]}); }
                 catch(e){ try{map.flyTo(layer.getLatLng(),16);}catch(e2){} }
               }},
+              ...(f.geometry&&f.geometry.type!=='Point'&&f.geometry.type!=='MultiPoint'?[{i:'📐',l:/Polygon/.test(f.geometry.type)?'Площадь и периметр':'Длина',f:()=>measureGeometry(f.geometry,featureName)}]:[]),
               ...(fIdx>=0?[{i:'✅',l:(f.properties&&f.properties._color===KML_DONE_COLOR)?'Снять «выполнено»':'Выполнить объект',f:()=>kmlToggleDone(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'✏️',l:'Редактировать объект',f:()=>kmlEditFeature(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'↔',l:'Передвинуть',f:()=>startKmlMoveFeature(l.id,fIdx)}]:[]),

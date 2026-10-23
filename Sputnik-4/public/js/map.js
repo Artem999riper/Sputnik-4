@@ -66,7 +66,7 @@ function onMapRClick(e){
   if(rulerActive){
     showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
       {i:'↩️',l:'Отменить последнюю точку',f:rulerUndoLast},
-      {i:'✅',l:'Завершить замер',f:stopRuler},
+      {i:'✅',l:'Завершить замер',f:()=>{stopRuler();rulerShowResult();}},
       {sep:true},
       {i:'🗑',l:'Отменить линейку',cls:'dan',f:clearRuler}
     ]);
@@ -84,8 +84,9 @@ function onMapRClick(e){
     {sep:true},
     {i:'📍',l:'Отметка высоты (БСВ-77)',f:()=>showElevationAtPoint(e.latlng)},
     {sep:true},
-    {i:'📏',l:'Линейка (замер расстояния)',f:startRuler},
-    ...(hasRuler?[{i:'🗑',l:'Убрать линейку',cls:'dan',f:clearRuler}]:[])
+    {i:'📏',l:'Линейка (замер расстояния)',f:()=>startRuler('line')},
+    {i:'📐',l:'Замер площади и периметра',f:()=>startRuler('area')},
+    ...(hasRuler?[{i:'🧮',l:'Итог замера',f:rulerShowResult},{i:'🗑',l:'Убрать замер',cls:'dan',f:clearRuler}]:[])
   ]);
 }
 
