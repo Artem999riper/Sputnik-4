@@ -2164,7 +2164,8 @@ function _pgkPick(type,ids,field,x,y){
   }else return;
   if(ids.length>1)title+=` — ${ids.length} поз.`;
   if(type==='material'&&field==='base_id'){
-    _searchPick({x,y,title:title.replace('База','Перевести на базу'),items:items.filter(i=>i.v),current:cur,onPick:v=>_matMove(ids,v)});
+    _searchPick({x,y,title:title.replace('База','Перевести на базу'),items:items.filter(i=>i.v&&(ids.length>1||i.v!==cur)),current:cur,
+      onPick:v=>ids.length===1?_matMoveQty(ids[0],v):_matMove(ids,v)});
     return;
   }
   _searchPick({x,y,title,items,current:cur,addLabel,onPick:async v=>{
@@ -2176,18 +2177,38 @@ function _pgkPick(type,ids,field,x,y){
   }});
 }
 // Перевод материалов на другую базу (одинаковые на целевой базе — суммируются)
-async function _matMove(ids,baseId){
+// Один материал — спросить количество (можно перевести часть остатка)
+function _matMoveQty(id,baseId){
+  const m=_matById(id);if(!m||!baseId)return;
+  const bn=(bases.find(b=>b.id===baseId)||{}).name||'';
+  showModal(`🔄 Перевод на «${esc(bn)}»`,`<div class="fgr">
+    <div class="fg s2" style="font-size:12px">${esc(m.name)} · на «${esc(m.base_name||'')}»: <b>${m.amount} ${esc(m.unit||'шт')}</b></div>
+    <div class="fg s2"><label>Сколько перевести</label>
+      <div style="display:flex;gap:6px;align-items:center"><input id="f-mvq" type="number" step="any" min="0" max="${m.amount}" value="${m.amount}" style="flex:1">
+      <span>${esc(m.unit||'шт')}</span><button class="btn bs bsm" onclick="document.getElementById('f-mvq').value='${m.amount}'">Всё</button></div></div>
+    <div class="fg s2" style="font-size:10px;color:var(--tx3)">Если на «${esc(bn)}» уже есть такой материал (то же название и единица) — количество прибавится к нему.</div>
+  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Перевести →',cls:'bp',fn:async()=>{
+    const q=parseFloat(String(v('f-mvq')).replace(',','.'));
+    if(!(q>0)){toast('Укажите количество больше нуля','err');return;}
+    if(q>m.amount){toast(`Больше, чем есть (${m.amount})`,'err');return;}
+    closeModal();await _matMove([id],baseId,q>=m.amount?null:q);
+  }}]);
+  setTimeout(()=>{const i=document.getElementById('f-mvq');if(i){i.focus();i.select();}},60);
+}
+async function _matMove(ids,baseId,qty){
   if(!baseId)return;
   let merged=0,moved=0;
   for(const id of ids){
     try{
       const r=await fetch(`${API}/materials/${id}/move`,{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({base_id:baseId,user_name:un()})}).then(r=>r.json());
+        body:JSON.stringify({base_id:baseId,amount:qty??null,user_name:un()})}).then(r=>r.json());
       if(r&&r.ok&&!r.same){r.merged?merged++:moved++;}
     }catch(e){}
   }
   await loadPGK();if(typeof loadAll==='function'){try{await loadAll();}catch(e){}}
+  if(typeof currentObj!=='undefined'&&currentObj&&typeof refreshCurrent==='function'){try{await refreshCurrent();}catch(e){}}
   const bn=(bases.find(b=>b.id===baseId)||{}).name||'';
+  if(qty){toast(`Переведено на «${bn}»: ${qty}${merged?' (добавлено к имеющемуся)':''}`,'ok');return;}
   toast(`Переведено на «${bn}»: ${moved+merged}${merged?` (объединено с имеющимися: ${merged})`:''}`,'ok');
 }
 function _pgkNotes(type,ids){
@@ -3716,6 +3737,8 @@ async function delMat(id){if(!await confirmDlg('Удалить?'))return;await a
 // TRANSFER RESOURCES BETWEEN BASES
 // ═══════════════════════════════════════════════════════════
 function openTransferModal(type, itemId){
+  // Материал — выбор базы со списком и поиском + количество (частичный перевод)
+  if(type==='material'&&typeof _pgkPick==='function'){_pgkPick('material',[itemId],'base_id',window.innerWidth/2-165,window.innerHeight/3);return;}
   // find source base for material
   let sourceBaseId=currentObj?currentObj.id:null;
   if(type==='material'){

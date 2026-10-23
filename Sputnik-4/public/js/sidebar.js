@@ -622,6 +622,7 @@ function _csvColOptions(rows, hasHeader, maxCols) {
   return labels.map((l,i) => `<option value="${i}">${i+1}: ${l}</option>`).join('');
 }
 
+let _csvLast=(function(){try{return JSON.parse(localStorage.getItem('csv_import_last')||'{}')||{};}catch(e){return {};}})();
 function _showCsvConfigModal(text, fileName) {
   return new Promise(resolve => {
     let delim = _csvAutoDelim(text.split(/\r?\n/)[0] || '');
@@ -659,7 +660,7 @@ function _showCsvConfigModal(text, fileName) {
             <div style="font-size:11px;font-weight:700;margin-bottom:4px">Предпросмотр</div>
             <div id="csv-preview" style="overflow-x:auto;max-height:120px;overflow-y:auto">${_csvRenderPreviewTable(rows, maxCols)}</div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:7px">
             <div>
               <div style="font-size:11px;font-weight:600;margin-bottom:3px">Имя точки</div>
               <div id="csv-wrap-name">${selName}</div>
@@ -672,6 +673,24 @@ function _showCsvConfigModal(text, fileName) {
               <div style="font-size:11px;font-weight:600;margin-bottom:3px">Y (Восток / Долг.)</div>
               <div id="csv-wrap-y">${selY}</div>
             </div>
+            <div>
+              <div style="font-size:11px;font-weight:600;margin-bottom:3px">Высота H</div>
+              <div id="csv-wrap-h"><select id="csv-col-h" style="width:100%;font-size:12px;padding:3px;border:1px solid var(--bd);border-radius:4px;background:var(--s2);color:var(--tx)">${noOpt}${opts}</select></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px">
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="csv-swap" ${_csvLast.swap?'checked':''}> Поменять местами X и Y</label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="csv-attrs" ${_csvLast.attrs!==false?'checked':''}> Остальные столбцы — в атрибуты точек</label>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;margin-bottom:4px">Куда</div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px">
+              <label style="display:flex;align-items:center;gap:4px"><input type="radio" name="csv-dst" value="new" checked> новый слой</label>
+              <input id="csv-lname" value="${esc(String(fileName||'').replace(/\.(csv|txt|xlsx?|dat)$/i,''))}" style="flex:1;min-width:120px;font-size:12px;padding:3px 6px;border:1px solid var(--bd);border-radius:4px;background:var(--s2);color:var(--tx)" oninput="document.querySelector('input[name=csv-dst][value=new]').checked=true">
+              <label style="display:flex;align-items:center;gap:4px"><input type="radio" name="csv-dst" value="exist" ${(layers||[]).length?'':'disabled'}> в слой</label>
+              <select id="csv-layer" style="max-width:180px;font-size:12px;padding:3px;border:1px solid var(--bd);border-radius:4px;background:var(--s2);color:var(--tx)" onchange="document.querySelector('input[name=csv-dst][value=exist]').checked=true">
+                ${(layers||[]).map(l=>`<option value="${escAttr(l.id)}">${esc(l.name)}</option>`).join('')}</select>
+            </div>
           </div>
           <div>
             <div style="font-size:11px;font-weight:700;margin-bottom:4px">Система координат</div>
@@ -680,7 +699,11 @@ function _showCsvConfigModal(text, fileName) {
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′)</label>
             ${_mskFullPickerHtml('csv','2px')}
             ${_utmPickerHtml('csv','2px')}
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="gsk2011"> ГСК-2011</label>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="gsk2011"> ГСК-2011 (зоны МСК-86)</label>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="gk:sk42"> СК-42 Гаусс-Крюгер (зона по Y)</label>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="gk:sk95"> СК-95 Гаусс-Крюгер (зона по Y)</label>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="gk:gsk"> ГСК-2011 Гаусс-Крюгер (зона по Y)</label>
+            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="geo:sk42"> СК-42 (широта / долгота)</label>
             <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="wgs84"> WGS-84 (широта / долгота)</label>
           </div>
         </div>`;
@@ -697,6 +720,8 @@ function _showCsvConfigModal(text, fileName) {
       if (sName) sName.value = nameCol;
       if (sX)    sX.value   = xCol;
       if (sY)    sY.value   = yCol;
+      const sH = document.getElementById('csv-col-h');
+      if (sH) { const hi = hasHeader ? (r2[0] || []).findIndex(h => /^\s*(h|z|высота|отметка|абс\.?\s*отм)/i.test(String(h))) : -1; sH.value = hi; }
     }
 
     // exposed to inline handlers
@@ -708,12 +733,12 @@ function _showCsvConfigModal(text, fileName) {
       if (prev) prev.innerHTML = _csvRenderPreviewTable(rows, maxCols);
       const opts = _csvColOptions(rows, hasHeader, maxCols);
       const noOpt = '<option value="-1">— Нет —</option>';
-      ['csv-wrap-name','csv-wrap-x','csv-wrap-y'].forEach((wid, wi) => {
+      ['csv-wrap-name','csv-wrap-x','csv-wrap-y','csv-wrap-h'].forEach((wid, wi) => {
         const wrap = document.getElementById(wid);
         if (!wrap) return;
         const sel = wrap.querySelector('select');
         if (!sel) return;
-        sel.innerHTML = (wi === 0 ? noOpt : '') + opts;
+        sel.innerHTML = (wi === 0 || wi === 3 ? noOpt : '') + opts;
       });
       applyColDefaults();
     };
@@ -723,12 +748,12 @@ function _showCsvConfigModal(text, fileName) {
       rows = r2; maxCols = mc;
       const opts = _csvColOptions(rows, hasHeader, maxCols);
       const noOpt = '<option value="-1">— Нет —</option>';
-      ['csv-wrap-name','csv-wrap-x','csv-wrap-y'].forEach((wid, wi) => {
+      ['csv-wrap-name','csv-wrap-x','csv-wrap-y','csv-wrap-h'].forEach((wid, wi) => {
         const wrap = document.getElementById(wid);
         if (!wrap) return;
         const sel = wrap.querySelector('select');
         if (!sel) return;
-        sel.innerHTML = (wi === 0 ? noOpt : '') + opts;
+        sel.innerHTML = (wi === 0 || wi === 3 ? noOpt : '') + opts;
       });
       applyColDefaults();
     };
@@ -741,12 +766,26 @@ function _showCsvConfigModal(text, fileName) {
         const yc = parseInt(document.getElementById('csv-col-y')?.value  ?? 2);
         const crs = _mskReadCrs('csv','msk86');
         const hdr = !!document.getElementById('csv-hdr')?.checked;
+        const hc = parseInt(document.getElementById('csv-col-h')?.value ?? -1);
+        const swap = !!document.getElementById('csv-swap')?.checked;
+        const attrs = !!document.getElementById('csv-attrs')?.checked;
+        const dst = (document.querySelector('input[name="csv-dst"]:checked')||{}).value||'new';
+        const layerId = document.getElementById('csv-layer')?.value||'';
+        const layerName = (document.getElementById('csv-lname')?.value||'').trim();
+        _csvLast={crs,swap,attrs};try{localStorage.setItem('csv_import_last',JSON.stringify(_csvLast));}catch(e){}
         closeModal();
-        resolve({ delim, hasHeader: hdr, nameCol: nc, xCol: xc, yCol: yc, crs });
+        resolve({ delim, hasHeader: hdr, nameCol: nc, xCol: xc, yCol: yc, hCol: hc, crs, swap, attrs, dst, layerId, layerName });
       }},
     ]);
     // set select values after modal renders
-    setTimeout(applyColDefaults, 50);
+    setTimeout(()=>{
+      applyColDefaults();
+      // последняя использованная система координат
+      const c=_csvLast.crs||'';const base=c.startsWith('mskfull:')?'mskfull':c.startsWith('utm:')?'utm':c;
+      const r=document.querySelector(`input[name="csv-crs"][value="${base}"]`);if(r)r.checked=true;
+      if(base==='mskfull'){const [,rg,dt]=c.split(':');const a=document.getElementById('csv-mskreg'),b=document.getElementById('csv-mskdatum');if(a&&rg)a.value=rg;if(b&&dt)b.value=dt;}
+      if(base==='utm'){const z=document.getElementById('csv-utmzone');if(z)z.value=c.split(':')[1];}
+    },50);
   });
 }
 
@@ -769,7 +808,8 @@ async function _importCsv(file, text) {
   if(typeof loadMskFull==='function'){try{await loadMskFull();}catch(e){}}
   const cfg = await _showCsvConfigModal(text, file.name);
   if (!cfg) return;
-  const { delim, hasHeader, nameCol, xCol, yCol, crs } = cfg;
+  const { delim, hasHeader, nameCol, xCol, yCol, hCol, crs, swap, attrs, dst, layerId, layerName: lnIn } = cfg;
+  const headerRow = hasHeader ? _csvSplitLine(text.split(/\r?\n/).find(l => l.trim()) || '', delim) : [];
 
   const allLines = text.split(/\r?\n/).filter(l => l.trim());
   const dataLines = hasHeader ? allLines.slice(1) : allLines;
@@ -783,14 +823,24 @@ async function _importCsv(file, text) {
     const rawY = cols[yCol] || '';
     const nm   = nameCol >= 0 ? (cols[nameCol] || `Точка ${i + 1}`) : `Точка ${i + 1}`;
 
-    const x = _csvParseCoordVal(rawX); // Север/Широта (поддержка ГМС)
-    const y = _csvParseCoordVal(rawY); // Восток/Долгота (поддержка ГМС)
+    let x = _csvParseCoordVal(rawX); // Север/Широта (поддержка ГМС)
+    let y = _csvParseCoordVal(rawY); // Восток/Долгота (поддержка ГМС)
     if (isNaN(x) || isNaN(y)) { skipped++; return; }
+    if (swap) [x, y] = [y, x];
 
     let lat, lng;
     try {
       if (crs === 'wgs84') {
         lat = x; lng = y;
+      } else if (crs.startsWith('gk:') && typeof CV_DATUM !== 'undefined') {
+        // Гаусс-Крюгер 6°: зона — первые цифры Y
+        const z = Math.floor(y / 1e6);
+        if (z < 1 || z > 60) throw new Error('zone');
+        const p = proj4(`+proj=tmerc +lat_0=0 +lon_0=${6 * z - 3} +k=1 +x_0=${z * 1e6 + 500000} +y_0=0 ${CV_DATUM[crs.slice(3)]} +units=m +no_defs`, '+proj=longlat +datum=WGS84 +no_defs', [y, x]);
+        lat = p[1]; lng = p[0];
+      } else if (crs === 'geo:sk42' && typeof CV_GEO !== 'undefined') {
+        const p = proj4(CV_GEO.sk42[1], '+proj=longlat +datum=WGS84 +no_defs', [y, x]);
+        lat = p[1]; lng = p[0];
       } else if (typeof isMskFull === 'function' && isMskFull(crs)) {
         // МСК любого региона (2001/2008) — зона по префиксу Y
         const res = mskFullToWgs(x, y, crs);
@@ -814,28 +864,48 @@ async function _importCsv(file, text) {
     if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180)
       { skipped++; return; }
 
+    const props = { name: nm.trim() || `Точка ${i + 1}` };
+    const hv = hCol >= 0 ? _csvParseCoordVal(cols[hCol]) : NaN;
+    if (isFinite(hv)) props.H = hv;
+    if (attrs) cols.forEach((v, ci) => {
+      if (ci === xCol || ci === yCol || ci === nameCol || ci === hCol || !String(v).trim()) return;
+      const key = String(headerRow[ci] || `Поле ${ci + 1}`).trim() || `Поле ${ci + 1}`;
+      props[key] = String(v).trim();
+    });
     features.push({
       type: 'Feature',
-      geometry: { type: 'Point', coordinates: [lng, lat] },
-      properties: { name: nm.trim() || `Точка ${i + 1}` },
+      geometry: { type: 'Point', coordinates: isFinite(hv) ? [lng, lat, hv] : [lng, lat] },
+      properties: props,
     });
   });
 
   if (!features.length) { toast('Нет корректных точек для импорта', 'err'); return; }
 
-  const layerName = file.name.replace(/\.(csv|txt)$/i, '');
-  const color = LCOLORS[layers.length % LCOLORS.length];
-  const gj = JSON.stringify({ type: 'FeatureCollection', features });
-
-  await fetch(`${API}/layers`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: layerName, geojson: gj, color, symbol: 'picket' }),
-  });
+  if (dst === 'exist' && layerId) {
+    // Дописать точки в существующий слой
+    const L0 = await fetch(`${API}/layers/${layerId}`).then(r => r.json()).catch(() => null);
+    if (!L0 || L0.error) { toast('Слой не найден', 'err'); return; }
+    let g0; try { g0 = JSON.parse(L0.geojson || '{}'); } catch (e) { g0 = {}; }
+    if (!g0 || g0.type !== 'FeatureCollection') g0 = { type: 'FeatureCollection', features: [] };
+    g0.features = (g0.features || []).concat(features);
+    await fetch(`${API}/layers/${layerId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...L0, geojson: JSON.stringify(g0), visible: !!L0.visible, show_labels: !!L0.show_labels }) });
+  } else {
+    const layerName = lnIn || file.name.replace(/\.(csv|txt|xlsx?)$/i, '');
+    const color = LCOLORS[layers.length % LCOLORS.length];
+    const gj = JSON.stringify({ type: 'FeatureCollection', features });
+    await fetch(`${API}/layers`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: layerName, geojson: gj, color, symbol: 'picket' }),
+    });
+  }
   const fresh = await fetch(`${API}/layers`).then(r => r.json()).catch(() => layers);
   layers = fresh;
   renderLP(); renderLayerGroups();
   try { if (kmlPanelOpen) renderKmlPanel(); } catch (e) {}
-  toast(`CSV импортирован: ${features.length} точек${skipped ? `, пропущено ${skipped}` : ''}`, 'ok');
+  toast(`Импортировано точек: ${features.length}${dst === 'exist' ? ' (добавлены в слой)' : ''}${skipped ? `, пропущено ${skipped}` : ''}`, 'ok');
+  // показать импортированное на карте
+  try { const b = L.latLngBounds(features.map(f => [f.geometry.coordinates[1], f.geometry.coordinates[0]])); if (b.isValid()) map.fitBounds(b.pad(0.2)); } catch (e) {}
 }
 
 function kmlToGJ(kml){

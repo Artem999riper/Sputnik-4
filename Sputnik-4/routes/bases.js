@@ -156,6 +156,7 @@ module.exports = (app, getDb, L) => {
   // а исходная позиция удаляется; иначе позиция просто переезжает (с историей).
   app.post('/api/materials/:id/move', wrap((req, res) => {
     const { base_id, user_name } = req.body || {};
+    const qty = req.body && req.body.amount != null && req.body.amount !== '' ? parseFloat(req.body.amount) : null;
     if (!base_id) return res.status(400).json({ error: 'base_id обязателен' });
     const d = db();
     const mat = get(d, 'SELECT * FROM materials WHERE id=?', [req.params.id]);
@@ -168,6 +169,29 @@ module.exports = (app, getDb, L) => {
     const twin = all(d, 'SELECT * FROM materials WHERE base_id=?', [base_id])
       .find(x => key(x.name) === key(mat.name) && key(x.unit || 'шт') === key(mat.unit || 'шт'));
     const today = new Date().toISOString().split('T')[0];
+    const total = mat.amount || 0;
+    // Частичный перевод: уменьшаем остаток здесь, приход — на целевой базе
+    if (qty != null && isFinite(qty) && qty > 0 && qty < total) {
+      let newId = twin ? twin.id : uuid();
+      d.transaction(() => {
+        run(d, 'INSERT INTO materials_log(id,material_id,base_id,prev_amount,new_amount,change_amount,act_date,notes,user_name)VALUES(?,?,?,?,?,?,?,?,?)',
+          [uuid(), mat.id, mat.base_id, total, total - qty, -qty, today, `Перевод на базу ${target.name}: ${qty} ${mat.unit || 'шт'}`, user_name || 'Система']);
+        run(d, 'UPDATE materials SET amount=? WHERE id=?', [total - qty, mat.id]);
+        if (twin) {
+          const prev = twin.amount || 0;
+          run(d, 'UPDATE materials SET amount=? WHERE id=?', [prev + qty, twin.id]);
+          run(d, 'INSERT INTO materials_log(id,material_id,base_id,prev_amount,new_amount,change_amount,act_date,notes,user_name)VALUES(?,?,?,?,?,?,?,?,?)',
+            [uuid(), twin.id, base_id, prev, prev + qty, qty, today, `Приход при переводе с базы ${src.name || ''}`, user_name || 'Система']);
+        } else {
+          run(d, 'INSERT INTO materials(id,base_id,name,amount,unit,min_amount,notes,category,weight)VALUES(?,?,?,?,?,?,?,?,?)',
+            [newId, base_id, mat.name, qty, mat.unit || 'шт', 0, mat.notes || '', mat.category || '', mat.weight || 0]);
+          run(d, 'INSERT INTO materials_log(id,material_id,base_id,prev_amount,new_amount,change_amount,act_date,notes,user_name)VALUES(?,?,?,?,?,?,?,?,?)',
+            [uuid(), newId, base_id, 0, qty, qty, today, `Приход при переводе с базы ${src.name || ''}`, user_name || 'Система']);
+        }
+      })();
+      L(null, base_id, 'Перевод материала', `${mat.name}: ${qty} ${mat.unit || 'шт'} ${src.name || ''} → ${target.name}`, user_name);
+      return res.json({ ok: true, partial: true, merged: !!twin, amount: qty });
+    }
     d.transaction(() => {
       if (twin) {
         const prev = twin.amount || 0, next = prev + (mat.amount || 0);

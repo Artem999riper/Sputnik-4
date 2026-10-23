@@ -358,7 +358,8 @@ function renderCoordConvert(keepInputs) {
         <div><label>${la}</label><input id="cv-in-a" style="${inSt}" placeholder="${esc(_cvPh()[0])}" onkeydown="if(event.key==='Enter')cvOne()"></div>
         <div><label>${lb}</label><input id="cv-in-b" style="${inSt}" placeholder="${esc(_cvPh()[1])}" onkeydown="if(event.key==='Enter')cvOne()"></div>
         <div style="${CV.withH ? '' : 'display:none'}"><label>H, м</label><input id="cv-in-h" style="${inSt}" placeholder="0" onkeydown="if(event.key==='Enter')cvOne()"></div>
-        <div style="align-self:end;display:flex;gap:6px"><button class="btn bp" onclick="cvOne()">Пересчитать →</button></div>
+        <div style="align-self:end;display:flex;gap:6px"><button class="btn bp" onclick="cvOne()">Пересчитать →</button>
+          <button class="btn bs" onclick="cvPickFromMap()" title="Щёлкнуть точку на карте — её координаты подставятся сюда">🗺 С карты</button></div>
       </div>
       <div id="cv-one-res" class="cv-res"></div>
     </div>` : `
@@ -639,4 +640,135 @@ async function cvSaveLayer() {
     if (typeof renderKmlPanel === 'function') renderKmlPanel();
     toast(`Слой «${name}» сохранён (${ok.length} т.)`, 'ok');
   } catch (e) { toast('Не удалось сохранить слой: ' + e.message, 'err'); }
+}
+
+// ═══ Координаты в глобальном поиске (№10) ═══════════════════════════════
+// Распознаёт «61.25 73.4», «61°15'00" 73°24'», «983088 3572529», «X=… Y=…»,
+// с необязательной приставкой системы: «мск86 …», «ск42 …», «гск …», «utm 43 …».
+function _cvSplitPair(q) {
+  const dms = q.match(/-?\d+(?:[.,]\d+)?\s*°(?:\s*\d+(?:[.,]\d+)?\s*['′’])?(?:\s*\d+(?:[.,]\d+)?\s*["″”])?\s*[NSEWСЮВЗ]?/gi);
+  if (dms && dms.length === 2) return dms;
+  if (q.includes(';')) return q.split(';');
+  if (q.includes('\t')) return q.split('\t');
+  if (/,\s+/.test(q)) return q.split(/,\s+/);
+  const t = q.trim().split(/\s+/);
+  if (t.length === 2) return t;
+  if (t.length === 1 && (t[0].match(/,/g) || []).length === 1 && /\./.test(t[0])) return t[0].split(',');   // «61.25,73.4»
+  return null;
+}
+function cvGuessPoints(q0) {
+  let q = String(q0 || '').trim();
+  if (!q || !/\d/.test(q)) return [];
+  let sys = null, reg = null, zone = null;
+  const m = q.match(/^(wgs[- ]?84|wgs|вгс|мск\s*-?\s*(\d{1,2})|ск\s*-?\s*42|ск\s*-?\s*95|гск(?:\s*-?\s*2011)?|(?:utm|утм)\s*(\d{1,2}))\s*[:,]?\s*/i);
+  if (m) {
+    const k = m[1].toLowerCase().replace(/\s|-/g, '');
+    sys = k.startsWith('мск') ? 'msk' : k.startsWith('ск42') ? 'sk42' : k.startsWith('ск95') ? 'sk95' : k.startsWith('гск') ? 'gsk' : (k.startsWith('utm') || k.startsWith('утм')) ? 'utm' : 'wgs';
+    reg = m[2] ? m[2].padStart(2, '0') : null; zone = m[3] ? +m[3] : null;
+    q = q.slice(m[0].length);
+  }
+  q = q.replace(/\b[XYxyХУху]\s*[=:]\s*/g, ' ').trim();
+  const pair = _cvSplitPair(q);
+  if (!pair) return [];
+  const out = [], seen = new Set();
+  const add = (label, lat, lon, sub) => {
+    if (!isFinite(lat) || !isFinite(lon) || lat < 35 || lat > 85 || lon < 15 || lon > 190) return;
+    const k = lat.toFixed(5) + ',' + lon.toFixed(5); if (seen.has(k)) return; seen.add(k);
+    out.push({ label, lat, lon, sub });
+  };
+  const angA = cvParseAngle(pair[0]), angB = cvParseAngle(pair[1]);
+  const nA = cvParseNum(pair[0]), nB = cvParseNum(pair[1]);
+  // Градусы
+  if ((!sys || sys === 'wgs' || sys === 'sk42' || sys === 'sk95' || sys === 'gsk') && isFinite(angA) && isFinite(angB) && Math.abs(angA) <= 180 && Math.abs(angB) <= 180) {
+    const g = sys && sys !== 'wgs' ? sys : 'wgs';
+    const toW = (lat, lon) => g === 'wgs' ? [lat, lon] : (() => { const p = proj4(CV_GEO[g][1], CV_WGS, [lon, lat]); return [p[1], p[0]]; })();
+    if (Math.abs(angA) <= 90) { const [la, lo] = toW(angA, angB); add(`${CV_GEO[g][0]}: ${angA.toFixed(6)}, ${angB.toFixed(6)}`, la, lo, 'широта, долгота'); }
+    if (Math.abs(angB) <= 90 && angA !== angB) { const [la, lo] = toW(angB, angA); add(`${CV_GEO[g][0]}: ${angB.toFixed(6)}, ${angA.toFixed(6)}`, la, lo, 'введено как долгота, широта'); }
+    if (out.length) return out;
+  }
+  if (!isFinite(nA) || !isFinite(nB)) return out;
+  // Плоские координаты: пробуем порядок X,Y и Y,X
+  const regs = (MSK_FULL && MSK_FULL.regions) || {};
+  const mskRegs = reg ? [reg] : [...new Set([typeof coordMskRegion !== 'undefined' ? coordMskRegion : null, CV.srcMsk, CV.dstMsk].filter(Boolean))];
+  [[nA, nB, ''], [nB, nA, ' (Y, X)']].forEach(([X, Y, ord]) => {
+    if (X < 1e4 || Y < 1e5) return;
+    const z = Math.floor(Y / 1e6);
+    if ((!sys || sys === 'msk')) mskRegs.forEach(r => {
+      const zr = (regs[r] || []).find(zz => Math.floor(zz.x0 / 1e6) === z);
+      if (!zr) return;
+      const tw = MSK_FULL.datums['2008'];
+      try {
+        const p = proj4(`+proj=tmerc +lat_0=0 +lon_0=${zr.lon} +k=1 +x_0=${zr.x0} +y_0=${zr.y0} +ellps=krass +towgs84=${tw.join(',')} +units=m +no_defs`, CV_WGS, [Y, X]);
+        add(`МСК-${r} зона ${zr.z}${ord}`, p[1], p[0], `X ${X.toFixed(2)}  Y ${Y.toFixed(2)}`);
+      } catch (e) {}
+    });
+    ['sk42', 'sk95', 'gsk'].forEach(d => {
+      if (sys && sys !== d) return;
+      if (!sys && d !== 'sk42') return;                 // без приставки — только СК-42 (самый частый)
+      if (z < 1 || z > 60 || X < 3e6 || X > 9.5e6) return;
+      try {
+        const p = proj4(`+proj=tmerc +lat_0=0 +lon_0=${6 * z - 3} +k=1 +x_0=${z * 1e6 + 500000} +y_0=0 ${CV_DATUM[d]} +units=m +no_defs`, CV_WGS, [Y, X]);
+        add(`${d === 'sk42' ? 'СК-42' : d === 'sk95' ? 'СК-95' : 'ГСК-2011'} ГК зона ${z}${ord}`, p[1], p[0], `X ${X.toFixed(2)}  Y ${Y.toFixed(2)}`);
+      } catch (e) {}
+    });
+    if (sys === 'utm' && zone) {
+      try { const p = proj4(`+proj=utm +zone=${zone} +datum=WGS84 +units=m +no_defs`, CV_WGS, [Y, X]); add(`UTM ${zone}N${ord}`, p[1], p[0], `N ${X.toFixed(2)}  E ${Y.toFixed(2)}`); } catch (e) {}
+    }
+  });
+  return out.slice(0, 8);
+}
+// Перейти к точке на карте и поставить временную метку
+function cvGotoPoint(lat, lon, label) {
+  switchView('map');
+  setTimeout(() => {
+    if (typeof map === 'undefined' || !map) return;
+    if (_cvMapLayer) { map.removeLayer(_cvMapLayer); _cvMapLayer = null; }
+    _cvMapLayer = L.layerGroup().addTo(map);
+    const mk = L.marker([lat, lon]).addTo(_cvMapLayer);
+    mk.bindPopup(`<b>${esc(label || 'Точка')}</b><br>WGS-84: ${lat.toFixed(7)}, ${lon.toFixed(7)}<br>
+      <a href="#" onclick="cvOpenPoint(${lat},${lon});return false">🧭 Во всех системах</a> ·
+      <a href="#" onclick="cvClearMap();return false">Убрать</a>`).openPopup();
+    map.setView([lat, lon], Math.max(map.getZoom(), 15));
+  }, 120);
+}
+
+// ═══ Точка с карты → пересчёт (№11) ═════════════════════════════════════
+let _cvPicking = false, _cvPickFn = null;
+function cvPickFromMap() {
+  _cvPicking = true;
+  switchView('map');
+  setTimeout(() => {
+    map.getContainer().style.cursor = 'crosshair';
+    toast('🧭 Щёлкните точку на карте · Esc — отмена', 'ok');
+    _cvPickFn = e => { map.off('click', _cvPickFn); _cvPickFn = null; if (_cvPicking) _cvPickDone(e.latlng); };
+    map.on('click', _cvPickFn);
+  }, 120);
+}
+function _cvPickCancel() {
+  if (!_cvPicking) return; _cvPicking = false;
+  try { map.getContainer().style.cursor = ''; if (_cvPickFn) map.off('click', _cvPickFn); _cvPickFn = null; } catch (e) {}
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && _cvPicking) { _cvPickCancel(); toast('Выбор точки отменён', 'ok'); } });
+function _cvPickDone(ll) {
+  _cvPicking = false;
+  try { map.getContainer().style.cursor = ''; } catch (e) {}
+  cvOpenPoint(ll.lat, ll.lng, true);
+}
+// Открыть вкладку пересчёта с точкой (WGS-84): подставить во вход в текущей исходной системе
+async function cvOpenPoint(lat, lon, keepSrc) {
+  CV.mode = 'one'; _cvSave();
+  switchView('conv');
+  await loadCoordConvert();
+  let a, b;
+  try {
+    if (!keepSrc) throw 0;
+    const sp = cvProj('src', { lon });
+    const p = proj4(CV_WGS, sp.proj, [lon, lat]);
+    const geo = cvIsGeo('src');
+    a = geo ? p[1].toFixed(8) : p[1].toFixed(3); b = geo ? p[0].toFixed(8) : p[0].toFixed(3);
+  } catch (e) { CV.src = 'geo:wgs'; CV.srcSwap = false; _cvSave(); renderCoordConvert(); a = lat.toFixed(8); b = lon.toFixed(8); }
+  if (CV.srcSwap) [a, b] = [b, a];
+  document.getElementById('cv-in-a').value = a; document.getElementById('cv-in-b').value = b;
+  cvOne();
+  if (document.getElementById('cv-all')) cvAllSystems(lat, lon);
 }

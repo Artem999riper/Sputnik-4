@@ -1625,6 +1625,17 @@ function gsearchInput(q){
   clearTimeout(gsearchTimer);
   if(!q.trim()){drop.classList.remove('show');return;}
   gsearchTimer=setTimeout(async()=>{
+    // Координаты в строке поиска → варианты точек (WGS-84, МСК, СК-42 …)
+    let coordHtml='';
+    if(typeof cvGuessPoints==='function'&&/\d/.test(q)){
+      try{
+        if(typeof loadMskFull==='function')await loadMskFull();
+        const pts=cvGuessPoints(q);window._gsCoord=pts;
+        coordHtml=pts.map((p,i)=>`<div class="gsr" onclick="gsearchClear();cvGotoPoint(window._gsCoord[${i}].lat,window._gsCoord[${i}].lon,window._gsCoord[${i}].label)">
+          <span class="gsr-ico">📍</span><div style="flex:1;min-width:0"><div class="gsr-nm">${esc(p.label)}</div>
+          <div class="gsr-sub">${esc(p.sub||'')} → ${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}</div></div><span class="gsr-type">Координаты</span></div>`).join('');
+      }catch(e){}
+    }
     const raw=await fetch(`${API}/search?q=${encodeURIComponent(q)}`).then(r=>r.json()).catch(()=>({}));
     // Server returns either array (old) or object {sites,bases,...} (new)
     let res=[];
@@ -1637,8 +1648,8 @@ function gsearchInput(q){
         res.push({type:key.slice(0,-1),id:it.id,name:it.name||it.title,sub:it.client||it.role||it.plate_number||it.site_name||it.type||''});
       }));
     }
-    if(!res.length){drop.innerHTML='<div style="padding:10px;font-size:11px;color:var(--tx3)">Ничего не найдено</div>';drop.classList.add('show');return;}
-    drop.innerHTML=res.map(r=>`<div class="gsr" onclick="gsearchGo('${r.type}','${r.id}')">
+    if(!res.length&&!coordHtml){drop.innerHTML='<div style="padding:10px;font-size:11px;color:var(--tx3)">Ничего не найдено</div>';drop.classList.add('show');return;}
+    drop.innerHTML=coordHtml+res.map(r=>`<div class="gsr" onclick="gsearchGo('${r.type}','${r.id}')">
       <span class="gsr-ico">${GTYPE_ICONS[r.type]||'🔍'}</span>
       <div style="flex:1;min-width:0">
         <div class="gsr-nm">${esc(r.name||'')}</div>
@@ -1661,7 +1672,10 @@ function gsearchGo(type,id){
   gsearchClear();
   if(type==='site')selectSite(id);
   else if(type==='base'){switchView('map');selectBase(id);}
-  else if(type==='worker'||type==='machine'||type==='equip'){switchView('pgk');}
+  else if(type==='worker')switchView('workers');
+  else if(type==='machine'||type==='machinery')switchView('machinery');
+  else if(type==='equip')switchView('equipment');
+  else if(type==='task')switchView('gtasks');
 }
 document.addEventListener('click',e=>{
   if(!e.target.closest('#gsearch-wrap'))document.getElementById('gsearch-drop')?.classList.remove('show');

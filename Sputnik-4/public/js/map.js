@@ -83,6 +83,7 @@ function onMapRClick(e){
     {i:'🔢',l:'Метка по координатам',f:()=>openCoordMarkerModal(e.latlng)},
     {sep:true},
     {i:'📍',l:'Отметка высоты (БСВ-77)',f:()=>showElevationAtPoint(e.latlng)},
+    {i:'🧭',l:'Координаты точки во всех системах',f:()=>cvOpenPoint(e.latlng.lat,e.latlng.lng)},
     {sep:true},
     {i:'📏',l:'Линейка (замер расстояния)',f:()=>startRuler('line')},
     {i:'📐',l:'Замер площади и периметра',f:()=>startRuler('area')},
