@@ -358,25 +358,12 @@ async function importLayer(evt){
   const ext=fext;
   if(ext==='dxf'){await _importDxf(file,text);evt.target.value='';return;}
   if(ext==='csv'||ext==='txt'){await _importCsv(file,text);evt.target.value='';return;}
-  const name=file.name.replace(/\.(kml|gpx)$/i,'');
-  let gj=null;
-  try{gj=ext==='kml'?kmlToGJ(text):gpxToGJ(text);}catch(e){toast('Ошибка разбора','err');return;}
-  if(!gj||!gj.features?.length){toast('Файл пустой','err');return;}
-  const color=LCOLORS[layers.length%LCOLORS.length];
-  await fetch(`${API}/layers`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,geojson:JSON.stringify(gj),color})});
-  const lr=await fetch(`${API}/layers`);const freshLayers=await lr.json();
-  freshLayers.forEach(function(l){
-    const ex=layers.find(x=>x.id===l.id);
-    if(ex&&!ex.visible){
-      l.visible=0;
-      fetch(`${API}/layers/${l.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:l.name,color:l.color||'#1a56db',visible:0})});
-    }
-  });
-  layers=freshLayers;
-  renderLP();renderLayerGroups();
-  try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
-  toast(`Импортировано: ${gj.features.length} объектов`,'ok');
+  // KML / GPX: разбираем на части (папки KML, точки/треки GPX) и спрашиваем, куда загрузить
+  let groups=null;
+  try{groups=ext==='kml'?kmlToGroups(text,file.name):gpxToGroups(text,file.name);}catch(e){toast('Ошибка разбора: '+e.message,'err');evt.target.value='';return;}
   evt.target.value='';
+  if(!groups||!groups.length){toast('Файл пустой','err');return;}
+  await importDestination(file.name,groups);
 }
 // ── Полный справочник МСК (все регионы РФ, 2001/2008) в диалогах импорта ──
 function _mskRegionOptionsHtml(){
@@ -434,7 +421,7 @@ function _showDxfCrsModal(pv,fileName){
         ${lays.map(l=>`<label style="display:flex;gap:6px;align-items:baseline;padding:2px 0;font-size:12px;cursor:pointer"><input type="checkbox" class="dxf-lay" value="${escAttr(l.name)}" checked style="width:auto;margin:0">
           <b>${esc(l.name)}</b><span style="color:var(--tx3);font-size:10px">${Object.entries(l.types).map(([t,n])=>`${TN[t]||t}: ${n}`).join(', ')}</span></label>`).join('')}
       </div>
-      <label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="dxf-merge" style="width:auto;margin:0"> Объединить выбранные слои в один слой карты:
+      <label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="dxf-merge" style="width:auto;margin:0"> Объединить выбранные слои в один:
         <input id="dxf-mname" value="${escAttr(String(fileName||'DXF').replace(/\.dxf$/i,''))}" style="flex:1;font-size:12px;padding:2px 6px" oninput="document.getElementById('dxf-merge').checked=true"></label>`:'';
     const body=`
       <div style="display:flex;flex-direction:column;gap:6px">
@@ -509,6 +496,7 @@ async function _tabUploadRequest(files, opt){
   const fd=new FormData();
   files.forEach(f=>fd.append('files',f));
   if(opt && opt.crs){ fd.append('crs',opt.crs); if(opt.swap) fd.append('swap',opt.swap); }
+  fd.append('dry','1');
   toast('⏳ Импорт TAB (через GDAL)…','ok');
   let j, r;
   try{
@@ -527,6 +515,7 @@ async function _tabUploadRequest(files, opt){
     else toast(j.error||'Ошибка импорта TAB','err');
     return;
   }
+  if(j.groups){ await importDestination((files.find(f=>/\.(tab|zip)$/i.test(f.name))||files[0]).name, j.groups); return; }
   const fresh=await fetch(`${API}/layers`).then(x=>x.json()).catch(()=>layers);
   layers=fresh;renderLP();renderLayerGroups();
   try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
@@ -576,10 +565,14 @@ async function _importDxf(file,text){
   const {crs,onlyLayers,merge,mergeName}=opt;
   let j;
   try{
-    const r=await fetch(`${API}/layers/import-dxf`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dxfText:text,crs,onlyLayers,merge,mergeName})});
+    const r=await fetch(`${API}/layers/import-dxf`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dxfText:text,crs,onlyLayers,dry:true})});
     j=await r.json();
     if(!r.ok){toast(j.error||'Ошибка импорта DXF','err');return;}
   }catch(e){toast('Ошибка импорта DXF','err');return;}
+  // «Объединить» из окна DXF — все слои DXF сразу назначаются в один новый слой
+  if(merge&&j.groups.length>1)j.groups=[{name:mergeName,features:j.groups.flatMap(g=>g.features)}];
+  await importDestination(file.name,j.groups,{defaultName:merge?mergeName:undefined});
+  return;
   const fresh=await fetch(`${API}/layers`).then(r=>r.json()).catch(()=>layers);
   layers=fresh;renderLP();renderLayerGroups();
   try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
@@ -600,6 +593,7 @@ async function _importShp(files,opt){
   if(typeof loadMskFull==='function'){try{await loadMskFull();}catch(e){}}
   const fd=new FormData();files.forEach(f=>fd.append('files',f));
   if(opt&&opt.crs){fd.append('crs',opt.crs);if(opt.swap)fd.append('swap',opt.swap);}
+  fd.append('dry','1');
   if(!opt)toast('⏳ Импорт Shapefile…','ok');
   let r,j;
   try{r=await fetch(`${API}/layers/import-shp`,{method:'POST',body:fd});j=await r.json().catch(()=>({}));}
@@ -607,6 +601,10 @@ async function _importShp(files,opt){
   if(j&&j.notShp)return 'notShp';
   if(r.status===409&&j.needCrs){const ch=await _showTabCrsModal(j.error||'','shp');if(!ch)return;return _importShp(files,ch);}
   if(!r.ok){toast(j.error||'Ошибка импорта SHP','err');return;}
+  if((j.warnings||[]).length)toast(j.warnings.join('; '),'warn');
+  const nm=(files.find(f=>/\.(shp|zip)$/i.test(f.name))||files[0]).name;
+  await importDestination(nm,j.groups);
+  return;
   layers=await fetch(`${API}/layers`).then(x=>x.json()).catch(()=>layers);
   renderLP();renderLayerGroups();try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
   const total=j.layers.reduce((s,l)=>s+l.features,0);

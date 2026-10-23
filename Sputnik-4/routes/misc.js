@@ -844,7 +844,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
   }));
 
   app.post('/api/layers/import-dxf', wrap((req, res) => {
-    const { dxfText, crs, preview, onlyLayers, merge, mergeName } = req.body || {};
+    const { dxfText, crs, preview, onlyLayers, merge, mergeName, dry } = req.body || {};
     if (!dxfText) return res.status(400).json({ error: 'dxfText required' });
     const dxfLayers = parseDXF(dxfText);
     if (!dxfLayers.size) return res.status(422).json({ error: 'Нет слоёв в DXF' });
@@ -867,6 +867,16 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     const COLORS = ['#1a56db','#e02424','#057a55','#d97706','#7e3af2','#0694a2'];
     const created = [];
     let ci = 0;
+    // dry: только разобрать — куда сохранить, пользователь выберет в окне «Куда загрузить»
+    if (dry) {
+      const groups = [];
+      for (const [layerName, entities] of dxfLayers) {
+        const features = dxfEntitiesToFeatures(entities, inv);
+        if (features.length) groups.push({ name: layerName, features: features.map(f => ({ ...f, properties: { ...f.properties, 'Слой DXF': layerName } })) });
+      }
+      if (!groups.length) return res.status(422).json({ error: 'Нет геометрии в DXF' });
+      return res.json({ groups });
+    }
     if (merge) {
       // Все выбранные слои DXF → один слой карты (слой DXF сохраняется в атрибуте «Слой DXF»)
       const all = [];
@@ -914,6 +924,8 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     if (!bases.length) return res.json({ notShp: true });
     const reqCrs = (req.body && typeof req.body.crs === 'string') ? req.body.crs : '';
     const swap = req.body && (req.body.swap === '1' || req.body.swap === 'true');
+    const dry = req.body && (req.body.dry === '1' || req.body.dry === 'true');
+    const groups = [];
     if (!reqCrs && bases.some(b => !sets[b].prj)) return res.status(409).json({ needCrs: true, error: 'В наборе нет файла .prj — укажите систему координат' });
     const COLORS = ['#1a56db','#e02424','#057a55','#d97706','#7e3af2','#0694a2'];
     const created = [], warn = [];
@@ -942,11 +954,13 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
         features.push(gj);
       });
       if (!features.length) { warn.push(`${b}: нет объектов`); return; }
+      if (dry) { groups.push({ name: b, features }); return; }
       const id = uuid();
       run(db(), 'INSERT INTO kml_layers(id,name,geojson,color,visible,symbol,group_id,line_dash)VALUES(?,?,?,?,1,?,?,?)',
         [id, b, JSON.stringify({ type: 'FeatureCollection', features }), COLORS[bi % COLORS.length], '', '', 'solid']);
       created.push({ id, name: b, features: features.length, crs: projStr ? (projStr.length > 120 ? 'WKT' : projStr) : reqCrs });
     });
+    if (dry) { if (!groups.length) return res.status(422).json({ error: warn.join('; ') || 'Нет объектов' }); return res.json({ groups, warnings: warn }); }
     if (!created.length) return res.status(422).json({ error: warn.join('; ') || 'Нет объектов' });
     res.json({ layers: created, warnings: warn });
   }));
@@ -1054,6 +1068,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
       if (!feats.length) return res.status(422).json({ error: 'В TAB нет объектов' });
 
       const name = (origBase[tabSafe] || 'MapInfo').replace(/\.tab$/i, '');
+      if (req.body && (req.body.dry === '1' || req.body.dry === 'true')) return res.json({ groups: [{ name, features: feats }] });
       const id = uuid();
       run(db(), 'INSERT INTO kml_layers(id,name,geojson,color,visible,symbol,group_id,line_dash)VALUES(?,?,?,?,1,?,?,?)',
         [id, name, JSON.stringify(gj), '#1a56db', '', '', 'solid']);
