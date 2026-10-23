@@ -334,7 +334,7 @@ async function openGLog(){
       <option value="">Все</option>${users.map(u=>`<option>${esc(u)}</option>`).join('')}
     </select></div>
     <div id="gl-e" style="max-height:420px;overflow-y:auto">${renderGLE(log)}</div>`,
-    [{label:'Закрыть',cls:'bs',fn:closeModal}]);
+    [{label:'🔁 Изменения с откатом',cls:'bs',fn:()=>{closeModal();openAuditLog();}},{label:'Закрыть',cls:'bs',fn:closeModal}]);
 }
 function renderGLE(log){return log.map(l=>`<div class="lgr"><div class="lgt">${fmtDT(l.created_at)}</div>
   <div>${l.site_name?`<div style="font-size:9px;color:var(--acc);font-weight:700">${esc(l.site_name)}</div>`:''}<div class="lga">${esc(l.action)}</div>

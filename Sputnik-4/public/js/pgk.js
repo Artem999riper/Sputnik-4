@@ -1613,6 +1613,8 @@ function pgkPageEquipment(pb){
           <button class="btn bs bsm" onclick="pgkImportEquip()" title="Импорт из Excel">📥</button>
           <button class="btn bs bsm" onclick="_equipExportMenu(event)" title="Экспорт в Excel">📤</button>
           <button class="btn bs bsm" onclick="openEquipActModal()" title="Акт приёма-передачи">📄 Акт</button>
+          <button class="btn bs bsm" onclick="equipQrLabels(_equipSelectedIds())" title="QR-наклейки: на выделенные, иначе на показанные">🏷 QR</button>
+          <button class="btn bs bsm" onclick="equipInventory()" title="Инвентаризация: сверка по QR / S/N">📋 Инвент.</button>
           <button class="btn bp bsm" onclick="pgkAddEquip()">＋ Добавить</button>
         </div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;width:100%;align-items:center">
@@ -1984,6 +1986,7 @@ async function openEquipDetail(eid){
   <div class="wdc-actions">
     <button class="btn bp wdc-btn" onclick="closeModal();pgkEditEquip('${_eid}')">✏️ Редактировать</button>
     <button class="btn bs wdc-btn" onclick="pgkAssignEquipResponsible('${_eid}')">👤 Ответственный</button>
+    <button class="btn bs wdc-btn" onclick="closeModal();equipQrLabels(['${_eid}'])" title="Напечатать QR-наклейку">🏷 QR</button>
     <button class="btn bs wdc-btn" style="color:var(--red);margin-left:auto" onclick="closeModal();pgkDelEquip('${_eid}')">🗑</button>
   </div>
   <div class="wdc-tabs">
@@ -2059,6 +2062,7 @@ function equipCtxMenu(ev,eid){
     {i:'🏕',l:'База…',f:()=>_equipPickField(ids,'base_id',x,y)},
     {i:'📝',l:'Примечание…',f:()=>_equipEditNotes(ids)},
     {i:'📅',l:'Дата поверки…',f:()=>_equipEditCalib(ids)},
+    {i:'🏷',l:multi?`QR-наклейки (${ids.length})`:'QR-наклейка',f:()=>equipQrLabels(ids)},
     {i:'📄',l:multi?`Акт приёма-передачи на выбранное (${ids.length})`:'Акт приёма-передачи',f:()=>_equipActSelected(ids,x,y)},
     {sep:true},
     ...statItems,

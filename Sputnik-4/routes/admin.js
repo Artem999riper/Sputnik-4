@@ -33,6 +33,38 @@ const RULES = [
   { m: 'DELETE', re: /^\/api\//,                          cap: 'delete' },
 ];
 
+// ── Права по разделам: раздел × действие (создание / правка / удаление) ──────
+// Ключ права: "<раздел>.<действие>", например "equipment.delete". false = запрет.
+const SECTIONS = {
+  workers: 'Сотрудники', machinery: 'Техника', equipment: 'Оборудование', materials: 'Материалы',
+  mto: 'МТО', cargo: 'Груз', gtasks: 'Задачи', brigades: 'Бригады',
+  sites: 'Объекты и базы', volumes: 'Объёмы и факты', layers: 'Слои карты',
+};
+const ACTS = { create: 'создание', edit: 'правка', delete: 'удаление' };
+const SEC_RULES = [
+  { re: /^\/api\/pgk\/brigades/, sec: 'brigades' },
+  { re: /^\/api\/pgk\/workers/, sec: 'workers' },
+  { re: /^\/api\/(pgk\/machinery|fuel_reserves|fuel_transactions|spare_groups|spare_parts)/, sec: 'machinery' },
+  { re: /^\/api\/(pgk\/equipment|equip_groups|equip_responsible_history|inventory)/, sec: 'equipment' },
+  { re: /^\/api\/(materials|mat_groups)|^\/api\/bases\/[^/]+\/materials/, sec: 'materials' },
+  { re: /^\/api\/mto/, sec: 'mto' },
+  { re: /^\/api\/cargo/, sec: 'cargo' },
+  { re: /^\/api\/gtasks/, sec: 'gtasks' },
+  { re: /^\/api\/(volumes|vol_progress)|^\/api\/sites\/[^/]+\/(volumes|progress)/, sec: 'volumes' },
+  { re: /^\/api\/layers\/[^/]+\/visible/, sec: null },          // видимость слоя — отдельное право
+  { re: /^\/api\/layers/, sec: 'layers' },
+  { re: /^\/api\/(sites|bases)/, sec: 'sites' },
+];
+// POST — «создание», кроме действий над существующей записью (подтвердить, перевести…)
+const EDIT_POST = /\/(confirm|close|deliver|actualize|move|status|group|bulk|merge|history|restore|reorder|import[\w-]*)\/?(\?|$)/i;
+function secAct(method, url) {
+  const path = url.split('?')[0];
+  const r = SEC_RULES.find(x => x.re.test(path));
+  if (!r || !r.sec) return null;
+  const act = method === 'DELETE' ? 'delete' : method === 'POST' ? (EDIT_POST.test(path) ? 'edit' : 'create') : 'edit';
+  return { sec: r.sec, act };
+}
+
 module.exports = (app, getDb, L, { broadcast, getPresence }) => {
   const db = () => getDb();
 
@@ -81,6 +113,7 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
     const u = users[normName(reqName(req))] || users[req.get('X-Client-Id') || ''];
     const caps = {};
     for (const k of Object.keys(CAPS)) caps[k] = !(u && u.caps && u.caps[k] === false);
+    for (const sec of Object.keys(SECTIONS)) for (const a of Object.keys(ACTS)) caps[sec + '.' + a] = !(u && u.caps && u.caps[sec + '.' + a] === false);
     return caps;
   };
 
@@ -119,6 +152,15 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
           return res.status(403).json({ error: 'Недостаточно прав: ' + (CAPS[rule.cap] || rule.cap) });
         }
         break; // правило найдено и пройдено — дальше не матчим
+      }
+    }
+    // Права по разделам
+    if (!req.url.startsWith('/api/restore')) {
+      const sa = secAct(method, req.url);
+      if (sa) {
+        const caps = capsForReq(req);
+        if (caps[sa.sec + '.' + sa.act] === false)
+          return res.status(403).json({ error: `Недостаточно прав: ${ACTS[sa.act]} — ${SECTIONS[sa.sec]}` });
       }
     }
     next();
@@ -191,12 +233,14 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
       byName[key].devices++;
       if (r.last_seen > byName[key].last_seen) { byName[key].last_seen = r.last_seen; byName[key].name = r.name; }
     });
+    // Люди с выставленными правами, которые ещё не заходили (права заданы заранее)
+    Object.entries((acl.users) || {}).forEach(([key, u]) => { if (!byName[key] && u && u.name) byName[key] = { name: u.name, key, last_seen: '', devices: 0 }; });
     const clients = Object.values(byName).map(u => ({
       key: u.key, name: u.name, last_seen: u.last_seen, devices: u.devices,
       caps: (acl.users && acl.users[u.key] && acl.users[u.key].caps) || {},
       online: !!online[u.key],
     })).sort((a, b) => (b.last_seen || '').localeCompare(a.last_seen || ''));
-    res.json({ caps: CAPS, clients });
+    res.json({ caps: CAPS, sections: SECTIONS, acts: ACTS, clients });
   }));
 
   // ── сохранить права (админ) ──────────────────────────────
@@ -210,6 +254,7 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
     if (!acl.users) acl.users = {};
     const clean = {};
     for (const k of Object.keys(CAPS)) if (caps && caps[k] === false) clean[k] = false;
+    for (const sec of Object.keys(SECTIONS)) for (const a of Object.keys(ACTS)) if (caps && caps[sec + '.' + a] === false) clean[sec + '.' + a] = false;
     if (Object.keys(clean).length) acl.users[key] = { name: name || '', caps: clean };
     else delete acl.users[key]; // пусто → полный доступ (не храним запись)
     setSetting('acl', JSON.stringify(acl));

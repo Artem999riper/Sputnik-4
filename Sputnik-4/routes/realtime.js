@@ -149,4 +149,4 @@ function attachUndo(app, getDb) {
   });
 }
 
-module.exports = { attachSse, attachUndo, broadcast, trashAndDelete, getPresence };
+module.exports = { attachSse, attachUndo, broadcast, trashAndDelete, getPresence, restoreFromData };

@@ -119,8 +119,12 @@ async function _admRenderRights(){
     <div style="font-size:10px;color:var(--tx3);margin-bottom:8px;line-height:1.5">
       Права привязаны к <b>имени человека</b> и сохраняются после перезапуска сервера и смены браузера.
       Снятая галочка = <b>запрет</b>. У «Переключение слоёв для всех» снятая = слои переключаются только
-      у него, не влияя на других. Пусто = полный доступ.
+      у него, не влияя на других. Пусто = полный доступ. <b>«По разделам»</b> — отдельно создание / правку / удаление
+      в каждом разделе (👁 — только просмотр). С компьютера-сервера ограничения не действуют.
     </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+      <button class="btn bs bsm" onclick="_admAddPerson(event)">＋ Задать права человеку…</button>
+      <span style="font-size:10px;color:var(--tx3)">— например, тому, кто ещё не заходил в программу</span></div>
     <div style="max-height:330px;overflow-y:auto">
     ${data.clients.length?data.clients.map((c,i)=>{
       const key=escAttr(c.key);
@@ -137,9 +141,33 @@ async function _admRenderRights(){
               onchange="_admSaveRow('${key}','${escAttr(c.name||'')}')"> ${esc(data.caps[k])}
           </label>`).join('')}
         </div>
+        ${data.sections?(()=>{
+          const secs=Object.keys(data.sections),acts=Object.keys(data.acts||{});
+          const denied=secs.reduce((n,sc)=>n+acts.filter(a=>c.caps&&c.caps[sc+'.'+a]===false).length,0);
+          return `<details style="margin-top:6px"${denied?' open':''}><summary style="font-size:10.5px;cursor:pointer;color:var(--acc);font-weight:700">По разделам${denied?` — запретов: ${denied}`:''}</summary>
+          <table style="border-collapse:collapse;font-size:10.5px;margin-top:4px;width:100%">
+            <tr><th style="text-align:left;padding:2px 6px;color:var(--tx3)">Раздел</th>${acts.map(a=>`<th style="padding:2px 6px;color:var(--tx3)">${esc(data.acts[a])}</th>`).join('')}
+              <th style="padding:2px 6px;color:var(--tx3)">только просмотр</th></tr>
+            ${secs.map(sc=>`<tr style="border-top:1px solid var(--bd)"><td style="padding:2px 6px">${esc(data.sections[sc])}</td>
+              ${acts.map(a=>`<td style="text-align:center"><input type="checkbox" class="adm-cap" data-key="${key}" data-cap="${sc}.${a}" ${c.caps&&c.caps[sc+'.'+a]===false?'':'checked'}
+                onchange="_admSaveRow('${key}','${escAttr(c.name||'')}')" style="width:auto;margin:0"></td>`).join('')}
+              <td style="text-align:center"><button class="btn bs bxs" title="Запретить создание, правку и удаление" onclick="document.querySelectorAll('.adm-cap[data-key=&quot;${key}&quot;][data-cap^=&quot;${sc}.&quot;]').forEach(x=>x.checked=false);_admSaveRow('${key}','${escAttr(c.name||'')}')">👁</button></td></tr>`).join('')}
+          </table></details>`;})():''}
       </div>`;
     }).join(''):'<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">Пользователи ещё не заходили</div>'}
     </div>`;
+}
+// Выбрать человека из сотрудников (или ввести имя) и создать для него запись прав
+async function _admAddPerson(ev){
+  let ws=[];try{ws=await fetch(`${API}/pgk/workers`).then(r=>r.json());}catch(e){}
+  const r=ev.currentTarget.getBoundingClientRect();
+  _searchPick({x:r.left,y:r.bottom+4,title:'Кому задать права',items:ws.map(w=>({v:w.name,l:w.name,sub:w.role||''})),current:null,addLabel:'имя',onPick:async name=>{
+    if(!name)return;
+    // запись прав создаётся, когда есть хоть один запрет — по умолчанию запрещаем удаление, дальше настраивается галочками
+    await fetch(`${API}/admin/acl`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,caps:{delete:false}})});
+    toast(`Добавлен «${name}» (удаление запрещено — настройте галочками)`,'ok');
+    _admRenderRights();
+  }});
 }
 async function _admSaveRow(key,name){
   const caps={};
