@@ -145,6 +145,12 @@ function showUndoBar(msg, restoreData, onUndone){
   btn.onclick=async function(){
     btn.disabled=true;btn.textContent='…';
     clearTimeout(_undoBarTimer);
+    // restoreData может быть функцией — отмена изменения (вернуть прежние значения полей)
+    if(typeof restoreData==='function'){
+      try{await restoreData();toast('Отменено ✓','ok');try{onUndone&&onUndone();}catch(e){}}
+      catch(e){toast('Ошибка отмены','err');}
+      bar.remove();_undoBarEl=null;return;
+    }
     try{
       const r=await fetch(`${API}/restore`,{
         method:'POST',headers:{'Content-Type':'application/json'},

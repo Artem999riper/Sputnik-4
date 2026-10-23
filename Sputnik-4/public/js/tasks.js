@@ -81,6 +81,10 @@ function renderGTasks(){
     ${overdue?`<div class="gt-stat" style="border-color:#ef4444"><div class="sv" style="color:#ef4444">${overdue}</div><div class="sl" style="color:#ef4444">Просрочено</div></div>`:''}
   </div>`;
 
+  html+=`<div style="display:flex;gap:4px;margin:0 0 8px"><div class="mch-view-toggle">
+    <button class="btn bsm ${window._gtView!=='table'?'bp':'bs'}" onclick="gtSetView('board')">▦ Доска</button>
+    <button class="btn bsm ${window._gtView==='table'?'bp':'bs'}" onclick="gtSetView('table')">☰ Таблица</button></div></div>`;
+  if(window._gtView==='table'){body.innerHTML=html+_gtTableHtml(tasks);TK.initSelect('gt-tbody','gtasks');return;}
   if(!tasks.length){
     body.innerHTML=html+'<div class="empty"><div class="empty-i">📋</div>Нет задач'+(fStatus||fPrio||fCat||fResp||fSite||fSearch?' по фильтру':'')+'</div>';
     return;
@@ -336,3 +340,95 @@ async function gtDeleteTask(id){
 // ═══════════════════════════════════════════════════════════
 // CONTEXT MENU
 // ═══════════════════════════════════════════════════════════
+
+// ═══ Табличный вид «Задач» (выделение, массовые действия, экспорт) ═══════
+const GT_COLS=[['title','Задача'],['status','Статус'],['priority','Приоритет'],['category','Категория'],['due','Срок'],
+  ['resp','Ответственные'],['conf','Подтв.'],['site','Объект'],['author','Автор'],['notes','Примечания']];
+const GT_STATUS_LBL={open:'📌 Новая',inprog:'🔄 В работе',done:'✅ Выполнена'};
+if(typeof window._gtView==='undefined'){try{window._gtView=localStorage.getItem('gt_view')||'board';}catch(e){window._gtView='board';}}
+function gtSetView(v){window._gtView=v;try{localStorage.setItem('gt_view',v);}catch(e){}renderGTasks();}
+function _gtTableHtml(tasks){
+  const today=new Date().toISOString().split('T')[0];
+  const _s=window._gtSort||'due',_a=window._gtAsc!==false;
+  const hidden=TK.hidden('gtasks'),show=k=>!hidden.has(k);
+  TK.rerender.gtasks=()=>renderGTasks();
+  const sn=t=>((sites||[]).find(s=>s.id===t.site_id)||{}).name||'';
+  const PR={high:0,normal:1,low:2};
+  const val=(t,k)=>k==='status'?({open:0,inprog:1,done:2}[t.status]??3):k==='priority'?(PR[t.priority]??1):k==='due'?(t.due_date||''):k==='resp'?(t.responsibles||[]).join(', ')
+    :k==='conf'?(t.confirmations||[]).length/Math.max(1,(t.responsibles||[]).length):k==='site'?sn(t):k==='author'?(t.created_by||''):k==='category'?(GT_CATS[t.category]||''):(t[k]||'');
+  const list=[...tasks].sort((x,y)=>{const a=val(x,_s),b=val(y,_s);if(typeof a==='number')return(a-b)*(_a?1:-1);if(!a!==!b)return a?-1:1;return String(a).localeCompare(String(b),'ru',{numeric:true})*(_a?1:-1);});
+  window._gtShownIds=list.map(t=>t.id);
+  const th=(k,l)=>`<th data-col="${k}" class="${_s===k?(_a?'wt-asc':'wt-desc'):''}" onclick="if(window._gtSort==='${k}')window._gtAsc=!(window._gtAsc!==false);else{window._gtSort='${k}';window._gtAsc=true;}renderGTasks()">${l}</th>`;
+  const sel=TK.set('gtasks'),dash='<span style="color:var(--tx3)">—</span>';
+  const rows=list.map(t=>{
+    const _id=escAttr(t.id),on=sel.has(t.id),resp=t.responsibles||[],conf=t.confirmations||[];
+    const over=t.due_date&&t.due_date<today&&t.status!=='done';
+    const td={
+      title:`<td class="td-link" style="font-weight:600" onclick="gtEditTask('${_id}')" title="${esc(t.description||'')}">${esc(t.title)}</td>`,
+      status:`<td>${GT_STATUS_LBL[t.status]||t.status}</td>`,
+      priority:`<td><span class="gt-badge-prio ${GT_PRIO_CLS[t.priority]||'normal'}">${GT_PRIO[t.priority]||'Обычный'}</span></td>`,
+      category:`<td><span class="gt-cat-tag">${GT_CATS[t.category]||t.category||''}</span></td>`,
+      due:`<td class="td-editable" style="${over?'color:#ef4444;font-weight:700':''}" onclick="_gtDueCell(event,this,'${_id}')">${t.due_date?(over?'🚨 ':'')+fmt(t.due_date):dash}</td>`,
+      resp:`<td style="font-size:11px">${resp.length?resp.map(r=>`${conf.includes(r)?'✅':'⬜'} ${esc(r)}`).join('<br>'):dash}</td>`,
+      conf:`<td style="text-align:center">${resp.length?`${conf.length}/${resp.length}`:dash}</td>`,
+      site:`<td>${sn(t)?'🏗 '+esc(sn(t)):dash}</td>`,
+      author:`<td style="font-size:11px">${t.created_by?esc(t.created_by):dash}</td>`,
+      notes:`<td class="td-notes td-editable" title="${esc(t.notes||'')}" onclick="_gtNoteCell(event,this,'${_id}')">${esc(t.notes||'')}</td>`,
+    };
+    return `<tr data-rid="${t.id}" class="${on?'lasso-sel':''}${t.status==='done'?' wt-fired':''}" oncontextmenu="event.preventDefault();gtCtxMenu(event,'${_id}')">${TK.chkTd(on)}${GT_COLS.filter(([k])=>show(k)).map(([k])=>td[k]).join('')}</tr>`;
+  }).join('');
+  const n=1+GT_COLS.filter(([k])=>show(k)).length;
+  return `<div class="wt-summary" style="padding:4px 2px;flex-wrap:wrap">
+      ${TK.selBar('gtasks')}<span style="margin-left:auto"><button class="btn bs bsm" onclick="_gtExportMenu(event)">📤 Excel</button></span></div>
+    <div class="wt-scroll" style="max-height:calc(100vh - 260px)"><table class="wt-tbl" id="gt-tbl" style="min-width:900px">
+      <thead oncontextmenu="TK.colsMenu(event,'gtasks',GT_COLS.filter(c=>c[0]!=='title'),()=>renderGTasks())"><tr>${TK.chkTh('gtasks')}${GT_COLS.filter(([k])=>show(k)).map(([k,l])=>k==='notes'?`<th class="no-sort" data-col="notes">${l}</th>`:th(k,l)).join('')}</tr></thead>
+      <tbody id="gt-tbody">${rows||`<tr><td colspan="${n}" style="text-align:center;padding:24px;color:var(--tx3)">Нет задач</td></tr>`}</tbody></table></div>`;
+}
+function _gtNoteCell(ev,td,id){const t=gtasks.find(x=>x.id===id);if(t)TK.cellText(ev,td,t.notes||'',v=>_gtApply([id],{notes:v},'Примечание сохранено'));}
+function _gtDueCell(ev,td,id){const t=gtasks.find(x=>x.id===id);if(t)TK.cellText(ev,td,t.due_date||'',v=>_gtApply([id],{due_date:v||null},'Срок изменён'),'date');}
+async function _gtApply(ids,patch,msg,noUndo){
+  const list=ids.map(id=>gtasks.find(t=>t.id===id)).filter(Boolean);
+  const before=TK.snapshot(list,patch);
+  try{await Promise.all(list.map(t=>{const p=typeof patch==='function'?patch(t):patch;
+    return fetch(`${API}/gtasks/${t.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...t,...p,user_name:un()})});}));}
+  catch(e){toast('Ошибка сохранения','err');}
+  await loadGTasks();
+  if(msg&&!noUndo)TK.undoBar(list.length>1?`${msg}: ${list.length} задач`:msg,()=>_gtApply(before.map(b=>b.id),t=>(before.find(b=>b.id===t.id)||{}).old||{},null,true));
+}
+function gtCtxMenu(ev,id){
+  const t=gtasks.find(x=>x.id===id);if(!t)return;
+  const x=ev.clientX,y=ev.clientY,ids=TK.ctxIds('gtasks',id),multi=ids.length>1;
+  const people=(pgkWorkers||[]).map(w=>({v:w.name,l:w.name,sub:w.role||''}));
+  showCtx(x,y,[
+    multi?{i:'☑️',l:`<b>Выбрано: ${ids.length}</b>`,html:true,f:()=>{}}:{i:'📋',l:`<b>${esc(t.title)}</b>`,html:true,f:()=>gtEditTask(id)},
+    {sep:true},
+    ...(multi?[]:[{i:'✏️',l:'Редактировать',f:()=>gtEditTask(id)}]),
+    {i:'⚑',l:'Приоритет…',f:()=>_searchPick({x,y,title:'⚑ Приоритет',items:Object.entries(GT_PRIO).map(([k,v])=>({v:k,l:v})),current:multi?null:t.priority,onPick:v=>_gtApply(ids,{priority:v},'Приоритет изменён')})},
+    {i:'🏷',l:'Категория…',f:()=>_searchPick({x,y,title:'🏷 Категория',items:Object.entries(GT_CATS).map(([k,v])=>({v:k,l:v})),current:multi?null:t.category,onPick:v=>_gtApply(ids,{category:v},'Категория изменена')})},
+    {i:'📅',l:'Срок…',f:()=>{showModal('📅 Срок'+(multi?` — ${ids.length} задач`:''),`<div class="fg"><label>Срок выполнения</label><input id="gt-bulk-due" type="date" value="${multi?'':(t.due_date||'')}"></div>`,
+      [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:()=>{const d=v('gt-bulk-due')||null;closeModal();_gtApply(ids,{due_date:d},'Срок изменён');}}]);}},
+    {i:'🏗',l:'Объект…',f:()=>_searchPick({x,y,title:'🏗 Объект',items:[{v:'',l:'— не привязано —'},...(sites||[]).map(s=>({v:s.id,l:s.name,sub:s.client||''}))],current:multi?null:(t.site_id||''),onPick:v=>_gtApply(ids,{site_id:v||null},'Объект изменён')})},
+    {i:'👤',l:'Добавить ответственного…',f:()=>_searchPick({x,y,title:'👤 Добавить ответственного',items:people,current:null,onPick:v=>v&&_gtApply(ids,q=>({responsibles:[...new Set([...(q.responsibles||[]),v])]}),'Ответственный добавлен')})},
+    {i:'👤',l:'Убрать ответственного…',f:()=>{const all=[...new Set(ids.flatMap(i=>(gtasks.find(q=>q.id===i)||{}).responsibles||[]))];
+      if(!all.length){toast('Ответственных нет','warn');return;}
+      _searchPick({x,y,title:'👤 Убрать ответственного',items:all.map(n=>({v:n,l:n})),current:null,onPick:v=>v&&_gtApply(ids,q=>({responsibles:(q.responsibles||[]).filter(r=>r!==v)}),'Ответственный убран')});}},
+    {i:'📝',l:'Примечание…',f:()=>TK.notesModal(ids.length,multi?'':t.notes,(txt,app)=>_gtApply(ids,app?(q=>({notes:(q.notes?q.notes+' ':'')+txt})):{notes:txt},'Примечание сохранено'))},
+    {sep:true},
+    {i:'📤',l:'Экспорт в Excel',f:()=>_gtExportList(ids.map(i=>gtasks.find(q=>q.id===i)).filter(Boolean))},
+    {i:'🗑',l:multi?`Удалить выбранные (${ids.length})`:'Удалить',cls:'cxi-red',f:()=>multi?TK.bulkDelete(ids,i=>`/gtasks/${i}`,loadGTasks,'задач'):gtDeleteTask(id)},
+  ]);
+}
+function _gtExportMenu(ev){
+  const by=id=>gtasks.find(t=>t.id===id),shown=(window._gtShownIds||[]).map(by).filter(Boolean),s=TK.selectedIds('gtasks');
+  TK.exportMenu(ev,{all:gtasks,shown,selected:shown.filter(t=>s.includes(t.id)),run:_gtExportList});
+}
+function _gtExportList(list){
+  if(!list||!list.length){toast('Нет задач','warn');return;}
+  const sn=t=>((sites||[]).find(s=>s.id===t.site_id)||{}).name||'';
+  const aoa=[['Задачи — '+new Date().toLocaleDateString('ru-RU')],['Задача','Описание','Статус','Приоритет','Категория','Срок','Ответственные','Подтвердили','Объект','Автор','Примечания'],
+    ...list.map(t=>[t.title,t.description||'',(GT_STATUS_LBL[t.status]||t.status).replace(/^\S+\s/,''),GT_PRIO[t.priority]||'',String(GT_CATS[t.category]||'').replace(/^\S+\s/,''),
+      _fmtDateRu(t.due_date),(t.responsibles||[]).join(', '),(t.confirmations||[]).join(', '),sn(t),t.created_by||'',t.notes||''])];
+  const ws=XLSX.utils.aoa_to_sheet(aoa);ws['!cols']=[{wch:36},{wch:40},{wch:12},{wch:12},{wch:14},{wch:11},{wch:30},{wch:30},{wch:20},{wch:16},{wch:24}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:10}}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Задачи');XLSX.writeFile(wb,`Задачи_${new Date().toISOString().slice(0,10)}.xlsx`);toast('Excel сохранён','ok');
+}

@@ -139,6 +139,9 @@ async function pgkCellEdit(ev, td, entityType, id, field) {
 
     try {
       await fetch(url,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      // ↩ отмена правки ячейки — вернуть прежнее значение
+      const oldBody={...body,[field]:currentVal};
+      TK.undoBar('Изменено',async()=>{await fetch(url,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(oldBody)});await loadPGK();});
       await loadPGK();
       const newScrollEl=document.querySelector('.wt-scroll');
       if (newScrollEl) newScrollEl.scrollTop=scrollTop;
@@ -1744,7 +1747,7 @@ function _equipExportMenu(ev){
 
 // Таблицы других вкладок: ширина столбцов тоже меняется мышью. Они
 // перерисовываются из разных мест, поэтому подхватываем их наблюдателем DOM.
-const _COLRSZ_TABLES={'pgk-workers-tbl':'workers','mch-park-tbl':'machinery','mat-tbl':'materials','mto-tbl':'mto'};
+const _COLRSZ_TABLES={'pgk-workers-tbl':'workers','mch-park-tbl':'machinery','mat-tbl':'materials','mto-tbl':'mto','gruz-tbl':'gruz','gt-tbl':'gtasks','br-tbl':'brigades'};
 (function(){
   let pend=false;
   const scan=()=>{pend=false;for(const id in _COLRSZ_TABLES){const t=document.getElementById(id);if(t&&!t._colRsz)_initColResize(t,_COLRSZ_TABLES[id]);}};
@@ -2065,14 +2068,16 @@ function equipCtxMenu(ev,eid){
 }
 
 // Применить изменения сразу к нескольким позициям оборудования
-async function _equipApply(ids,patch,msg){
+async function _equipApply(ids,patch,msg,noUndo){
   const list=ids.map(id=>pgkEquipment.find(x=>x.id===id)).filter(Boolean);
+  const before=TK.snapshot(list,patch);
   try{
-    await Promise.all(list.map(e=>fetch(`${API}/pgk/equipment/${e.id}`,{method:'PUT',
-      headers:{'Content-Type':'application/json'},body:JSON.stringify({...e,...patch,user_name:un()})})));
+    await Promise.all(list.map(e=>{const p=typeof patch==='function'?patch(e):patch;
+      return fetch(`${API}/pgk/equipment/${e.id}`,{method:'PUT',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({...e,...p,user_name:un()})});}));
   }catch(err){toast('Ошибка сохранения','err');}
   await loadPGK();
-  if(msg)toast(list.length>1?`${msg}: ${list.length} поз.`:msg,'ok');
+  if(msg&&!noUndo)TK.undoBar(list.length>1?`${msg}: ${list.length} поз.`:msg,()=>_equipApply(before.map(b=>b.id),e=>(before.find(b=>b.id===e.id)||{}).old||{},null,true));
 }
 
 // Выбор значения поля из списка с поиском (ответственный / объект / группа / база)
@@ -2116,8 +2121,9 @@ function _pgkItem(type,id){
     :type==='machinery'?pgkMachinery.find(x=>x.id===id)
     :type==='material'?_matById(id):null;
 }
-async function _pgkApply(type,ids,patch,msg){
+async function _pgkApply(type,ids,patch,msg,noUndo){
   const list=ids.map(id=>_pgkItem(type,id)).filter(Boolean);
+  const before=TK.snapshot(list,patch);
   try{
     await Promise.all(list.map(e=>{
       const p=typeof patch==='function'?patch(e):patch;   // patch может зависеть от записи
@@ -2130,7 +2136,7 @@ async function _pgkApply(type,ids,patch,msg){
   }catch(err){toast('Ошибка сохранения','err');}
   await loadPGK();
   if(type!=='machinery'&&typeof loadAll==='function'){try{await loadAll();}catch(e){}}
-  if(msg)toast(list.length>1?`${msg}: ${list.length} поз.`:msg,'ok');
+  if(msg&&!noUndo)TK.undoBar(list.length>1?`${msg}: ${list.length} поз.`:msg,()=>_pgkApply(type,before.map(b=>b.id),e=>(before.find(b=>b.id===e.id)||{}).old||{},null,true));
 }
 function _pgkPick(type,ids,field,x,y){
   const first=_pgkItem(type,ids[0])||{};
@@ -2232,12 +2238,8 @@ function _equipEditNotes(ids){
     const txt=v('f-nt');
     const mode=(document.querySelector('input[name="f-ntm"]:checked')||{}).value||'replace';
     closeModal();
-    if(mode==='append'){
-      const list=ids.map(id=>pgkEquipment.find(x=>x.id===id)).filter(Boolean);
-      await Promise.all(list.map(e=>fetch(`${API}/pgk/equipment/${e.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({...e,notes:(e.notes?e.notes+' ':'')+txt})})));
-      await loadPGK();toast(`Примечание дописано: ${list.length} поз.`,'ok');
-    }else await _equipApply(ids,{notes:txt},'Примечание сохранено');
+    if(mode==='append')await _equipApply(ids,e=>({notes:(e.notes?e.notes+' ':'')+txt}),'Примечание дописано');
+    else await _equipApply(ids,{notes:txt},'Примечание сохранено');
   }}]);
   setTimeout(()=>document.getElementById('f-nt')?.focus(),50);
 }

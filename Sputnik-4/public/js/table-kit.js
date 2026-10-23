@@ -163,6 +163,14 @@ const TK = {
     ]);
   },
 
+  // Панель «↩ Отменить» для изменения (не удаления): undoFn возвращает прежние значения
+  undoBar(msg, undoFn) { if (typeof showUndoBar === 'function') showUndoBar(msg, undoFn); else toast(msg, 'ok'); },
+  // Снимок прежних значений тех полей, которые меняет patch (объект или функция от записи)
+  snapshot(list, patch) {
+    return list.map(e => { const p = typeof patch === 'function' ? patch(e) : patch;
+      return { id: e.id, old: Object.fromEntries(Object.keys(p || {}).map(k => [k, e[k] === undefined ? null : e[k]])) }; });
+  },
+
   // ── Массовые операции ────────────────────────────────────
   async bulkDelete(ids, urlFn, refresh, noun) {
     if (!await confirmDlg(`Удалить выбранное (${ids.length} ${noun || 'поз.'})?`)) return;

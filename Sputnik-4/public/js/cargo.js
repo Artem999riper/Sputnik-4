@@ -213,7 +213,16 @@ function renderGruz(){
     </div>
   </div>`;
 
-  body.innerHTML=html;
+  const viewBar=`<div style="display:flex;gap:4px;margin:0 0 8px"><div class="mch-view-toggle">
+    <button class="btn bsm ${window._gruzView!=='table'?'bp':'bs'}" onclick="gruzSetView('board')">▦ Доска</button>
+    <button class="btn bsm ${window._gruzView==='table'?'bp':'bs'}" onclick="gruzSetView('table')">☰ Таблица</button></div></div>`;
+  if(window._gruzView==='table'){
+    body.innerHTML=html.slice(0,html.indexOf('<div class="gruz-board">'))+viewBar+_gruzTableHtml(orders);
+    TK.initSelect('gruz-tbody','gruz');
+    try{renderNotifBadge();}catch(e){}
+    return;
+  }
+  body.innerHTML=html.replace('<div class="gruz-board">',viewBar+'<div class="gruz-board">');
   // Обновляем бейджи вкладок при каждом рендере грузов
   try{renderNotifBadge();}catch(e){}
 }
@@ -621,3 +630,105 @@ const GT_PRIO = {high:'🔴 Высокий', normal:'🔵 Обычный', low:'
 const GT_PRIO_CLS = {high:'high', normal:'normal', low:'low'};
 const GT_CATS = {general:'📌 Общие', field:'🏕 Полевые', office:'📐 Камеральные', logistics:'🚛 Логистика', safety:'🦺 Охрана труда', equipment:'🔧 Оборудование'};
 
+
+// ═══ Табличный вид «Груза» (выделение, массовые действия, экспорт) ═══════
+const GRUZ_COLS=[['num','№'],['status','Статус'],['base','База'],['from','Откуда'],['depart','Отправка'],['eta','Прибытие (план)'],
+  ['arrive','Прибыл'],['weight','Вес, т'],['items','Позиций'],['driver','Водитель'],['vehicle','Транспорт'],['notes','Примечания']];
+function gruzSetView(v){window._gruzView=v;try{localStorage.setItem('gruz_view',v);}catch(e){}renderGruz();}
+if(typeof window._gruzView==='undefined'){try{window._gruzView=localStorage.getItem('gruz_view')||'board';}catch(e){window._gruzView='board';}}
+function _gruzTableHtml(orders){
+  const today=new Date().toISOString().split('T')[0];
+  const _s=window._gruzSort||'depart', _a=window._gruzAsc===true;
+  const hidden=TK.hidden('gruz'), show=k=>!hidden.has(k);
+  TK.rerender.gruz=()=>renderGruz();
+  const bn=o=>(bases.find(b=>b.id===o.base_id)||{}).name||'';
+  const val=(o,k)=>k==='num'?(parseInt(o.num)||0):k==='status'?(GRUZ_STATUS[o.status]||''):k==='base'?bn(o):k==='from'?(o.from_desc||'')
+    :k==='depart'?(o.depart_date||''):k==='eta'?(o.eta_date||''):k==='arrive'?(o.actual_arrive||''):k==='weight'?(+o.total_weight||0)
+    :k==='items'?(o.items||[]).filter(i=>i.name).length:(o[k]||'');
+  const list=[...orders].sort((x,y)=>{const a=val(x,_s),b=val(y,_s);
+    if(typeof a==='number')return (a-b)*(_a?1:-1);
+    if(!a!==!b)return a?-1:1;return String(a).localeCompare(String(b),'ru',{numeric:true})*(_a?1:-1);});
+  window._gruzShownIds=list.map(o=>o.id);
+  const th=(k,l)=>`<th data-col="${k}" class="${_s===k?(_a?'wt-asc':'wt-desc'):''}" onclick="if(window._gruzSort==='${k}')window._gruzAsc=!window._gruzAsc;else{window._gruzSort='${k}';window._gruzAsc=true;}renderGruz()">${l}</th>`;
+  const sel=TK.set('gruz');
+  const dash='<span style="color:var(--tx3)">—</span>';
+  const rows=list.map(o=>{
+    const _id=escAttr(o.id), on=sel.has(o.id);
+    const over=o.status==='transit'&&o.eta_date&&o.eta_date<today;
+    const it=(o.items||[]).filter(i=>i.name);
+    const td={
+      num:`<td class="td-link" style="font-weight:700" onclick="gruzEditOrder('${_id}')">№${esc(o.num)}</td>`,
+      status:`<td><span class="gruz-badge ${over?'overdue':(GRUZ_STATUS_CLS[o.status]||'new')}">${over?'⚠️ Просроч.':GRUZ_STATUS[o.status]||o.status}</span></td>`,
+      base:`<td style="color:var(--bpc)">${bn(o)?'🏕 '+esc(bn(o)):dash}</td>`,
+      from:`<td>${o.from_desc?esc(o.from_desc):dash}</td>`,
+      depart:`<td>${o.depart_date?fmt(o.depart_date):dash}</td>`,
+      eta:`<td style="${over?'color:#ef4444;font-weight:700':''}">${o.eta_date?fmt(o.eta_date):dash}</td>`,
+      arrive:`<td style="color:#16a34a">${o.actual_arrive?fmt(o.actual_arrive):dash}</td>`,
+      weight:`<td style="text-align:right;font-weight:700;color:var(--acc)">${(+o.total_weight||0).toFixed(2)}</td>`,
+      items:`<td style="text-align:center" title="${esc(it.map(i=>i.name+(i.qty?' — '+i.qty+' '+(i.unit||'шт'):'')).join('\n'))}">${it.length||dash}</td>`,
+      driver:`<td>${o.driver?'👤 '+esc(o.driver):dash}</td>`,
+      vehicle:`<td>${o.vehicle?'🚛 '+esc(o.vehicle):dash}</td>`,
+      notes:`<td class="td-notes td-editable" title="${esc(o.notes||'')}" onclick="_gruzNoteCell(event,this,'${_id}')">${esc(o.notes||'')}</td>`,
+    };
+    return `<tr data-rid="${o.id}" class="${on?'lasso-sel':''}" oncontextmenu="event.preventDefault();gruzCtxMenu(event,'${_id}')">${TK.chkTd(on)}${GRUZ_COLS.filter(([k])=>show(k)).map(([k])=>td[k]).join('')}</tr>`;
+  }).join('');
+  const n=1+GRUZ_COLS.filter(([k])=>show(k)).length;
+  return `<div class="wt-summary" style="padding:4px 2px;flex-wrap:wrap">
+      ${list.length<gruzOrders.length?`<span style="color:var(--acc)">Показано: <b>${list.length}</b></span>`:''}
+      ${TK.selBar('gruz')}
+      <span style="margin-left:auto"><button class="btn bs bsm" onclick="_gruzExportMenu(event)">📤 Excel</button></span>
+    </div>
+    <div class="wt-scroll" style="max-height:calc(100vh - 260px)"><table class="wt-tbl" id="gruz-tbl" style="min-width:900px">
+      <thead oncontextmenu="TK.colsMenu(event,'gruz',GRUZ_COLS.filter(c=>c[0]!=='num'),()=>renderGruz())"><tr>${TK.chkTh('gruz')}${GRUZ_COLS.filter(([k])=>show(k)).map(([k,l])=>k==='notes'?`<th class="no-sort" data-col="notes">${l}</th>`:th(k,l)).join('')}</tr></thead>
+      <tbody id="gruz-tbody">${rows||`<tr><td colspan="${n}" style="text-align:center;padding:24px;color:var(--tx3)">Нет заявок</td></tr>`}</tbody>
+    </table></div>`;
+}
+function _gruzNoteCell(ev,td,id){const o=gruzOrders.find(x=>x.id===id);if(o)TK.cellText(ev,td,o.notes||'',v=>_gruzApply([id],{notes:v},'Примечание сохранено'));}
+async function _gruzApply(ids,patch,msg,noUndo){
+  const list=ids.map(id=>gruzOrders.find(o=>o.id===id)).filter(Boolean);
+  const before=list.map(o=>({id:o.id,old:Object.fromEntries(Object.keys(typeof patch==='function'?patch(o):patch).map(k=>[k,o[k]]))}));
+  try{await Promise.all(list.map(o=>{const p=typeof patch==='function'?patch(o):patch;
+    return fetch(`${API}/cargo/${o.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...o,...p,created_by:un()})});}));}
+  catch(e){toast('Ошибка сохранения','err');}
+  await loadGruz();
+  if(msg&&!noUndo)TK.undoBar(`${msg}${list.length>1?': '+list.length+' заявок':''}`,()=>_gruzApply(before.map(b=>b.id),o=>(before.find(b=>b.id===o.id)||{}).old||{},null,true));
+}
+function gruzCtxMenu(ev,id){
+  const o=gruzOrders.find(x=>x.id===id);if(!o)return;
+  const x=ev.clientX,y=ev.clientY;
+  const ids=TK.ctxIds('gruz',id), multi=ids.length>1;
+  showCtx(x,y,[
+    multi?{i:'☑️',l:`<b>Выбрано: ${ids.length}</b>`,html:true,f:()=>{}}:{i:'🚛',l:`<b>Заявка №${esc(o.num)}</b>`,html:true,f:()=>gruzEditOrder(id)},
+    {sep:true},
+    ...(multi?[]:[{i:'✏️',l:'Редактировать',f:()=>gruzEditOrder(id)},
+      ...(o.status==='transit'?[{i:'✅',l:'Доставлено…',f:()=>gruzArrived(id)}]:[])]),
+    {i:'🏕',l:'База…',f:()=>_searchPick({x,y,title:'🏕 База'+(multi?` — ${ids.length}`:''),items:[{v:'',l:'— не указана —'},...bases.map(b=>({v:b.id,l:b.name}))],current:multi?null:(o.base_id||''),
+      onPick:v=>_gruzApply(ids,{base_id:v||null},'База изменена')})},
+    {i:'📝',l:'Примечание…',f:()=>TK.notesModal(ids.length,multi?'':o.notes,(t,app)=>_gruzApply(ids,app?(e=>({notes:(e.notes?e.notes+' ':'')+t})):{notes:t},'Примечание сохранено'))},
+    {sep:true},
+    {i:'',l:'Статус: 🟡 В пути',f:()=>_gruzApply(ids.filter(i=>(gruzOrders.find(q=>q.id===i)||{}).status==='new'),{status:'transit'},'Отправлено в путь')},
+    {i:'',l:'Статус: ✕ Отменена',f:()=>_gruzApply(ids.filter(i=>!['delivered','cancelled'].includes((gruzOrders.find(q=>q.id===i)||{}).status)),{status:'cancelled'},'Отменено')},
+    {sep:true},
+    {i:'📤',l:'Экспорт в Excel',f:()=>multi?_gruzExportList(ids.map(i=>gruzOrders.find(q=>q.id===i)).filter(Boolean)):gruzExportExcel(id)},
+    {i:'🗑',l:multi?`Удалить выбранные (${ids.length})`:'Удалить',cls:'cxi-red',f:()=>multi?TK.bulkDelete(ids,i=>`/cargo/${i}`,loadGruz,'заявок'):gruzDeleteOrder(id)},
+  ]);
+}
+function _gruzExportMenu(ev){
+  const by=id=>gruzOrders.find(o=>o.id===id);
+  const shown=(window._gruzShownIds||[]).map(by).filter(Boolean), s=TK.selectedIds('gruz');
+  TK.exportMenu(ev,{all:gruzOrders,shown,selected:shown.filter(o=>s.includes(o.id)),run:_gruzExportList});
+}
+function _gruzExportList(list){
+  if(!list||!list.length){toast('Нет заявок','warn');return;}
+  const bn=o=>(bases.find(b=>b.id===o.base_id)||{}).name||'';
+  const st={new:'Новая',transit:'В пути',delivered:'Доставлена',cancelled:'Отменена'};
+  const aoa=[['Реестр заявок на груз — '+new Date().toLocaleDateString('ru-RU')],
+    ['№','Статус','База','Откуда','Отправка','Прибытие (план)','Прибыл','Вес, т','Позиции','Водитель','Транспорт','Примечания'],
+    ...list.map(o=>[o.num,st[o.status]||o.status,bn(o),o.from_desc||'',_fmtDateRu(o.depart_date),_fmtDateRu(o.eta_date),_fmtDateRu(o.actual_arrive),
+      +(+o.total_weight||0).toFixed(3),(o.items||[]).filter(i=>i.name).map(i=>i.name+(i.qty?' — '+i.qty+' '+(i.unit||'шт'):'')).join('; '),o.driver||'',o.vehicle||'',o.notes||''])];
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:7},{wch:11},{wch:18},{wch:18},{wch:11},{wch:12},{wch:11},{wch:8},{wch:50},{wch:18},{wch:16},{wch:24}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:11}}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Груз');
+  XLSX.writeFile(wb,`Груз_${new Date().toISOString().slice(0,10)}.xlsx`);toast('Excel сохранён','ok');
+}

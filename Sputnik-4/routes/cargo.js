@@ -27,8 +27,6 @@ module.exports = (app, getDb, L) => {
     const existing = get(d, 'SELECT id FROM cargo_orders WHERE num=?', [orderNum]);
     if (existing) return res.status(409).json({ error: `Заявка с номером №${orderNum} уже существует.` });
 
-    try { d.run('ALTER TABLE cargo_orders ADD COLUMN notify_workers TEXT DEFAULT "[]"'); } catch(e) {}
-    try { d.run('ALTER TABLE cargo_orders ADD COLUMN cargo_confirmations TEXT DEFAULT "[]"'); } catch(e) {}
 
     run(d, 'INSERT INTO cargo_orders(id,num,base_id,from_desc,depart_date,eta_date,status,driver,vehicle,items,total_weight,notes,created_by,notify_workers,cargo_confirmations)VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       [id, orderNum, base_id || null, from_desc || '', depart_date || null, eta_date || null,

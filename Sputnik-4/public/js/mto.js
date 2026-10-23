@@ -147,8 +147,9 @@ function mtoCellEdit(ev,td,id,field){
   }
   TK.cellText(ev,td,it[field]||'',v=>_mtoApply([id],{[field]:v.trim()},'Сохранено'));
 }
-async function _mtoApply(ids,patch,msg){
+async function _mtoApply(ids,patch,msg,noUndo){
   const list=ids.map(id=>mtoItems.find(x=>x.id===id)).filter(Boolean);
+  const before=TK.snapshot(list,patch);
   try{
     await Promise.all(list.map(it=>{
       const p=typeof patch==='function'?patch(it):patch;
@@ -156,7 +157,7 @@ async function _mtoApply(ids,patch,msg){
     }));
   }catch(e){toast('Ошибка сохранения','err');}
   await loadMTO();
-  if(msg)toast(list.length>1?`${msg}: ${list.length} поз.`:msg,'ok');
+  if(msg&&!noUndo)TK.undoBar(list.length>1?`${msg}: ${list.length} поз.`:msg,()=>_mtoApply(before.map(b=>b.id),e=>(before.find(b=>b.id===e.id)||{}).old||{},null,true));
 }
 function _mtoPick(ids,field,x,y){
   const one=ids.length===1?mtoItems.find(i=>i.id===ids[0]):null;

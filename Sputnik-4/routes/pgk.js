@@ -508,14 +508,15 @@ module.exports = (app, getDb, L) => {
     const d = db();
     const row = get(d, 'SELECT * FROM pgk_brigades WHERE id=?', [id]);
     if (!row) return res.status(404).json({ error: 'Not found' });
-    const tx = d.transaction(() => {
-      run(d, 'DELETE FROM pgk_brigade_members WHERE brigade_id=?', [id]);
-      run(d, 'DELETE FROM pgk_brigade_bases   WHERE brigade_id=?', [id]);
-      run(d, 'DELETE FROM pgk_brigade_sites   WHERE brigade_id=?', [id]);
-      run(d, 'DELETE FROM pgk_brigades        WHERE id=?', [id]);
-    });
-    tx();
-    res.json({ success: true });
+    // с данными для «↩ Отменить» (бригада + состав + базы + объекты)
+    const _restore = d.transaction(() => trashAndDelete(d, 'pgk_brigades', id, {
+      children: [
+        { table: 'pgk_brigade_members', fkColumn: 'brigade_id' },
+        { table: 'pgk_brigade_bases',   fkColumn: 'brigade_id' },
+        { table: 'pgk_brigade_sites',   fkColumn: 'brigade_id' },
+      ],
+    }))();
+    res.json({ success: true, _restore });
   }));
 
   // ── АКТ ПРИЁМА-ПЕРЕДАЧИ ОБОРУДОВАНИЯ ──────────────────────
