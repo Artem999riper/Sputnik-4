@@ -1779,6 +1779,16 @@ function renderLayerGroupsWithSymbols() {
             showCtx(cx, cy, [
               {i:'🗺',l:`<b>${esc(featureName)}</b> <span style="color:var(--tx3);font-weight:400">${esc(l.name)}</span>`,f:null,html:true},{sep:true},
               {i:'📍',l:'Отметка высоты (БСВ-77)',f:()=>showElevationAtPoint(ev.latlng)},
+              {i:'🧭',l:f.geometry&&f.geometry.type==='Point'?'Координаты точки во всех системах':'Координаты вершины во всех системах',f:()=>{
+                // точка — её координаты; линия/полигон — ближайшая вершина к месту щелчка
+                let lat=ev.latlng.lat,lng=ev.latlng.lng;
+                try{
+                  if(f.geometry.type==='Point'){lng=f.geometry.coordinates[0];lat=f.geometry.coordinates[1];}
+                  else{const T=map.latLngToContainerPoint(ev.latlng);let bd=Infinity;
+                    (function walk(c){if(typeof c[0]==='number'){const q=map.latLngToContainerPoint([c[1],c[0]]);const d=Math.hypot(q.x-T.x,q.y-T.y);if(d<bd){bd=d;lng=c[0];lat=c[1];}}else c.forEach(walk);})(f.geometry.coordinates);}
+                }catch(e){}
+                cvOpenPoint(lat,lng);
+              }},
               {sep:true},
               {i:'🔍',l:'Приблизить',f:()=>{
                 try { map.flyToBounds(layer.getBounds ? layer.getBounds() : L.latLngBounds([[layer.getLatLng().lat,layer.getLatLng().lng]]), {padding:[60,60]}); }
