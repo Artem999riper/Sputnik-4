@@ -159,6 +159,7 @@ const _ADM_TABS=[
   {v:'gtasks',label:'📋 Задачи'},
   {v:'smg',label:'📅 СМГ'},
   {v:'mto',label:'🛠 МТО'},
+  {v:'conv',label:'🧭 Пересчёт'},
   {v:'brigades',label:'👥 Бригады'},
 ];
 async function _admRenderTabs(){

@@ -315,7 +315,8 @@ function updateCoordWidgetVisibility() {
   const widget = document.getElementById('coord-widget');
   if (!widget) return;
   const pages = ['pgk-page','kam-page','smg-page','gruz-page','gtasks-page','dash-page',
-                  'workers-page','machinery-page','equipment-page','materials-page','field-page','brigades-page'];
+                  'workers-page','machinery-page','equipment-page','materials-page','field-page','brigades-page',
+                  'mto-page','conv-page'];
   const anyOpen = pages.some(id => {
     const el = document.getElementById(id);
     return el && el.classList.contains('show');
