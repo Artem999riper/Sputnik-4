@@ -2,6 +2,10 @@
   "name": "purgeokom-sputnik",
   "version": "2.0.0",
   "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/run.js"
+  },
   "dependencies": {
     "adm-zip": "^0.5.16",
     "better-sqlite3": "^12.9.0",

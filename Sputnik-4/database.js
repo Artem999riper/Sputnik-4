@@ -24,7 +24,8 @@ try {
 const path = require('path');
 const fs   = require('fs');
 
-const DB_PATH = path.join(__dirname, 'survey.db');
+// PGK_DB — другой файл базы (используют автотесты, чтобы не трогать рабочую)
+const DB_PATH = process.env.PGK_DB || path.join(__dirname, 'survey.db');
 let _db = null;
 
 async function getDb() {

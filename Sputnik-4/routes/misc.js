@@ -1481,3 +1481,5 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json({ tiles, count: Object.keys(tiles).length });
   });
 };
+// Для автотестов (tests/): внутренние функции разбора DXF и пересчёта
+module.exports._test = { parseDXF, dxfEntitiesToFeatures, makeDxfInverseTransform, _dxfSplinePoints, _dxfHatchRings };

@@ -46,10 +46,11 @@ echo    3.  Reinstall dependencies
 echo    4.  Exit
 echo    5.  Show admin password
 echo    6.  Reset admin password
+echo    7.  Self-test
 echo    ----------------------------------------
 echo.
 set choice=
-set /p choice=   Action (1-6):
+set /p choice=   Action (1-7):
 
 if "%choice%"=="1" goto START
 if "%choice%"=="2" goto BROWSER
@@ -57,6 +58,7 @@ if "%choice%"=="3" goto INSTALL
 if "%choice%"=="4" goto QUIT
 if "%choice%"=="5" goto SHOWPASS
 if "%choice%"=="6" goto RESETPASS
+if "%choice%"=="7" goto SELFTEST
 goto MENU
 
 :SHOWPASS
@@ -86,6 +88,15 @@ rem server-loop.bat сам перезапускает node при падении
 start "PurGeoCom Server" cmd /k server-loop.bat
 timeout /t 2 /nobreak >nul
 start "" http://localhost:3000
+goto MENU
+
+:SELFTEST
+echo.
+echo    Running self-tests on a temporary database (survey.db is not touched)...
+echo.
+call node tests\run.js
+echo.
+pause
 goto MENU
 
 :BROWSER

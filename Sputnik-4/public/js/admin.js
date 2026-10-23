@@ -239,7 +239,9 @@ async function _admRenderUpdate(){
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
       <button class="btn ${v.needRestart?'bp':'bs'} bsm" onclick="verRestart()" ${v.canRestart?'':'disabled title="Сервер запущен не через start.bat"'}>🔄 Перезапустить сервер</button>
+      <button class="btn bs bsm" onclick="_admSelftest()" title="Автотесты на временной копии: рабочая база не затрагивается">🧪 Самопроверка</button>
     </div>
+    <div id="adm-selftest" style="font-size:11px;margin:-6px 0 14px"></div>
     ${v.git?`<div style="font-size:12px;font-weight:700;margin-bottom:6px">Обновление из git</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
       <button class="btn bs bsm" onclick="_admUpdCheck()">🔎 Проверить обновления</button>
@@ -258,6 +260,17 @@ async function _admRenderUpdate(){
         <span style="flex:1">${esc(s.name)}</span><span style="color:var(--tx3)">${(s.size/1048576).toFixed(1)} МБ</span>
         <button class="btn bs bxs" onclick="_admUpdRollback('${escAttr(s.name)}')">↩ Откатить</button></div>`).join('')}</div>`
       :'<div style="font-size:11px;color:var(--tx3)">Копий пока нет — они появятся при первом обновлении.</div>'}`;
+}
+async function _admSelftest(){
+  const box=document.getElementById('adm-selftest');if(!box)return;
+  box.innerHTML='⏳ Идёт самопроверка (до минуты)… Рабочая база не затрагивается.';
+  try{
+    const j=await fetch(`${API}/admin/selftest`,{method:'POST'}).then(r=>r.json());
+    if(j.error){box.innerHTML='<span style="color:var(--red)">'+esc(j.error)+'</span>';return;}
+    box.innerHTML=`${j.fail?'<b style="color:var(--red)">❌ Найдены проблемы</b>':'<b style="color:#15803d">✅ Всё в порядке</b>'} — пройдено ${j.pass}${j.fail?`, ошибок ${j.fail}`:''}${j.skip?`, пропущено ${j.skip}`:''} · ${j.seconds} с
+      ${j.failed&&j.failed.length?`<div style="color:var(--red);margin-top:4px">${j.failed.map(f=>'• '+esc(f)).join('<br>')}</div>`:''}
+      <details style="margin-top:4px"><summary style="cursor:pointer;color:var(--tx3)">подробный отчёт</summary><pre style="max-height:220px;overflow:auto;font-size:10px;background:var(--s2);padding:6px;border-radius:4px;white-space:pre-wrap">${esc(j.output||'')}</pre></details>`;
+  }catch(e){box.textContent='Ошибка: '+e.message;}
 }
 async function _admUpdCheck(){
   const out=document.getElementById('adm-upd-git');if(out)out.textContent='⏳ Проверяю…';

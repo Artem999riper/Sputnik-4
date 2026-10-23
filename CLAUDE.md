@@ -12,6 +12,11 @@ node server.js
 
 No build step. On first run, `survey.db` (SQLite) and `public/uploads/` are created automatically.
 
+**Tests:** `npm test` (= `node tests/run.js`, Node's built-in test runner, no extra dependencies). Every API test
+starts its own server on a temporary database (`PGK_DB`, `PGK_BACKUP_DIR`, `PGK_NO_BROWSER` env vars), so
+`survey.db` is never touched. `tests/06-ui.test.js` runs only if Playwright is installed (`PW_CHROMIUM` = path to
+Chromium). Also available as Admin → Обновление → «🧪 Самопроверка» and `start.bat` → 7.
+
 **Optional dependencies for DEM terrain processing:**
 - GDAL/OSGeo4W (`C:\OSGeo4W\bin` on Windows, `/usr/bin` on Linux)
 - Python 3 with `osgeo` bindings (for `dem_export.py`)

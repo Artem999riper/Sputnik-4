@@ -84,7 +84,7 @@ const L = (sid, bid, act, det, usr) => {
 };
 
 // ── BACKUP ─────────────────────────────────────────────────────────────────────
-const BACKUP_DIR = path.join(__dirname, 'backups');
+const BACKUP_DIR = process.env.PGK_BACKUP_DIR || path.join(__dirname, 'backups');
 if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR);
 
 const BACKUP_DEFAULTS = { interval_hours: 2, max_count: 10 };
@@ -139,7 +139,7 @@ function rotateAutoBackups(maxCount) {
 
 // Возвращает { ok, name, size } либо { ok:false, error } — ошибка видна вызывающему
 async function performAutoBackup() {
-  const DB_PATH = path.join(__dirname, 'survey.db');
+  const DB_PATH = process.env.PGK_DB || path.join(__dirname, 'survey.db');
   if (!fs.existsSync(DB_PATH)) return { ok: false, error: 'survey.db не найден' };
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const fname = `backup_auto_${ts}.db`;
@@ -221,7 +221,8 @@ getDb().then(database => {
     else console.log('');
     // После перезапуска из админки браузер уже открыт — новую вкладку не открываем
     const flag = path.join(BACKUP_DIR, '.restart');
-    if (fs.existsSync(flag)) { try { fs.unlinkSync(flag); } catch(e) {} }
+    if (process.env.PGK_NO_BROWSER) {}
+    else if (fs.existsSync(flag)) { try { fs.unlinkSync(flag); } catch(e) {} }
     else { try { require('child_process').exec(`start http://localhost:${PORT}`); } catch(e) {} }
   });
   // Ошибка самого HTTP-сервера (например, порт занят) — не валим процесс молча

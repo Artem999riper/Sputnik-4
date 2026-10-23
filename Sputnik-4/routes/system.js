@@ -213,6 +213,20 @@ module.exports = (app, { isAdmin, BACKUP_DIR, performAutoBackup }) => {
     });
   });
 
+  // ── самопроверка: автотесты на временной базе (tests/*.test.js) ──
+  app.post('/api/admin/selftest', async (req, res) => {
+    if (!admin(req, res)) return;
+    const dir = path.join(ROOT, 'tests');
+    if (!fs.existsSync(dir)) return res.status(404).json({ error: 'Папка tests не найдена' });
+    const files = fs.readdirSync(dir).filter(f => /\.test\.js$/.test(f)).sort().map(f => path.join('tests', f));
+    const t0 = Date.now();
+    const r = await run(process.execPath, ['--test', ...files], { timeout: 300000 });
+    const out = (r.out + '\n' + r.err).replace(/\x1b\[[0-9;]*m/g, '');
+    const num = k => { const m = out.match(new RegExp('^[#ℹ] ' + k + ' (\\d+)', 'm')); return m ? +m[1] : 0; };
+    const failed = [...out.matchAll(/^not ok \d+ - (.+)$/gm)].map(m => m[1]).concat([...out.matchAll(/^✖ (.+?) \(\d/gm)].map(m => m[1]));
+    res.json({ ok: r.ok, pass: num('pass'), fail: num('fail'), skip: num('skipped'), failed: [...new Set(failed)], seconds: Math.round((Date.now() - t0) / 1000), output: out.slice(-12000) });
+  });
+
   // ── откат на сохранённую копию кода ────────────────────────
   app.get('/api/admin/update/snapshots', (req, res) => {
     if (!admin(req, res)) return;
