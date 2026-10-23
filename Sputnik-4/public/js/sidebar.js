@@ -343,6 +343,12 @@ async function _readFileText(file) {
 async function importLayer(evt){
   const fl=evt.target.files;if(!fl||!fl.length)return;
   // Набор файлов MapInfo TAB (.tab/.map/.id/.dat) или ZIP → серверный импорт через GDAL
+  // Shapefile (.shp/.dbf/.prj/.cpg) — собственный разбор на сервере, GDAL не нужен
+  if([...fl].some(f=>/\.(shp|dbf|shx|prj|cpg)$/i.test(f.name))){ await _importShp([...fl]); evt.target.value=''; return; }
+  // ZIP: сначала пробуем как Shapefile, если в архиве нет .shp — как MapInfo TAB
+  if([...fl].some(f=>/\.zip$/i.test(f.name))&&![...fl].some(f=>/\.tab$/i.test(f.name))){
+    const r=await _importShp([...fl]); if(r!=='notShp'){evt.target.value='';return;}
+  }
   if([...fl].some(f=>/\.(tab|zip)$/i.test(f.name))){ await _importTab(fl); evt.target.value=''; return; }
   const file=fl[0];
   const fext=file.name.split('.').pop().toLowerCase();
@@ -397,6 +403,11 @@ function _utmPickerHtml(prefix, pad){
       <select id="${prefix}-utmzone" onchange="var r=document.getElementById('${prefix}-crs-utm');if(r)r.checked=true" style="font-size:12px;padding:3px;border:1px solid var(--bd);border-radius:4px;background:var(--s2);color:var(--tx)">${opts}</select>
     </div>`;
 }
+// СК-42 / СК-95 / ГСК-2011 в Гауссе-Крюгере (зона по первым цифрам X-восток)
+function _gkPickerHtml(prefix, pad){
+  const p=pad||'3px';
+  return ['sk42','sk95','gsk'].map(d=>`<label style="display:block;padding:${p} 0"><input type="radio" name="${prefix}-crs" value="gk:${d}"> ${d==='sk42'?'СК-42':d==='sk95'?'СК-95':'ГСК-2011'} — Гаусс-Крюгер 6° (зона по X)</label>`).join('');
+}
 function _mskReadCrs(prefix, fallback){
   const sel = document.querySelector(`input[name="${prefix}-crs"]:checked`);
   const v = sel ? sel.value : (fallback||'wgs84');
@@ -412,26 +423,50 @@ function _mskReadCrs(prefix, fallback){
   return v;
 }
 
-function _showDxfCrsModal(){
+function _showDxfCrsModal(pv,fileName){
   return new Promise(resolve=>{
+    const TN={POINT:'точки',INSERT:'блоки',LINE:'отрезки',LWPOLYLINE:'полилинии',POLYLINE:'полилинии',ARC:'дуги',CIRCLE:'окружности',ELLIPSE:'эллипсы',SPLINE:'сплайны',HATCH:'штриховки',TEXT:'тексты',MTEXT:'тексты',ATTRIB:'атрибуты'};
+    const lays=(pv&&pv.layers)||[];
+    const layersHtml=lays.length?`<div style="font-size:12px;font-weight:700;margin:2px 0 4px">Слои DXF (${lays.length})
+        <button class="btn bs bxs" style="margin-left:6px" onclick="document.querySelectorAll('.dxf-lay').forEach(c=>c.checked=true)">все</button>
+        <button class="btn bs bxs" onclick="document.querySelectorAll('.dxf-lay').forEach(c=>c.checked=false)">ни одного</button></div>
+      <div style="max-height:170px;overflow:auto;border:1.5px solid var(--bd);border-radius:var(--rs);padding:4px 8px;margin-bottom:6px">
+        ${lays.map(l=>`<label style="display:flex;gap:6px;align-items:baseline;padding:2px 0;font-size:12px;cursor:pointer"><input type="checkbox" class="dxf-lay" value="${escAttr(l.name)}" checked style="width:auto;margin:0">
+          <b>${esc(l.name)}</b><span style="color:var(--tx3);font-size:10px">${Object.entries(l.types).map(([t,n])=>`${TN[t]||t}: ${n}`).join(', ')}</span></label>`).join('')}
+      </div>
+      <label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="dxf-merge" style="width:auto;margin:0"> Объединить выбранные слои в один слой карты:
+        <input id="dxf-mname" value="${escAttr(String(fileName||'DXF').replace(/\.dxf$/i,''))}" style="flex:1;font-size:12px;padding:2px 6px" oninput="document.getElementById('dxf-merge').checked=true"></label>`:'';
     const body=`
       <div style="display:flex;flex-direction:column;gap:6px">
+        ${layersHtml}
         <div style="font-size:12px;color:var(--tx3);margin-bottom:2px">Выберите систему координат DXF-файла:</div>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86" checked> МСК-86 (авто зона по X)</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′, фикс.)</label>
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′, фикс.)</label>
         ${_mskFullPickerHtml('dxf')}
         ${_utmPickerHtml('dxf')}
-        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="gsk2011"> ГСК-2011</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="gsk2011"> ГСК-2011 (зоны МСК-86)</label>
+        ${_gkPickerHtml('dxf')}
         <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="wgs84"> WGS-84 (градусы)</label>
       </div>`;
     showModal('📥 Импорт DXF',body,[
       {label:'Отмена',cls:'bs',fn:()=>{closeModal();resolve(null);}},
       {label:'Импортировать',cls:'bp',fn:()=>{
         const crs=_mskReadCrs('dxf','msk86');
-        closeModal();resolve(crs);
+        const only=[...document.querySelectorAll('.dxf-lay')].filter(c=>c.checked).map(c=>c.value);
+        if(lays.length&&!only.length){toast('Отметьте хотя бы один слой','err');return;}
+        const merge=!!document.getElementById('dxf-merge')?.checked;
+        const mergeName=(document.getElementById('dxf-mname')?.value||'').trim()||'DXF';
+        try{localStorage.setItem('dxf_last_crs',crs);}catch(e){}
+        closeModal();resolve({crs,onlyLayers:lays.length?only:undefined,merge,mergeName});
       }},
     ]);
+    // последняя выбранная СК
+    setTimeout(()=>{let c='';try{c=localStorage.getItem('dxf_last_crs')||'';}catch(e){}
+      const base=c.startsWith('mskfull:')?'mskfull':c.startsWith('utm:')?'utm':c;
+      const r=document.querySelector(`input[name="dxf-crs"][value="${base}"]`);if(r)r.checked=true;
+      if(base==='mskfull'){const [,rg,dt]=c.split(':');const a=document.getElementById('dxf-mskreg'),b=document.getElementById('dxf-mskdatum');if(a&&rg)a.value=rg;if(b&&dt)b.value=dt;}
+      if(base==='utm'){const z=document.getElementById('dxf-utmzone');if(z)z.value=c.split(':')[1];}},50);
   });
 }
 // Импорт MapInfo TAB: отправляем весь набор файлов (или ZIP) на сервер (ogr2ogr → GeoJSON)
@@ -498,13 +533,12 @@ async function _tabUploadRequest(files, opt){
   toast(`TAB импортирован: ${j.layer?j.layer.features:0} объектов`,'ok');
 }
 // Выбор СК для TAB в NonEarth (локальные метры) — те же системы, что и для DXF
-function _showTabCrsModal(reason){
+function _showTabCrsModal(reason, kind){
   return new Promise(resolve=>{
     const body=`
       <div style="font-size:12px;color:var(--tx3);margin-bottom:8px;line-height:1.55">
-        Файл MapInfo сохранён в системе <b>NonEarth</b> — это локальные метры (X — восток, Y — север)
-        без географической привязки. Укажите, в какой системе координат заданы эти метры,
-        и программа пересчитает объекты в WGS-84.
+        ${kind==='shp'?'В наборе Shapefile нет файла <b>.prj</b> (описания системы координат). Укажите, в какой системе заданы координаты (X — восток, Y — север), и программа пересчитает объекты в WGS-84.'
+        :'Файл MapInfo сохранён в системе <b>NonEarth</b> — это локальные метры (X — восток, Y — север) без географической привязки. Укажите, в какой системе координат заданы эти метры, и программа пересчитает объекты в WGS-84.'}
       </div>
       <div style="display:flex;flex-direction:column;gap:2px">
         <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk86" checked> МСК-86 (авто зона по X)</label>
@@ -512,13 +546,16 @@ function _showTabCrsModal(reason){
         <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′, фикс.)</label>
         ${_mskFullPickerHtml('tab')}
         ${_utmPickerHtml('tab')}
-        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="gsk2011"> ГСК-2011</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="gsk2011"> ГСК-2011 (зоны МСК-86)</label>
+        ${_gkPickerHtml('tab')}
+        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="geo:sk42"> СК-42 (градусы)</label>
+        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="wgs84"> WGS-84 (градусы)</label>
       </div>
       <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;cursor:pointer">
         <input type="checkbox" id="tab-swap"> Поменять местами X и Y
         <span style="color:var(--tx3);font-size:10px">(включите, если объект уходит не туда)</span>
       </label>`;
-    showModal('📥 Импорт TAB — выберите систему координат', body, [
+    showModal(kind==='shp'?'📥 Импорт SHP — выберите систему координат':'📥 Импорт TAB — выберите систему координат', body, [
       {label:'Отмена',cls:'bs',fn:()=>{closeModal();resolve(null);}},
       {label:'Импортировать',cls:'bp',fn:()=>{
         const crs=_mskReadCrs('tab','msk86');
@@ -530,11 +567,16 @@ function _showTabCrsModal(reason){
 }
 async function _importDxf(file,text){
   if(typeof loadMskFull==='function'){try{await loadMskFull();}catch(e){}}
-  const crs=await _showDxfCrsModal();
-  if(!crs)return;
+  // 1) Состав файла: слои DXF и типы объектов
+  let pv=null;
+  try{const r=await fetch(`${API}/layers/import-dxf`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dxfText:text,preview:true})});pv=await r.json();if(!r.ok){toast(pv.error||'Ошибка чтения DXF','err');return;}}
+  catch(e){toast('Ошибка чтения DXF','err');return;}
+  const opt=await _showDxfCrsModal(pv,file.name);
+  if(!opt)return;
+  const {crs,onlyLayers,merge,mergeName}=opt;
   let j;
   try{
-    const r=await fetch(`${API}/layers/import-dxf`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dxfText:text,crs})});
+    const r=await fetch(`${API}/layers/import-dxf`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dxfText:text,crs,onlyLayers,merge,mergeName})});
     j=await r.json();
     if(!r.ok){toast(j.error||'Ошибка импорта DXF','err');return;}
   }catch(e){toast('Ошибка импорта DXF','err');return;}
@@ -543,6 +585,33 @@ async function _importDxf(file,text){
   try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
   const total=j.layers.reduce((s,l)=>s+l.features,0);
   toast(`DXF импортирован: ${j.layers.length} сл., ${total} объектов`,'ok');
+  _zoomToLayers(j.layers.map(l=>l.id));
+}
+// Приблизить карту к только что импортированным слоям
+function _zoomToLayers(ids){
+  try{
+    let b=null;
+    (ids||[]).forEach(id=>{const l=layers.find(x=>x.id===id);if(!l)return;const g=L.geoJSON(JSON.parse(l.geojson));const bb=g.getBounds();if(bb.isValid())b=b?b.extend(bb):bb;});
+    if(b&&b.isValid())map.fitBounds(b.pad(0.1));
+  }catch(e){}
+}
+// Импорт Shapefile: возвращает 'notShp', если в переданных файлах/архиве нет .shp
+async function _importShp(files,opt){
+  if(typeof loadMskFull==='function'){try{await loadMskFull();}catch(e){}}
+  const fd=new FormData();files.forEach(f=>fd.append('files',f));
+  if(opt&&opt.crs){fd.append('crs',opt.crs);if(opt.swap)fd.append('swap',opt.swap);}
+  if(!opt)toast('⏳ Импорт Shapefile…','ok');
+  let r,j;
+  try{r=await fetch(`${API}/layers/import-shp`,{method:'POST',body:fd});j=await r.json().catch(()=>({}));}
+  catch(e){toast('Ошибка импорта SHP','err');return;}
+  if(j&&j.notShp)return 'notShp';
+  if(r.status===409&&j.needCrs){const ch=await _showTabCrsModal(j.error||'','shp');if(!ch)return;return _importShp(files,ch);}
+  if(!r.ok){toast(j.error||'Ошибка импорта SHP','err');return;}
+  layers=await fetch(`${API}/layers`).then(x=>x.json()).catch(()=>layers);
+  renderLP();renderLayerGroups();try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
+  const total=j.layers.reduce((s,l)=>s+l.features,0);
+  toast(`SHP импортирован: ${j.layers.length} сл., ${total} объектов${(j.warnings||[]).length?' · '+j.warnings.join('; '):''}`,'ok');
+  _zoomToLayers(j.layers.map(l=>l.id));
 }
 // ── CSV / TXT импорт точек ──────────────────────────────────
 function _csvAutoDelim(firstLine) {

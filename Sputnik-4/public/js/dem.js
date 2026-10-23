@@ -129,6 +129,7 @@ function openDEMPanel() {
           <button class="btn bp bsm" onclick="demStartDraw()" title="Прямоугольная область">▭ Прямоугольник</button>
           <button class="btn bs bsm" onclick="demStartPolygon()" title="Произвольный полигон — кликайте вершины, двойной клик для завершения">⬠ Полигон</button>
           <button class="btn bs bsm" onclick="demStartLine()" title="Линия с буфером (для линейных объектов) — кликайте точки, двойной клик для завершения">〰 Линия+буфер</button>
+          <button class="btn bs bsm" onclick="demBatchByLayer()" title="Выгрузить сразу по всем (или выбранным) полигонам слоя — каждый участок отдельно, в одном архиве">📚 Пакет по слою</button>
           ${_demLastBbox ? `<button class="btn bs bsm" style="white-space:nowrap" onclick="demRestoreLast()" title="Восстановить предыдущую область">↩ Пред.</button>` : ''}
           <button class="btn bs bsm" onclick="demClearDraw()">✕</button>
         </div>
@@ -1201,3 +1202,109 @@ document.addEventListener('DOMContentLoaded', () => {
   // Отложенная проверка — не мешаем загрузке страницы
   setTimeout(() => { demCheckGeoid(); demRefreshTileCache(); }, 3000);
 });
+
+// ═══ Пакетная выгрузка рельефа по полигонам слоя (№21) ══════════════════
+// Каждый полигон — отдельный участок со своей обрезкой и своей зоной СК;
+// всё складывается в один ZIP (папка на участок + «Отчёт.txt»).
+function _demCommonParams() {
+  const gs = document.getElementById('dem-grid-step')?.value ?? '20';
+  const satSourceId = document.getElementById('dem-sat-source')?.value || 'esri';
+  const so = DEM_SAT_SOURCES.find(s => s.id === satSourceId) || DEM_SAT_SOURCES[0];
+  const satelliteOnly = document.getElementById('dem-sat-only')?.checked === true;
+  return {
+    interval: parseFloat(document.getElementById('dem-interval')?.value) || 2,
+    gridStep: (gs === '' || gs === null) ? 20 : parseInt(gs, 10),
+    jitterMin: parseFloat(document.getElementById('dem-jitter-min')?.value ?? '0') || 0,
+    jitterMax: parseFloat(document.getElementById('dem-jitter-max')?.value ?? '0') || 0,
+    useGeoid: document.getElementById('dem-bsv77')?.checked !== false,
+    exportSatellite: satelliteOnly ? true : document.getElementById('dem-satellite')?.checked !== false,
+    satelliteOnly,
+    satZoom: parseInt(document.getElementById('dem-sat-zoom')?.value ?? '0') || 0,
+    satMPP: document.getElementById('dem-sat-1m')?.checked ? 1 : 0,
+    satSourceUrl: so.url, satSourceSubdomains: so.subdomains,
+  };
+}
+function _demPolysOfLayer(l) {
+  let gj; try { gj = JSON.parse(l.geojson); } catch (e) { return []; }
+  const out = [];
+  (gj.features || []).forEach((f, i) => {
+    const g = f && f.geometry; if (!g) return;
+    const nm = (f.properties && (f.properties.name || f.properties.Name || f.properties['НАЗВ'])) || `Полигон ${i + 1}`;
+    if (g.type === 'Polygon') out.push({ name: String(nm), ring: g.coordinates[0] });
+    else if (g.type === 'MultiPolygon') g.coordinates.forEach((p, k) => out.push({ name: `${nm}${g.coordinates.length > 1 ? ' (' + (k + 1) + ')' : ''}`, ring: p[0] }));
+  });
+  return out.filter(p => p.ring && p.ring.length >= 4);
+}
+function demBatchByLayer(layerId) {
+  const cand = (layers || []).map(l => ({ l, polys: _demPolysOfLayer(l) })).filter(x => x.polys.length);
+  if (!cand.length) { toast('Нет слоёв с полигонами. Импортируйте или нарисуйте контуры участков', 'warn'); return; }
+  const cur = cand.find(x => x.l.id === layerId) || cand[0];
+  // Параметры окна «Рельеф» — запоминаем сейчас, пока окно открыто (дальше его заменит окно пакета)
+  window._demBatchCfg = { params: _demCommonParams(), projId: document.getElementById('dem-proj')?.value, forcedZone: parseInt(document.getElementById('dem-zone')?.value) || 0 };
+  const projSel = document.getElementById('dem-proj');
+  const projLbl = projSel ? projSel.options[projSel.selectedIndex]?.text : '';
+  const render = c => `
+    <div class="fg s2"><label>Слой с участками</label>
+      <select id="demb-layer" onchange="window._demBatchRender(this.value)" style="width:100%">
+        ${cand.map(x => `<option value="${escAttr(x.l.id)}" ${x.l.id === c.l.id ? 'selected' : ''}>${esc(x.l.name)} — ${x.polys.length} полиг.</option>`).join('')}</select></div>
+    <div style="font-size:11px;font-weight:700;margin:6px 0 4px">Участки
+      <button class="btn bs bxs" onclick="document.querySelectorAll('.demb-p').forEach(c=>c.checked=true)">все</button>
+      <button class="btn bs bxs" onclick="document.querySelectorAll('.demb-p').forEach(c=>c.checked=false)">ни одного</button></div>
+    <div style="max-height:220px;overflow:auto;border:1.5px solid var(--bd);border-radius:var(--rs);padding:4px 8px">
+      ${c.polys.map((p, i) => { const km2 = typeof _geoArea === 'function' ? _geoArea(p.ring.slice(0, -1).map(q => ({ lat: q[1], lng: q[0] }))) / 1e6 : 0;
+        return `<label style="display:flex;gap:6px;align-items:baseline;padding:2px 0;font-size:12px;cursor:pointer"><input type="checkbox" class="demb-p" value="${i}" checked style="width:auto;margin:0">
+        <span style="flex:1">${esc(p.name)}</span><span style="color:var(--tx3);font-size:10px">${km2 ? km2.toFixed(km2 < 1 ? 3 : 1) + ' км²' : ''}</span></label>`; }).join('')}
+    </div>
+    <div style="font-size:11px;color:var(--tx3);margin-top:8px;line-height:1.5">
+      Параметры берутся из окна «Рельеф»: шаг горизонталей, сетка точек, подложка, БСВ-77.
+      Система координат: <b>${esc(projLbl || '')}</b> — зона подбирается <b>для каждого участка отдельно</b> (если стоит «Авто»).
+      Каждый участок обрезается по своему контуру. Большие пакеты выгружаются долго — окно можно не закрывать.</div>`;
+  window._demBatchRender = id => { const c = cand.find(x => x.l.id === id); if (c) { window._demBatchCur = c; document.getElementById('mbd').innerHTML = render(c); } };
+  window._demBatchCur = cur;
+  showModal('📚 Рельеф по полигонам слоя', render(cur), [
+    { label: 'Отмена', cls: 'bs', fn: () => { closeModal(); if (typeof openDEMPanel === 'function') openDEMPanel(); } },
+    { label: '🏔 Выгрузить пакет', cls: 'bp', fn: () => {
+      const c = window._demBatchCur;
+      const idx = [...document.querySelectorAll('.demb-p')].filter(x => x.checked).map(x => +x.value);
+      if (!idx.length) { toast('Отметьте хотя бы один участок', 'err'); return; }
+      _demRunBatch(c.l, idx.map(i => c.polys[i]));
+    } },
+  ]);
+}
+async function _demRunBatch(layer, polys) {
+  const cfg = window._demBatchCfg || { params: _demCommonParams(), projId: document.getElementById('dem-proj')?.value, forcedZone: 0 };
+  const params = cfg.params, projId = cfg.projId, forcedZone = cfg.forcedZone;
+  const keepBbox = _demBbox;
+  const items = [];
+  for (const p of polys) {
+    const lats = p.ring.map(c => c[1]), lngs = p.ring.map(c => c[0]);
+    _demBbox = { minLat: Math.min(...lats), maxLat: Math.max(...lats), minLng: Math.min(...lngs), maxLng: Math.max(...lngs) };
+    const proj = DEM_PROJECTIONS.find(q => q.id === projId) || _demBuildMskProj(projId, forcedZone) || _demBuildUtmProj(projId, forcedZone);
+    if (!proj) { _demBbox = keepBbox; toast('Выберите систему координат в окне «Рельеф»', 'err'); return; }
+    items.push({ name: p.name, bbox: _demBbox, clip: { type: 'Polygon', coordinates: [p.ring] }, projId: proj.id, proj4: proj.proj4 || null, epsg: proj.epsg || null, projName: proj.name || null });
+  }
+  _demBbox = keepBbox;
+  // Окно прогресса
+  showModal('📚 Пакетная выгрузка рельефа', `<div style="font-size:12px;margin-bottom:8px">Слой «${esc(layer.name)}», участков: <b>${items.length}</b></div>
+    <div style="height:8px;background:var(--s3);border-radius:4px;overflow:hidden"><div id="demb-bar" style="height:100%;width:2%;background:var(--acc);transition:width .4s"></div></div>
+    <div id="demb-txt" style="font-size:11px;color:var(--tx2);margin-top:6px">⏳ Запуск…</div>`, [{ label: 'Скрыть', cls: 'bs', fn: closeModal }]);
+  const sse = new EventSource(`${location.origin}/api/events`);
+  sse.onmessage = e => { try { const d = JSON.parse(e.data); if (d.type === 'dem_progress') { const b = document.getElementById('demb-bar'), t = document.getElementById('demb-txt'); if (b) b.style.width = Math.max(2, d.pct) + '%'; if (t) t.textContent = d.text; } } catch (x) {} };
+  try {
+    const r = await fetch(`${API}/dem/export-batch`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, ...params }) });
+    sse.close();
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'Ошибка сервера'); }
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `ArcticDEM_пакет_${String(layer.name).replace(/[\\/:*?"<>|]+/g, '_')}_${new Date().toISOString().slice(0, 10)}.zip`;
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    const t = document.getElementById('demb-txt'); if (t) t.textContent = '✅ Готово — архив скачан (в нём «Отчёт.txt» по участкам)';
+    const b = document.getElementById('demb-bar'); if (b) b.style.width = '100%';
+    toast('✅ Пакет выгружен: ' + a.download, 'ok');
+  } catch (e) {
+    sse.close();
+    const t = document.getElementById('demb-txt'); if (t) t.innerHTML = '<span style="color:var(--red)">❌ ' + esc(e.message) + '</span>';
+    toast('❌ ' + e.message, 'err');
+  }
+}

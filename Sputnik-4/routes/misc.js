@@ -66,7 +66,7 @@ function parseDXF(text) {
 
   const dxfLayers = new Map();
   let inEntities = false;
-  const ENTITY_TYPES = new Set(['POINT','LINE','ARC','LWPOLYLINE','POLYLINE','VERTEX','SEQEND','TEXT','MTEXT','ATTRIB','INSERT']);
+  const ENTITY_TYPES = new Set(['POINT','LINE','ARC','CIRCLE','ELLIPSE','SPLINE','HATCH','LWPOLYLINE','POLYLINE','VERTEX','SEQEND','TEXT','MTEXT','ATTRIB','INSERT']);
   let i = 0;
   while (i < pairs.length) {
     const [code, val] = pairs[i];
@@ -192,9 +192,29 @@ function _firstPoint(gj) {
   return null;
 }
 
+// Датумы для Гаусса-Крюгера (как во вкладке «Пересчёт»)
+const _GK_DATUM = {
+  sk42: '+ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22',
+  sk95: '+ellps=krass +towgs84=24.47,-130.89,-81.56,0,0,0.13,-0.22',
+  gsk:  '+a=6378136.5 +rf=298.2564151 +towgs84=0.013,-0.092,-0.03,-0.001738,0.003559,-0.004263,0.0074',
+};
 function makeDxfInverseTransform(crs, sampleX) {
   if (crs === 'wgs84') return (x, y) => [x, y];
   const sx = sampleX || 3500000;
+  // СК-42 / СК-95 / ГСК-2011 в Гауссе-Крюгере (6°): зона — первые цифры восточной координаты
+  if (typeof crs === 'string' && crs.indexOf('gk:') === 0 && _GK_DATUM[crs.slice(3)]) {
+    const dat = _GK_DATUM[crs.slice(3)];
+    const cache = {};
+    return (x, y) => {
+      const z = Math.floor(x / 1e6);
+      if (!(z >= 1 && z <= 60)) return [NaN, NaN];
+      const ps = cache[z] || (cache[z] = `+proj=tmerc +lat_0=0 +lon_0=${6 * z - 3} +k=1 +x_0=${z * 1e6 + 500000} +y_0=0 ${dat} +units=m +no_defs`);
+      return proj4(ps, _DXF_WGS84, [x, y]);
+    };
+  }
+  if (crs === 'geo:sk42') return (x, y) => proj4(`+proj=longlat ${_GK_DATUM.sk42} +no_defs`, _DXF_WGS84, [x, y]);
+  // Произвольная строка proj4 (например, из .prj)
+  if (typeof crs === 'string' && /^\+proj=|^(PROJCS|GEOGCS)\[/i.test(crs)) return (x, y) => proj4(crs, _DXF_WGS84, [x, y]);
   // Полный справочник МСК: crs вида "mskfull:<регион>:<датум>"
   if (typeof crs === 'string' && crs.indexOf('mskfull:') === 0) {
     const projStr = _mskFullProjStr(crs, sx);
@@ -366,6 +386,40 @@ function dxfEntitiesToFeatures(entities, inv) {
           features.push({ type:'Feature', geometry:{ type:'LineString', coordinates:arcPts }, properties:{ name } });
         break;
       }
+      case 'CIRCLE': {
+        const cx = gF(c, 10), cy = gF(c, 20), r = gF(c, 40);
+        if (r <= 0) break;
+        const ring = [];
+        for (let j = 0; j <= 72; j++) { const a = j / 72 * 2 * Math.PI; const xy = safeInv(cx + r * Math.cos(a), cy + r * Math.sin(a)); if (xy) ring.push(xy); }
+        if (ring.length >= 4) features.push({ type:'Feature', geometry:{ type:'Polygon', coordinates:[ring] }, properties:{ name, radius: r } });
+        break;
+      }
+      case 'ELLIPSE': {
+        // центр 10/20, конец большой полуоси 11/21 (относительно центра), отношение осей 40, параметры 41/42
+        const cx = gF(c, 10), cy = gF(c, 20), mx = gF(c, 11), my = gF(c, 21), ratio = gF(c, 40) || 1;
+        let t0 = gF(c, 41), t1 = gF(c, 42); if (!t1 && !t0) t1 = 2 * Math.PI; if (t1 <= t0) t1 += 2 * Math.PI;
+        const full = Math.abs(t1 - t0 - 2 * Math.PI) < 1e-6, n = Math.max(16, Math.ceil((t1 - t0) / (Math.PI / 36)));
+        const pts = [];
+        for (let j = 0; j <= n; j++) { const t = t0 + (t1 - t0) * j / n; const xy = safeInv(cx + Math.cos(t) * mx - Math.sin(t) * ratio * my, cy + Math.cos(t) * my + Math.sin(t) * ratio * mx); if (xy) pts.push(xy); }
+        if (pts.length >= 2) features.push({ type:'Feature', geometry: full ? { type:'Polygon', coordinates:[pts] } : { type:'LineString', coordinates:pts }, properties:{ name } });
+        break;
+      }
+      case 'SPLINE': {
+        const pts = _dxfSplinePoints(c).map(([x, y]) => safeInv(x, y)).filter(Boolean);
+        if (pts.length >= 2) {
+          const closed = !!(gF(c, 70) & 1) && pts.length >= 3;
+          if (closed) pts.push(pts[0]);
+          features.push({ type:'Feature', geometry: closed ? { type:'Polygon', coordinates:[pts] } : { type:'LineString', coordinates:pts }, properties:{ name } });
+        }
+        break;
+      }
+      case 'HATCH': {
+        // Контуры штриховки → полигон (внешний контур + отверстия)
+        const rings = _dxfHatchRings(c).map(r => r.map(([x, y]) => safeInv(x, y)).filter(Boolean)).filter(r => r.length >= 3);
+        rings.forEach(r => { const a = r[0], b = r[r.length - 1]; if (a[0] !== b[0] || a[1] !== b[1]) r.push(a); });
+        if (rings.length) features.push({ type:'Feature', geometry:{ type:'Polygon', coordinates:rings }, properties:{ name, hatch: gS(c, 2) } });
+        break;
+      }
       case 'TEXT': case 'MTEXT': case 'ATTRIB': {
         // Text / block-attribute label → named Point
         const txt = (gS(c, 1) || '').replace(/\\[pPfFhHwWqQaAlLkKoOcCtTb];?|[{}]/g, '').trim();
@@ -376,6 +430,77 @@ function dxfEntitiesToFeatures(entities, inv) {
     }
   }
   return features;
+}
+
+// SPLINE: B-сплайн по контрольным точкам/узлам (алгоритм де Бура); если есть точки
+// интерполяции (11/21) — используем их как есть.
+function _dxfSplinePoints(c) {
+  const fit = [], ctrl = [], knots = [], w = [];
+  let pend = null;
+  for (const [k, v] of c) {
+    if (k === 10) { pend = [parseFloat(v), 0]; ctrl.push(pend); }
+    else if (k === 20 && pend) pend[1] = parseFloat(v);
+    else if (k === 11) fit.push([parseFloat(v), 0]);
+    else if (k === 21 && fit.length) fit[fit.length - 1][1] = parseFloat(v);
+    else if (k === 40) knots.push(parseFloat(v));
+    else if (k === 41) w.push(parseFloat(v));
+  }
+  const deg = (c.find(([k]) => k === 71) || [0, 3])[1] * 1 || 3;
+  if (ctrl.length < deg + 1 || knots.length !== ctrl.length + deg + 1) {
+    if (fit.length < 3) return fit.length >= 2 ? fit : ctrl;
+    // Сплайн задан точками интерполяции — сглаживаем кривой Катмулла-Рома через них
+    const P = [fit[0], ...fit, fit[fit.length - 1]], out = [];
+    for (let i = 1; i < P.length - 2; i++) for (let s = 0; s < 8; s++) {
+      const t = s / 8, t2 = t * t, t3 = t2 * t, [p0, p1, p2, p3] = [P[i - 1], P[i], P[i + 1], P[i + 2]];
+      out.push([0, 1].map(k => 0.5 * (2 * p1[k] + (-p0[k] + p2[k]) * t + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3)));
+    }
+    out.push(fit[fit.length - 1]);
+    return out;
+  }
+  const W = ctrl.map((_, i) => w[i] || 1);
+  const t0 = knots[deg], t1 = knots[knots.length - deg - 1], N = Math.max(ctrl.length * 8, 32), out = [];
+  for (let s = 0; s <= N; s++) {
+    let t = t0 + (t1 - t0) * s / N; if (s === N) t -= 1e-10;
+    let kk = deg; while (kk < knots.length - deg - 2 && t >= knots[kk + 1]) kk++;
+    const d = []; for (let j = 0; j <= deg; j++) { const p = ctrl[kk - deg + j], ww = W[kk - deg + j]; d.push([p[0] * ww, p[1] * ww, ww]); }
+    for (let r = 1; r <= deg; r++) for (let j = deg; j >= r; j--) {
+      const i = kk - deg + j, den = knots[i + deg - r + 1] - knots[i], a = den ? (t - knots[i]) / den : 0;
+      d[j] = [(1 - a) * d[j - 1][0] + a * d[j][0], (1 - a) * d[j - 1][1] + a * d[j][1], (1 - a) * d[j - 1][2] + a * d[j][2]];
+    }
+    out.push([d[deg][0] / d[deg][2], d[deg][1] / d[deg][2]]);
+  }
+  return out;
+}
+// HATCH: контуры (полилинейные и из рёбер «линия/дуга») в кольца точек
+function _dxfHatchRings(c) {
+  const rings = [];
+  let i = c.findIndex(([k]) => k === 91);
+  if (i < 0) return rings;
+  const nPaths = parseInt(c[i][1], 10); i++;
+  const next = code => { while (i < c.length && c[i][0] !== code) i++; return i < c.length ? c[i++][1] : null; };
+  for (let p = 0; p < nPaths && i < c.length; p++) {
+    const flag = parseInt(next(92), 10) || 0, ring = [];
+    if (flag & 2) {
+      const hasBulge = parseInt(next(72), 10) || 0; next(73);
+      const n = parseInt(next(93), 10) || 0, verts = [];
+      for (let v = 0; v < n; v++) { const x = parseFloat(next(10)), y = parseFloat(next(20)); const b = hasBulge ? parseFloat(next(42)) || 0 : 0; verts.push({ x, y, bulge: b }); }
+      _densifyVerts(verts, true).forEach(pt => ring.push(pt));
+    } else {
+      const nE = parseInt(next(93), 10) || 0;
+      for (let e = 0; e < nE; e++) {
+        const et = parseInt(next(72), 10);
+        if (et === 1) { const x1 = +next(10), y1 = +next(20), x2 = +next(11), y2 = +next(21); if (!ring.length) ring.push([x1, y1]); ring.push([x2, y2]); }
+        else if (et === 2) {
+          const cx = +next(10), cy = +next(20), r = +next(40); let a0 = +next(50), a1 = +next(51); const ccw = (+next(73)) !== 0;
+          if (!ccw) { a0 = -a0; a1 = -a1; } if (a1 < a0) a1 += 360;
+          const n = Math.max(8, Math.ceil((a1 - a0) / 5));
+          for (let j = 0; j <= n; j++) { const a = (a0 + (a1 - a0) * j / n) * Math.PI / 180; ring.push([cx + r * Math.cos(ccw ? a : -a), cy + r * Math.sin(ccw ? a : -a)]); }
+        } else break;   // эллипс/сплайн в контуре штриховки — пропускаем контур
+      }
+    }
+    if (ring.length >= 3) rings.push(ring);
+  }
+  return rings;
 }
 
 module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, getBackupSettings, setBackupSettings, performAutoBackup }) => {
@@ -719,10 +844,22 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
   }));
 
   app.post('/api/layers/import-dxf', wrap((req, res) => {
-    const { dxfText, crs } = req.body || {};
+    const { dxfText, crs, preview, onlyLayers, merge, mergeName } = req.body || {};
     if (!dxfText) return res.status(400).json({ error: 'dxfText required' });
     const dxfLayers = parseDXF(dxfText);
     if (!dxfLayers.size) return res.status(422).json({ error: 'Нет слоёв в DXF' });
+    // Предпросмотр: список слоёв DXF и состав объектов — для выбора перед импортом
+    if (preview) {
+      const list = [];
+      for (const [name, ents] of dxfLayers) {
+        const types = {};
+        ents.forEach(e => { types[e.type] = (types[e.type] || 0) + 1; });
+        list.push({ name, count: ents.length, types });
+      }
+      return res.json({ layers: list, sampleX: _dxfFindFirstX(dxfLayers) });
+    }
+    if (Array.isArray(onlyLayers)) for (const k of [...dxfLayers.keys()]) if (!onlyLayers.includes(k)) dxfLayers.delete(k);
+    if (!dxfLayers.size) return res.status(422).json({ error: 'Не выбрано ни одного слоя' });
     const sampleX = _dxfFindFirstX(dxfLayers);
     let inv;
     try { inv = makeDxfInverseTransform(crs || 'msk86', sampleX); }
@@ -730,6 +867,16 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     const COLORS = ['#1a56db','#e02424','#057a55','#d97706','#7e3af2','#0694a2'];
     const created = [];
     let ci = 0;
+    if (merge) {
+      // Все выбранные слои DXF → один слой карты (слой DXF сохраняется в атрибуте «Слой DXF»)
+      const all = [];
+      for (const [layerName, entities] of dxfLayers) dxfEntitiesToFeatures(entities, inv).forEach(f => { f.properties = { ...f.properties, 'Слой DXF': layerName }; all.push(f); });
+      if (!all.length) return res.status(422).json({ error: 'Нет геометрии в DXF' });
+      const id = uuid();
+      run(db(), 'INSERT INTO kml_layers(id,name,geojson,color,visible,symbol,group_id,line_dash)VALUES(?,?,?,?,1,?,?,?)',
+        [id, String(mergeName || 'DXF').slice(0, 200), JSON.stringify({ type:'FeatureCollection', features: all }), COLORS[0], '', '', 'solid']);
+      return res.json({ layers: [{ id, name: mergeName || 'DXF', features: all.length }] });
+    }
     for (const [layerName, entities] of dxfLayers) {
       const features = dxfEntitiesToFeatures(entities, inv);
       if (!features.length) continue;
@@ -741,6 +888,67 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     }
     if (!created.length) return res.status(422).json({ error: 'Нет геометрии в DXF' });
     res.json({ layers: created });
+  }));
+
+  // ── Импорт ESRI Shapefile (.shp/.dbf/.prj/.cpg или .zip) — без GDAL ─────
+  // Ответы: {layers:[…]} | 409 {needCrs:true} (нет .prj) | 200 {notShp:true} (в архиве нет .shp)
+  let _shpUpload = (req, res, next) => next();
+  try { const _m = require('multer'); _shpUpload = _m({ storage: _m.memoryStorage(), limits: { fileSize: 300 * 1024 * 1024 } }).array('files', 64); } catch (e) {}
+  app.post('/api/layers/import-shp', _shpUpload, wrap((req, res) => {
+    const { readShp, readDbf, prjToProj4 } = require('../shp-reader');
+    const decode = s => { try { return Buffer.from(String(s || 'file'), 'latin1').toString('utf8'); } catch (e) { return String(s || 'file'); } };
+    const sets = {};   // base → {shp, dbf, prj, cpg}
+    const put = (name, buf) => {
+      const m = name.match(/^(.*?)\.(shp|dbf|prj|cpg|shx|qpj)$/i); if (!m) return;
+      const base = m[1].split(/[\\/]/).pop(), ext = m[2].toLowerCase();
+      (sets[base] = sets[base] || {})[ext] = buf;
+    };
+    for (const f of (req.files || [])) {
+      const nm = decode(f.originalname);
+      if (/\.zip$/i.test(nm)) {
+        try { const AdmZip = require('adm-zip'); new AdmZip(f.buffer).getEntries().forEach(en => { if (!en.isDirectory) put(en.entryName, en.getData()); }); }
+        catch (e) { return res.status(400).json({ error: 'Не удалось распаковать архив' }); }
+      } else put(nm, f.buffer);
+    }
+    const bases = Object.keys(sets).filter(b => sets[b].shp);
+    if (!bases.length) return res.json({ notShp: true });
+    const reqCrs = (req.body && typeof req.body.crs === 'string') ? req.body.crs : '';
+    const swap = req.body && (req.body.swap === '1' || req.body.swap === 'true');
+    if (!reqCrs && bases.some(b => !sets[b].prj)) return res.status(409).json({ needCrs: true, error: 'В наборе нет файла .prj — укажите систему координат' });
+    const COLORS = ['#1a56db','#e02424','#057a55','#d97706','#7e3af2','#0694a2'];
+    const created = [], warn = [];
+    bases.forEach((b, bi) => {
+      const S = sets[b];
+      let geoms; try { geoms = readShp(S.shp); } catch (e) { warn.push(`${b}: ${e.message}`); return; }
+      const attrs = S.dbf ? readDbf(S.dbf, S.cpg ? S.cpg.toString('latin1') : null) : [];
+      const projStr = reqCrs ? null : prjToProj4(S.prj.toString('utf8'), proj4);
+      if (!reqCrs && !projStr) { warn.push(`${b}: не удалось разобрать .prj — выберите СК вручную`); return; }
+      const first = geoms.find(Boolean);
+      const sampleX = first ? (function f(c) { return typeof c[0] === 'number' ? c[0] : f(c[0]); })(first.coordinates) : 3500000;
+      const geo = projStr && /^\+proj=longlat/.test(projStr) && /datum=WGS84/.test(projStr);
+      let inv;
+      try {
+        if (geo) inv = (x, y) => [x, y];
+        else if (projStr) inv = (x, y) => proj4(projStr, _DXF_WGS84, [x, y]);
+        else { const raw = makeDxfInverseTransform(reqCrs, swap ? undefined : sampleX); inv = swap ? (x, y) => raw(y, x) : raw; }
+      } catch (e) { warn.push(`${b}: неизвестная СК`); return; }
+      const features = [];
+      geoms.forEach((g, i) => {
+        if (!g) return;
+        const gj = { type: 'Feature', geometry: g, properties: { ...(attrs[i] || {}) } };
+        try { _reprojectGeoJSON(gj, (x, y) => inv(x, y)); } catch (e) { return; }
+        const p = gj.properties;
+        if (!p.name) { const k = Object.keys(p).find(k => /^(name|имя|наим|назв|label|подпись|номер|num)/i.test(k)); if (k) p.name = String(p[k]); }
+        features.push(gj);
+      });
+      if (!features.length) { warn.push(`${b}: нет объектов`); return; }
+      const id = uuid();
+      run(db(), 'INSERT INTO kml_layers(id,name,geojson,color,visible,symbol,group_id,line_dash)VALUES(?,?,?,?,1,?,?,?)',
+        [id, b, JSON.stringify({ type: 'FeatureCollection', features }), COLORS[bi % COLORS.length], '', '', 'solid']);
+      created.push({ id, name: b, features: features.length, crs: projStr ? (projStr.length > 120 ? 'WKT' : projStr) : reqCrs });
+    });
+    if (!created.length) return res.status(422).json({ error: warn.join('; ') || 'Нет объектов' });
+    res.json({ layers: created, warnings: warn });
   }));
 
   // ── Импорт MapInfo TAB → слой KML (через ogr2ogr) ──────────
@@ -1174,6 +1382,58 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
           ? 'Проверьте установку GDAL (OSGeo4W).' : null,
       });
     }
+  });
+
+  // ── Пакетная выгрузка рельефа: несколько участков (полигонов слоя) → один ZIP ──
+  // body: { items:[{name,bbox,clip,proj4,projId,epsg,projName}], ...общие параметры как у /dem/export }
+  // Участки обрабатываются по очереди; каждый — в своей папке архива; ошибки — в «Отчёт.txt».
+  app.post('/api/dem/export-batch', async (req, res) => {
+    if (!demProcessor) return res.status(503).json({ error: 'DEM процессор не доступен' });
+    const b = req.body || {};
+    const items = Array.isArray(b.items) ? b.items.filter(it => it && it.bbox && it.bbox.minLat != null) : [];
+    if (!items.length) return res.status(400).json({ error: 'Нет участков для выгрузки' });
+    if (items.length > 200) return res.status(400).json({ error: 'Слишком много участков (макс. 200)' });
+    const AdmZip = require('adm-zip');
+    const out = new AdmZip();
+    const report = [`Пакетная выгрузка рельефа — ${new Date().toLocaleString('ru-RU')}`, `Участков: ${items.length}`, ''];
+    const used = new Set();
+    const safe = n => { let s0 = String(n || 'Участок').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 80) || 'Участок', s1 = s0, k = 2; while (used.has(s1.toLowerCase())) s1 = `${s0}_${k++}`; used.add(s1.toLowerCase()); return s1; };
+    let ok = 0;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i], folder = safe(it.name || `Участок ${i + 1}`);
+      const pref = `Участок ${i + 1}/${items.length} «${folder}»`;
+      let tmpDir = null;
+      try {
+        broadcast({ type: 'dem_progress', pct: Math.round(i / items.length * 100), text: `${pref}: начинаю…` });
+        const r = await demProcessor.processDEM({
+          bbox: it.bbox, clip: it.clip || null, projId: it.projId, proj4: it.proj4, epsg: it.epsg, projName: it.projName,
+          format: 'dxf', interval: parseFloat(b.interval) || 2, useGeoid: b.useGeoid !== false,
+          gridStep: (b.gridStep !== undefined && b.gridStep !== null && b.gridStep !== '') ? parseInt(b.gridStep) : 20,
+          jitterMin: parseFloat(b.jitterMin) || 0, jitterMax: parseFloat(b.jitterMax) || 0,
+          exportSatellite: b.exportSatellite !== false, satelliteOnly: !!b.satelliteOnly, cacheOnly: false,
+          satZoom: parseInt(b.satZoom) || 0, satMPP: parseFloat(b.satMPP) || 0,
+          satSourceUrl: b.satSourceUrl || null, satSourceSubdomains: b.satSourceSubdomains || [],
+          onProgress: (pct, text) => broadcast({ type: 'dem_progress', pct: Math.round((i + pct / 100) / items.length * 100), text: `${pref}: ${text}` }),
+        });
+        tmpDir = r.tmpDir;
+        if (/\.zip$/i.test(r.file)) new AdmZip(r.file).getEntries().forEach(en => { if (!en.isDirectory) out.addFile(`${folder}/${en.entryName}`, en.getData()); });
+        else out.addLocalFile(r.file, folder);
+        report.push(`✅ ${folder} — ${it.projName || it.projId || ''}`);
+        ok++;
+      } catch (e) {
+        report.push(`❌ ${folder} — ${e.message || e}`);
+        console.error('[DEM batch]', folder, e.message);
+      } finally { if (tmpDir) demProcessor.cleanupTmp(tmpDir); }
+    }
+    if (!ok) return res.status(500).json({ error: 'Ни один участок не выгружен:\n' + report.slice(3).join('\n') });
+    report.push('', `Выгружено: ${ok} из ${items.length}`);
+    out.addFile('Отчёт.txt', Buffer.from('\uFEFF' + report.join('\r\n'), 'utf8'));
+    broadcast({ type: 'dem_progress', pct: 100, text: `Готово: ${ok} из ${items.length}` });
+    const buf = out.toBuffer();
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Length', buf.length);
+    res.setHeader('Content-Disposition', `attachment; filename="dem_batch.zip"`);
+    res.end(buf);
   });
 
   // ── Офлайн тайлы для HTML-экспорта ───────────────────────

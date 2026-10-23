@@ -226,7 +226,7 @@ function _kmlRenderLayerPane() {
     const isEmpty = !allLayers.length;
     el.innerHTML = `<div class="kml-empty">
       ${isEmpty
-        ? '<div style="font-size:28px;margin-bottom:6px">🗺</div><div>Нет слоёв</div><div style="font-size:10px;color:var(--tx3);margin-top:4px">Импортируйте KML, GPX или DXF</div>'
+        ? '<div style="font-size:28px;margin-bottom:6px">🗺</div><div>Нет слоёв</div><div style="font-size:10px;color:var(--tx3);margin-top:4px">Импортируйте KML, GPX, DXF, SHP, MapInfo или CSV/Excel</div>'
         : '<div style="font-size:24px;margin-bottom:6px">📂</div><div>Нет слоёв в выбранной группе</div>'}
     </div>`;
     return;
@@ -1787,6 +1787,7 @@ function renderLayerGroupsWithSymbols() {
               ...(f.geometry&&f.geometry.type!=='Point'&&f.geometry.type!=='MultiPoint'?[{i:'📐',l:/Polygon/.test(f.geometry.type)?'Площадь и периметр':'Длина',f:()=>measureGeometry(f.geometry,featureName)}]:[]),
               ...(fIdx>=0?[{i:'✅',l:(f.properties&&f.properties._color===KML_DONE_COLOR)?'Снять «выполнено»':'Выполнить объект',f:()=>kmlToggleDone(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'✏️',l:'Редактировать объект',f:()=>kmlEditFeature(l.id,fIdx)}]:[]),
+              ...(fIdx>=0&&f.geometry&&/LineString|Polygon/.test(f.geometry.type)?[{i:'✏️',l:'Изменить геометрию (вершины)',f:()=>kmlEditGeometry(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'↔',l:'Передвинуть',f:()=>startKmlMoveFeature(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'📤',l:'Перенести в другой слой',f:()=>kmlMoveFeature(l.id,fIdx)}]:[]),
               ...(fIdx>=0&&f.geometry&&f.geometry.type==='LineString'?[{i:'⬛',l:'Линия → полигон',f:()=>kmlLineToPolygon(l.id,fIdx)}]:[]),
@@ -1794,6 +1795,7 @@ function renderLayerGroupsWithSymbols() {
               ...(coordStr?[{i:'📋',l:'Копировать координаты',f:()=>{navigator.clipboard.writeText(coordStr).then(()=>toast('Скопировано','ok'));}}]:[]),
               {i:'🔗',l:'Скопировать ссылку',f:()=>{_copyShareLink(buildKmlShareLink(layer, featureName, l.id));}},
               {sep:true},
+              ...(typeof demBatchByLayer==='function'&&/"(Multi)?Polygon"/.test(l.geojson||'')?[{i:'🏔',l:'Рельеф по полигонам слоя…',f:()=>{if(typeof openDEMPanel==='function')openDEMPanel();setTimeout(()=>demBatchByLayer(l.id),300);}}]:[]),
               {i:'🎨',l:'Стиль слоя',f:()=>kmlOpenStyleModal(l.id)},
               {i:'📋',l:'Объекты слоя',f:()=>kmlOpenFeatureList(l.id)},
               {i:'👁',l:l.visible?'Скрыть слой':'Показать слой',f:()=>kmlToggleVis(l.id,l.visible?0:1)},

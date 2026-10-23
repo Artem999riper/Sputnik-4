@@ -53,6 +53,7 @@ function onMapRClick(e){
   if(typeof _kmvActive!=='undefined'&&_kmvActive){_kmvCancel();return;}
   if(typeof _kdActive!=='undefined'&&_kdActive){_kdRClick(e);return;}
   if(typeof _ksActive!=='undefined'&&_ksActive){_ksRClick(e);return;}
+  if(typeof _kgeActive!=='undefined'&&_kgeActive){_kgeRClick(e);return;}
   if(vertexEditLayerId){_handleVertexEditRCM(e);return;}
   if(drawMode){
     showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[

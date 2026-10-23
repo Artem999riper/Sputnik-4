@@ -3,7 +3,7 @@
 #bcard.show{display:block}
 
 /* ── Layer panel ── */
-#lp{position:fixed;top:calc(var(--th)+7px);right:7px;z-index:1400;background:var(--s);border:1.5px solid var(--bd);border-radius:var(--r);box-shadow:var(--shm);width:225px;display:none}
+#lp{position:fixed;top:calc(var(--th) + 7px);right:7px;z-index:1400;background:var(--s);border:1.5px solid var(--bd);border-radius:var(--r);box-shadow:var(--shm);width:225px;display:none}
 #lp.show{display:block}
 .lph{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-bottom:1px solid var(--bd);font-size:12px;font-weight:700}
 .lpi{display:flex;align-items:center;gap:5px;padding:5px 9px;border-bottom:1px solid var(--bd);font-size:11px}
