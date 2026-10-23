@@ -63,7 +63,11 @@ app.use(cors());
 app.use('/api/layers', express.json({ limit: '50mb' }));
 app.use('/api/sites', express.json({ limit: '50mb' }));
 app.use(express.json({ limit: '8mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+// no-cache: браузер каждый раз сверяет файлы с сервером (ETag) — после обновления
+// программы новая страница подхватывается обычной перезагрузкой, без Ctrl+F5.
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+}));
 // Браузер автоматически запрашивает иконку — отвечаем «нет содержимого»,
 // чтобы в консоли не было безобидной ошибки 404 favicon.ico.
 app.get('/favicon.ico', (req, res) => res.status(204).end());
@@ -182,7 +186,9 @@ getDb().then(database => {
   realtime.attachUndo(app, getDbInstance);
 
   // Админ/права/присутствие — enforcement middleware ДО бизнес-маршрутов
-  routeAdmin(app, getDbInstance, L, { broadcast: realtime.broadcast, getPresence: realtime.getPresence });
+  const adminApi = routeAdmin(app, getDbInstance, L, { broadcast: realtime.broadcast, getPresence: realtime.getPresence });
+  // Версия / перезапуск / обновление программы
+  require('./routes/system')(app, { isAdmin: adminApi.isAdmin, BACKUP_DIR, performAutoBackup });
 
   routeBases(app, getDbInstance, L);
   routeSites(app, getDbInstance, L);
@@ -209,7 +215,10 @@ getDb().then(database => {
     console.log(`\n  ✅  ПурГеоКом запущен: http://localhost:${PORT}`);
     if (ip) console.log(`  🌐  Для других в сети: http://${ip}:${PORT}\n`);
     else console.log('');
-    try { require('child_process').exec(`start http://localhost:${PORT}`); } catch(e) {}
+    // После перезапуска из админки браузер уже открыт — новую вкладку не открываем
+    const flag = path.join(BACKUP_DIR, '.restart');
+    if (fs.existsSync(flag)) { try { fs.unlinkSync(flag); } catch(e) {} }
+    else { try { require('child_process').exec(`start http://localhost:${PORT}`); } catch(e) {} }
   });
   // Ошибка самого HTTP-сервера (например, порт занят) — не валим процесс молча
   server.on('error', (err) => {

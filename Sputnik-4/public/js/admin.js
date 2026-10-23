@@ -55,6 +55,7 @@ function _admRender(){
       <button class="btn bs bsm" id="adm-t-rights"  onclick="_admSwitch('rights')">🔑 Права</button>
       <button class="btn bs bsm" id="adm-t-tabs"    onclick="_admSwitch('tabs')">🗂 Вкладки</button>
       <button class="btn bs bsm" id="adm-t-settings" onclick="_admSwitch('settings')">⚙️ Настройки</button>
+      <button class="btn bs bsm" id="adm-t-update" onclick="_admSwitch('update')">🔄 Обновление</button>
     </div>
     <div id="adm-body" style="min-height:260px"></div>`,
     [{label:'Закрыть',cls:'bs',fn:()=>{_admStopPoll();closeModal();}}]);
@@ -62,7 +63,7 @@ function _admRender(){
 }
 function _admSwitch(tab){
   _admTab=tab;
-  ['online','rights','tabs','settings'].forEach(t=>{
+  ['online','rights','tabs','settings','update'].forEach(t=>{
     const b=document.getElementById('adm-t-'+t);
     if(b)b.className='btn '+(t===tab?'bp':'bs')+' bsm';
   });
@@ -70,6 +71,7 @@ function _admSwitch(tab){
   if(tab==='online'){_admRenderOnline();_admPollTimer=setInterval(()=>{if(document.getElementById('adm-online-list'))_admRenderOnline();else _admStopPoll();},8000);}
   else if(tab==='rights')_admRenderRights();
   else if(tab==='tabs')_admRenderTabs();
+  else if(tab==='update')_admRenderUpdate();
   else _admRenderSettings();
 }
 function _admStopPoll(){if(_admPollTimer){clearInterval(_admPollTimer);_admPollTimer=null;}}
@@ -192,6 +194,73 @@ async function _admSaveTabs(){
   }catch(e){toast('Ошибка сети','err');}
 }
 
+// ── Версия и обновление программы ─────────────────────────
+async function _admRenderUpdate(){
+  const box=document.getElementById('adm-body');if(!box)return;
+  box.innerHTML='<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">⏳ Загрузка…</div>';
+  const v=await _verFetch()||{};
+  let snaps=[];try{snaps=await fetch(`${API}/admin/update/snapshots`).then(r=>r.json());}catch(e){}
+  const row=(k,val)=>`<div style="color:var(--tx3)">${k}</div><div>${val}</div>`;
+  box.innerHTML=`
+    <div style="display:grid;grid-template-columns:150px 1fr;gap:4px 10px;font-size:12px;margin-bottom:12px">
+      ${row('Версия','<b>'+esc(v.version||'?')+'</b>')}
+      ${row('Сборка',esc(v.commit?(v.commit+(v.branch?' ('+v.branch+')':'')):(v.serverBuild||'—')))}
+      ${row('Сервер запущен',v.startedAt?new Date(v.startedAt).toLocaleString('ru-RU'):'—')}
+      ${row('Node.js',esc(v.node||''))}
+      ${row('Состояние',v.needRestart?'<b style="color:#b45309">⚠️ код обновлён — нужен перезапуск</b>':'<span style="color:#15803d">✅ актуально</span>')}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+      <button class="btn ${v.needRestart?'bp':'bs'} bsm" onclick="verRestart()" ${v.canRestart?'':'disabled title="Сервер запущен не через start.bat"'}>🔄 Перезапустить сервер</button>
+    </div>
+    ${v.git?`<div style="font-size:12px;font-weight:700;margin-bottom:6px">Обновление из git</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+      <button class="btn bs bsm" onclick="_admUpdCheck()">🔎 Проверить обновления</button>
+      <button class="btn bs bsm" onclick="_admUpdGit()">⬇️ Обновить (git pull)</button>
+    </div>
+    <div id="adm-upd-git" style="font-size:11px;color:var(--tx2);margin-bottom:14px"></div>`:''}
+    <div style="font-size:12px;font-weight:700;margin-bottom:6px">Обновление из архива (.zip)</div>
+    <div style="font-size:10px;color:var(--tx3);margin-bottom:6px;line-height:1.5">
+      Архив новой версии (например, «Download ZIP» с GitHub). База данных, бэкапы, фото и node_modules не затрагиваются.
+      Перед обновлением автоматически делается бэкап базы и копия текущего кода — к ней можно откатиться.</div>
+    <label class="btn bp bsm" style="cursor:pointer">📦 Выбрать архив и обновить<input type="file" accept=".zip" style="display:none" onchange="_admUpdZip(this)"></label>
+    <div id="adm-upd-zip" style="font-size:11px;color:var(--tx2);margin:6px 0 14px"></div>
+    <div style="font-size:12px;font-weight:700;margin-bottom:6px">Откат на сохранённую копию</div>
+    ${snaps.length?`<div style="max-height:150px;overflow:auto;border:1.5px solid var(--bd);border-radius:var(--rs)">${snaps.map(s=>`
+      <div style="display:flex;gap:8px;align-items:center;padding:4px 8px;border-bottom:1px solid var(--bd);font-size:11px">
+        <span style="flex:1">${esc(s.name)}</span><span style="color:var(--tx3)">${(s.size/1048576).toFixed(1)} МБ</span>
+        <button class="btn bs bxs" onclick="_admUpdRollback('${escAttr(s.name)}')">↩ Откатить</button></div>`).join('')}</div>`
+      :'<div style="font-size:11px;color:var(--tx3)">Копий пока нет — они появятся при первом обновлении.</div>'}`;
+}
+async function _admUpdCheck(){
+  const out=document.getElementById('adm-upd-git');if(out)out.textContent='⏳ Проверяю…';
+  try{
+    const j=await fetch(`${API}/admin/update/check`).then(r=>r.json());
+    if(j.error){out.innerHTML='<span style="color:var(--red)">'+esc(j.error)+'</span>';return;}
+    out.innerHTML=j.behind?`Доступно обновлений: <b>${j.behind}</b><br>${j.log.map(l=>'• '+esc(l)).join('<br>')}`:'✅ Установлена последняя версия';
+  }catch(e){out.textContent='Ошибка: '+e.message;}
+}
+async function _admUpdResult(j,out){
+  if(j.error){out.innerHTML='<span style="color:var(--red)">⚠️ '+esc(j.error)+'</span>';return;}
+  out.innerHTML=`✅ Обновлено${j.files?` (${j.files} файлов)`:''}${j.npm?`, зависимости: ${esc(j.npm)}`:''}. Копия прежнего кода: ${esc(j.snapshot||'')}`;
+  if(j.restarting)_verWaitBack();else toast('Перезапустите сервер (закройте окно и запустите start.bat)','warn');
+}
+async function _admUpdGit(){
+  if(!await confirmDlg('Обновить программу из git и перезапустить сервер?'))return;
+  const out=document.getElementById('adm-upd-git');if(out)out.textContent='⏳ Обновляю…';
+  try{const r=await fetch(`${API}/admin/update/git`,{method:'POST'});_admUpdResult(await r.json(),out);}catch(e){out.textContent='Ошибка: '+e.message;}
+}
+async function _admUpdZip(input){
+  const f=input.files[0];input.value='';if(!f)return;
+  if(!await confirmDlg(`Обновить программу из архива «${f.name}» и перезапустить сервер?`))return;
+  const out=document.getElementById('adm-upd-zip');if(out)out.textContent='⏳ Загружаю и устанавливаю…';
+  const fd=new FormData();fd.append('file',f);
+  try{const r=await fetch(`${API}/admin/update/zip`,{method:'POST',body:fd});_admUpdResult(await r.json(),out);}catch(e){out.textContent='Ошибка: '+e.message;}
+}
+async function _admUpdRollback(name){
+  if(!await confirmDlg(`Откатить программу на копию «${name}» и перезапустить сервер?\n\nБаза данных не изменится.`))return;
+  const out=document.getElementById('adm-upd-zip');if(out)out.textContent='⏳ Откатываю…';
+  try{const r=await fetch(`${API}/admin/update/rollback`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});_admUpdResult(await r.json(),out);}catch(e){out.textContent='Ошибка: '+e.message;}
+}
 function _admRenderSettings(){
   const box=document.getElementById('adm-body');if(!box)return;
   box.innerHTML=`
