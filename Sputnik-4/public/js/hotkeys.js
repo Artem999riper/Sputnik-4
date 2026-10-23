@@ -55,7 +55,7 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.code === 'KeyK') { if (_hkFocus('#gsearch')) e.preventDefault(); return; }
   if (typing) return;
   if (e.key === '/' && !e.ctrlKey && !e.altKey) { if (_hkFocus(cfg.search || '#gsearch')) e.preventDefault(); return; }
-  if (e.key === 'F1' || (e.key === '?' && !e.ctrlKey)) { e.preventDefault(); hkHelp(); return; }
+  if (e.key === 'F1' || (e.key === '?' && !e.ctrlKey)) { e.preventDefault(); if (typeof helpOpen === 'function') helpOpen(); else hkHelp(); return; }
 
   // Alt+цифра — вкладка по порядку (только видимые)
   if (e.altKey && !e.ctrlKey && /^Digit[0-9]$/.test(e.code)) {

@@ -23,18 +23,25 @@ const TOUR_STEPS = [
     text: 'WGS-84, ПЗ-90.11, ГСК-2011, СК-42, СК-95, МСК всех регионов, UTM — одна точка, «во всех системах» или список из Excel/файла с выгрузкой и сохранением слоем на карту.' },
   { sel: '#admin-btn', title: '🛡 Администрирование',
     text: 'Права пользователей, скрытие вкладок и <b>обновление программы</b>: перезапуск сервера, обновление из архива .zip или git, откат на прежнюю версию.' },
-  { sel: '#tour-btn', title: '⌨ Горячие клавиши и помощь',
-    text: '<kbd>Ctrl</kbd>+<kbd>F</kbd> — поиск во вкладке, <kbd>N</kbd> — добавить, <kbd>Delete</kbd> — удалить выделенное, <kbd>Ctrl</kbd>+<kbd>Z</kbd> — отменить. Полный список — <kbd>F1</kbd>. Удачной работы!' },
+  { sel: '#tour-btn', title: '📖 Справка',
+    text: 'Кнопка ❓ (или <kbd>F1</kbd>) — справка по каждой вкладке с кнопкой «▶ Показать на экране» и горячие клавиши. Удачной работы!' },
 ];
-let _tourI = 0;
+let _tourI = 0, _tourSteps = TOUR_STEPS, _tourOnEnd = null;
 function tourStart(force) {
   if (!force) { try { if (localStorage.getItem(TOUR_KEY)) return; } catch (e) { return; } }
-  _tourI = 0; _tourShow();
+  tourRun(TOUR_STEPS);
+}
+// Показать произвольный набор шагов: [{sel, view?, act?, title, text}] — act() выполняется
+// перед подсветкой (например, открыть окно «Рельеф»), чтобы показать элемент внутри него.
+function tourRun(steps, onEnd) {
+  _tourSteps = steps; _tourOnEnd = onEnd || null; _tourI = 0; _tourShow();
 }
 function tourEnd() {
-  try { localStorage.setItem(TOUR_KEY, '1'); } catch (e) {}
+  if (_tourSteps === TOUR_STEPS) { try { localStorage.setItem(TOUR_KEY, '1'); } catch (e) {} }
+  const cb = _tourOnEnd; _tourOnEnd = null;
   document.getElementById('tour-hl')?.remove(); document.getElementById('tour-box')?.remove();
   document.removeEventListener('keydown', _tourKey, true);
+  if (cb) try { cb(); } catch (e) {}
 }
 function _tourKey(e) {
   if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); tourEnd(); }
@@ -43,18 +50,19 @@ function _tourKey(e) {
 }
 function _tourGo(d) {
   _tourI += d;
-  if (_tourI >= TOUR_STEPS.length) { tourEnd(); toast('Обучение пройдено. F1 — горячие клавиши', 'ok'); return; }
+  if (_tourI >= _tourSteps.length) { const main = _tourSteps === TOUR_STEPS; tourEnd(); if (main) toast('Обучение пройдено. ❓ — справка и горячие клавиши', 'ok'); return; }
   if (_tourI < 0) _tourI = 0;
   _tourShow();
 }
 function _tourShow() {
-  const st = TOUR_STEPS[_tourI];
+  const st = _tourSteps[_tourI];
   if (st.view && typeof switchView === 'function' && document.querySelector('.nt.on')?.dataset.v !== st.view) switchView(st.view);
+  if (st.act) { try { st.act(); } catch (e) {} }
   setTimeout(() => {
     const el = document.querySelector(st.sel);
     // элемент скрыт (вкладка выключена админом) — пропускаем шаг
     const vis = el && (() => { const rr = el.getBoundingClientRect(); return rr.width > 0 && rr.height > 0 && getComputedStyle(el).visibility !== 'hidden'; })();
-    if (!vis) { if (_tourI < TOUR_STEPS.length - 1) { _tourI++; _tourShow(); } else tourEnd(); return; }
+    if (!vis) { if (_tourI < _tourSteps.length - 1) { _tourI++; _tourShow(); } else tourEnd(); return; }
     let hl = document.getElementById('tour-hl'), box = document.getElementById('tour-box');
     if (!hl) {
       hl = document.createElement('div'); hl.id = 'tour-hl';
@@ -65,6 +73,8 @@ function _tourShow() {
       document.body.appendChild(box);
       document.addEventListener('keydown', _tourKey, true);
     }
+    { const r0 = el.getBoundingClientRect();   // элемент за краем окна/прокрутки — показать его
+      if (r0.width < window.innerWidth * 0.6 && (r0.top < 60 || r0.bottom > window.innerHeight - 20)) el.scrollIntoView({ block: 'center' }); }
     const r = el.getBoundingClientRect(), pad = 4;
     const big = r.width > window.innerWidth * 0.6 && r.height > window.innerHeight * 0.5;   // карта — подсвечиваем рамкой внутри
     Object.assign(hl.style, big
@@ -74,11 +84,11 @@ function _tourShow() {
       <div style="font-size:13px;font-weight:800;margin-bottom:6px">${st.title}</div>
       <div>${st.text}</div>
       <div style="display:flex;align-items:center;gap:6px;margin-top:12px">
-        <span style="font-size:10px;color:var(--tx3)">${_tourI + 1} / ${TOUR_STEPS.length}</span>
+        <span style="font-size:10px;color:var(--tx3)">${_tourI + 1} / ${_tourSteps.length}</span>
         <span style="flex:1"></span>
         <button class="btn bs bsm" onclick="tourEnd()">Пропустить</button>
         ${_tourI ? '<button class="btn bs bsm" onclick="_tourGo(-1)">← Назад</button>' : ''}
-        <button class="btn bp bsm" onclick="_tourGo(1)">${_tourI === TOUR_STEPS.length - 1 ? 'Готово' : 'Далее →'}</button>
+        <button class="btn bp bsm" onclick="_tourGo(1)">${_tourI === _tourSteps.length - 1 ? 'Готово' : 'Далее →'}</button>
       </div>`;
     const bw = box.offsetWidth, bh = box.offsetHeight;
     let left, top;
@@ -88,13 +98,6 @@ function _tourShow() {
       top = r.bottom + 12 + bh < window.innerHeight ? r.bottom + 12 : Math.max(12, r.top - bh - 12);
     }
     box.style.left = left + 'px'; box.style.top = top + 'px';
-  }, st.view ? 250 : 30);
+  }, st.wait || (st.act ? 450 : st.view ? 250 : 30));
 }
-// Первый запуск — после загрузки и ввода имени (не поверх окна входа)
-setTimeout(function waitReady() {
-  const mo = document.getElementById('mov');
-  const g = document.getElementById('name-gate');
-  const login = g && getComputedStyle(g).display !== 'none';
-  if ((mo && mo.classList.contains('open')) || login) { setTimeout(waitReady, 3000); return; }
-  tourStart(false);
-}, 4000);
+// Автозапуска нет: обучение открывается только кнопкой «Пройти обучение» в справке (❓ / F1).

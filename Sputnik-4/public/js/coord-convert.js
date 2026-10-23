@@ -354,11 +354,11 @@ function renderCoordConvert(keepInputs) {
     ${CV.mode === 'one' ? `
     <div class="cv-card">
       <div class="cv-card-hd">Координаты точки</div>
-      <div class="cv-grid">
+      <div class="cv-grid${CV.withH ? ' with-h' : ''}">
         <div><label>${la}</label><input id="cv-in-a" style="${inSt}" placeholder="${esc(_cvPh()[0])}" onkeydown="if(event.key==='Enter')cvOne()"></div>
         <div><label>${lb}</label><input id="cv-in-b" style="${inSt}" placeholder="${esc(_cvPh()[1])}" onkeydown="if(event.key==='Enter')cvOne()"></div>
         <div style="${CV.withH ? '' : 'display:none'}"><label>H, м</label><input id="cv-in-h" style="${inSt}" placeholder="0" onkeydown="if(event.key==='Enter')cvOne()"></div>
-        <div style="align-self:end;display:flex;gap:6px"><button class="btn bp" onclick="cvOne()">Пересчитать →</button>
+        <div style="align-self:end;display:flex;gap:6px;flex-wrap:wrap"><button class="btn bp" onclick="cvOne()">Пересчитать →</button>
           <button class="btn bs" onclick="cvPickFromMap()" title="Щёлкнуть точку на карте — её координаты подставятся сюда">🗺 С карты</button></div>
       </div>
       <div id="cv-one-res" class="cv-res"></div>
