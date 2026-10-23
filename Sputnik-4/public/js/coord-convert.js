@@ -65,6 +65,8 @@ let CV = {
   angFmt: 'dd',       // вывод углов: dd | dm | dms
   dec: 3,             // знаков после запятой для метров
   withH: false,       // пересчитывать эллипсоидальную высоту
+  srcSwap: false,     // порядок на входе: false — X,Y (B,L); true — Y,X (L,B)
+  dstSwap: false,     // порядок на выходе
   mode: 'one',        // one | batch
   results: [],        // пакетные результаты
 };
@@ -236,8 +238,15 @@ function cvConvert(a, b, h) {
   };
 }
 function cvFmtOut(r) {
-  if (r.dstGeo) return [cvFmtAngle(r.a, CV.angFmt, true), cvFmtAngle(r.b, CV.angFmt, false)];
-  return [r.a.toFixed(CV.dec), r.b.toFixed(CV.dec)];
+  const v = r.dstGeo ? [cvFmtAngle(r.a, CV.angFmt, true), cvFmtAngle(r.b, CV.angFmt, false)]
+                     : [r.a.toFixed(CV.dec), r.b.toFixed(CV.dec)];
+  return CV.dstSwap ? [v[1], v[0]] : v;
+}
+// Поменять местами порядок координат (X↔Y, B↔L) у исходной или целевой системы
+function cvToggleOrder(side) {
+  CV[side + 'Swap'] = !CV[side + 'Swap'];
+  _cvSave();
+  _cvRefresh();
 }
 
 // ── Отрисовка вкладки ──────────────────────────────────────────────────
@@ -264,10 +273,15 @@ function _cvSysBlock(side) {
   if (sys.kind === 'custom') {
     extra += `<div class="cv-row"><label>proj4</label><textarea data-f="Custom" onchange="_cvSet('${side}',this)" style="${st};min-height:54px;font-family:monospace;font-size:11px" placeholder="+proj=tmerc +lat_0=0 +lon_0=… +ellps=krass +towgs84=… +units=m +no_defs">${esc(CV[side + 'Custom'] || '')}</textarea></div>`;
   }
+  const ord = _cvLabels(side).map(l => l.split(' ')[0]).join(', ');
   return `<div class="cv-card">
     <div class="cv-card-hd">${side === 'src' ? '📥 Исходная система' : '📤 Целевая система'}</div>
     <div class="cv-row"><label>Система</label><select data-f="" ${ch} style="${st}">${CV_SYSTEMS.map(s => o(s.id, s.label, id)).join('')}</select></div>
     ${extra}
+    <div class="cv-row"><label>Порядок</label><div style="display:flex;gap:8px;align-items:center">
+      <button class="btn bs bsm" onclick="cvToggleOrder('${side}')" title="Поменять местами ${cvIsGeo(side) ? 'широту и долготу' : 'X и Y'} ${side === 'src' ? 'во входных данных' : 'в результате'}">⇄ ${esc(ord)}</button>
+      ${CV[side + 'Swap'] ? `<span style="font-size:10px;color:var(--warn,#a16207);font-weight:700">порядок изменён</span>` : ''}
+    </div></div>
   </div>`;
 }
 function _cvSet(side, el) {
@@ -279,17 +293,29 @@ function _cvSet(side, el) {
   renderCoordConvert(true);
 }
 function cvSwap() {
-  ['', 'Zone', 'Msk', 'MskDatum', 'Custom'].forEach(f => { const t = CV['src' + f]; CV['src' + f] = CV['dst' + f]; CV['dst' + f] = t; });
+  ['', 'Zone', 'Msk', 'MskDatum', 'Custom', 'Swap'].forEach(f => { const t = CV['src' + f]; CV['src' + f] = CV['dst' + f]; CV['dst' + f] = t; });
   // перенести результат одиночного пересчёта во вход
   const ra = document.getElementById('cv-out-a'), rb = document.getElementById('cv-out-b');
   const ia = document.getElementById('cv-in-a'), ib = document.getElementById('cv-in-b');
   const keep = ra && ra.dataset.raw && ia ? [ra.dataset.raw, rb.dataset.raw] : null;
   _cvSave();
   renderCoordConvert(true);
-  if (keep) { document.getElementById('cv-in-a').value = keep[0]; document.getElementById('cv-in-b').value = keep[1]; cvOne(); }
+  if (keep) {
+    const k = CV.srcSwap ? [keep[1], keep[0]] : keep;   // во вход — в порядке полей новой исходной системы
+    document.getElementById('cv-in-a').value = k[0]; document.getElementById('cv-in-b').value = k[1]; cvOne();
+  }
+}
+function _cvPh() {
+  const p = cvIsGeo('src') ? ["61.123456 или 61°07'24.4\"", "72.123456 или 72°07'24.4\""] : ['6 789 012.345', '3 456 789.012'];
+  return CV.srcSwap ? [p[1], p[0]] : p;
+}
+function _cvPhBatch() {
+  const r = cvIsGeo('src') ? [['61.123456', '72.123456'], ["61°07'24.4\"", "72°07'24.4\""]] : [['6789012.345', '3456789.012'], ['6789100.000', '3456900.000']];
+  return r.map((v, i) => `т${i + 1}\t` + (CV.srcSwap ? [v[1], v[0]] : v).join('\t')).join('\n');
 }
 function _cvLabels(side) {
-  return cvIsGeo(side) ? ['Широта (B)', 'Долгота (L)'] : ['X (север)', 'Y (восток)'];
+  const l = cvIsGeo(side) ? ['Широта (B)', 'Долгота (L)'] : ['X (север)', 'Y (восток)'];
+  return CV[side + 'Swap'] ? [l[1], l[0]] : l;
 }
 
 function renderCoordConvert(keepInputs) {
@@ -329,8 +355,8 @@ function renderCoordConvert(keepInputs) {
     <div class="cv-card">
       <div class="cv-card-hd">Координаты точки</div>
       <div class="cv-grid">
-        <div><label>${la}</label><input id="cv-in-a" style="${inSt}" placeholder="${cvIsGeo('src') ? "61.123456 или 61°07'24.4\"" : '6 789 012.345'}" onkeydown="if(event.key==='Enter')cvOne()"></div>
-        <div><label>${lb}</label><input id="cv-in-b" style="${inSt}" placeholder="${cvIsGeo('src') ? "72.123456 или 72°07'24.4\"" : '3 456 789.012'}" onkeydown="if(event.key==='Enter')cvOne()"></div>
+        <div><label>${la}</label><input id="cv-in-a" style="${inSt}" placeholder="${esc(_cvPh()[0])}" onkeydown="if(event.key==='Enter')cvOne()"></div>
+        <div><label>${lb}</label><input id="cv-in-b" style="${inSt}" placeholder="${esc(_cvPh()[1])}" onkeydown="if(event.key==='Enter')cvOne()"></div>
         <div style="${CV.withH ? '' : 'display:none'}"><label>H, м</label><input id="cv-in-h" style="${inSt}" placeholder="0" onkeydown="if(event.key==='Enter')cvOne()"></div>
         <div style="align-self:end;display:flex;gap:6px"><button class="btn bp" onclick="cvOne()">Пересчитать →</button></div>
       </div>
@@ -340,7 +366,7 @@ function renderCoordConvert(keepInputs) {
       <div class="cv-card-hd">Список точек
         <span style="font-weight:400;color:var(--tx3);font-size:10px;margin-left:6px">по строке на точку: [имя] ${la.split(' ')[0]} ${lb.split(' ')[0]}${CV.withH ? ' [H]' : ''} · разделитель: Tab (из Excel), «;» или пробел</span>
       </div>
-      <textarea id="cv-batch" style="${inSt};min-height:170px;font-size:12px" placeholder="${cvIsGeo('src') ? 'т1\t61.123456\t72.123456\nт2\t61°07\'24.4"\t72°07\'24.4"' : 'т1\t6789012.345\t3456789.012\nт2\t6789100.000\t3456900.000'}"></textarea>
+      <textarea id="cv-batch" style="${inSt};min-height:170px;font-size:12px" placeholder="${esc(_cvPhBatch())}"></textarea>
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center">
         <button class="btn bp" onclick="cvBatch()">Пересчитать список →</button>
         <label class="btn bs" style="cursor:pointer">📂 Из файла (CSV, TXT, XLSX)<input type="file" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="cvLoadFile(this)"></label>
@@ -364,6 +390,7 @@ function _cvRefresh() {
 }
 
 function _cvReadAB(a, b) {
+  if (CV.srcSwap) [a, b] = [b, a];   // поля в обратном порядке → внутренний порядок (север/широта, восток/долгота)
   if (cvIsGeo('src')) return [cvParseAngle(a), cvParseAngle(b)];
   return [cvParseNum(a), cvParseNum(b)];
 }
