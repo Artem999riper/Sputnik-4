@@ -52,7 +52,7 @@ function openDEMPanel(step) {
         ${card(DW.area === 'kml', "_dwArea('kml')", '🗂', 'По KML', 'полигоны слоёв: на карте или списком')}
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:12px">
-        <label style="display:${DW.area === 'kml' ? 'none' : 'flex'};gap:6px;align-items:center;text-transform:none;font-weight:500;margin:0">Буфер линии, м: <input id="dem-buffer" type="number" min="1" step="10" value="${DW.buffer}" style="width:90px" onchange="DW.buffer=+this.value||100;_dwSave()"></label>
+        <label style="display:${DW.area === 'kml' ? 'none' : 'flex'};gap:6px;align-items:center;text-transform:none;font-weight:500;margin:0">Буфер линии, м: <input id="dem-buffer" type="number" min="0" step="10" value="${DW.buffer}" style="width:90px" onchange="DW.buffer=Math.max(1,+this.value||100);this.value=DW.buffer;_dwSave()"></label>
         ${_demLastBbox ? `<button class="btn bs bsm" onclick="_dwArea('last')">↩ Предыдущая область</button>` : ''}
         ${_dwAreaReady() ? `<button class="btn bs bsm" onclick="demClearDraw();DW.area='';DW.kml=[];_dwKmlShow();openDEMPanel(1)">✕ Сбросить</button>` : ''}
       </div>
@@ -76,7 +76,10 @@ function openDEMPanel(step) {
           ${DW.area === 'kml' ? '<div style="font-size:10px;color:var(--tx3);margin-top:3px">Для «Авто» зона подбирается отдельно для каждого полигона.</div>' : ''}
         </div>
         ${_dwHasRelief() ? `
-        <div class="fg"><label>Шаг горизонталей, м</label><input id="dem-interval" type="number" min="0.1" step="0.5" value="${DW.interval}" onchange="DW.interval=+this.value||2;_dwSave()"></div>
+        <div class="fg"><label>Шаг горизонталей, м</label>
+          <div style="display:flex;gap:4px"><input id="dem-interval" type="text" inputmode="decimal" value="${DW.interval}" style="flex:1" title="Любое значение; ↑/↓ или колесо — 0.1 → 0.5 → 1 → 2 → 5…"
+            onchange="_dwSetInterval(this.value)" onkeydown="if(event.key==='ArrowUp'||event.key==='ArrowDown'){event.preventDefault();_dwSpinInterval(event.key==='ArrowUp'?1:-1)}" onwheel="if(document.activeElement===this){event.preventDefault();_dwSpinInterval(event.deltaY<0?1:-1)}">
+            <button class="btn bs bsm" type="button" onclick="_dwSpinInterval(-1)" title="Меньше">−</button><button class="btn bs bsm" type="button" onclick="_dwSpinInterval(1)" title="Больше">+</button></div></div>
         <div class="fg"><label>Шаг сетки отметок, м <span style="text-transform:none;font-weight:400;color:var(--tx3)">(0 — без точек)</span></label>
           <input id="dem-grid-step" type="number" min="0" step="1" list="dw-grid-list" value="${DW.grid}" onchange="DW.grid=Math.max(0,parseInt(this.value)||0);_dwSave()">
           <datalist id="dw-grid-list"><option value="5"><option value="10"><option value="20"><option value="25"><option value="50"><option value="100"><option value="0"></datalist></div>
@@ -125,6 +128,20 @@ function openDEMPanel(step) {
     if (typeof loadMskFull === 'function') loadMskFull().then(after).catch(after); else after();
     if (isAdminClient()) { setTimeout(demRefreshTileCache, 100); setTimeout(_demLoadTilesDir, 120); setTimeout(demCheckGeoid, 140); }
   }
+}
+// Шаг горизонталей: вводится любым числом (запятая тоже), кнопки/стрелки — по «круглому» ряду
+const DW_INTERVALS = [0.1, 0.5, 1, 2, 5, 10, 20, 50];
+function _dwSetInterval(v) {
+  const n = parseFloat(String(v).replace(',', '.'));
+  DW.interval = n > 0 ? Math.max(0.01, n) : 2; _dwSave();
+  const el = document.getElementById('dem-interval'); if (el) el.value = DW.interval;
+}
+function _dwSpinInterval(dir) {
+  const el = document.getElementById('dem-interval');
+  const cur = parseFloat(String(el ? el.value : DW.interval).replace(',', '.')) || DW.interval;
+  const next = dir > 0 ? (DW_INTERVALS.find(x => x > cur + 1e-9) ?? DW_INTERVALS[DW_INTERVALS.length - 1])
+                       : ([...DW_INTERVALS].reverse().find(x => x < cur - 1e-9) ?? DW_INTERVALS[0]);
+  _dwSetInterval(next);
 }
 function _dwNext() { let s = DW.step + 1; while (s <= 5 && !_dwStepOn(s)) s++; return Math.min(5, s); }
 function _dwPrev() { let s = DW.step - 1; while (s > 1 && !_dwStepOn(s)) s--; return Math.max(1, s); }
