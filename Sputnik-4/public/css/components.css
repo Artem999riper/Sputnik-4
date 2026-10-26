@@ -150,3 +150,19 @@ a{color:var(--acc);text-decoration:none;word-break:break-all}a:hover{text-decora
 .np-time{font-size:9px;color:var(--tx3);margin-top:2px}
 .np-empty{padding:24px;text-align:center;font-size:12px;color:var(--tx3)}
 .np-foot{padding:7px 13px;border-top:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center}
+
+/* ── Мастер выгрузки рельефа (dem-wizard.js) ── */
+.dw-steps{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:-4px 0 12px;font-size:11px}
+.dw-st{padding:4px 9px;border-radius:12px;background:var(--s2);color:var(--tx3);cursor:pointer;font-weight:600;white-space:nowrap}
+.dw-st.done{color:var(--tx2)}
+.dw-st.on{background:var(--acc);color:#fff}
+.dw-arr{color:var(--tx3)}
+.dw-body{min-height:220px}
+.dw-h{font-size:14px;font-weight:700;margin-bottom:10px}
+.dw-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.dw-card{display:flex;gap:10px;align-items:center;padding:10px 12px;border:1.5px solid var(--bd);border-radius:var(--r,8px);cursor:pointer;background:var(--s1,var(--s2));transition:border-color .15s,background .15s}
+.dw-card:hover{border-color:var(--acc)}
+.dw-card.on{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 10%,transparent)}
+.dw-ic{font-size:22px;min-width:34px;text-align:center}
+.dw-sub{font-size:11px;color:var(--tx3);margin-top:2px}
+.dw-info{margin-top:10px;font-size:12px;line-height:1.5;padding:7px 10px;background:var(--s2);border-radius:var(--rs);border:1px solid var(--bd)}

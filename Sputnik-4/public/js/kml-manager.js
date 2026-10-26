@@ -1807,7 +1807,7 @@ function renderLayerGroupsWithSymbols() {
               ...(coordStr?[{i:'📋',l:'Копировать координаты',f:()=>{navigator.clipboard.writeText(coordStr).then(()=>toast('Скопировано','ok'));}}]:[]),
               {i:'🔗',l:'Скопировать ссылку',f:()=>{_copyShareLink(buildKmlShareLink(layer, featureName, l.id));}},
               {sep:true},
-              ...(typeof demBatchByLayer==='function'&&/"(Multi)?Polygon"/.test(l.geojson||'')?[{i:'🏔',l:'Рельеф по полигонам слоя…',f:()=>{if(typeof openDEMPanel==='function')openDEMPanel();setTimeout(()=>demBatchByLayer(l.id),300);}}]:[]),
+              ...(typeof demBatchByLayer==='function'&&/"(Multi)?Polygon"/.test(l.geojson||'')?[{i:'🏔',l:'Рельеф по полигонам слоя…',f:()=>demWizardKml(l.id)}]:[]),
               {i:'🎨',l:'Стиль слоя',f:()=>kmlOpenStyleModal(l.id)},
               {i:'📋',l:'Объекты слоя',f:()=>kmlOpenFeatureList(l.id)},
               {i:'👁',l:l.visible?'Скрыть слой':'Показать слой',f:()=>kmlToggleVis(l.id,l.visible?0:1)},

@@ -691,7 +691,7 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
     // Фолбэк: геореференс. GeoTIFF «как есть» (масштаб/привязка внутри файла)
     const out0 = path.join(tmpDir, 'satellite.tif');
     await runGDAL('gdal_translate', ['-of','GTiff','-co','COMPRESS=JPEG','-co','PHOTOMETRIC=YCBCR',
-      '-co','TILED=YES','-co','JPEG_QUALITY=90', satTif, out0]);
+      '-co','TILED=YES','-co','JPEG_QUALITY=95', satTif, out0]);
     return [{ tif: out0, idx:'0_0' }];
   }
 
@@ -704,7 +704,7 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   const _writeSection = async (xoff, yoff, xs, ys, idx, outTif, outTfw) => {
     await runGDAL('gdal_translate', ['-of','GTiff',
       '-srcwin', String(xoff), String(yoff), String(xs), String(ys),
-      '-co','COMPRESS=JPEG','-co','PHOTOMETRIC=YCBCR','-co','TILED=YES','-co','JPEG_QUALITY=90',
+      '-co','COMPRESS=JPEG','-co','PHOTOMETRIC=YCBCR','-co','TILED=YES','-co','JPEG_QUALITY=95',
       satTif, outTif]);
     const sGt0 = gt[0] + xoff*gt[1] + yoff*gt[2];
     const sGt3 = gt[3] + xoff*gt[4] + yoff*gt[5];
