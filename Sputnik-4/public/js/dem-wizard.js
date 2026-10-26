@@ -52,7 +52,7 @@ function openDEMPanel(step) {
         ${card(DW.area === 'kml', "_dwArea('kml')", '🗂', 'По KML', 'полигоны слоёв: на карте или списком')}
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:12px">
-        <label style="display:flex;gap:6px;align-items:center;text-transform:none;font-weight:500;margin:0">Буфер линии, м: <input id="dem-buffer" type="number" min="1" step="10" value="${DW.buffer}" style="width:90px" onchange="DW.buffer=+this.value||100;_dwSave()"></label>
+        <label style="display:${DW.area === 'kml' ? 'none' : 'flex'};gap:6px;align-items:center;text-transform:none;font-weight:500;margin:0">Буфер линии, м: <input id="dem-buffer" type="number" min="1" step="10" value="${DW.buffer}" style="width:90px" onchange="DW.buffer=+this.value||100;_dwSave()"></label>
         ${_demLastBbox ? `<button class="btn bs bsm" onclick="_dwArea('last')">↩ Предыдущая область</button>` : ''}
         ${_dwAreaReady() ? `<button class="btn bs bsm" onclick="demClearDraw();DW.area='';DW.kml=[];_dwKmlShow();openDEMPanel(1)">✕ Сбросить</button>` : ''}
       </div>
@@ -154,27 +154,48 @@ function _demFinalize(b) {
 }
 
 // ── По KML: выбор полигонов списком или щелчками на карте ──
+// Полигоны слоя (нумерация как в _demPolysOfLayer) + признак «объект скрыт»
+function _dwPolys(l) {
+  let gj; try { gj = JSON.parse(l.geojson); } catch (e) { return []; }
+  const out = [];
+  (gj.features || []).forEach((f, i) => {
+    const g = f && f.geometry; if (!g) return;
+    const nm = (f.properties && (f.properties.name || f.properties.Name || f.properties['НАЗВ'])) || `Полигон ${i + 1}`;
+    const hidden = !!(f.properties && f.properties._hidden);
+    if (g.type === 'Polygon') out.push({ name: String(nm), ring: g.coordinates[0], hidden });
+    else if (g.type === 'MultiPolygon') g.coordinates.forEach((pp, k) => out.push({ name: `${nm}${g.coordinates.length > 1 ? ' (' + (k + 1) + ')' : ''}`, ring: pp[0], hidden }));
+  });
+  return out.filter(p => p.ring && p.ring.length >= 4);
+}
+// Слой сейчас нарисован на карте (включён, его группа/объект активны, подходит масштаб)
+function _dwOnMap(l) {
+  const g = typeof lGroups === 'object' && lGroups ? lGroups[l.id] : null;
+  return !!(g && map.hasLayer(g));
+}
 function _dwKmlListHtml() {
-  const cand = (layers || []).map(l => ({ l, polys: typeof _demPolysOfLayer === 'function' ? _demPolysOfLayer(l) : [] })).filter(x => x.polys.length);
-  if (!cand.length) return '<div class="dw-info" style="color:var(--red)">На карте нет слоёв с полигонами — импортируйте или нарисуйте контуры.</div>';
+  const all = (layers || []).map(l => ({ l, polys: _dwPolys(l), on: _dwOnMap(l) })).filter(x => x.polys.length);
+  if (!all.length) return '<div class="dw-info" style="color:var(--red)">Нет слоёв с полигонами — импортируйте или нарисуйте контуры.</div>';
   const isSel = (l, i) => DW.kml.some(k => k.layerId === l.id && k.idx === i);
+  const item = c => `<details ${c.polys.some((p, i) => isSel(c.l, i)) ? 'open' : ''}><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:3px 0">${esc(c.l.name)} <span style="color:var(--tx3);font-weight:400">— ${c.polys.length} полиг.</span>
+          <button class="btn bs bxs" onclick="event.preventDefault();_dwKmlAllOf('${escAttr(c.l.id)}')">все</button></summary>
+        ${c.polys.map((p, i) => `<label style="display:flex;gap:6px;align-items:center;padding:2px 0 2px 14px;font-size:12px;text-transform:none;font-weight:500;margin:0"><input type="checkbox" ${isSel(c.l, i) ? 'checked' : ''} onchange="_dwKmlToggle('${escAttr(c.l.id)}',${i},this.checked)" style="width:auto;margin:0"> ${esc(p.name)}${p.hidden ? ' <span style="color:var(--tx3)">(скрыт)</span>' : ''}</label>`).join('')}</details>`;
+  const shown = all.filter(c => c.on), off = all.filter(c => !c.on);
   return `<div style="display:flex;gap:6px;align-items:center;margin:8px 0 4px">
       <button class="btn bp bsm" onclick="_dwKmlPick()">🗺 Указать полигоны на карте</button>
       <span style="font-size:11px;color:var(--tx3)">или отметьте в списке:</span></div>
     <div style="max-height:220px;overflow:auto;border:1.5px solid var(--bd);border-radius:var(--rs);padding:4px 8px">
-      ${cand.map(c => `<details ${c.polys.some((p, i) => isSel(c.l, i)) ? 'open' : ''}><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:3px 0">${esc(c.l.name)} <span style="color:var(--tx3);font-weight:400">— ${c.polys.length} полиг.</span>
-          <button class="btn bs bxs" onclick="event.preventDefault();_dwKmlAllOf('${escAttr(c.l.id)}')">все</button></summary>
-        ${c.polys.map((p, i) => `<label style="display:flex;gap:6px;align-items:center;padding:2px 0 2px 14px;font-size:12px;text-transform:none;font-weight:500;margin:0"><input type="checkbox" ${isSel(c.l, i) ? 'checked' : ''} onchange="_dwKmlToggle('${escAttr(c.l.id)}',${i},this.checked)" style="width:auto;margin:0"> ${esc(p.name)}</label>`).join('')}</details>`).join('')}
+      ${shown.length ? shown.map(item).join('') : '<div style="font-size:11px;color:var(--tx3);padding:4px 0">Ни один слой с полигонами сейчас не показан на карте.</div>'}
+      ${off.length ? `<details style="margin-top:4px;border-top:1px solid var(--bd);padding-top:4px" ${off.some(c => c.polys.some((p, i) => isSel(c.l, i))) ? 'open' : ''}><summary style="cursor:pointer;font-size:11px;color:var(--tx3);font-weight:700">Скрытые слои (${off.length})</summary><div style="padding-left:8px">${off.map(item).join('')}</div></details>` : ''}
     </div>`;
 }
 function _dwKmlToggle(layerId, idx, on) {
   DW.kml = DW.kml.filter(k => !(k.layerId === layerId && k.idx === idx));
-  if (on) { const l = layers.find(x => x.id === layerId); const p = _demPolysOfLayer(l)[idx]; if (p) DW.kml.push({ layerId, idx, name: p.name, ring: p.ring }); }
+  if (on) { const l = layers.find(x => x.id === layerId); const p = _dwPolys(l)[idx]; if (p) DW.kml.push({ layerId, idx, name: p.name, ring: p.ring }); }
   _dwKmlShow(); openDEMPanel(1);
 }
 function _dwKmlAllOf(layerId) {
   const l = layers.find(x => x.id === layerId); if (!l) return;
-  _demPolysOfLayer(l).forEach((p, i) => { if (!DW.kml.some(k => k.layerId === layerId && k.idx === i)) DW.kml.push({ layerId, idx: i, name: p.name, ring: p.ring }); });
+  _dwPolys(l).forEach((p, i) => { if (!p.hidden && !DW.kml.some(k => k.layerId === layerId && k.idx === i)) DW.kml.push({ layerId, idx: i, name: p.name, ring: p.ring }); });
   _dwKmlShow(); openDEMPanel(1);
 }
 let _dwKmlLayer = null;
@@ -183,15 +204,18 @@ function _dwKmlShow() {
   if (!DW.kml.length) return;
   _dwKmlLayer = L.layerGroup(DW.kml.map(k => L.polygon(k.ring.map(c => [c[1], c[0]]), { color: '#f59e0b', weight: 3, fillColor: '#f59e0b', fillOpacity: 0.25, interactive: false }))).addTo(map);
 }
-// Режим щелчков по карте: щелчок по полигону любого слоя — выбрать/снять
+// Режим щелчков по карте: щелчок по полигону показанного на карте слоя — выбрать/снять
+// (скрытые слои и скрытые объекты не участвуют)
 let _dwPickFn = null, _dwPickKey = null, _dwPickCtx = null;
 function _dwKmlPick() {
   closeModal();
   const all = [];
-  (layers || []).forEach(l => (_demPolysOfLayer(l) || []).forEach((p, i) => all.push({ l, i, p })));
+  (layers || []).filter(_dwOnMap).forEach(l => _dwPolys(l).forEach((p, i) => { if (!p.hidden) all.push({ l, i, p }); }));
+  if (!all.length) { toast('На карте не показано ни одного слоя с полигонами — включите слой или выберите из списка', 'warn'); openDEMPanel(1); return; }
   const inRing = (lng, lat, r) => { let ins = false; for (let a = 0, b = r.length - 1; a < r.length; b = a++) { const [xa, ya] = r[a], [xb, yb] = r[b]; if (((ya > lat) !== (yb > lat)) && lng < (xb - xa) * (lat - ya) / (yb - ya) + xa) ins = !ins; } return ins; };
   const bnr = document.getElementById('bnr'), t = document.getElementById('bnr-t');
   const upd = () => { if (t) t.innerHTML = `🗂 Щёлкайте по полигонам — выбрать / снять · выбрано: <b>${DW.kml.length}</b> · <button class="btn bsm" style="background:#16a34a;color:#fff;border:none" onclick="_dwKmlPickStop(true)">Готово (Enter)</button>`; };
+  if (t) t.onclick = e => e.stopPropagation();
   if (bnr) { bnr.className = 'show draw'; bnr.style.display = 'flex'; } upd();
   map.getContainer().style.cursor = 'pointer';
   const el = map.getContainer();
@@ -314,7 +338,7 @@ async function _dwExport() {
 function demWizardKml(layerId) {
   DW.area = 'kml'; DW.kml = [];
   const l = (layers || []).find(x => x.id === layerId);
-  if (l) _demPolysOfLayer(l).forEach((p, i) => DW.kml.push({ layerId, idx: i, name: p.name, ring: p.ring }));
+  if (l) _dwPolys(l).forEach((p, i) => !p.hidden && DW.kml.push({ layerId, idx: i, name: p.name, ring: p.ring }));
   demClearDraw(); _dwKmlShow(); if (!DW.projUser) DW.projId = '';
   openDEMPanel(1);
 }

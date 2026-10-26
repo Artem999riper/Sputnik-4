@@ -326,6 +326,7 @@ function setTool(t){
   }
 }
 function cancelMode(){
+  if(typeof _dwPickFn!=='undefined'&&_dwPickFn){_dwKmlPickStop(true);return;}
   if(typeof _kmvActive!=='undefined'&&_kmvActive){_kmvCancel();return;}
   if(typeof _kdActive!=='undefined'&&_kdActive){_kdCancel();return;}
   if(typeof _ksActive!=='undefined'&&_ksActive){_ksCancel();return;}
