@@ -23,9 +23,16 @@ def run(params_file):
     contours_gpkg = p['contours_gpkg']   # горизонтали
     reproj_tif    = p['reproj_tif']       # перепроецированный растр
     output_dxf    = p['output_dxf']       # выходной DXF
-    interval      = float(p.get('interval', 2))
+    interval      = float(p.get('interval', 2)) or 2.0
+    if interval < 0.01: interval = 0.01
     grid_step_m   = float(p.get('grid_step_m', 20))  # шаг в метрах
     label_step    = interval * 2          # каждая вторая горизонталь
+    # Подпись высоты: столько знаков после запятой, сколько в шаге (2 → «120», 0.5 → «120.5», 0.25 → «120.25»)
+    _dec = 0
+    while _dec < 3 and abs(interval * 10 ** _dec - round(interval * 10 ** _dec)) > 1e-6:
+        _dec += 1
+    def _fmt_elev(v):
+        return f"{round(v / interval) * interval:.{_dec}f}"
     text_height   = float(p.get('text_height', 5))
     # Разброс положения точек в плане (имитация ручного полевого съёма)
     # jitter_min_m — минимальное смещение (мёртвая зона: точки не ближе этого к узлу сетки)
@@ -124,9 +131,10 @@ def run(params_file):
                 g(10,f"{x1:.3f}"); g(20,f"{y1:.3f}"); g(30,f"{z1:.3f}")
                 g(11,f"{x2:.3f}"); g(21,f"{y2:.3f}"); g(31,f"{z2:.3f}")
 
-            # Подпись каждой второй горизонтали
-            elev_r = round(elev)
-            if elev_r % round(label_step) == 0:
+            # Подпись каждой второй горизонтали. Номер горизонтали считаем от шага
+            # (а не от целых метров) — иначе при шаге < 1 м (0.1, 0.25…) деление на ноль.
+            k = int(round(elev / interval))
+            if k % 2 == 0:
                 mid = pts[len(pts)//2]
                 p1  = pts[max(0, len(pts)//2 - 1)]
                 p2  = pts[min(len(pts)-1, len(pts)//2 + 1)]
@@ -136,7 +144,7 @@ def run(params_file):
                 g(8,LAYER_LABELS); g(62,2)
                 g(10,f"{mx:.3f}"); g(20,f"{my:.3f}"); g(30,f"{mz:.3f}")
                 g(40,f"{text_height:.3f}")
-                g(1,str(elev_r))
+                g(1,_fmt_elev(elev))
                 g(50,f"{ang:.1f}")
                 g(72,1)   # центрирование
                 g(11,f"{mx:.3f}"); g(21,f"{my:.3f}"); g(31,f"{mz:.3f}")
