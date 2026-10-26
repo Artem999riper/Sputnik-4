@@ -1,4 +1,6 @@
 async function selectSite(id){
+  // приближаем карту только при переходе к другому объекту (повторный вызов — это обновление данных)
+  const isNew=!(currentType==='site'&&currentObj&&currentObj.id===id);
   try{
     // Close full panel silently (no mini-restore for old site)
     const panelEl=document.getElementById('panel');
@@ -16,7 +18,29 @@ async function selectSite(id){
     renderSidebar();
     await repaintMap();
     renderVpLayers(currentObj.vol_progress||[]);
+    if(isNew)_zoomToSite(currentObj);
   }catch(e){toast('Ошибка загрузки объекта','err');}
+}
+
+// Приблизить карту к объекту: объёмы, факт, базы и KML-слои, привязанные к объекту
+function _zoomToSite(o){
+  if(!o||!window.map)return;
+  let b=null;
+  const add=bb=>{if(bb&&bb.isValid())b=b?b.extend(bb):L.latLngBounds(bb.getSouthWest(),bb.getNorthEast());};
+  const addGj=s=>{if(!s)return;try{add(L.geoJSON(typeof s==='string'?JSON.parse(s):s).getBounds());}catch(e){}};
+  (o.volumes||[]).forEach(v=>addGj(v.geojson));
+  (o.vol_progress||[]).forEach(v=>addGj(v.geojson));
+  (o.bases||[]).forEach(x=>{if(x&&x.lat&&x.lng)add(L.latLngBounds([[x.lat,x.lng],[x.lat,x.lng]]));});
+  (typeof layers!=='undefined'?layers:[]).forEach(l=>{
+    const g=l.group_id&&typeof kmGroups==='object'?kmGroups[l.group_id]:null;
+    const ids=g?(g.site_ids||(g.site_id?[g.site_id]:[])):[];
+    if(l.site_id===o.id||ids.includes(o.id))addGj(l.geojson);
+  });
+  if(!b){toast('У объекта пока нет геометрии на карте','warn');return;}
+  try{
+    if(b.getNorthEast().equals(b.getSouthWest()))map.flyTo(b.getCenter(),Math.max(map.getZoom(),14),{duration:.8});
+    else map.flyToBounds(b,{padding:[50,50],maxZoom:16,duration:.8});
+  }catch(e){}
 }
 
 function hideSiteStatsOverlay(){
