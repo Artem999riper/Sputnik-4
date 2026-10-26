@@ -117,6 +117,8 @@ function openDEMPanel(step) {
     ...(DW.step > 1 ? [{ label: '← Назад', cls: 'bs', fn: () => _dwGo(_dwPrev()) }] : []),
     last ? { label: '⬇️ Выгрузить', cls: 'bp', fn: _dwExport } : { label: 'Далее →', cls: 'bp', fn: () => _dwGo(_dwNext()) },
   ]);
+  // «По KML»: окно сдвигается вправо и карта не затемняется — видно, к чему приближаемся
+  if (DW.step === 1 && DW.area === 'kml') document.getElementById('mov').classList.add('side');
   if (DW.step === 3) {
     _demAppendUtmOption();
     const after = () => { _demAppendMskOptions(); const s = document.getElementById('dem-proj'); if (s) { if (!DW.projId) DW.projId = _dwSuggestProj(); s.value = DW.projId; if (s.value !== DW.projId) s.selectedIndex = 0; } _demUpdateZoneSelect(); const z = document.getElementById('dem-zone'); if (z) z.value = DW.zone || ''; };
@@ -190,13 +192,22 @@ function _dwKmlListHtml() {
 }
 function _dwKmlToggle(layerId, idx, on) {
   DW.kml = DW.kml.filter(k => !(k.layerId === layerId && k.idx === idx));
-  if (on) { const l = layers.find(x => x.id === layerId); const p = _dwPolys(l)[idx]; if (p) DW.kml.push({ layerId, idx, name: p.name, ring: p.ring }); }
+  if (on) { const l = layers.find(x => x.id === layerId); const p = _dwPolys(l)[idx]; if (p) { DW.kml.push({ layerId, idx, name: p.name, ring: p.ring }); _dwFit([p.ring]); } }
   _dwKmlShow(); openDEMPanel(1);
 }
 function _dwKmlAllOf(layerId) {
   const l = layers.find(x => x.id === layerId); if (!l) return;
   _dwPolys(l).forEach((p, i) => { if (!p.hidden && !DW.kml.some(k => k.layerId === layerId && k.idx === i)) DW.kml.push({ layerId, idx: i, name: p.name, ring: p.ring }); });
+  _dwFit(DW.kml.filter(k => k.layerId === layerId).map(k => k.ring));
   _dwKmlShow(); openDEMPanel(1);
+}
+// Приблизить карту к выбранным контурам (окно мастера не закрывается — карта видна по краям)
+function _dwFit(rings) {
+  if (!rings.length) return;
+  const b = L.latLngBounds(rings.flat().map(c => [c[1], c[0]]));
+  const m = document.getElementById('modal'), side = document.getElementById('mov').classList.contains('side') && innerWidth > 900;
+  const right = side && m ? m.getBoundingClientRect().width + 50 : 60;
+  if (b.isValid()) map.flyToBounds(b, { paddingTopLeft: [60, 80], paddingBottomRight: [right, 60], maxZoom: 16, duration: 0.6 });
 }
 let _dwKmlLayer = null;
 function _dwKmlShow() {

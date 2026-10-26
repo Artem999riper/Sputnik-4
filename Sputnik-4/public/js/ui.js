@@ -83,6 +83,7 @@ function showModal(title,body,buttons){
   // Reset modal position (drag reset)
   const m=document.getElementById('modal');
   if(m){m.style.position='';m.style.left='';m.style.top='';m.style.transform='';m.style.margin='';}
+  document.getElementById('mov').classList.remove('side');
   document.getElementById('mov').classList.add('open');
   setTimeout(()=>{const fi=document.querySelector('#mbd input,#mbd textarea');if(fi)fi.focus();},80);
 }
