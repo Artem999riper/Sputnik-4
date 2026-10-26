@@ -8,6 +8,11 @@ const proj4 = require('proj4');
 
 // ── DXF IMPORT HELPERS ─────────────────────────────────────
 const _DXF_WGS84 = '+proj=longlat +datum=WGS84 +no_defs';
+// Имя файла для скачивания: ASCII-запасное + UTF-8 (RFC 5987) — кириллица в заголовке иначе даёт ошибку
+function _attach(res, name) {
+  const ascii = String(name).replace(/[^\x20-\x7E]+/g, '_').replace(/["\\]/g, '_') || 'file';
+  res.setHeader('Content-Disposition', `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`);
+}
 function _dxfMskProj(zone) {
   const lon_0 = 60.05 + 6 * (zone - 1), x_0 = zone * 1000000 + 500000;
   return `+proj=tmerc +lat_0=0 +lon_0=${lon_0} +k=1 +x_0=${x_0} +y_0=-5811057.63 +ellps=krass +towgs84=23.57,-140.95,-79.8,0,0.35,0.79,-0.22 +units=m +no_defs`;
@@ -831,11 +836,20 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n<name>Экспорт слоёв</name>\n${styles}\n${folders}\n</Document>\n</kml>`;
   }
 
+  // Набор для экспорта: слои из базы (layerIds) или переданные объекты (inline:
+  // [{name,color,geojson}]) — для экспорта отдельного объекта / выделения из меню ПКМ.
+  const _exportRows = (req) => {
+    const b = req.body || {};
+    if (Array.isArray(b.inline) && b.inline.length)
+      return b.inline.map((l, i) => ({ id: 'inline' + i, name: String(l.name || 'Объекты'), color: l.color || '#1a56db',
+        geojson: typeof l.geojson === 'string' ? l.geojson : JSON.stringify(l.geojson || { type: 'FeatureCollection', features: [] }) }));
+    if (!Array.isArray(b.layerIds) || !b.layerIds.length) return null;
+    return all(db(), `SELECT id, name, geojson, color FROM kml_layers WHERE id IN (${b.layerIds.map(() => '?').join(',')})`, b.layerIds);
+  };
+
   app.post('/api/layers/export-kml', wrap((req, res) => {
-    const { layerIds } = req.body || {};
-    if (!Array.isArray(layerIds) || !layerIds.length)
-      return res.status(400).json({ error: 'layerIds required' });
-    const rows = all(db(), `SELECT id,name,geojson,color FROM kml_layers WHERE id IN (${layerIds.map(()=>'?').join(',')})`, layerIds);
+    const rows = _exportRows(req);
+    if (!rows) return res.status(400).json({ error: 'layerIds required' });
     if (!rows.length) return res.status(404).json({ error: 'Слои не найдены' });
     const kml = buildLayersKML(rows);
     res.setHeader('Content-Type','application/vnd.google-earth.kml+xml; charset=utf-8');
@@ -1077,13 +1091,10 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
   }));
 
   app.post('/api/layers/export-dxf', wrap(async (req, res) => {
-    const { layerIds, crs, filename } = req.body || {};
-    if (!Array.isArray(layerIds) || !layerIds.length) {
-      return res.status(400).json({ error: 'layerIds required' });
-    }
+    const { crs, filename } = req.body || {};
     const d = db();
-    const placeholders = layerIds.map(() => '?').join(',');
-    const rows = all(d, `SELECT id, name, geojson, color FROM kml_layers WHERE id IN (${placeholders})`, layerIds);
+    const rows = _exportRows(req);
+    if (!rows) return res.status(400).json({ error: 'layerIds required' });
     if (!rows.length) return res.status(404).json({ error: 'Слои не найдены' });
 
     const { centerLng } = geojsonBboxCenter(rows);
@@ -1112,7 +1123,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     const stat = fs.statSync(tmpPath);
     res.setHeader('Content-Type', 'application/dxf');
     res.setHeader('Content-Length', stat.size);
-    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    _attach(res, safeName);
     const stream = fs.createReadStream(tmpPath);
     stream.pipe(res);
     stream.on('end', () => { try { fs.unlinkSync(tmpPath); } catch (e) {} });
@@ -1121,12 +1132,10 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
 
   // ── Экспорт слоёв в MapInfo (MIF/MID, в ZIP) ───────────────
   app.post('/api/layers/export-mif', wrap((req, res) => {
-    const { layerIds, crs } = req.body || {};
-    if (!Array.isArray(layerIds) || !layerIds.length)
-      return res.status(400).json({ error: 'layerIds required' });
+    const { crs } = req.body || {};
     const d = db();
-    const placeholders = layerIds.map(() => '?').join(',');
-    const rows = all(d, `SELECT id, name, geojson, color FROM kml_layers WHERE id IN (${placeholders})`, layerIds);
+    const rows = _exportRows(req);
+    if (!rows) return res.status(400).json({ error: 'layerIds required' });
     if (!rows.length) return res.status(404).json({ error: 'Слои не найдены' });
 
     const { centerLng } = geojsonBboxCenter(rows);
@@ -1152,18 +1161,16 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     const buf = zip.toBuffer();
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Length', buf.length);
-    res.setHeader('Content-Disposition', `attachment; filename="${base}.zip"`);
+    _attach(res, `${base}.zip`);
     res.send(buf);
   }));
 
   // ── Экспорт слоёв в MapInfo TAB (нативный, через ogr2ogr) ──
   app.post('/api/layers/export-tab', wrap(async (req, res) => {
-    const { layerIds, crs } = req.body || {};
-    if (!Array.isArray(layerIds) || !layerIds.length)
-      return res.status(400).json({ error: 'layerIds required' });
+    const { crs } = req.body || {};
     const d = db();
-    const placeholders = layerIds.map(() => '?').join(',');
-    const rows = all(d, `SELECT id, name, geojson, color FROM kml_layers WHERE id IN (${placeholders})`, layerIds);
+    const rows = _exportRows(req);
+    if (!rows) return res.status(400).json({ error: 'layerIds required' });
     if (!rows.length) return res.status(404).json({ error: 'Слои не найдены' });
     if (!demProcessor || !demProcessor.convertToTab)
       return res.status(501).json({ error: 'Экспорт в TAB недоступен на сервере' });
@@ -1205,7 +1212,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
       cleanup();
       res.setHeader('Content-Type', 'application/zip');
       res.setHeader('Content-Length', buf.length);
-      res.setHeader('Content-Disposition', `attachment; filename="${base}_tab.zip"`);
+      _attach(res, `${base}_tab.zip`);
       res.send(buf);
     } catch (e) {
       cleanup();

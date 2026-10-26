@@ -913,6 +913,7 @@ function _ksMenu(cx,cy){
     f.geometry={type:'LineString',coordinates:ring.map(c=>c.slice())};
   })});
   items.push({sep:true});
+  items.push({i:'📤',l:`Экспорт выделенного (${s.total})…`,f:()=>{kmlExportSelection();_ksCleanup();}});
   items.push({i:'🗑',l:'Удалить объекты',cls:'dan',f:_ksDelete});
   items.push({i:'✕',l:'Отмена',f:()=>{_ksCleanup();}});
   showCtx(cx,cy,items);
@@ -1800,6 +1801,7 @@ function renderLayerGroupsWithSymbols() {
               ...(fIdx>=0&&f.geometry&&/LineString|Polygon/.test(f.geometry.type)?[{i:'✏️',l:'Изменить геометрию (вершины)',f:()=>kmlEditGeometry(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'↔',l:'Передвинуть',f:()=>startKmlMoveFeature(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'📤',l:'Перенести в другой слой',f:()=>kmlMoveFeature(l.id,fIdx)}]:[]),
+              {i:'💾',l:'Экспорт… (объект / слой → DXF, KML, MIF, GPX, CSV…)',f:()=>kmlExportFeature(l.id,fIdx)},
               ...(fIdx>=0&&f.geometry&&f.geometry.type==='LineString'?[{i:'⬛',l:'Линия → полигон',f:()=>kmlLineToPolygon(l.id,fIdx)}]:[]),
               ...(fIdx>=0&&f.geometry&&f.geometry.type==='Polygon'?[{i:'〰️',l:'Полигон → линия',f:()=>kmlPolygonToLine(l.id,fIdx)}]:[]),
               ...(coordStr?[{i:'📋',l:'Копировать координаты',f:()=>{navigator.clipboard.writeText(coordStr).then(()=>toast('Скопировано','ok'));}}]:[]),
