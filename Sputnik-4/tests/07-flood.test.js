@@ -45,7 +45,12 @@ ds.SetGeoTransform((x0,dx,0,y1,0,-dy)); s=osr.SpatialReference(); s.ImportFromEP
 ds.GetRasterBand(1).WriteArray(z); ds=None`]);
     assert.ok((await S.api('PUT', '/api/dem/tiles-dir', { dir })).status < 300);
 
-    let r = await S.api('POST', '/api/dem/flood', { bbox, level: 7, minArea: 100 });
+    // Поправка геоида (БСВ-77) сдвигает все высоты на N — берём её из минимума рельефа (5 м у реки)
+    let r = await S.api('POST', '/api/dem/flood', { bbox, level: 1000, minArea: 100 });
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+    const off = r.body.stats.dem_min - 5.16;
+    assert.ok(Math.abs(off) < 0.3 || r.body.stats.geoid, 'сдвиг высот без поправки геоида: ' + off);
+    r = await S.api('POST', '/api/dem/flood', { bbox, level: 7 + off, minArea: 100 });
     assert.strictEqual(r.status, 200, JSON.stringify(r.body));
     assert.strictEqual(r.body.features.length, 1);               // только долина
     const z = r.body.features[0].properties;
@@ -54,13 +59,13 @@ ds.GetRasterBand(1).WriteArray(z); ds=None`]);
     assert.ok(Math.abs(z.depth_max - 2) < 0.3, 'глубина ' + z.depth_max);
 
     // Выше — затапливается и котловина; «только связанные с водой» её отбрасывает
-    r = await S.api('POST', '/api/dem/flood', { bbox, level: '12,5', minArea: 100 });
+    r = await S.api('POST', '/api/dem/flood', { bbox, level: String(12.5 + off).replace('.', ','), minArea: 100 });
     assert.strictEqual(r.body.features.length, 2);
-    r = await S.api('POST', '/api/dem/flood', { bbox, level: 12.5, minArea: 100, connectedOnly: true });
+    r = await S.api('POST', '/api/dem/flood', { bbox, level: 12.5 + off, minArea: 100, connectedOnly: true });
     assert.strictEqual(r.body.features.length, 1);
     assert.strictEqual(r.body.stats.dropped_isolated, 1);
     // Ниже реки — ничего
-    r = await S.api('POST', '/api/dem/flood', { bbox, level: 3 });
+    r = await S.api('POST', '/api/dem/flood', { bbox, level: 3 + off });
     assert.strictEqual(r.body.features.length, 0);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

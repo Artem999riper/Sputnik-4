@@ -177,7 +177,7 @@ function _epInterpolate(pts, maxPoints) {
     segments.push({ from: pts[i-1], to: pts[i], dist: d });
     total += d;
   }
-  const step = Math.max(30, total / maxPoints);
+  const step = Math.max(2, total / maxPoints);   // 2 м — разрешение ArcticDEM
   const result = [];
   let cumDist = 0;
   result.push({ lat: pts[0].lat, lng: pts[0].lng, distM: 0 });
@@ -218,7 +218,7 @@ async function _epGetGeoidCorrection(lat, lng) {
 
 // ── Основная функция построения ───────────────────────────
 async function _epBuild() {
-  _epSamples = _epInterpolate(_epPts, 150);
+  _epSamples = _epInterpolate(_epPts, 1000);
   _epShowPanel(null);
 
   // 1) Пробуем сервер (ArcticDEM + геоид — точнее Terrarium, без артефактов на воде)
@@ -767,7 +767,8 @@ function _epBuildDXF({ samples, crs, step, mh, mv }) {
   return s;
 }
 
-function _epShowExportModal() {
+function _epShowExportModal(mode) {
+  const xl = mode === 'xlsx';
   return new Promise(resolve => {
     const body = `
       <div style="display:flex;flex-direction:column;gap:10px">
@@ -785,23 +786,23 @@ function _epShowExportModal() {
             <input id="ep-step" type="number" min="10" step="10" value="100"
               style="width:100%;font-size:12px;padding:4px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
           </div>
-          <div style="flex:1">
+          <div style="flex:1;${xl ? 'display:none' : ''}">
             <div style="font-weight:600;margin-bottom:4px">Масштаб гориз. 1:</div>
             <input id="ep-mh" type="number" min="100" step="100" value="5000"
               style="width:100%;font-size:12px;padding:4px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
           </div>
-          <div style="flex:1">
+          <div style="flex:1;${xl ? 'display:none' : ''}">
             <div style="font-weight:600;margin-bottom:4px">Масштаб верт. 1:</div>
             <input id="ep-mv" type="number" min="10" step="10" value="500"
               style="width:100%;font-size:12px;padding:4px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
           </div>
         </div>
       </div>`;
-    showModal('📐 Экспорт профиля в DXF', body, [
+    showModal(xl ? '📊 Профиль в Excel (ведомость пикетов)' : '📐 Экспорт профиля в DXF', body, [
       { label: 'Отмена', cls: 'bs', fn: () => { closeModal(); resolve(null); } },
-      { label: 'Скачать DXF', cls: 'bp', fn: () => {
+      { label: xl ? 'Скачать Excel' : 'Скачать DXF', cls: 'bp', fn: () => {
         const crs  = document.querySelector('input[name="ep-crs"]:checked')?.value || 'msk86';
-        const step = Math.max(10,  parseInt(document.getElementById('ep-step').value, 10) || 100);
+        const step = Math.max(xl ? 1 : 10, parseInt(document.getElementById('ep-step').value, 10) || 100);
         const mh   = Math.max(100, parseInt(document.getElementById('ep-mh').value,   10) || 5000);
         const mv   = Math.max(10,  parseInt(document.getElementById('ep-mv').value,    10) || 500);
         closeModal(); resolve({ crs, step, mh, mv });
@@ -823,4 +824,56 @@ async function exportProfileDXF() {
     console.error('[EP DXF]', e);
     toast('Ошибка построения DXF', 'err');
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// ПРОФИЛЬ В EXCEL: ведомость пикетов (ПК, расстояние, X, Y, H БСВ-77)
+// + точки поворота трассы
+// ═══════════════════════════════════════════════════════════
+function _epAt(d) {   // высота и координаты на расстоянии d вдоль трассы (линейно между отсчётами)
+  const a = _epChartSamples;
+  if (d <= a[0].distM) return a[0];
+  for (let i = 1; i < a.length; i++) if (a[i].distM >= d) {
+    const p = a[i - 1], q = a[i], t = (d - p.distM) / ((q.distM - p.distM) || 1);
+    return { lat: p.lat + t * (q.lat - p.lat), lng: p.lng + t * (q.lng - p.lng), distM: d, elev: p.elev + t * (q.elev - p.elev) };
+  }
+  return a[a.length - 1];
+}
+const _epPK = d => { const pk = Math.floor(d / 100 + 1e-9); return `ПК${pk}+${(d - pk * 100).toFixed(2).padStart(5, '0')}`; };
+async function exportProfileXLSX() {
+  if (!_epChartSamples.length) { toast('Сначала постройте профиль', 'err'); return; }
+  if (typeof XLSX === 'undefined') { toast('Нет модуля Excel', 'err'); return; }
+  const opts = await _epShowExportModal('xlsx');
+  if (!opts) return;
+  const total = _epChartSamples[_epChartSamples.length - 1].distM;
+  // пикеты через шаг + точки поворота трассы
+  const ds = new Map();
+  for (let d = 0; d <= total + 1e-6; d += opts.step) ds.set(Math.round(d * 100) / 100, 'пикет');
+  ds.set(Math.round(total * 100) / 100, 'конец');
+  let acc = 0;
+  for (let i = 1; i < _epPts.length - 1; i++) { acc += _epHaversineM(_epPts[i - 1], _epPts[i]); ds.set(Math.round(acc * 100) / 100, 'угол поворота'); }
+  ds.set(0, 'начало');
+  const crsName = { msk86: 'МСК-86 (авто зона)', msk86_z3: 'МСК-86 зона 3', msk86_z4: 'МСК-86 зона 4', gsk2011: 'ГСК-2011', wgs84: 'WGS-84' }[opts.crs] || opts.crs;
+  const geo = opts.crs === 'wgs84';
+  const rows = [['№', 'Пикет', 'Расстояние, м', geo ? 'Широта' : 'X (север), м', geo ? 'Долгота' : 'Y (восток), м', `Высота, ${_epUnitLabel}`, 'Примечание']];
+  [...ds.entries()].sort((a, b) => a[0] - b[0]).forEach(([d, note], i) => {
+    const s = _epAt(d), c = _epToCRS(s.lat, s.lng, opts.crs);
+    rows.push([i + 1, _epPK(d), +d.toFixed(2), geo ? +s.lat.toFixed(7) : +c.y.toFixed(3), geo ? +s.lng.toFixed(7) : +c.x.toFixed(3), +s.elev.toFixed(2), note === 'пикет' ? '' : note]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet([[`Профиль высот по трассе — ${crsName}, высоты ${_epUnitLabel}, ArcticDEM`], [], ...rows]);
+  ws['!cols'] = [{ wch: 5 }, { wch: 12 }, { wch: 14 }, { wch: 15 }, { wch: 15 }, { wch: 16 }, { wch: 16 }];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Профиль');
+  XLSX.writeFile(wb, `профиль_${(total / 1000).toFixed(1)}км.xlsx`);
+  toast('Excel профиля скачан', 'ok');
+}
+// Профиль по готовой линии (ПКМ по линии слоя KML): latlngs — [L.LatLng | [lat,lng]]
+function epProfileFromLatLngs(latlngs) {
+  const pts = (latlngs || []).map(p => Array.isArray(p) ? L.latLng(p[0], p[1]) : L.latLng(p.lat, p.lng));
+  if (pts.length < 2) { toast('В линии меньше двух точек', 'err'); return; }
+  const panel = document.getElementById('ep-panel');
+  if (_epActive || (panel && panel.classList.contains('open'))) closeElevationProfile();
+  _epPts = pts; _epActive = false;
+  _epRedrawLine();
+  try { map.flyToBounds(L.latLngBounds(pts), { paddingTopLeft: [60, 60], paddingBottomRight: [60, 280], maxZoom: 16, duration: 0.6 }); } catch (e) {}
+  _epBuild();
 }

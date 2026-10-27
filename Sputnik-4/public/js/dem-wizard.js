@@ -360,6 +360,9 @@ async function _dwExport() {
     a.download = P.satelliteOnly ? `Satellite_${date}_${proj.name || proj.id}_z${P.satZoom || 'auto'}.zip` : `ArcticDEM_${date}_${proj.name || proj.id}_${P.interval}m.zip`;
     a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     setP(100, '✅ Файл готов'); toast('✅ Выгружено: ' + a.download, 'ok');
+    const ivUsed = res.headers.get('X-Dem-Interval'), ivReq = res.headers.get('X-Dem-Interval-Requested');
+    if (res.headers.get('X-Dem-Geoid') === '0') toast('⚠️ Высоты НЕ переведены в БСВ-77 — на сервере нет файлов геоида (см. readme.txt). Администратору: «Рельеф» → «Служебное»', 'err');
+    if (ivUsed && ivReq && +ivUsed !== +ivReq) { setP(100, `✅ Файл готов · шаг горизонталей ${ivUsed} м вместо ${ivReq} м`); toast(`⚠️ На шаге ${ivReq} м горизонталей нет (участок плоский) — выгружено с шагом ${ivUsed} м`, 'warn'); }
     btns.forEach(b => b.disabled = false);
   } catch (err) {
     sse.close(); setP(0, '❌ ' + err.message); btns.forEach(b => b.disabled = false); toast('❌ ' + err.message, 'err');

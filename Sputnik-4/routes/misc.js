@@ -1401,6 +1401,8 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
       res.setHeader('Content-Type', result.mime || 'application/octet-stream');
       res.setHeader('Content-Length', stat.size);
       res.setHeader('Content-Disposition', `attachment; filename="${path.basename(result.file)}"`);
+      if (result.interval != null) { res.setHeader('X-Dem-Interval', String(result.interval)); res.setHeader('X-Dem-Interval-Requested', String(result.requestedInterval)); }
+      if (result.geoid != null) res.setHeader('X-Dem-Geoid', result.geoid ? '1' : '0');
       run(db(), `INSERT INTO app_settings(key,value) VALUES('dem_export_count',1)
         ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT)`, []);
       const stream = fs.createReadStream(result.file);
@@ -1477,7 +1479,9 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
         tmpDir = r.tmpDir;
         if (/\.zip$/i.test(r.file)) new AdmZip(r.file).getEntries().forEach(en => { if (!en.isDirectory) out.addFile(`${folder}/${en.entryName}`, en.getData()); });
         else out.addLocalFile(r.file, folder);
-        report.push(`✅ ${folder} — ${it.projName || it.projId || ''}`);
+        report.push(`✅ ${folder} — ${it.projName || it.projId || ''}` +
+          (r.interval != null && r.interval !== r.requestedInterval ? ` · шаг горизонталей ${r.interval} м вместо ${r.requestedInterval} м (плоский участок)` : '') +
+          (r.geoid === false ? ' · ⚠ высоты НЕ в БСВ-77 (нет файлов геоида)' : ''));
         ok++;
       } catch (e) {
         report.push(`❌ ${folder} — ${e.message || e}`);

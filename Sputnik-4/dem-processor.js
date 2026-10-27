@@ -266,7 +266,12 @@ function _findCoveringLocalTile(bbox) {
 
 // Получает список тайлов (локальных или удалённых) для bbox
 async function _resolveTilesForBbox(bbox) {
-  const local = _findLocalTiles();
+  // Только тайлы кэша, которые пересекают область (раньше брались все — и профиль
+  // в новом районе получал пустые значения вместо загрузки из ArcticDEM)
+  const local = _findLocalTiles().filter(f => {
+    const tb = _tileBboxFromName(path.basename(f));
+    return !tb || (tb.minLng < bbox.maxLng && tb.maxLng > bbox.minLng && tb.minLat < bbox.maxLat && tb.maxLat > bbox.minLat);
+  });
   if (local.length) return local;
 
   // Нет локальных — обращаемся к STAC/S3 (GDAL читает удалённые COG без полного скачивания)
@@ -308,9 +313,9 @@ ds.SetProjection(srs.ExportToWkt())
 ds.SetGeoTransform([lng-0.001,0.001,0,lat+0.001,0,-0.001])
 ds.GetRasterBand(1).SetNoDataValue(-9999)
 ds.GetRasterBand(1).Fill(0)
-for epsg in [3855,5773,9518]:
+for dst in ['EPSG:4326+3855','EPSG:4326+5773','EPSG:9518']:
     try:
-        wo=gdal.WarpOptions(srcSRS='EPSG:4979',dstSRS='EPSG:'+str(epsg),resampleAlg='bilinear',format='MEM')
+        wo=gdal.WarpOptions(srcSRS='EPSG:4979',dstSRS=dst,outputBounds=(lng-0.001,lat-0.002,lng+0.002,lat+0.001),width=3,height=3,resampleAlg='bilinear',format='MEM')
         out=gdal.Warp('',ds,options=wo)
         val=float(out.GetRasterBand(1).ReadAsArray()[1,1])
         if abs(val)>0.5:
@@ -383,9 +388,12 @@ mem = gdal.GetDriverByName('MEM').Create('', src.RasterXSize, src.RasterYSize, 1
 mem.SetGeoTransform(gt)
 s4979 = osr.SpatialReference(); s4979.ImportFromEPSG(4979); mem.SetProjection(s4979.ExportToWkt())
 mb = mem.GetRasterBand(1); mb.Fill(0.0); mb.SetNoDataValue(-9999)
-for code in [3855, 5773, 9518]:
+# Целевая СК — составная (WGS-84 + высоты геоида) и та же сетка, что у растра:
+# с чисто вертикальной СК gdalwarp меняет размер растра и поправка «съезжает»
+_b = (gt[0], gt[3] + gt[5] * src.RasterYSize, gt[0] + gt[1] * src.RasterXSize, gt[3])
+for dst in ['EPSG:4326+3855', 'EPSG:4326+5773', 'EPSG:9518']:
     try:
-        wo = gdal.WarpOptions(srcSRS='EPSG:4979', dstSRS='EPSG:'+str(code), resampleAlg='bilinear', format='MEM')
+        wo = gdal.WarpOptions(srcSRS='EPSG:4979', dstSRS=dst, outputBounds=_b, width=src.RasterXSize, height=src.RasterYSize, resampleAlg='bilinear', format='MEM')
         out = gdal.Warp('', mem, options=wo)
         c = out.GetRasterBand(1).ReadAsArray().astype(np.float32)
         if float(np.nanmax(np.abs(c))) > 0.5:
@@ -891,13 +899,16 @@ mem.SetGeoTransform(gt)
 s4979=osr.SpatialReference(); s4979.ImportFromEPSG(4979); mem.SetProjection(s4979.ExportToWkt())
 b=mem.GetRasterBand(1); b.Fill(0.0); b.SetNoDataValue(-9999)
 ok=False
-for code in [3855,5773,9518]:
+# Составная целевая СК + та же сетка: с чисто вертикальной СК gdalwarp менял размер
+# растра, сложение падало и перевод в БСВ-77 молча пропускался
+_b=(gt[0],gt[3]+gt[5]*rows,gt[0]+gt[1]*cols,gt[3])
+for dst in ['EPSG:4326+3855','EPSG:4326+5773','EPSG:9518']:
     try:
-        wo=gdal.WarpOptions(srcSRS='EPSG:4979',dstSRS='EPSG:'+str(code),resampleAlg='bilinear',format='MEM')
+        wo=gdal.WarpOptions(srcSRS='EPSG:4979',dstSRS=dst,outputBounds=_b,width=cols,height=rows,resampleAlg='bilinear',format='MEM')
         out=gdal.Warp('',mem,options=wo)
         corr=out.GetRasterBand(1).ReadAsArray().astype(np.float32)
         if float(np.nanmax(np.abs(corr)))<0.5: continue
-        mask=(data>-9990) if nd is None else (data!=nd)
+        mask=((data>-9990) if nd is None else (data!=nd)) & (corr>-9000)
         data[mask]+=corr[mask]; ok=True; break
     except: pass
 if not ok: print('GEOID_SKIP'); sys.exit(0)
@@ -918,7 +929,7 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
       }catch(e){log.push('Geoid error: '+e.message.slice(0,80));}
       if(!geoidOk) log.push('Geoid skip (нет grid-файлов)');
     }
-    return { demTif, usedRes };
+    return { demTif, usedRes, geoid: demTif !== clippedTif };
 }
 
 // ── Главная функция ────────────────────────────────────────
@@ -966,7 +977,7 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
 
     const fetched = await _fetchDemWgs({ bbox, tmpDir, log, onProgress, cacheOnly, useGeoid });
     if (fetched.cacheOnly) return { cacheOnly: true, tmpDir, log, cached: fetched.cached, file: fetched.file };
-    const { demTif, usedRes } = fetched;
+    const { demTif, usedRes, geoid } = fetched;
 
     // 4. Репроекция (+ обрезка по контуру/коридору, если задан clip-полигон)
     onProgress&&onProgress(36,'Перепроецирование...');
@@ -1031,10 +1042,10 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
         return m?parseInt(m[1]):0;
       }catch(e){return 0;}
     };
-    const _intervals=[];
-    { let iv=parseFloat(interval)||2; _intervals.push(iv);
-      while(iv>0.5+1e-9 && _intervals.length<3){ iv=Math.max(0.5,Math.round((iv/2)*100)/100); _intervals.push(iv); } }
-    let usedInterval=parseFloat(interval)||2, nContours=0;
+    // Ряд «круглых» шагов меньше запрошенного (до 0,1 м), не больше 3 попыток сверх заданного
+    const reqInterval=parseFloat(interval)||2;
+    const _intervals=[reqInterval, ...[20,10,5,2,1,0.5,0.25,0.1].filter(x=>x<reqInterval-1e-9).slice(0,3)];
+    let usedInterval=reqInterval, nContours=0;
     for(const iv of _intervals){
       onProgress&&onProgress(55,`Горизонтали ${iv}м...`);
       try{ if(fs.existsSync(contoursGpkg))fs.rmSync(contoursGpkg,{force:true}); }catch(e){}
@@ -1048,6 +1059,10 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
       if(nContours>0)break;
     }
     interval=usedInterval; // Python получит фактический интервал (для подписей)
+    if(usedInterval!==reqInterval){
+      log.push(`Contours: шаг уменьшен ${reqInterval} → ${usedInterval} м`);
+      onProgress&&onProgress(60,`На шаге ${reqInterval} м горизонталей нет (плоский участок) — взят шаг ${usedInterval} м`);
+    }
     log.push('Contours OK');
 
     // 7. Python → DXF R12
@@ -1151,7 +1166,8 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
       `================\r\n` +
       `Дата: ${new Date().toLocaleString('ru')}\r\n` +
       `СК: ${projName||projId} ${proj4||''}\r\n` +
-      `Горизонтали: шаг ${interval}м, источник ArcticDEM ${usedRes}\r\n` +
+      `Высоты: ${geoid ? 'БСВ-77 (поправка геоида EGM применена)' : useGeoid ? '⚠ ЭЛЛИПСОИДАЛЬНЫЕ WGS-84 — перевод в БСВ-77 не удался (нет файлов геоида на сервере)' : 'эллипсоидальные WGS-84'}\r\n` +
+      `Горизонтали: шаг ${interval}м${interval!==reqInterval?` (запрошено ${reqInterval} м — на этом шаге горизонталей нет, участок плоский)`:''}, источник ArcticDEM ${usedRes}\r\n` +
       `Точки: ${gridStep>0?`сетка ${gridStep}x${gridStep}м`:'без точек (отключены)'}\r\n` +
       `\r\nСлои DXF (R12):\r\n` +
       `  GORIZONTALI  — синий (5), 3D LINE, Z=высота\r\n` +
@@ -1175,7 +1191,7 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
       }
     });
 
-    return {file:zipFile,tmpDir,log,mime:'application/zip'};
+    return {file:zipFile,tmpDir,log,mime:'application/zip',interval,requestedInterval:reqInterval,geoid};
 
   } catch(err) {
     try{fs.rmSync(tmpDir,{recursive:true});}catch(e){}
@@ -1204,7 +1220,7 @@ async function floodZones({ bbox, clip, level, minArea, waterAsFlood, connectedO
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flood_'));
     try {
       const r = await _fetchDemWgs({ bbox, tmpDir, log, onProgress, cacheOnly: false, useGeoid: true });
-      c = { tmpDir, demTif: r.demTif, usedRes: r.usedRes, geoid: log.some(l => /^Geoid OK/.test(l)) };
+      c = { tmpDir, demTif: r.demTif, usedRes: r.usedRes, geoid: !!r.geoid };
       _floodDemCache.set(key, c);
     } catch (e) { cleanupTmp(tmpDir); e.gdal_log = log; throw e; }
   }
