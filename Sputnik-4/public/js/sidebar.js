@@ -38,6 +38,7 @@ function siteCM(ev,id){
   showCtx(ev.clientX,ev.clientY,[
     {i:'📂',l:'Открыть',f:()=>selectSite(id)},
     {i:'✏️',l:'Редактировать',f:()=>openEditSiteModal(id)},
+    {i:'📄',l:'Отчёт для заказчика (Word / PDF)',f:()=>openSiteReport(id)},
     {i:'📤',l:'Excel',f:()=>exportExcel(id)},
     {sep:true},
     {i:'🗑',l:'Удалить',cls:'dan',f:()=>deleteSite(id)}

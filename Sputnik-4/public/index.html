@@ -371,6 +371,7 @@
     <div style="position:relative">
       <button class="btn bs bsm" id="mp-exp-btn" onclick="toggleMpExport()" title="Экспорт">📤 ▾</button>
       <div id="mp-exp-drop">
+        <button onclick="openSiteReport(activeSiteId);toggleMpExport()">📄 Отчёт для заказчика</button>
         <button onclick="exportExcel(activeSiteId);toggleMpExport()">📤 Excel</button>
         <button onclick="openHtmlExportModal(activeSiteId);toggleMpExport()">📄 HTML</button>
         <button onclick="openMapImageExport();toggleMpExport()">🖼 PNG</button>
@@ -635,6 +636,7 @@
 <script src="js/import-dest.js"></script>
 <script src="js/kml-export.js"></script>
 <script src="js/layer-attr.js"></script>
+<script src="js/site-report.js"></script>
 <script src="js/field.js"></script>
 <script src="js/elevation-profile.js"></script>
 
