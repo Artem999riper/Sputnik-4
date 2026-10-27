@@ -157,6 +157,7 @@ function _dwSuggestProj() {
   return lng < 72 ? 'gsk2011_z12' : lng < 78 ? 'gsk2011_z13' : lng < 84 ? 'gsk2011_z14' : 'gsk2011_z15';
 }
 function _dwArea(kind) {
+  window._floodAreaCb = null;
   if (kind === 'kml') { DW.area = 'kml'; demClearDraw(); _dwKmlShow(); openDEMPanel(1); return; }
   DW.kml = []; _dwKmlShow();
   if (kind === 'last') { DW.area = 'last'; demRestoreLast(); if (!DW.projUser) DW.projId = ''; setTimeout(() => openDEMPanel(2), 80); return; }
@@ -168,6 +169,8 @@ function _demFinalize(b) {
   _demDrawing = false;
   map.getContainer().style.cursor = '';
   const bnr = document.getElementById('bnr'); if (bnr) { bnr.className = ''; bnr.style.display = 'none'; }
+  // Область рисовалась для «Зоны затопления» — возвращаемся туда
+  if (window._floodAreaCb) { const cb = window._floodAreaCb; window._floodAreaCb = null; cb(); return; }
   if (!DW.projUser) DW.projId = '';
   openDEMPanel(2);
 }

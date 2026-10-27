@@ -31,6 +31,7 @@ Chromium). Also available as Admin → Обновление → «🧪 Само�
 - `database.js` — SQLite schema definitions and `wrap()`/transaction helpers
 - `routes/` — one file per domain: `sites.js`, `bases.js`, `pgk.js`, `cargo.js`, `tasks.js`, `misc.js`, `realtime.js`
 - `dem-processor.js` — GDAL orchestration for ArcticDEM STAC data → GeoTIFF → DXF pipeline
+- `flood_zones.py` — flood zones below a БСВ-77 level (called from `floodZones()` in dem-processor.js, `/api/dem/flood`; UI in `public/js/flood.js`)
 - `satellite-fetcher.js` — downloads Esri World Imagery tiles and assembles JPEG+JGW worldfile
 - `dxf-writer.js` — minimal DXF R12 format builder for CAD export
 

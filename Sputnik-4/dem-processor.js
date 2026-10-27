@@ -772,49 +772,11 @@ function _satReadme(sections) {
   for (const s of secs) { const ll = _satLowerLeft(s); t += `    ${path.basename(s.tif)}:  X=${ll.x.toFixed(3)}  Y=${ll.y.toFixed(3)}   (${s.imgWidthPx}x${s.imgHeightPx} пкс)\r\n`; }
   return t;
 }
-// ── Главная функция ────────────────────────────────────────
-async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
-                            interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,
-                            satelliteOnly,cacheOnly,satZoom,satMPP,satSourceUrl,satSourceSubdomains,onProgress}) {
-  gridStep = (gridStep !== undefined && gridStep !== null && gridStep !== '') ? parseInt(gridStep) : 20;
-  if (isNaN(gridStep)) gridStep = 20;
-  const jMin = parseFloat(jitterMin)||0;
-  const jMax = parseFloat(jitterMax)||0;
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(),'arcticdem_'));
-  const log    = [];
-
-  try {
-    findGDALBin();
+// Шаги 1–3 выгрузки рельефа: тайлы ArcticDEM (кэш → STAC → S3) → вырезка bbox в WGS-84
+// → перевод высот в БСВ-77 (если useGeoid). Общие для выгрузки DXF и расчёта затопления.
+// Возвращает { demTif, usedRes } или (cacheOnly) { cacheOnly, cached, file, usedRes }.
+async function _fetchDemWgs({ bbox, tmpDir, log, onProgress, cacheOnly, useGeoid }) {
     const {minLat,maxLat,minLng,maxLng}=bbox;
-    const areaKm2=((maxLat-minLat)*111.32)*((maxLng-minLng)*111.32*Math.cos((minLat+maxLat)/2*Math.PI/180));
-    log.push(`Area: ${areaKm2.toFixed(1)} km²`);
-
-    // ── Режим «только спутник»: пропускаем весь DEM-пайплайн ──────────────
-    if (satelliteOnly) {
-      onProgress&&onProgress(10,'Загрузка спутника...');
-      const satRes = await buildSatellite(bbox,tmpDir,proj4,epsg,null,satZoom,satSourceUrl,satSourceSubdomains,satMPP);
-      const satFiles=[];
-      for (const sec of satRes) {
-        if (sec.tif && fs.existsSync(sec.tif)) satFiles.push(sec.tif);
-        if (sec.tfw && fs.existsSync(sec.tfw)) satFiles.push(sec.tfw);
-        if (sec.prj && fs.existsSync(sec.prj)) satFiles.push(sec.prj);
-      }
-      onProgress&&onProgress(90,'Упаковка архива...');
-      const infoFile=path.join(tmpDir,'readme.txt');
-      fs.writeFileSync(infoFile,`ArcticDEM Satellite Export\r\n=========================\r\nДата: ${new Date().toLocaleString('ru')}\r\nСК: ${projName||projId} ${proj4||''}\r\nРежим: только подложка (JPEG + геопривязка)${_satReadme(satRes)}`);
-      const zipFile=path.join(tmpDir,'satellite_export.zip');
-      const filesToZip=[...satFiles,infoFile].filter(f=>fs.existsSync(f));
-      await new Promise((resolve,reject)=>{
-        if (IS_WINDOWS){
-          const toZip=filesToZip.map(f=>`'${f}'`).join(',');
-          exec(`powershell -Command "Compress-Archive -Path ${toZip} -DestinationPath '${zipFile}' -Force"`,(err,_,se)=>err?reject(new Error(se||err.message)):resolve());
-        } else {
-          execFile('zip',['-j',zipFile,...filesToZip],(err,_,se)=>err?reject(new Error(se||err.message)):resolve());
-        }
-      });
-      return {file:zipFile,tmpDir,log,mime:'application/zip'};
-    }
-
     // 1. Поиск тайлов ArcticDEM: сначала локальный кэш, затем STAC → S3
     onProgress&&onProgress(8,'Поиск тайлов ArcticDEM...');
     let tifUrls=[],usedRes='2m';
@@ -900,8 +862,7 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
     if (cacheOnly) {
       onProgress&&onProgress(100,'Тайл ArcticDEM закэширован');
       log.push('Cache-only: готово');
-      return { cacheOnly: true, tmpDir, log,
-               cached: !cachedCover, file: savedCacheTif || clippedTif };
+      return { cacheOnly: true, cached: !cachedCover, file: savedCacheTif || clippedTif, usedRes };
     }
 
     // 3. Геоид
@@ -957,6 +918,55 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
       }catch(e){log.push('Geoid error: '+e.message.slice(0,80));}
       if(!geoidOk) log.push('Geoid skip (нет grid-файлов)');
     }
+    return { demTif, usedRes };
+}
+
+// ── Главная функция ────────────────────────────────────────
+async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
+                            interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,
+                            satelliteOnly,cacheOnly,satZoom,satMPP,satSourceUrl,satSourceSubdomains,onProgress}) {
+  gridStep = (gridStep !== undefined && gridStep !== null && gridStep !== '') ? parseInt(gridStep) : 20;
+  if (isNaN(gridStep)) gridStep = 20;
+  const jMin = parseFloat(jitterMin)||0;
+  const jMax = parseFloat(jitterMax)||0;
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(),'arcticdem_'));
+  const log    = [];
+
+  try {
+    findGDALBin();
+    const {minLat,maxLat,minLng,maxLng}=bbox;
+    const areaKm2=((maxLat-minLat)*111.32)*((maxLng-minLng)*111.32*Math.cos((minLat+maxLat)/2*Math.PI/180));
+    log.push(`Area: ${areaKm2.toFixed(1)} km²`);
+
+    // ── Режим «только спутник»: пропускаем весь DEM-пайплайн ──────────────
+    if (satelliteOnly) {
+      onProgress&&onProgress(10,'Загрузка спутника...');
+      const satRes = await buildSatellite(bbox,tmpDir,proj4,epsg,null,satZoom,satSourceUrl,satSourceSubdomains,satMPP);
+      const satFiles=[];
+      for (const sec of satRes) {
+        if (sec.tif && fs.existsSync(sec.tif)) satFiles.push(sec.tif);
+        if (sec.tfw && fs.existsSync(sec.tfw)) satFiles.push(sec.tfw);
+        if (sec.prj && fs.existsSync(sec.prj)) satFiles.push(sec.prj);
+      }
+      onProgress&&onProgress(90,'Упаковка архива...');
+      const infoFile=path.join(tmpDir,'readme.txt');
+      fs.writeFileSync(infoFile,`ArcticDEM Satellite Export\r\n=========================\r\nДата: ${new Date().toLocaleString('ru')}\r\nСК: ${projName||projId} ${proj4||''}\r\nРежим: только подложка (JPEG + геопривязка)${_satReadme(satRes)}`);
+      const zipFile=path.join(tmpDir,'satellite_export.zip');
+      const filesToZip=[...satFiles,infoFile].filter(f=>fs.existsSync(f));
+      await new Promise((resolve,reject)=>{
+        if (IS_WINDOWS){
+          const toZip=filesToZip.map(f=>`'${f}'`).join(',');
+          exec(`powershell -Command "Compress-Archive -Path ${toZip} -DestinationPath '${zipFile}' -Force"`,(err,_,se)=>err?reject(new Error(se||err.message)):resolve());
+        } else {
+          execFile('zip',['-j',zipFile,...filesToZip],(err,_,se)=>err?reject(new Error(se||err.message)):resolve());
+        }
+      });
+      return {file:zipFile,tmpDir,log,mime:'application/zip'};
+    }
+
+    const fetched = await _fetchDemWgs({ bbox, tmpDir, log, onProgress, cacheOnly, useGeoid });
+    if (fetched.cacheOnly) return { cacheOnly: true, tmpDir, log, cached: fetched.cached, file: fetched.file };
+    const { demTif, usedRes } = fetched;
 
     // 4. Репроекция (+ обрезка по контуру/коридору, если задан clip-полигон)
     onProgress&&onProgress(36,'Перепроецирование...');
@@ -1174,6 +1184,53 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
   }
 }
 
+// ═══ Зоны затопления (flood_zones.py) ═══════════════════════════════════
+// Рельеф (ArcticDEM → БСВ-77) по области держим 30 минут: при смене отметки
+// пересчёт идёт без повторной загрузки — только Python по готовому растру.
+const _floodDemCache = new Map();   // key bbox → { tmpDir, demTif, usedRes, t }
+const FLOOD_CACHE_MS = 30 * 60 * 1000;
+process.on('exit', () => { for (const v of _floodDemCache.values()) cleanupTmp(v.tmpDir); });
+function _floodCacheSweep() {
+  const now = Date.now();
+  for (const [k, v] of _floodDemCache) if (now - v.t > FLOOD_CACHE_MS) { cleanupTmp(v.tmpDir); _floodDemCache.delete(k); }
+}
+async function floodZones({ bbox, clip, level, minArea, waterAsFlood, connectedOnly, onProgress }) {
+  findGDALBin();
+  _floodCacheSweep();
+  const key = ['minLng', 'minLat', 'maxLng', 'maxLat'].map(k => Number(bbox[k]).toFixed(5)).join('_');
+  let c = _floodDemCache.get(key);
+  const log = [];
+  if (!c || !fs.existsSync(c.demTif)) {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flood_'));
+    try {
+      const r = await _fetchDemWgs({ bbox, tmpDir, log, onProgress, cacheOnly: false, useGeoid: true });
+      c = { tmpDir, demTif: r.demTif, usedRes: r.usedRes, geoid: log.some(l => /^Geoid OK/.test(l)) };
+      _floodDemCache.set(key, c);
+    } catch (e) { cleanupTmp(tmpDir); e.gdal_log = log; throw e; }
+  }
+  c.t = Date.now();
+  onProgress && onProgress(70, 'Расчёт зон затопления...');
+  const runDir = fs.mkdtempSync(path.join(c.tmpDir, 'run_'));
+  try {
+    const paramsFile = path.join(runDir, 'params.json'), outFile = path.join(runDir, 'zones.geojson');
+    fs.writeFileSync(paramsFile, JSON.stringify({
+      dem_tif: c.demTif, bbox, clip: clip && clip.type === 'Polygon' ? clip : null,
+      level, min_area: minArea, water_as_flood: waterAsFlood, connected_only: connectedOnly, out_geojson: outFile,
+    }));
+    try {
+      await execFileP(_pythonExe, [path.join(__dirname, 'flood_zones.py'), paramsFile],
+        { env: gdalEnv(), timeout: 600000, maxBuffer: 16 * 1024 * 1024 });
+    } catch (e) {
+      const msg = String(e.stderr || e.message || '').split(/\r?\n/).filter(l => l && !/Warning|warnings\.warn/.test(l)).pop() || 'ошибка Python';
+      throw new Error('Расчёт затопления: ' + msg.replace(/^ERROR:\s*/, '').slice(0, 300));
+    }
+    const gj = JSON.parse(fs.readFileSync(outFile, 'utf8'));
+    gj.stats = Object.assign(gj.stats || {}, { source: c.usedRes, geoid: !!c.geoid });
+    onProgress && onProgress(100, 'Готово');
+    return gj;
+  } finally { cleanupTmp(runDir); }
+}
+
 function cleanupTmp(tmpDir){
   try{fs.rmSync(tmpDir,{recursive:true,force:true});}catch(e){}
 }
@@ -1362,7 +1419,7 @@ async function convertToGeoJSONRaw(srcPath, outPath) {
 }
 
 module.exports = {
-  processDEM, cleanupTmp, checkGDAL, convertToTab, convertToGeoJSON, convertToGeoJSONRaw,
+  processDEM, floodZones, cleanupTmp, checkGDAL, convertToTab, convertToGeoJSON, convertToGeoJSONRaw,
   getElevationAtPoint, getElevationProfile, getDemTilesInfo, computeGeoidN,
   getDemTilesDir, setDemTilesDir,
   _downloadGeoidGrids: _ensureGeoidGrids,

@@ -1406,6 +1406,32 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     }
   });
 
+  // ── Зоны затопления: область + отметка БСВ-77 → GeoJSON-полигоны (WGS-84) ──
+  // body: { bbox, clip?, level, minArea?, waterAsFlood?, connectedOnly? }
+  app.post('/api/dem/flood', async (req, res) => {
+    if (!demProcessor || !demProcessor.floodZones) return res.status(503).json({ error: 'DEM процессор не доступен' });
+    const b = req.body || {};
+    const bb = b.bbox || {};
+    if (![bb.minLat, bb.maxLat, bb.minLng, bb.maxLng].every(v => Number.isFinite(+v)) || +bb.minLat >= +bb.maxLat || +bb.minLng >= +bb.maxLng)
+      return res.status(400).json({ error: 'Не указана область расчёта' });
+    const level = parseFloat(String(b.level).replace(',', '.'));
+    if (!Number.isFinite(level) || level < -500 || level > 9000) return res.status(400).json({ error: 'Укажите отметку уровня воды (м, БСВ-77)' });
+    const bbox = { minLat: +bb.minLat, maxLat: +bb.maxLat, minLng: +bb.minLng, maxLng: +bb.maxLng };
+    const km2 = (bbox.maxLat - bbox.minLat) * 111.32 * (bbox.maxLng - bbox.minLng) * 111.32 * Math.cos((bbox.minLat + bbox.maxLat) / 2 * Math.PI / 180);
+    if (km2 > 2500) return res.status(400).json({ error: `Область слишком большая (${Math.round(km2)} км²) — не больше 2500 км²` });
+    try {
+      const gj = await demProcessor.floodZones({
+        bbox, clip: b.clip || null, level,
+        minArea: Math.max(0, parseFloat(b.minArea) || 0),
+        waterAsFlood: b.waterAsFlood !== false, connectedOnly: !!b.connectedOnly,
+        onProgress: (pct, text) => broadcast({ type: 'flood_progress', pct, text }),
+      });
+      res.json(gj);
+    } catch (err) {
+      res.status(500).json({ error: err.message || 'Ошибка расчёта затопления' });
+    }
+  });
+
   // ── Пакетная выгрузка рельефа: несколько участков (полигонов слоя) → один ZIP ──
   // body: { items:[{name,bbox,clip,proj4,projId,epsg,projName}], ...общие параметры как у /dem/export }
   // Участки обрабатываются по очереди; каждый — в своей папке архива; ошибки — в «Отчёт.txt».
