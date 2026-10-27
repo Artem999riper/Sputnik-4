@@ -69,3 +69,47 @@ ds.GetRasterBand(1).WriteArray(z); ds=None`]);
     assert.strictEqual(r.body.features.length, 0);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('очередь выгрузок: проверка запроса', async () => {
+  let r = await S.api('POST', '/api/dem/jobs', { kind: 'dem', params: {} });
+  assert.strictEqual(r.status, 400);
+  r = await S.api('POST', '/api/dem/jobs', { kind: 'batch', params: { items: [] } });
+  assert.strictEqual(r.status, 400);
+  r = await S.api('GET', '/api/dem/jobs/нет/file');
+  assert.strictEqual(r.status, 404);
+});
+
+test('очередь выгрузок: задание выполняется в фоне, архив скачивается', { skip: !HAS_GDAL && 'нет GDAL/Python' }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pgk_jobs_'));
+  try {
+    execFileSync(PY, ['-c', `
+import numpy as np
+from osgeo import gdal, osr
+x0,x1,y0,y1=74.50,74.55,66.50,66.52
+dx=4/(111320*np.cos(np.radians(66.51))); dy=4/111320
+c=int((x1-x0)/dx); r=int((y1-y0)/dy)
+X,Y=np.meshgrid(np.linspace(x0,x1,c),np.linspace(y1,y0,r))
+z=(5+np.abs(Y-66.51)*111320*0.01).astype(np.float32)
+ds=gdal.GetDriverByName('GTiff').Create(r'${path.join(dir, 'dem_74.500_66.500_74.550_66.520.tif')}',c,r,1,gdal.GDT_Float32)
+ds.SetGeoTransform((x0,dx,0,y1,0,-dy)); s=osr.SpatialReference(); s.ImportFromEPSG(4326); ds.SetProjection(s.ExportToWkt())
+ds.GetRasterBand(1).WriteArray(z); ds=None`]);
+    await S.api('PUT', '/api/dem/tiles-dir', { dir });
+    const P4 = '+proj=tmerc +lat_0=0 +lon_0=75 +k=1 +x_0=13500000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs';
+    const r = await S.api('POST', '/api/dem/jobs', { kind: 'dem', title: 'тест', user_name: 'Тест', file_name: 'тест.zip',
+      params: { bbox: { minLat: 66.505, maxLat: 66.512, minLng: 74.51, maxLng: 74.52 }, proj4: P4, projId: 'gsk2011_z13', interval: 1, gridStep: 0, exportSatellite: false } });
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+    let j;
+    for (let i = 0; i < 120; i++) {
+      j = (await S.api('GET', '/api/dem/jobs?user=Тест')).body.find(x => x.id === r.body.id);
+      if (j && (j.status === 'done' || j.status === 'error')) break;
+      await new Promise(res => setTimeout(res, 500));
+    }
+    assert.strictEqual(j.status, 'done', j.error || j.status);
+    const f = await fetch(`${S.base}/api/dem/jobs/${r.body.id}/file`);
+    assert.strictEqual(f.status, 200);
+    assert.match(f.headers.get('content-disposition'), /UTF-8''/);
+    assert.ok((await f.arrayBuffer()).byteLength > 500);
+    assert.strictEqual((await S.api('DELETE', `/api/dem/jobs/${r.body.id}`)).status, 200);
+    assert.ok(!(await S.api('GET', '/api/dem/jobs')).body.some(x => x.id === r.body.id));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

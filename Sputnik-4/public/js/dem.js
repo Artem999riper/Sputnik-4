@@ -1289,7 +1289,7 @@ async function _demRunBatch(layer, polys) {
     <div style="height:8px;background:var(--s3);border-radius:4px;overflow:hidden"><div id="demb-bar" style="height:100%;width:2%;background:var(--acc);transition:width .4s"></div></div>
     <div id="demb-txt" style="font-size:11px;color:var(--tx2);margin-top:6px">⏳ Запуск…</div>`, [{ label: 'Скрыть', cls: 'bs', fn: closeModal }]);
   const sse = new EventSource(`${location.origin}/api/events`);
-  sse.onmessage = e => { try { const d = JSON.parse(e.data); if (d.type === 'dem_progress') { const b = document.getElementById('demb-bar'), t = document.getElementById('demb-txt'); if (b) b.style.width = Math.max(2, d.pct) + '%'; if (t) t.textContent = d.text; } } catch (x) {} };
+  sse.onmessage = e => { try { const d = JSON.parse(e.data); if (d.type === 'dem_progress' && !d.job) { const b = document.getElementById('demb-bar'), t = document.getElementById('demb-txt'); if (b) b.style.width = Math.max(2, d.pct) + '%'; if (t) t.textContent = d.text; } } catch (x) {} };
   try {
     const r = await fetch(`${API}/dem/export-batch`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, ...params }) });
     sse.close();

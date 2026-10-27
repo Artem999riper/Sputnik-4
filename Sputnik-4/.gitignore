@@ -4,3 +4,4 @@ survey.db-shm
 survey.db-wal
 backups/
 public/uploads/
+exports/

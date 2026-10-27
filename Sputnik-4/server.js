@@ -201,6 +201,7 @@ getDb().then(database => {
   routeField(app, getDbInstance, L);
   routeMto  (app, getDbInstance, L);
   require('./routes/inventory')(app, getDbInstance);
+  require('./routes/dem-jobs')(app, getDbInstance, { demProcessor, broadcast: realtime.broadcast });
   routeMisc (app, getDbInstance, L, {
     upload, demProcessor, BACKUP_DIR, doBackup,
     getBackupSettings, setBackupSettings, performAutoBackup,

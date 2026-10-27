@@ -1450,53 +1450,15 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
   // Участки обрабатываются по очереди; каждый — в своей папке архива; ошибки — в «Отчёт.txt».
   app.post('/api/dem/export-batch', async (req, res) => {
     if (!demProcessor) return res.status(503).json({ error: 'DEM процессор не доступен' });
-    const b = req.body || {};
-    const items = Array.isArray(b.items) ? b.items.filter(it => it && it.bbox && it.bbox.minLat != null) : [];
-    if (!items.length) return res.status(400).json({ error: 'Нет участков для выгрузки' });
-    if (items.length > 200) return res.status(400).json({ error: 'Слишком много участков (макс. 200)' });
-    const AdmZip = require('adm-zip');
-    const out = new AdmZip();
-    const report = [`Пакетная выгрузка рельефа — ${new Date().toLocaleString('ru-RU')}`, `Участков: ${items.length}`, ''];
-    const used = new Set();
-    const safe = n => { let s0 = String(n || 'Участок').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 80) || 'Участок', s1 = s0, k = 2; while (used.has(s1.toLowerCase())) s1 = `${s0}_${k++}`; used.add(s1.toLowerCase()); return s1; };
-    let ok = 0;
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i], folder = safe(it.name || `Участок ${i + 1}`);
-      const pref = `Участок ${i + 1}/${items.length} «${folder}»`;
-      let tmpDir = null;
-      try {
-        broadcast({ type: 'dem_progress', pct: Math.round(i / items.length * 100), text: `${pref}: начинаю…` });
-        const r = await demProcessor.processDEM({
-          bbox: it.bbox, clip: it.clip || null, projId: it.projId, proj4: it.proj4, epsg: it.epsg, projName: it.projName,
-          format: 'dxf', interval: parseFloat(b.interval) || 2, useGeoid: b.useGeoid !== false,
-          gridStep: (b.gridStep !== undefined && b.gridStep !== null && b.gridStep !== '') ? parseInt(b.gridStep) : 20,
-          jitterMin: parseFloat(b.jitterMin) || 0, jitterMax: parseFloat(b.jitterMax) || 0,
-          exportSatellite: b.exportSatellite !== false, satelliteOnly: !!b.satelliteOnly, cacheOnly: false,
-          satZoom: parseInt(b.satZoom) || 0, satMPP: parseFloat(b.satMPP) || 0,
-          satSourceUrl: b.satSourceUrl || null, satSourceSubdomains: b.satSourceSubdomains || [],
-          onProgress: (pct, text) => broadcast({ type: 'dem_progress', pct: Math.round((i + pct / 100) / items.length * 100), text: `${pref}: ${text}` }),
-        });
-        tmpDir = r.tmpDir;
-        if (/\.zip$/i.test(r.file)) new AdmZip(r.file).getEntries().forEach(en => { if (!en.isDirectory) out.addFile(`${folder}/${en.entryName}`, en.getData()); });
-        else out.addLocalFile(r.file, folder);
-        report.push(`✅ ${folder} — ${it.projName || it.projId || ''}` +
-          (r.interval != null && r.interval !== r.requestedInterval ? ` · шаг горизонталей ${r.interval} м вместо ${r.requestedInterval} м (плоский участок)` : '') +
-          (r.geoid === false ? ' · ⚠ высоты НЕ в БСВ-77 (нет файлов геоида)' : ''));
-        ok++;
-      } catch (e) {
-        report.push(`❌ ${folder} — ${e.message || e}`);
-        console.error('[DEM batch]', folder, e.message);
-      } finally { if (tmpDir) demProcessor.cleanupTmp(tmpDir); }
+    try {
+      const r = await require('./dem-jobs').runDemBatch(demProcessor, req.body || {}, (pct, text) => broadcast({ type: 'dem_progress', pct, text }));
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Length', r.buf.length);
+      res.setHeader('Content-Disposition', `attachment; filename="dem_batch.zip"`);
+      res.end(r.buf);
+    } catch (e) {
+      res.status(e.status || 500).json({ error: e.message || 'Ошибка пакетной выгрузки' });
     }
-    if (!ok) return res.status(500).json({ error: 'Ни один участок не выгружен:\n' + report.slice(3).join('\n') });
-    report.push('', `Выгружено: ${ok} из ${items.length}`);
-    out.addFile('Отчёт.txt', Buffer.from('\uFEFF' + report.join('\r\n'), 'utf8'));
-    broadcast({ type: 'dem_progress', pct: 100, text: `Готово: ${ok} из ${items.length}` });
-    const buf = out.toBuffer();
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Length', buf.length);
-    res.setHeader('Content-Disposition', `attachment; filename="dem_batch.zip"`);
-    res.end(buf);
   });
 
   // ── Офлайн тайлы для HTML-экспорта ───────────────────────

@@ -228,6 +228,10 @@ async function getDb() {
   // Журнал изменений оборудования: кто/где/статус — для истории перемещений в карточке
   ta(`CREATE TABLE IF NOT EXISTS equipment_history (id TEXT PRIMARY KEY, equipment_id TEXT NOT NULL, field TEXT NOT NULL, old_value TEXT DEFAULT '', new_value TEXT DEFAULT '', user_name TEXT DEFAULT '', at TEXT DEFAULT (datetime('now','localtime')))`);
   ta("CREATE INDEX IF NOT EXISTS idx_equipment_history ON equipment_history(equipment_id)");
+  // Очередь выгрузок рельефа (routes/dem-jobs.js): файлы — в папке exports рядом с базой
+  ta(`CREATE TABLE IF NOT EXISTS dem_jobs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT DEFAULT '', params_json TEXT,
+      status TEXT DEFAULT 'queued', pct INTEGER DEFAULT 0, text TEXT DEFAULT '', file_name TEXT, file_size INTEGER, note TEXT DEFAULT '',
+      error TEXT, user_name TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now','localtime')), started_at TEXT, finished_at TEXT)`);
   ta("ALTER TABLE kml_layers ADD COLUMN show_labels INTEGER DEFAULT 0");
   ta("ALTER TABLE kml_layers ADD COLUMN style_json TEXT");   // раскраска по атрибуту, поле и размер подписей
   ta("ALTER TABLE kml_layers ADD COLUMN fill_opacity REAL DEFAULT 0.2");

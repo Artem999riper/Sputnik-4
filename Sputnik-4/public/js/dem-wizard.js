@@ -115,9 +115,10 @@ function openDEMPanel(step) {
       </div>`;
   }
   const last = DW.step === 5;
-  showModal('🏔 Выгрузка рельефа и подложки', `<div class="dw-steps">${steps}</div><div class="dw-body">${body}</div>`, [
+  showModal('🏔 Выгрузка рельефа и подложки', `<div class="dw-steps">${steps}<span style="flex:1"></span><span class="dw-st" onclick="demJobsOpen()" title="Выгрузки в очереди и готовые архивы">📦 Мои выгрузки${_djActive ? ` (${_djActive})` : ''}</span></div><div class="dw-body">${body}</div>`, [
     { label: 'Закрыть', cls: 'bs', fn: () => { demCancelDraw(); _dwKmlPickStop(); closeModal(); } },
     ...(DW.step > 1 ? [{ label: '← Назад', cls: 'bs', fn: () => _dwGo(_dwPrev()) }] : []),
+    ...(last ? [{ label: '📥 В очередь', cls: 'bs', fn: _dwQueue }] : []),
     last ? { label: '⬇️ Выгрузить', cls: 'bp', fn: _dwExport } : { label: 'Далее →', cls: 'bp', fn: () => _dwGo(_dwNext()) },
   ]);
   // «По KML»: окно сдвигается вправо и карта не затемняется — видно, к чему приближаемся
@@ -345,7 +346,7 @@ async function _dwExport() {
   const setP = (pct, text) => { if (pt) pt.textContent = text; if (pb) pb.style.width = pct + '%'; };
   const btns = document.querySelectorAll('#mft .btn'); btns.forEach(b => b.disabled = true);
   const sse = new EventSource(`${location.origin}/api/events`);
-  sse.onmessage = e => { try { const d = JSON.parse(e.data); if (d.type === 'dem_progress') setP(d.pct, d.text); } catch (x) {} };
+  sse.onmessage = e => { try { const d = JSON.parse(e.data); if (d.type === 'dem_progress' && !d.job) setP(d.pct, d.text); } catch (x) {} };
   try {
     setP(5, '⏳ Запрос к ArcticDEM...');
     const res = await fetch(`${API}/dem/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -376,3 +377,109 @@ function demWizardKml(layerId) {
   demClearDraw(); _dwKmlShow(); if (!DW.projUser) DW.projId = '';
   openDEMPanel(1);
 }
+
+// ═══ Очередь выгрузок (сервер: routes/dem-jobs.js) ═══════════════════════
+// «📥 В очередь» — выгрузка идёт на сервере, окно можно закрыть; готовый архив —
+// в «📦 Мои выгрузки» (хранится 14 дней), по готовности — уведомление.
+let _djActive = 0;
+function _dwRequest() {
+  const projId = DW.projId || _dwSuggestProj(), forcedZone = parseInt(DW.zone) || 0;
+  const P = _dwParams(), date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const projOf = () => DEM_PROJECTIONS.find(p => p.id === projId) || _demBuildMskProj(projId, forcedZone) || _demBuildUtmProj(projId, forcedZone);
+  const what = ({ both: 'рельеф + подложка', relief: 'рельеф', sat: 'подложка' })[DW.what] || '';
+  if (DW.area === 'kml') {
+    const keep = _demBbox, items = [];
+    for (const k of DW.kml) {
+      const lats = k.ring.map(c => c[1]), lngs = k.ring.map(c => c[0]);
+      _demBbox = { minLat: Math.min(...lats), maxLat: Math.max(...lats), minLng: Math.min(...lngs), maxLng: Math.max(...lngs) };
+      const proj = projOf();   // для «Авто» — зона по каждому участку
+      if (!proj) { _demBbox = keep; return null; }
+      items.push({ name: k.name, bbox: _demBbox, clip: { type: 'Polygon', coordinates: [k.ring] }, projId: proj.id, proj4: proj.proj4 || null, epsg: proj.epsg || null, projName: proj.name || null });
+    }
+    _demBbox = keep;
+    const lname = [...new Set(DW.kml.map(k => (layers.find(l => l.id === k.layerId) || {}).name).filter(Boolean))].join(', ') || 'KML';
+    return { kind: 'batch', title: `По KML «${lname}»: ${items.length} уч., ${what}`, file_name: `ArcticDEM_пакет_${lname}_${date}.zip`, params: { items, ...P } };
+  }
+  const proj = projOf(); if (!proj) return null;
+  const km2 = _dwAreaKm2(_demBbox);
+  return { kind: 'dem', title: `${({ rect: 'Прямоугольник', polygon: 'Полигон', line: 'Коридор', last: 'Область' })[DW.area] || 'Область'} ${km2.toFixed(km2 < 1 ? 2 : 1)} км², ${what}, ${proj.name || proj.id}`,
+    file_name: P.satelliteOnly ? `Satellite_${date}_${proj.name || proj.id}.zip` : `ArcticDEM_${date}_${proj.name || proj.id}_${P.interval}m.zip`,
+    params: { bbox: _demBbox, clip: _demClip || null, projId: proj.id, proj4: proj.proj4 || null, epsg: proj.epsg || null, projName: proj.name || null, format: 'dxf', ...P } };
+}
+async function _dwQueue() {
+  if (!_dwAreaReady()) { toast('Сначала выберите область', 'err'); return; }
+  const rq = _dwRequest(); if (!rq) { toast('Выберите систему координат', 'err'); _dwGo(3); return; }
+  try {
+    const r = await fetch(`${API}/dem/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...rq, user_name: un() }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'Ошибка сервера');
+    closeModal();
+    toast(j.position > 1 ? `📥 В очереди (№${j.position}) — окно можно закрыть, готовый архив появится в «Мои выгрузки»` : '📥 Выгрузка идёт на сервере — окно можно закрыть, архив появится в «Мои выгрузки»', 'ok');
+    _djRefreshCount();
+  } catch (e) { toast('❌ ' + e.message, 'err'); }
+}
+const _djSt = { queued: '⏳ В очереди', running: '⚙️ Выполняется', done: '✅ Готово', error: '❌ Ошибка', cancelled: 'Отменено' };
+const _djSize = b => b == null ? '' : b > 1048576 ? (b / 1048576).toFixed(1) + ' МБ' : Math.round(b / 1024) + ' КБ';
+async function demJobsOpen(all) {
+  window._djAll = !!all;
+  const rows = await fetch(`${API}/dem/jobs${all ? '' : '?user=' + encodeURIComponent(un())}`).then(r => r.json()).catch(() => []);
+  const html = !rows.length ? '<div style="padding:20px;text-align:center;color:var(--tx3)">Выгрузок пока нет. В мастере на последнем шаге — «📥 В очередь».</div>'
+    : `<div id="dj-list" style="display:flex;flex-direction:column;gap:6px;max-height:60vh;overflow:auto">${rows.map(j => `
+      <div class="dj-row" data-id="${escAttr(j.id)}" style="border:1.5px solid var(--bd);border-radius:var(--r);padding:7px 10px;font-size:12px">
+        <div style="display:flex;gap:8px;align-items:center">
+          <b style="flex:1">${esc(j.title || j.file_name || 'Выгрузка')}</b>
+          <span class="dj-st" style="white-space:nowrap">${_djSt[j.status] || j.status}</span>
+          ${j.status === 'done' ? `<a class="btn bp bxs" href="${API}/dem/jobs/${encodeURIComponent(j.id)}/file" download>⬇️ Скачать ${_djSize(j.file_size)}</a>` : ''}
+          <button class="btn bs bxs" onclick="_djDelete('${escAttr(j.id)}','${j.status}')" title="${j.status === 'done' || j.status === 'error' ? 'Удалить' : 'Отменить'}">${j.status === 'done' || j.status === 'error' ? '🗑' : '✕'}</button>
+        </div>
+        <div style="color:var(--tx3);font-size:10px;margin-top:2px">${esc(j.created_at || '')}${all && j.user_name ? ' · ' + esc(j.user_name) : ''}${j.finished_at ? ' → ' + esc(j.finished_at) : ''}${j.note ? ' · <span style="color:var(--org,#b45309)">' + esc(j.note) + '</span>' : ''}</div>
+        ${j.status === 'running' || j.status === 'queued' ? `<div style="height:5px;background:var(--s3);border-radius:3px;margin-top:5px;overflow:hidden"><div class="dj-bar" style="height:5px;background:var(--acc);width:${j.pct || 0}%;transition:width .4s"></div></div><div class="dj-txt" style="font-size:10px;color:var(--tx2);margin-top:2px">${esc(j.text || '')}</div>` : ''}
+        ${j.status === 'error' ? `<div style="font-size:11px;color:var(--red);margin-top:3px;white-space:pre-wrap">${esc(j.error || '')}</div>` : ''}
+      </div>`).join('')}</div>`;
+  showModal('📦 Мои выгрузки', `<div style="min-width:min(560px,88vw)">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-size:11px;color:var(--tx3)">
+      <span style="flex:1">Выгрузки идут на сервере по очереди; архивы хранятся 14 дней.</span>
+      <label style="display:flex;gap:4px;align-items:center;text-transform:none;font-weight:500;margin:0"><input type="checkbox" ${all ? 'checked' : ''} style="width:auto;margin:0" onchange="demJobsOpen(this.checked)"> все пользователи</label></div>
+    ${html}</div>`, [{ label: 'Закрыть', cls: 'bs', fn: closeModal }, { label: '🏔 Новая выгрузка', cls: 'bp', fn: () => openDEMPanel(1) }]);
+}
+async function _djDelete(id, st) {
+  if ((st === 'running' || st === 'queued') && !await confirmDlg('Отменить эту выгрузку?')) return;
+  await fetch(`${API}/dem/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+  if (document.getElementById('dj-list') || document.querySelector('#mtit')?.textContent.includes('Мои выгрузки')) demJobsOpen(window._djAll);
+  _djRefreshCount();
+}
+async function _djRefreshCount() {
+  try {
+    const rows = await fetch(`${API}/dem/jobs?user=${encodeURIComponent(un())}`).then(r => r.json());
+    _djActive = rows.filter(j => j.status === 'queued' || j.status === 'running').length;
+  } catch (e) {}
+}
+// События сервера: прогресс в открытом списке и уведомление о готовности своей выгрузки
+(function _djListen() {
+  if (typeof EventSource === 'undefined') return;
+  let es = null;
+  const connect = () => {
+    try { es = new EventSource(`${location.origin}/api/events`); } catch (e) { return; }
+    es.onmessage = e => {
+      let d; try { d = JSON.parse(e.data); } catch (x) { return; }
+      if (d.type === 'dem_progress' && d.job) {
+        const row = document.querySelector(`.dj-row[data-id="${d.job}"]`);
+        if (row) { const b = row.querySelector('.dj-bar'), t = row.querySelector('.dj-txt'); if (b) b.style.width = Math.max(2, d.pct) + '%'; if (t) t.textContent = d.text || ''; }
+        return;
+      }
+      if (d.type !== 'dem_job') return;
+      const mine = (d.user_name || '') === (typeof un === 'function' ? un() : '');
+      if (document.querySelector('.dj-row') || (document.getElementById('mtit') || {}).textContent === '📦 Мои выгрузки') {
+        if (d.status !== 'running' || !document.querySelector(`.dj-row[data-id="${d.id}"] .dj-bar`)) demJobsOpen(window._djAll);
+      }
+      if (mine && d.status === 'done') {
+        toast(`✅ Выгрузка готова: ${d.title || ''} — «📦 Мои выгрузки» (кнопка в окне «Рельеф»)`, 'ok');
+        if (typeof notify === 'function') { try { notify('🏔 Выгрузка готова', d.title || ''); } catch (x) {} }
+      }
+      if (mine && d.status === 'error') toast(`❌ Выгрузка не удалась: ${d.title || ''}`, 'err');
+      if (mine) _djRefreshCount();
+    };
+    es.onerror = () => { try { es.close(); } catch (x) {} setTimeout(connect, 8000); };
+  };
+  setTimeout(() => { connect(); _djRefreshCount(); }, 3000);
+})();
