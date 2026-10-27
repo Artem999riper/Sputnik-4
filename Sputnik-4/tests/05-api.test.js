@@ -121,3 +121,15 @@ test('права по разделам (запрет создания и уда�
   assert.strictEqual((await call('DELETE', `/api/pgk/equipment/${id}`)).status, 403, 'удаление запрещено');
   assert.strictEqual((await call('POST', '/api/pgk/workers', { name: 'Z' })).status, 200, 'другой раздел не затронут');
 });
+
+test('журнал: сводка по пользователям за день и фильтр по дню', async () => {
+  const H = { 'X-User-Name': encodeURIComponent('Проверкин') };
+  ok(await S.api('POST', '/api/bases', { name: 'База-аудит', lat: 66, lng: 75 }, H), 'база');
+  const day = (await S.api('GET', '/api/audit/users')).body.date;
+  assert.match(day, /^\d{4}-\d{2}-\d{2}$/);
+  const u = (await S.api('GET', `/api/audit/users?date=${day}`)).body.users.find(x => x.user_name === 'Проверкин');
+  assert.ok(u && u.changes >= 1 && u.by['База'] >= 1, JSON.stringify(u));
+  const rows = (await S.api('GET', `/api/audit?user=${encodeURIComponent('Проверкин')}&date=${day}`)).body.rows;
+  assert.ok(rows.some(r => r.name === 'База-аудит'));
+  assert.strictEqual((await S.api('GET', `/api/audit?user=${encodeURIComponent('Проверкин')}&date=2000-01-01`)).body.rows.length, 0);
+});

@@ -191,7 +191,8 @@ getDb().then(database => {
   require('./routes/system')(app, { isAdmin: adminApi.isAdmin, BACKUP_DIR, performAutoBackup });
   // Журнал изменений с откатом (до бизнес-маршрутов — чтобы видеть запись «до»)
   require('./routes/audit')(app, getDbInstance, { isAdmin: adminApi.isAdmin, broadcast: realtime.broadcast,
-    restoreFromData: realtime.restoreFromData, trashAndDelete: realtime.trashAndDelete });
+    restoreFromData: realtime.restoreFromData, trashAndDelete: realtime.trashAndDelete,
+    presenceEvents: realtime.presenceEvents, getPresence: realtime.getPresence });
 
   routeBases(app, getDbInstance, L);
   routeSites(app, getDbInstance, L);

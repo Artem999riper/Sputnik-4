@@ -26,6 +26,8 @@ const RESTORABLE_TABLES = new Set([
 
 // res → { clientId, name, ip, connectedAt } — метаданные для присутствия
 const sseClients = new Map();
+// Открытие/закрытие вкладок — для журнала сеансов (routes/audit.js)
+const presenceEvents = new (require('events'))();
 
 function broadcast(event) {
   const payload = `data: ${JSON.stringify(event)}\n\n`;
@@ -60,16 +62,23 @@ function attachSse(app) {
     const ip = req.ip || (req.socket && req.socket.remoteAddress) || '';
     let nm = (req.query.name || '').toString();
     try { nm = decodeURIComponent(nm); } catch (e) {}
-    sseClients.set(res, {
+    const meta = {
       clientId: (req.query.cid || '').toString().slice(0, 64),
       name: nm.slice(0, 120),
       ip, connectedAt: Date.now(),
-    });
+    };
+    sseClients.set(res, meta);
+    try { presenceEvents.emit('open', meta); } catch (e) {}
     broadcast({ type: 'presence', t: Date.now() });
     const ping = setInterval(() => {
       try { res.write(':ping\n\n'); } catch (e) {}
     }, 25_000);
-    req.on('close', () => { clearInterval(ping); sseClients.delete(res); broadcast({ type: 'presence', t: Date.now() }); });
+    req.on('close', () => {
+      clearInterval(ping); sseClients.delete(res);
+      const left = meta.clientId ? [...sseClients.values()].filter(m => m.clientId === meta.clientId).length : 0;
+      try { presenceEvents.emit('close', meta, left); } catch (e) {}
+      broadcast({ type: 'presence', t: Date.now() });
+    });
   });
 
   // Транслируем событие после любого успешного мутирующего запроса
@@ -149,4 +158,4 @@ function attachUndo(app, getDb) {
   });
 }
 
-module.exports = { attachSse, attachUndo, broadcast, trashAndDelete, getPresence, restoreFromData };
+module.exports = { attachSse, attachUndo, broadcast, trashAndDelete, getPresence, restoreFromData, presenceEvents };

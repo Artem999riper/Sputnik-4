@@ -35,13 +35,20 @@ const CREATE = [
   [/^\/api\/sites$/, 'sites', 'Объект', 'name'],
   [/^\/api\/bases$/, 'bases', 'База', 'name'],
   [/^\/api\/layers$/, 'kml_layers', 'Слой', 'name'],
+  [/^\/api\/volumes\/[^/]+\/progress$/, 'vol_progress', 'Факт по объёму', 'work_date'],
 ];
-const TABLES = new Set(ROW.map(r => r[1]));
+const TABLES = new Set([...ROW.map(r => r[1]), 'vol_progress']);
 const MAX_CELL = 3 * 1024 * 1024;   // поле больше 3 МБ (огромный слой) — не храним целиком
 
-module.exports = (app, getDb, { isAdmin, broadcast, restoreFromData, trashAndDelete }) => {
+module.exports = (app, getDb, { isAdmin, broadcast, restoreFromData, trashAndDelete, presenceEvents, getPresence }) => {
   const db = () => getDb();
   try {
+    // Сеансы: кто, с какого компьютера и когда открывал программу (по вкладкам одного браузера — один сеанс)
+    db().exec(`CREATE TABLE IF NOT EXISTS user_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_name TEXT DEFAULT '', cid TEXT DEFAULT '',
+      ip TEXT DEFAULT '', started_at TEXT DEFAULT (datetime('now','localtime')), last_seen TEXT DEFAULT (datetime('now','localtime')), ended_at TEXT)`);
+    db().exec('CREATE INDEX IF NOT EXISTS idx_sessions_start ON user_sessions(started_at)');
+    db().exec("UPDATE user_sessions SET ended_at=last_seen WHERE ended_at IS NULL");      // сервер был остановлен
+    db().exec("DELETE FROM user_sessions WHERE started_at < datetime('now','localtime','-120 days')");
     db().exec(`CREATE TABLE IF NOT EXISTS audit_log (id TEXT PRIMARY KEY, at TEXT DEFAULT (datetime('now','localtime')),
       user_name TEXT DEFAULT '', kind TEXT, tbl TEXT, row_id TEXT, label TEXT, name TEXT, before TEXT, after TEXT, undone INTEGER DEFAULT 0)`);
     db().exec('CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at)');
@@ -94,6 +101,46 @@ module.exports = (app, getDb, { isAdmin, broadcast, restoreFromData, trashAndDel
     next();
   });
 
+  if (presenceEvents) {
+    const ipOf = ip => String(ip || '').replace(/^::ffff:/, '');
+    presenceEvents.on('open', m => {
+      if (!m.name || !m.clientId) return;
+      try {
+        // Вкладка одного и того же браузера, открытая вскоре после предыдущей, — тот же сеанс
+        const s = get(db(), "SELECT id FROM user_sessions WHERE cid=? AND user_name=? AND (ended_at IS NULL OR ended_at >= datetime('now','localtime','-3 minutes')) ORDER BY id DESC LIMIT 1", [m.clientId, m.name]);
+        if (s) run(db(), "UPDATE user_sessions SET ended_at=NULL, last_seen=datetime('now','localtime') WHERE id=?", [s.id]);
+        else run(db(), 'INSERT INTO user_sessions(user_name,cid,ip) VALUES(?,?,?)', [m.name, m.clientId, ipOf(m.ip)]);
+      } catch (e) {}
+    });
+    presenceEvents.on('close', (m, left) => {
+      if (!m.name || !m.clientId) return;
+      try { run(db(), `UPDATE user_sessions SET last_seen=datetime('now','localtime')${left ? '' : ",ended_at=datetime('now','localtime')"} WHERE cid=? AND user_name=? AND ended_at IS NULL`, [m.clientId, m.name]); } catch (e) {}
+    });
+    // «последняя активность» открытых сеансов — раз в минуту (на случай аварийной остановки)
+    setInterval(() => { try { run(db(), "UPDATE user_sessions SET last_seen=datetime('now','localtime') WHERE ended_at IS NULL"); } catch (e) {} }, 60000).unref();
+  }
+
+  // Сводка по пользователям за день: сеансы и изменения по разделам
+  app.get('/api/audit/users', wrap((req, res) => {
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : null;
+    const d = day || all(db(), "SELECT date('now','localtime') d")[0].d;
+    const U = {};
+    const u = n => (U[n] = U[n] || { user_name: n, changes: 0, by: {}, sessions: [], first: null, last: null, online: false, ips: [] });
+    all(db(), "SELECT user_name, label, kind, COUNT(*) n, MIN(at) a, MAX(at) b FROM audit_log WHERE date(at)=? AND user_name!='' GROUP BY user_name, label, kind", [d]).forEach(r => {
+      const x = u(r.user_name); x.changes += r.n; x.by[r.label] = (x.by[r.label] || 0) + r.n;
+      if (!x.first || r.a < x.first) x.first = r.a; if (!x.last || r.b > x.last) x.last = r.b;
+    });
+    all(db(), `SELECT * FROM user_sessions WHERE date(started_at)<=? AND date(COALESCE(ended_at,last_seen))>=? ORDER BY started_at`, [d, d]).forEach(r => {
+      const x = u(r.user_name);
+      x.sessions.push({ start: r.started_at, end: r.ended_at, last: r.last_seen, ip: r.ip });
+      if (r.ip && !x.ips.includes(r.ip)) x.ips.push(r.ip);
+      if (!x.first || r.started_at < x.first) x.first = r.started_at;
+      const e = r.ended_at || r.last_seen; if (!x.last || e > x.last) x.last = e;
+    });
+    if (getPresence) getPresence().forEach(p => { if (p.name && U[p.name]) U[p.name].online = true; else if (p.name && !day) { u(p.name).online = true; } });
+    res.json({ date: d, users: Object.values(U).sort((a, b) => (b.changes - a.changes) || String(a.user_name).localeCompare(b.user_name, 'ru')) });
+  }));
+
   // ── просмотр ─────────────────────────────────────────────
   app.get('/api/audit', wrap((req, res) => {
     const lim = Math.min(1000, parseInt(req.query.limit) || 300);
@@ -102,6 +149,7 @@ module.exports = (app, getDb, { isAdmin, broadcast, restoreFromData, trashAndDel
     if (req.query.tbl) { where.push('tbl=?'); args.push(req.query.tbl); }
     if (req.query.row) { where.push('row_id=?'); args.push(req.query.row); }
     if (req.query.q) { where.push('(name LIKE ? OR label LIKE ?)'); args.push('%' + req.query.q + '%', '%' + req.query.q + '%'); }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')) { where.push('date(at)=?'); args.push(req.query.date); }
     const rows = all(db(), `SELECT id,at,user_name,kind,tbl,row_id,label,name,undone,
         CASE WHEN length(before)>20000 THEN substr(before,1,20000) ELSE before END AS before,
         CASE WHEN length(after)>20000 THEN substr(after,1,20000) ELSE after END AS after

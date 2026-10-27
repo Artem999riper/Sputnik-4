@@ -15,7 +15,7 @@ const AU_FIELDS = {
 };
 const AU_KIND = { update: '✏️ изменено', delete: '🗑 удалено', create: '➕ создано', rollback: '↩ откат' };
 const AU_TBL = { pgk_workers: 'Сотрудники', pgk_machinery: 'Техника', pgk_equipment: 'Оборудование', materials: 'Материалы', mto_items: 'МТО',
-  cargo_orders: 'Груз', global_tasks: 'Задачи', sites: 'Объекты', bases: 'Базы', volumes: 'Объёмы', kml_layers: 'Слои' };
+  cargo_orders: 'Груз', global_tasks: 'Задачи', sites: 'Объекты', bases: 'Базы', volumes: 'Объёмы', vol_progress: 'Факты по объёмам', kml_layers: 'Слои' };
 function _auVal(k, v) {
   if (v === null || v === undefined || v === '') return '<i style="color:var(--tx3)">пусто</i>';
   if (k === 'geojson') return '<i>геометрия</i>';
@@ -30,22 +30,48 @@ function _auVal(k, v) {
   return esc(s.length > 90 ? s.slice(0, 90) + '…' : s);
 }
 async function openAuditLog(filter) {
-  window._auF = Object.assign({ user: '', tbl: '', q: '' }, filter || {});
+  window._auF = Object.assign({ user: '', tbl: '', q: '', date: '' }, filter || {});
   showModal('🔁 Журнал изменений', `
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
       <select id="au-u" onchange="window._auF.user=this.value;_auLoad()" style="font-size:11px;padding:3px 6px"><option value="">Все пользователи</option></select>
       <select id="au-t" onchange="window._auF.tbl=this.value;_auLoad()" style="font-size:11px;padding:3px 6px"><option value="">Все разделы</option>
         ${Object.entries(AU_TBL).map(([k, v]) => `<option value="${k}" ${window._auF.tbl === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
       <input id="au-q" type="search" placeholder="🔍 Название…" value="${esc(window._auF.q)}" oninput="window._auF.q=this.value;clearTimeout(window._auT);window._auT=setTimeout(_auLoad,300)" style="font-size:11px;padding:3px 8px;flex:1;min-width:120px">
+      <input id="au-d" type="date" value="${esc(window._auF.date)}" title="Только за этот день" onchange="window._auF.date=this.value;_auLoad()" style="font-size:11px;padding:2px 6px;width:auto">
+      ${window._auF.date ? `<button class="btn bs bxs" onclick="window._auF.date='';document.getElementById('au-d').value='';_auLoad()" title="Все дни">✕ день</button>` : ''}
     </div>
     <div style="font-size:10px;color:var(--tx3);margin-bottom:6px">Хранится 120 дней. «↩ Откатить» возвращает прежние значения (нужны права администратора).</div>
     <div id="au-list" style="max-height:min(520px,65vh);overflow:auto;min-width:min(760px,90vw)"><div style="padding:16px;color:var(--tx3)">⏳ Загрузка…</div></div>`,
-    [{ label: '📋 Журнал действий', cls: 'bs', fn: () => { closeModal(); openGLog(); } }, { label: 'Закрыть', cls: 'bp', fn: closeModal }]);
+    [{ label: '👥 По пользователям', cls: 'bs', fn: () => openAuditUsers(window._auF.date) }, { label: '📋 Журнал действий', cls: 'bs', fn: () => { closeModal(); openGLog(); } }, { label: 'Закрыть', cls: 'bp', fn: closeModal }]);
   _auLoad();
+}
+// Сводка «кто и что делал за день»: сеансы (вход, выход, компьютер) и изменения по разделам
+async function openAuditUsers(date) {
+  const d = date || new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  let data = { users: [] };
+  try { data = await fetch(`${API}/audit/users?date=${d}`).then(r => r.json()); } catch (e) {}
+  const t = s => s ? String(s).slice(11, 16) : '';
+  const isToday = d === new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  const rows = data.users.map(u => `<tr>
+      <td><span title="${u.online ? 'сейчас в сети' : ''}" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${u.online ? '#16a34a' : '#d1d5db'};margin-right:6px"></span><b>${esc(u.user_name)}</b>
+        ${u.ips.length ? `<div style="font-size:10px;color:var(--tx3)">💻 ${esc(u.ips.join(', '))}</div>` : ''}</td>
+      <td style="white-space:nowrap">${u.first ? t(u.first) : '—'}${u.last ? ' – ' + (u.online && isToday ? 'сейчас' : t(u.last)) : ''}
+        ${u.sessions.length ? `<div style="font-size:10px;color:var(--tx3)">${u.sessions.map(s => `${t(s.start)}–${s.end ? t(s.end) : '…'}`).join(', ')}</div>` : ''}</td>
+      <td style="text-align:center">${u.changes ? `<a href="#" onclick="event.preventDefault();openAuditLog({user:'${escAttr(u.user_name)}',date:'${d}'})"><b>${u.changes}</b></a>` : '<span style="color:var(--tx3)">0</span>'}</td>
+      <td style="white-space:normal">${Object.entries(u.by).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<span class="chip" style="margin:1px;display:inline-block">${esc(k)}: ${n}</span>`).join(' ') || ''}</td></tr>`).join('');
+  showModal('👥 Кто и что делал', `<div style="min-width:min(760px,90vw)">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-size:12px">День:
+      <input type="date" value="${d}" onchange="openAuditUsers(this.value)" style="width:auto;font-size:12px;padding:2px 6px">
+      <button class="btn bs bxs" onclick="openAuditUsers(new Date(new Date('${d}').getTime()-864e5).toISOString().slice(0,10))">◀</button>
+      <button class="btn bs bxs" onclick="openAuditUsers(new Date(new Date('${d}').getTime()+864e5).toISOString().slice(0,10))">▶</button>
+      </div><div style="color:var(--tx3);font-size:10px;margin:-2px 0 6px">Время — по открытым окнам программы; 💻 — адрес компьютера. Щелчок по числу изменений — подробно.</div>
+    ${rows ? `<div style="max-height:60vh;overflow:auto"><table class="wt-tbl" style="min-width:0;width:100%;font-size:12px;table-layout:auto"><thead><tr><th>Пользователь</th><th>В программе</th><th>Изменений</th><th>Что менял</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : '<div style="padding:20px;text-align:center;color:var(--tx3)">За этот день никого не было</div>'}
+  </div>`, [{ label: '🔁 Журнал изменений', cls: 'bs', fn: () => openAuditLog({ date: d }) }, { label: 'Закрыть', cls: 'bp', fn: closeModal }]);
 }
 async function _auLoad() {
   const f = window._auF || {};
-  const qs = new URLSearchParams(); ['user', 'tbl', 'q', 'row'].forEach(k => { if (f[k]) qs.set(k, f[k]); });
+  const qs = new URLSearchParams(); ['user', 'tbl', 'q', 'row', 'date'].forEach(k => { if (f[k]) qs.set(k, f[k]); });
   let data = { rows: [], users: [] };
   try { data = await fetch(`${API}/audit?${qs}`).then(r => r.json()); } catch (e) {}
   const us = document.getElementById('au-u');
