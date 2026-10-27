@@ -116,6 +116,7 @@ async function pgkCellEdit(ev, td, entityType, id, field) {
     else if (newVal==='') newVal=null;
 
     td.innerHTML=origHTML;
+    if (entityType==='worker'&&field==='status'){ if((newVal||'home')!==(currentVal||'home'))pgkSetWorkerStatus([id],newVal||'home'); return; }
 
     // Preserve scroll position across re-render
     const scrollEl=document.querySelector('.wt-scroll');
@@ -184,7 +185,7 @@ function pgkPageWorkers(pb){
   const getDays=w=>w.start_date?Math.max(0,Math.floor((today-new Date(w.start_date))/86400000)):0;
   const getBase=w=>(bases.find(x=>x.id===w.base_id)||{}).name||'';
   // Derive effective status: if worker has days on shift → working; if shift ended → home overrides
-  const effSt=w=>w.start_date?'working':(w.status||'home');
+  const effSt=w=>w.status==='fired'?'fired':w.start_date?'working':(w.status||'home');
   const getStatus=w=>WORKER_STATUSES[effSt(w)]||'';
   const searchStr=w=>(w.name+' '+(w.role||'')+' '+getBase(w)+' '+(w.notes||'')).toLowerCase();
 
@@ -394,7 +395,7 @@ function workerCtxMenu(ev,wid){
   const multi=ids.length>1;
   const statusItems=Object.entries(WORKER_STATUSES).map(([k,v])=>({
     i:'', l:'Статус: '+((!multi&&(w.status||'home')===k)?'✓ '+v:v),
-    f:()=>_pgkApply('worker',ids,{status:k},'Статус изменён')
+    f:()=>pgkSetWorkerStatus(ids,k)
   }));
   showCtx(x,y,[
     multi?{i:'☑️',l:`<b>Выбрано: ${ids.length}</b>`,html:true,f:()=>{}}
@@ -430,6 +431,48 @@ async function pgkEditWorkerNotes(wid){
         body:JSON.stringify({...w,notes,user_name:un()})});
       closeModal();await loadPGK();toast('Примечание сохранено','ok');
     }}]);
+}
+// Смена статуса сотрудника(ов). Пока открыта вахта (есть дата начала), в таблице
+// показывается «В работе» — поэтому при любом другом статусе вахта закрывается
+// сегодняшним числом (запись в истории вахт), сотрудник снимается с базы.
+// Отмена возвращает прежние данные и удаляет созданные записи вахт.
+async function pgkSetWorkerStatus(ids,status){
+  const list=ids.map(id=>pgkWorkers.find(w=>w.id===id)).filter(Boolean);
+  if(!list.length)return;
+  const lbl=(WORKER_STATUSES[status]||status).replace(/^\S+\s/,'');
+  const onShift=status==='working'?[]:list.filter(w=>w.start_date);
+  if(onShift.length){
+    const who=onShift.length===1?`У сотрудника ${onShift[0].name.trim()} открыта вахта с ${fmt(onShift[0].start_date)}`
+      :`У ${onShift.length} сотрудников открыта вахта`;
+    if(!await confirmDlg(`${who}.\nПока вахта открыта, статус показывается «В работе».\n\nЗавершить вахту сегодняшним числом и поставить «${lbl}»?`,
+      {title:'Смена статуса',okLabel:'Завершить вахту и сменить',danger:false}))return;
+  }
+  const today=new Date().toISOString().split('T')[0];
+  const before=list.map(w=>({...w}));
+  const shiftIds=[];
+  try{
+    for(const w of list){
+      if(onShift.includes(w)){
+        const r=await fetch(`${API}/pgk/workers/${w.id}/shifts`,{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({base_id:w.base_id,start_date:w.start_date,end_date:today,days:calcDaysBetween(w.start_date,today),notes:`Вахта завершена при смене статуса: ${lbl}`})});
+        const j=await r.json().catch(()=>({}));if(j.id)shiftIds.push(j.id);
+        const body={...w,start_date:null,base_id:null,status,user_name:un()};delete body.base_name;
+        await fetch(`${API}/pgk/workers/${w.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      }else{
+        await fetch(`${API}/pgk/workers/${w.id}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status,user_name:un()})});
+      }
+    }
+  }catch(e){toast('Ошибка сохранения','err');}
+  await loadPGK();
+  if(typeof loadAll==='function'){try{await loadAll();}catch(e){}}
+  const msg=list.length>1?`Статус «${lbl}»: ${list.length} чел.`:`${list[0].name.trim()}: ${lbl}`;
+  TK.undoBar(msg+(onShift.length?' (вахта завершена)':''),async()=>{
+    for(const id of shiftIds)await fetch(`${API}/pgk/workers/shifts/${id}`,{method:'DELETE'}).catch(()=>{});
+    for(const w of before){const body={...w,user_name:un()};delete body.base_name;
+      await fetch(`${API}/pgk/workers/${w.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).catch(()=>{});}
+    await loadPGK();if(typeof loadAll==='function'){try{await loadAll();}catch(e){}}
+    toast('Статус возвращён','ok');
+  });
 }
 async function pgkChangeWorkerStatus(wid,status){
   await fetch(`${API}/pgk/workers/${wid}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
@@ -823,7 +866,7 @@ async function techExportExcel(){
     drivers.forEach(w=>{
       seq++;
       const mach=(pgkMachinery||[]).find(m=>m.driver_id===w.id);
-      const stRaw=w.start_date?'working':(w.status||'home');
+      const stRaw=w.status==='fired'?'fired':w.start_date?'working':(w.status||'home');
       aoa.push([seq, w.name||'', w.role||'', baseName(w.base_id),
         mach?`${MICONS[mach.type]||'🔧'} ${mach.name||''} ${mach.plate_number||''}`.trim():'',
         WORKER_STATUSES[stRaw]||stRaw]);
