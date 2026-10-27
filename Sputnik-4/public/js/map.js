@@ -522,3 +522,37 @@ function toggleSettingsPanel(){
 // ═══════════════════════════════════════════════════════════
 // SIDEBAR
 // ═══════════════════════════════════════════════════════════
+
+// ── Esc на карте: снять выделения ─────────────────────────────────────────
+// Первый Esc закрывает окно/меню или отменяет текущий режим (рисование, выбор…) —
+// это делают свои обработчики. Если же ничего такого не было, Esc убирает с карты
+// выделенные области и результаты: область «Рельефа»/«Затопления», выбранные
+// полигоны «По KML», зоны затопления, полигон выделения объектов.
+// Состояние снимаем в фазе перехвата на window — раньше всех обработчиков Esc.
+function _mapEscBusy(){
+  const vis=id=>{const el=document.getElementById(id);return !!el&&getComputedStyle(el).display!=='none';};
+  if(document.getElementById('mov')?.classList.contains('open'))return true;
+  if(document.querySelector('#ctx.show,#tk-cols-menu,#eq-cols-menu,#search-pick,#tour-box,#help-ov.show'))return true;
+  if(vis('bnr'))return true;                               // идёт режим с подсказкой сверху
+  if(drawMode||moveMode||mapMode!=='view')return true;
+  if(typeof rulerActive!=='undefined'&&rulerActive)return true;
+  if(typeof _kgeActive!=='undefined'&&_kgeActive)return true;
+  if(typeof _demDrawing!=='undefined'&&_demDrawing)return true;
+  const a=document.activeElement;
+  if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return true;
+  return !document.querySelector('.nt.on[data-v="map"]');  // только на вкладке «Карта»
+}
+function clearMapSelections(){
+  let n=0;
+  if(typeof _demBbox!=='undefined'&&(_demBbox||_demRect)){demClearDraw();n++;}
+  if(typeof DW!=='undefined'&&DW.kml&&DW.kml.length){DW.kml=[];if(DW.area==='kml')DW.area='';_dwKmlShow();n++;}
+  if(typeof FL!=='undefined'&&(FL.layer||FL.result)){if(FL.layer){try{map.removeLayer(FL.layer);}catch(e){}FL.layer=null;}FL.result=null;FL.area='';FL.kmlName='';n++;}
+  if(typeof _ksTmp!=='undefined'&&_ksTmp){_ksCleanup();n++;}
+  if(n)toast('Выделение на карте снято','ok');
+  return n;
+}
+window.addEventListener('keydown',e=>{
+  if(e.key!=='Escape'||e.repeat)return;
+  if(_mapEscBusy())return;
+  setTimeout(clearMapSelections,0);
+},true);
