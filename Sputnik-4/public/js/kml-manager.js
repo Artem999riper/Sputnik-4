@@ -602,6 +602,7 @@ function kmlLayerCtx(ev, id) {
     {i:'🗺',l:`<b>${esc(l.name)}</b>`,f:null},{sep:true},
     {i:_kmlExpanded.has(id)?'▼':'▶',l:_kmlExpanded.has(id)?'Свернуть объекты':'Показать объекты',f:()=>{if(!_kmlExpanded.has(id))_kmlExpanded.add(id);_kmlRenderLayerPane();}},
     {i:'🎨',l:'Стиль / условный знак',f:()=>kmlOpenStyleModal(id)},
+    {i:'📊',l:'Таблица атрибутов',f:()=>kmlAttrTable(id)},
     {i:'✏️',l:'Переименовать',f:()=>kmlRenameLayer(id)},
     {i:'🔍',l:'Приблизить к слою',f:()=>kmlZoomTo(id)},
     {i:l.visible?'🚫':'👁',l:l.visible?'Скрыть':'Показать',f:()=>kmlToggleVis(id,l.visible?0:1)},
@@ -698,6 +699,7 @@ function kmlOpenStyleModal(id) {
       </div>
       <div style="font-size:10px;color:var(--tx3);padding-bottom:7px;white-space:nowrap">сейчас: <b>${curZ}</b></div>
     </div>
+    ${typeof kmlAttrStyleHtml==='function'?kmlAttrStyleHtml(l):''}
     <label style="font-size:11px;font-weight:600;display:block;margin-bottom:6px">Условный знак для точек</label>
     <div id="kml-sym-grid" style="max-height:220px;overflow-y:auto;padding-right:4px">${symHtml}</div>`,
     [{label:'Отмена',cls:'bs',fn:closeModal},
@@ -715,9 +717,11 @@ function kmlOpenStyleModal(id) {
        lt.color=color;lt.symbol=sym;lt.line_dash=dash;lt.min_zoom=minZ;lt.max_zoom=maxZ;lt.size=sz;lt.fill_opacity=fillOp;
        await fetch(`${API}/layers/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
          body:JSON.stringify({name:lt.name,color,visible:lt.visible?1:0,symbol:sym,group_id:lt.group_id||'',line_dash:dash,min_zoom:minZ,max_zoom:maxZ,size:sz,fill_opacity:fillOp})});
+       if(typeof kmlAttrStyleRead==='function')await kmlSaveStyle(lt,kmlAttrStyleRead());
        kmlInvalidateLayerCache(id); // гарантировать перестроение слоя на карте
        closeModal();renderLayerGroups();renderKmlPanel();toast('Стиль применён','ok');
      }}]);
+  if(typeof _kasAfterOpen==='function')_kasAfterOpen();
 }
 function kmlSelectSym(el){document.querySelectorAll('.kml-sym-btn').forEach(b=>b.classList.remove('on'));el.classList.add('on');}
 function kmlUpdateSymPreviews(color){Object.keys(KML_SYMBOLS).forEach(k=>{const el=document.getElementById('kml-sym-prev-'+k);if(el)el.innerHTML=kmlSvgIcon(k,color,22);});}
@@ -741,7 +745,7 @@ function startKmlSelectMode(){
 }
 function _ksClick(e){
   if(!_ksActive)return;
-  _ksPts.push(e.latlng);
+  _ksPts.push(typeof mapSnapLL==='function'?mapSnapLL(e.latlng,e):e.latlng);
   _ksPreview();
 }
 function _ksPreview(){
@@ -1682,7 +1686,11 @@ function kmlCancelPlacement() {
 let _kmlRenderCache = {};
 function _kmlLayerSig(l) {
   return [l.color, l.line_dash, l.symbol, l.size, l.show_labels ? 1 : 0,
-    l.fill_opacity, l.min_zoom, l.max_zoom, layerLabels[l.id] ? 1 : 0].join('|');
+    l.fill_opacity, l.min_zoom, l.max_zoom, layerLabels[l.id] ? 1 : 0, l.style_json || ''].join('|');
+}
+function _kmlFeatColor(l, p) {
+  if (p && p._color === KML_DONE_COLOR) return KML_DONE_COLOR;
+  return (typeof kmlAttrColor === 'function' && kmlAttrColor(l, p)) || (p && p._color) || null;
 }
 // Принудительно сбросить кэш рендера слоя (гарантирует перестроение при смене стиля).
 function kmlInvalidateLayerCache(id) {
@@ -1735,17 +1743,21 @@ function renderLayerGroupsWithSymbols() {
       const g = L.geoJSON(gj, {
         pane: 'kmlPane',
         renderer: getCanvasRenderer('kmlPane'),
-        style: (f) => ({ color: f?.properties?._color || color, weight:2.5, opacity:.85,
+        // Цвет: «выполнено» → раскраска по атрибуту → цвет объекта → цвет слоя
+        style: (f) => ({ color: _kmlFeatColor(l, f && f.properties) || color, weight:2.5, opacity:.85,
           fillOpacity: l.fill_opacity != null ? l.fill_opacity : .2, dashArray:dashArr }),
         pointToLayer: (f, ll) => {
           // Точки — в markerPane (z-600), иначе markerPane перехватывает события
-          const icon = kmlFeatureDivIcon(l, f.properties);
+          const fc = _kmlFeatColor(l, f.properties);
+          const icon = kmlFeatureDivIcon(l, fc ? { ...(f.properties || {}), _color: fc } : f.properties);
           return L.marker(ll, { icon });
         },
         onEachFeature: (f, layer) => {
-          const nm = f.properties?.name || f.properties?.Name || '';
+          const nm = typeof kmlLabelText === 'function' ? kmlLabelText(l, f.properties) : (f.properties?.name || f.properties?.Name || '');
           const cmt = f.properties?.comment || '';
-          const tip = esc(nm) + (cmt ? (nm ? '<br>' : '') + '<span style="color:#65a30d;font-weight:700">✅ ' + esc(cmt) + '</span>' : '');
+          const lsz = typeof kmlLabelSize === 'function' ? kmlLabelSize(l) : 0;
+          const tip0 = esc(nm) + (cmt ? (nm ? '<br>' : '') + '<span style="color:#65a30d;font-weight:700">✅ ' + esc(cmt) + '</span>' : '');
+          const tip = tip0 && lsz ? `<span style="font-size:${lsz}px">${tip0}</span>` : tip0;
           if (tip) layer.bindTooltip(tip, {permanent:showLabels, className:'mlbl', direction:'top'});
 
           // Клик по объекту KML добавляет точку в активный инструмент (линейка/рисование).
@@ -1760,6 +1772,11 @@ function renderLayerGroupsWithSymbols() {
               L.DomEvent.stopPropagation(ev);
               const nm = (f.properties && (f.properties.name || f.properties.Name)) || '';
               addDrawPtSnapped(ev.latlng, exact, nm);
+            } else if (exact && typeof _snapModeOn === 'function' && _snapModeOn()) {
+              // точка KML не передаёт клик карте — ставим вершину ровно в неё
+              L.DomEvent.stopPropagation(ev);
+              const pt = { latlng: exact, originalEvent: { altKey: true } };
+              if (_kdActive) _kdClick(pt); else if (_demVertMode) _demVertClick(pt); else if (_epActive) _epClick(pt); else if (_ksActive) _ksClick(pt);
             }
           });
 
@@ -1810,6 +1827,7 @@ function renderLayerGroupsWithSymbols() {
               ...(typeof demBatchByLayer==='function'&&/"(Multi)?Polygon"/.test(l.geojson||'')?[{i:'🏔',l:'Рельеф по полигонам слоя…',f:()=>demWizardKml(l.id)}]:[]),
               {i:'🎨',l:'Стиль слоя',f:()=>kmlOpenStyleModal(l.id)},
               {i:'📋',l:'Объекты слоя',f:()=>kmlOpenFeatureList(l.id)},
+              {i:'📊',l:'Таблица атрибутов',f:()=>kmlAttrTable(l.id)},
               {i:'👁',l:l.visible?'Скрыть слой':'Показать слой',f:()=>kmlToggleVis(l.id,l.visible?0:1)},
               {i:'🏷',l:layerLabels[l.id]?'Скрыть подписи слоя':'Показать подписи слоя',f:()=>toggleLayerLabels(l.id)},
               ...(l.group_id?[{sep:true},{i:'📄',l:'Убрать из группы',f:()=>kmlMoveToGroup(l.id,null)}]:[]),
@@ -1846,6 +1864,7 @@ function renderLayerGroupsWithSymbols() {
 
   // Объёмы всегда поверх KML
   setTimeout(bringVolumesToFront, 50);
+  if (typeof kmlRenderLegend === 'function') kmlRenderLegend();
   // Обновить панель чтобы отразить активные/неактивные группы
   if (kmlPanelOpen) setTimeout(renderKmlPanel, 50);
 }
@@ -2147,14 +2166,14 @@ function startKmlDraw(type, firstLatLng){
   map.getContainer().style.cursor='crosshair';
   const bnr=document.getElementById('bnr');
   bnr.className='show draw';
-  document.getElementById('bnr-t').textContent=(type==='line'?'〰 Линия':'⬛ Полигон')+': кликайте точки · ПКМ — меню';
+  document.getElementById('bnr-t').textContent=(type==='line'?'〰 Линия':'⬛ Полигон')+': кликайте точки · ПКМ — меню · 🧲 привязка к вершинам (Alt — без неё)';
   map.on('click',_kdClick);
   _kdPreview();
   toast('Кликайте точки · ПКМ — завершить','ok');
 }
 function _kdClick(e){
   if(!_kdActive)return;
-  _kdPts.push(e.latlng);
+  _kdPts.push(typeof mapSnapLL==='function'?mapSnapLL(e.latlng,e):e.latlng);
   _kdPreview();
 }
 function _kdPreview(){

@@ -556,3 +556,91 @@ window.addEventListener('keydown',e=>{
   if(_mapEscBusy())return;
   setTimeout(clearMapSelections,0);
 },true);
+
+// ── «Магнит»: привязка точек к вершинам и линиям при рисовании ─────────────
+// Работает в рисовании KML (линия/полигон), области «Рельефа»/«Затопления»,
+// профиле высот и выделении объектов. Цель — вершины и точки видимых слоёв KML
+// и уже поставленные точки своей фигуры (удобно замкнуть контур); если вершины
+// рядом нет — ближайшая точка на линии. Alt — поставить точку без привязки.
+const SNAP_PX = 12;
+let _snapMk = null, _snapRaf = 0, _snapLast = null;
+function _snapModeOn(){
+  return !!((typeof _kdActive!=='undefined'&&_kdActive)||(typeof _demVertMode!=='undefined'&&_demVertMode&&_demDrawing)||
+    (typeof _epActive!=='undefined'&&_epActive)||(typeof _ksActive!=='undefined'&&_ksActive));
+}
+function _snapOwnPts(){
+  const a=[];
+  [typeof _kdPts!=='undefined'&&_kdActive?_kdPts:null, typeof _demVerts!=='undefined'&&_demVertMode?_demVerts:null,
+   typeof _epPts!=='undefined'&&_epActive?_epPts:null, typeof _ksPts!=='undefined'&&_ksActive?_ksPts:null]
+    .forEach(arr=>{if(arr)arr.forEach(p=>{if(p&&p.lat!=null)a.push(p);});});
+  return a;
+}
+// → {lat,lng,kind:'vertex'|'edge'} или null
+function _snapFind(ll,px){
+  if(!window.map)return null;
+  const T=map.latLngToContainerPoint(ll);
+  let best=null,bd=px;
+  const tryV=latlng=>{const p=map.latLngToContainerPoint(latlng);const d=Math.hypot(p.x-T.x,p.y-T.y);if(d<bd){bd=d;best={ll:latlng,kind:'vertex'};}};
+  _snapOwnPts().forEach(tryV);
+  const subs=[];
+  for(const id in lGroups){
+    const g=lGroups[id];if(!g||!map.hasLayer(g)||!g.eachLayer)continue;
+    g.eachLayer(sub=>{
+      if(sub.getLatLng){tryV(sub.getLatLng());return;}
+      if(!sub.getLatLngs||!sub.getBounds)return;
+      const b=sub.getBounds();if(!b.isValid())return;
+      const ne=map.latLngToContainerPoint(b.getNorthEast()),sw=map.latLngToContainerPoint(b.getSouthWest());
+      if(T.x<sw.x-px||T.x>ne.x+px||T.y<ne.y-px||T.y>sw.y+px)return;   // далеко от объекта
+      subs.push(sub);
+    });
+  }
+  // кольца/линии: [[latlng…], …]
+  const rings=sub=>{const r=[];const walk=a=>{if(!a.length)return;if(a[0]&&a[0].lat!=null){r.push(a);return;}a.forEach(walk);};walk(sub.getLatLngs());return r;};
+  subs.forEach(sub=>rings(sub).forEach(r=>r.forEach(tryV)));
+  if(best)return{lat:best.ll.lat,lng:best.ll.lng,kind:'vertex'};
+  bd=px*0.8;let bp=null;
+  subs.forEach(sub=>{
+    const closed=sub instanceof L.Polygon;
+    rings(sub).forEach(r0=>{
+      const r=closed&&r0.length>2?r0.concat([r0[0]]):r0;
+      const pts=r.map(x=>map.latLngToContainerPoint(x));
+      for(let i=0;i<pts.length-1;i++){
+        const A=pts[i],B=pts[i+1],dx=B.x-A.x,dy=B.y-A.y,l2=dx*dx+dy*dy;if(!l2)continue;
+        const t=Math.max(0,Math.min(1,((T.x-A.x)*dx+(T.y-A.y)*dy)/l2)),d=Math.hypot(A.x+t*dx-T.x,A.y+t*dy-T.y);
+        // точку на ребре считаем в координатах (не в пикселях) — без погрешности округления
+        if(d<bd){bd=d;bp={lat:r[i].lat+t*(r[i+1].lat-r[i].lat),lng:r[i].lng+t*(r[i+1].lng-r[i].lng)};}
+      }
+    });
+  });
+  if(bp)return{lat:bp.lat,lng:bp.lng,kind:'edge'};
+  return null;
+}
+// Точка с привязкой (для обработчиков кликов инструментов)
+function mapSnapLL(ll,ev){
+  const oe=ev&&(ev.originalEvent||ev);
+  if(oe&&oe.altKey)return ll;
+  const s=_snapFind(ll,SNAP_PX);
+  return s?L.latLng(s.lat,s.lng):ll;
+}
+function _snapHide(){if(_snapMk){try{map.removeLayer(_snapMk);}catch(e){}_snapMk=null;}_snapLast=null;}
+function _snapOnMove(e){
+  if(!_snapModeOn()||(e.originalEvent&&e.originalEvent.altKey)){_snapHide();return;}
+  const ll=e.latlng;
+  if(_snapRaf)return;
+  _snapRaf=requestAnimationFrame(()=>{
+    _snapRaf=0;
+    const s=_snapFind(ll,SNAP_PX);
+    if(!s){_snapHide();return;}
+    const opts=s.kind==='vertex'?{radius:7,color:'#db2777',weight:2.5,fillColor:'#fff',fillOpacity:1}:{radius:5,color:'#db2777',weight:2,fillColor:'#db2777',fillOpacity:.5};
+    if(!_snapMk||_snapLast!==s.kind){_snapHide();_snapMk=L.circleMarker([s.lat,s.lng],{...opts,interactive:false,pane:'markerPane'}).addTo(map);}
+    else _snapMk.setLatLng([s.lat,s.lng]);
+    _snapLast=s.kind;
+  });
+}
+function _snapInit(){
+  if(!window.map||_snapInit.done)return;_snapInit.done=true;
+  map.on('mousemove',_snapOnMove);
+  map.on('mouseout',_snapHide);
+  map.on('click',()=>setTimeout(()=>{if(!_snapModeOn())_snapHide();},0));
+}
+setTimeout(function _snapWait(){if(window.map)_snapInit();else setTimeout(_snapWait,500);},500);

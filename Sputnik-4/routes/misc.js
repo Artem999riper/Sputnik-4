@@ -559,11 +559,12 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     if (err) return res.status(400).json({ error: err });
     const { name, color, visible, symbol, group_id, line_dash, geojson, min_zoom, max_zoom, size, show_labels, fill_opacity } = req.body;
     const vis  = visible === false ? 0 : (visible ? 1 : 0);
-    const minZ = min_zoom != null ? parseInt(min_zoom) : 0;
-    const maxZ = max_zoom != null ? parseInt(max_zoom) : 20;
-    const sz   = size != null ? parseFloat(size) : 1;
+    // Поля, которых нет в запросе, не сбрасываем (напр. «показать подписи» шлёт не всё)
+    const existing = get(db(), 'SELECT fill_opacity,min_zoom,max_zoom,size FROM kml_layers WHERE id=?', [req.params.id]);
+    const minZ = min_zoom != null ? parseInt(min_zoom) : (existing && existing.min_zoom != null ? existing.min_zoom : 0);
+    const maxZ = max_zoom != null ? parseInt(max_zoom) : (existing && existing.max_zoom != null ? existing.max_zoom : 20);
+    const sz   = size != null ? parseFloat(size) : (existing && existing.size != null ? existing.size : 1);
     const lbl  = show_labels ? 1 : 0;
-    const existing = get(db(), 'SELECT fill_opacity FROM kml_layers WHERE id=?', [req.params.id]);
     const fillOp = fill_opacity != null ? Math.max(0, Math.min(1, parseFloat(fill_opacity)))
       : (existing && existing.fill_opacity != null ? existing.fill_opacity : 0.2);
     if (geojson !== undefined) {
@@ -573,6 +574,16 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
       run(db(), 'UPDATE kml_layers SET name=?,color=?,visible=?,symbol=?,group_id=?,line_dash=?,min_zoom=?,max_zoom=?,size=?,show_labels=?,fill_opacity=? WHERE id=?',
         [name, color || '#1a56db', vis, symbol || '', group_id || '', line_dash || 'solid', minZ, maxZ, sz, lbl, fillOp, req.params.id]);
     }
+    res.json({ success: true });
+  }));
+
+  // Стиль слоя по атрибутам: { colorBy, mode, colors, classes, labelField, labelSize }
+  app.put('/api/layers/:id/style', wrap((req, res) => {
+    const st = req.body && req.body.style;
+    const txt = st == null ? null : JSON.stringify(st);
+    if (txt && txt.length > 200000) return res.status(400).json({ error: 'Слишком большой стиль' });
+    if (!get(db(), 'SELECT id FROM kml_layers WHERE id=?', [req.params.id])) return res.status(404).json({ error: 'Not found' });
+    run(db(), 'UPDATE kml_layers SET style_json=? WHERE id=?', [txt, req.params.id]);
     res.json({ success: true });
   }));
 

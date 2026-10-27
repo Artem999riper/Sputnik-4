@@ -229,6 +229,7 @@ async function getDb() {
   ta(`CREATE TABLE IF NOT EXISTS equipment_history (id TEXT PRIMARY KEY, equipment_id TEXT NOT NULL, field TEXT NOT NULL, old_value TEXT DEFAULT '', new_value TEXT DEFAULT '', user_name TEXT DEFAULT '', at TEXT DEFAULT (datetime('now','localtime')))`);
   ta("CREATE INDEX IF NOT EXISTS idx_equipment_history ON equipment_history(equipment_id)");
   ta("ALTER TABLE kml_layers ADD COLUMN show_labels INTEGER DEFAULT 0");
+  ta("ALTER TABLE kml_layers ADD COLUMN style_json TEXT");   // раскраска по атрибуту, поле и размер подписей
   ta("ALTER TABLE kml_layers ADD COLUMN fill_opacity REAL DEFAULT 0.2");
   // МТО — материально-техническое обеспечение (справка о технических средствах)
   ta("CREATE TABLE IF NOT EXISTS mto_items (id TEXT PRIMARY KEY, category TEXT DEFAULT '', name TEXT NOT NULL, quantity TEXT DEFAULT '', year TEXT DEFAULT '', condition TEXT DEFAULT 'Исправен', ownership TEXT DEFAULT '', notes TEXT DEFAULT '', sort_order INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))");

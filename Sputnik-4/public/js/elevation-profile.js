@@ -112,7 +112,7 @@ function openElevationProfile() {
 
 // ── Клик — добавить точку ──────────────────────────────────
 function _epClick(e) {
-  _epPts.push(e.latlng);
+  _epPts.push(typeof mapSnapLL==='function'?mapSnapLL(e.latlng,e):e.latlng);
   _epRedrawLine();
 }
 

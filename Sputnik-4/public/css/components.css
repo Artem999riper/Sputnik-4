@@ -170,3 +170,26 @@ a{color:var(--acc);text-decoration:none;word-break:break-all}a:hover{text-decora
 /* нижняя панель карты не переносит кнопки на две строки (иконка над текстом) */
 #mtb{width:max-content;max-width:calc(100vw - var(--sw) - 24px)}
 #mtb .mt{white-space:nowrap}
+
+/* ── Таблица атрибутов слоя (layer-attr.js) ── */
+#kat-panel{position:fixed;left:var(--sw);right:0;bottom:0;height:38vh;min-height:180px;z-index:1600;background:var(--s);border-top:2px solid var(--acc);box-shadow:0 -6px 20px rgba(0,0,0,.15);display:none;flex-direction:column}
+#kat-panel.open{display:flex}
+.kat-hd{display:flex;gap:10px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--bd);font-size:12px;flex-wrap:wrap}
+.kat-hd input{flex:1;min-width:160px;max-width:320px;font-size:12px;padding:4px 8px}
+.kat-hd .kml-panel-close{margin-left:auto}
+.kat-body{flex:1;overflow:auto}
+.kat-tbl{border-collapse:collapse;font-size:12px;width:max-content;min-width:100%}
+.kat-tbl th{position:sticky;top:0;background:var(--s2);text-align:left;padding:5px 8px;border-bottom:1.5px solid var(--bd);cursor:pointer;white-space:nowrap;font-size:11px;user-select:none;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.kat-tbl td{padding:3px 8px;border-bottom:1px solid var(--bd);white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
+.kat-tbl tr{cursor:pointer}
+.kat-tbl tbody tr:hover{background:var(--s2)}
+.kat-tbl tr.on{background:color-mix(in srgb,#facc15 30%,transparent)}
+.kat-tbl tr.hid{opacity:.45}
+.kat-inp{width:100%;min-width:120px;font-size:12px;padding:1px 4px;border:1.5px solid var(--acc);border-radius:3px}
+/* легенда раскраски слоёв */
+.kml-legend{background:rgba(255,255,255,.95);border:1px solid #d1d5db;border-radius:8px;padding:6px 9px;font-size:11px;color:#111827;max-height:40vh;overflow:auto;max-width:260px;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.kml-legend-h{font-weight:700;cursor:pointer;user-select:none}
+.kml-legend-l{margin-top:6px}
+.kml-legend-r{display:flex;gap:6px;align-items:center;padding:1px 0}
+body.kat-open .leaflet-bottom{bottom:calc(38vh + 4px)}
+body.kat-open #mtb,body.kat-open #ep-panel{display:none}

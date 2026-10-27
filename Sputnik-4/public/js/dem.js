@@ -584,8 +584,8 @@ function _demStartVerts(mode) {
   if (bnr) {
     bnr.className = 'show draw';
     document.getElementById('bnr-t').textContent = mode === 'line'
-      ? '〰 Кликайте точки линии · ПКМ или Enter — завершить · Esc — отмена'
-      : '⬠ Кликайте вершины полигона · ПКМ или Enter — завершить · Esc — отмена';
+      ? '〰 Кликайте точки линии · ПКМ или Enter — завершить · Esc — отмена · Alt — без привязки'
+      : '⬠ Кликайте вершины полигона · ПКМ или Enter — завершить · Esc — отмена · Alt — без привязки';
     bnr.style.display = 'flex';
   }
   map.on('click', _demVertClick);
@@ -622,7 +622,7 @@ function _demVertKey(e) {
 
 function _demVertClick(e) {
   if (!_demVertMode) return;
-  _demVerts.push(e.latlng);
+  _demVerts.push(typeof mapSnapLL==='function'?mapSnapLL(e.latlng,e):e.latlng);
   _demRedrawVerts(null);
 }
 
