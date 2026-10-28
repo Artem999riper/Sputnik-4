@@ -133,3 +133,14 @@ test('журнал: сводка по пользователям за день �
   assert.ok(rows.some(r => r.name === 'База-аудит'));
   assert.strictEqual((await S.api('GET', `/api/audit?user=${encodeURIComponent('Проверкин')}&date=2000-01-01`)).body.rows.length, 0);
 });
+
+test('кто редактирует: начало, другие, окончание', async () => {
+  let r = await S.api('POST', '/api/editing', { key: 'worker:1', cid: 'A', name: 'Соколов', action: 'begin' });
+  assert.deepStrictEqual(r.body.others, []);
+  r = await S.api('POST', '/api/editing', { key: 'worker:1', cid: 'B', name: 'Иванов', action: 'begin' });
+  assert.deepStrictEqual(r.body.others.map(x => x.name), ['Соколов']);
+  await S.api('POST', '/api/editing', { key: 'worker:1', cid: 'A', action: 'end' });
+  r = await S.api('POST', '/api/editing', { key: 'worker:1', cid: 'B', name: 'Иванов', action: 'beat' });
+  assert.deepStrictEqual(r.body.others, []);
+  assert.strictEqual((await S.api('POST', '/api/editing', { cid: 'B' })).status, 400);
+});

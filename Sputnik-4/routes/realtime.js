@@ -84,7 +84,7 @@ function attachSse(app) {
   // Транслируем событие после любого успешного мутирующего запроса
   app.use((req, res, next) => {
     if (req.method === 'GET' || req.method === 'OPTIONS' || !req.url.startsWith('/api/')) return next();
-    if (req.url === '/api/events') return next();
+    if (req.url === '/api/events' || req.url.startsWith('/api/editing')) return next();   // «кто редактирует» — не изменение данных
     res.on('finish', () => {
       if (res.statusCode >= 200 && res.statusCode < 400) {
         broadcast({ type: 'change', method: req.method, url: req.url, t: Date.now() });

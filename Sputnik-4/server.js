@@ -203,6 +203,7 @@ getDb().then(database => {
   routeMto  (app, getDbInstance, L);
   require('./routes/inventory')(app, getDbInstance);
   require('./routes/dem-jobs')(app, getDbInstance, { demProcessor, broadcast: realtime.broadcast });
+  require('./routes/editing')(app, { broadcast: realtime.broadcast, presenceEvents: realtime.presenceEvents });
   routeMisc (app, getDbInstance, L, {
     upload, demProcessor, BACKUP_DIR, doBackup,
     getBackupSettings, setBackupSettings, performAutoBackup,

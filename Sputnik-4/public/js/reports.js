@@ -383,6 +383,7 @@ function startSseListener(){
         if(ev.type==='presence'){ if(typeof onPresenceEvent==='function')onPresenceEvent(); return; }
         if(ev.type==='acl'){ if(typeof loadMyCaps==='function')loadMyCaps(); return; }
         if(ev.type==='uiconfig'){ if(typeof loadUiConfig==='function')loadUiConfig(); return; }
+        if(ev.type==='editing'){ if(typeof onEditingEvent==='function')onEditingEvent(ev); return; }
         if(ev.type==='reload'){ try{toast('🔄 Обновление приложения…','ok');}catch(_){} setTimeout(function(){location.reload();},1500); return; }
         if(ev.type!=='change')return;
         handleSseChange(ev);

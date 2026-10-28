@@ -343,3 +343,85 @@ function labelDeclutter() {
   const go = () => { if (!window.map) return setTimeout(go, 500); map.on('zoomend moveend layeradd', sched); };
   setTimeout(go, 600);
 })();
+
+// ═══ Кто сейчас редактирует ════════════════════════════════════════════
+// Открыли на правку объект — сервер узнаёт об этом (ключ, имя), каждые 20 с
+// подтверждаем. Если тот же объект открыт у другого человека — в окне жёлтая
+// плашка «Сейчас это же редактирует: …»; придёт кто-то новый — сообщение.
+const ED = { key: null, label: '', title: '', timer: null, others: [], where: 'modal' };
+async function _edPost(action, key) {
+  try {
+    const r = await fetch(`${API}/editing`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, action, cid: typeof CLIENT_ID !== 'undefined' ? CLIENT_ID : 'anon', name: typeof un === 'function' ? un() : '' }) });
+    return r.ok ? r.json() : { others: [] };
+  } catch (e) { return { others: [] }; }
+}
+async function editBegin(key, label, where) {
+  if (ED.key === key) return;
+  editEnd();
+  ED.key = key; ED.label = label || ''; ED.where = where || 'modal'; ED.warned = false;
+  ED.title = (document.getElementById('mtit') || {}).textContent || '';
+  const j = await _edPost('begin', key);
+  if (ED.key !== key) return;
+  ED.others = j.others || []; _edShow();
+  ED.timer = setInterval(() => { if (ED.key) _edPost('beat', ED.key).then(x => { ED.others = x.others || []; _edShow(); }); }, 20000);
+}
+function editEnd() {
+  if (!ED.key) return;
+  const k = ED.key; ED.key = null; ED.others = []; clearInterval(ED.timer); ED.timer = null;
+  document.querySelectorAll('.ed-who').forEach(e => e.remove());
+  _edPost('end', k);
+}
+function _edShow() {
+  document.querySelectorAll('.ed-who').forEach(e => e.remove());
+  if (!ED.key || !ED.others.length) return;
+  const names = [...new Set(ED.others.map(o => o.name || 'Пользователь'))].join(', ');
+  const d = document.createElement('div'); d.className = 'ed-who';
+  d.innerHTML = `✋ Сейчас ${ED.label ? esc(ED.label) + ' ' : 'это же '}редактирует: <b>${esc(names)}</b> — сохраняйте по очереди, иначе последнее сохранение перезапишет чужие правки.`;
+  if (ED.where === 'none') { if (!ED.warned) { ED.warned = true; toast(`✋ Этот объект сейчас редактирует: ${names}`, 'warn'); } return; }
+  const host = ED.where === 'kat' ? document.querySelector('#kat-panel .kat-hd') : document.getElementById('mbd');
+  if (host) { if (ED.where === 'kat') host.after(d); else host.prepend(d); }
+}
+function onEditingEvent(ev) {
+  if (!ED.key || ev.key !== ED.key) return;
+  const me = typeof CLIENT_ID !== 'undefined' ? CLIENT_ID : 'anon';
+  const others = (ev.who || []).filter(x => x.cid !== me);
+  const newcomers = others.filter(x => !ED.others.some(o => o.cid === x.cid));
+  ED.others = others; _edShow();
+  if (newcomers.length) toast(`✋ ${newcomers.map(x => x.name).join(', ')} тоже открыл(а) ${ED.label || 'этот объект'} на правку`, 'warn');
+}
+// Ключи правки: оборачиваем функции открытия окон редактирования
+(function () {
+  const wrap = (name, keyOf, labelOf, where) => {
+    const f = window[name]; if (typeof f !== 'function') return;
+    window[name] = function () {
+      const r = f.apply(this, arguments);
+      const args = arguments;
+      Promise.resolve(r).then(() => setTimeout(() => { const k = keyOf.apply(null, args); if (k) editBegin(k, labelOf ? labelOf.apply(null, args) : '', where); }, 50));
+      return r;
+    };
+  };
+  const lname = id => ((typeof layers !== 'undefined' ? layers : []).find(l => l.id === id) || {}).name || '';
+  const go = () => {
+    wrap('kmlOpenStyleModal', id => 'layer:' + id, id => `стиль слоя «${lname(id)}»`);
+    wrap('kmlEditFeature', (lid, i) => `feat:${lid}:${i}`, (lid) => `объект слоя «${lname(lid)}»`);
+    wrap('kmlAttrTable', id => 'layer:' + id, id => `слой «${lname(id)}»`, 'kat');
+    wrap('kmlEditGeometry', (lid, i) => `feat:${lid}:${i}`, (lid) => `объект слоя «${lname(lid)}»`, 'none');
+    wrap('pgkEditWorker', id => 'worker:' + id, () => 'этого сотрудника');
+    wrap('pgkEditMach', id => 'mach:' + id, () => 'эту технику');
+    wrap('pgkEditEquip', id => 'equip:' + id, () => 'это оборудование');
+    wrap('openEditSiteModal', id => 'site:' + id, () => 'этот объект');
+    wrap('openEditBaseModal', id => 'base:' + id, () => 'эту базу');
+    // конец правки: закрыли окно / открыли другое / закрыли таблицу или редактор вершин
+    const cm = window.closeModal;
+    window.closeModal = closeModal = function () { if (ED.key && ED.where === 'modal') editEnd(); return cm.apply(this, arguments); };
+    const sm = window.showModal;
+    window.showModal = showModal = function (title) { if (ED.key && ED.where === 'modal' && String(title) !== ED.title) editEnd(); return sm.apply(this, arguments); };
+    const ks = window._kgeStop;
+    if (ks) window._kgeStop = _kgeStop = function () { if (ED.where === 'none') editEnd(); return ks.apply(this, arguments); };
+    const kc = window.kmlAttrTableClose;
+    if (kc) window.kmlAttrTableClose = kmlAttrTableClose = function () { if (ED.where === 'kat') editEnd(); return kc.apply(this, arguments); };
+    addEventListener('beforeunload', () => { if (ED.key) navigator.sendBeacon && navigator.sendBeacon(`${API}/editing`, new Blob([JSON.stringify({ key: ED.key, action: 'end', cid: CLIENT_ID })], { type: 'application/json' })); });
+  };
+  if (document.readyState === 'complete') go(); else addEventListener('load', go);
+})();
