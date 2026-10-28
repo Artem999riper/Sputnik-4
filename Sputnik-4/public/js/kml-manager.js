@@ -1857,6 +1857,7 @@ function renderLayerGroupsWithSymbols() {
       }).addTo(map);
 
       lGroups[l.id] = g;
+      if (typeof kmlCluster === 'function') kmlCluster(l.id, g, l.color);
       _kmlRenderCache[l.id] = { str: l.geojson, sig, rec: l };
       keep.add(l.id);
       // Скрыть если текущий зум вне диапазона масштаба
@@ -1874,7 +1875,7 @@ function renderLayerGroupsWithSymbols() {
     if (k.startsWith('s_')) return;
     if (!keep.has(k)) {
       try { map.removeLayer(lGroups[k]); } catch(e) {}
-      delete lGroups[k];
+      delete lGroups[k]; if (typeof kmlClusterOff === 'function') kmlClusterOff(k);
       delete _kmlRenderCache[k];
     }
   });

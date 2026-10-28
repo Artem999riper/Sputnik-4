@@ -591,7 +591,7 @@ function _snapFind(ll,px){
   for(const id in lGroups){
     const g=lGroups[id];if(!g||!map.hasLayer(g)||!g.eachLayer)continue;
     g.eachLayer(sub=>{
-      if(sub.getLatLng){tryV(sub.getLatLng());return;}
+      if(sub.getLatLng){if(map.hasLayer(sub))tryV(sub.getLatLng());return;}
       if(!sub.getLatLngs||!sub.getBounds)return;
       const b=sub.getBounds();if(!b.isValid())return;
       const ne=map.latLngToContainerPoint(b.getNorthEast()),sw=map.latLngToContainerPoint(b.getSouthWest());
