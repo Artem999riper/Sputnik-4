@@ -1756,7 +1756,7 @@ function renderLayerGroupsWithSymbols() {
         pane: 'kmlPane',
         renderer: getCanvasRenderer('kmlPane'),
         // Цвет: «выполнено» → раскраска по атрибуту → цвет объекта → цвет слоя
-        style: (f) => ({ color: _kmlFeatColor(l, f && f.properties) || color, weight: f && f.properties && f.properties._note ? 3.5 : 2.5, opacity:.85,
+        style: (f) => ({ color: _kmlFeatColor(l, f && f.properties) || color, weight: f && f.properties && f.properties._note ? (+f.properties._w || 3.5) : 2.5, opacity:.85, lineCap:'round', lineJoin:'round',
           fillOpacity: l.fill_opacity != null ? l.fill_opacity : .2, dashArray:dashArr }),
         pointToLayer: (f, ll) => {
           // Точки — в markerPane (z-600), иначе markerPane перехватывает события

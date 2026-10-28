@@ -24,17 +24,16 @@ function tabSiteOv(pb){
   </div>
   ${s.notes?`<div class="ic full" style="margin-bottom:8px"><div class="icl">Примечания</div><div style="font-size:11px;color:var(--tx2);margin-top:2px">${esc(s.notes)}</div></div>`:''}
   ${typeof siteForecastHtml==='function'?siteForecastHtml(s):''}
-  <div id="so-weather"></div>
   <div style="display:flex;gap:3px;flex-wrap:wrap">
     <button class="btn bp bsm" onclick="openEditSiteModal('${s.id}')">✏️ Ред.</button>
     <button class="btn bs bsm" onclick="openAssignBasesModal('${s.id}')">🔗 Базы</button>
     <button class="btn bs bsm" onclick="exportExcel('${s.id}')">📤 Excel</button>
     <button class="btn bs bsm" onclick="openHtmlExportModal('${s.id}')">📄 HTML</button>
     <button class="btn bs bsm" onclick="exportVolumesDXF('${s.id}')">📐 DXF</button>
+    <button class="btn bs bsm" onclick="siteDowntime('${s.id}')" title="Записать простой из-за погоды в журнал объекта">⛔ Простой</button>
     <button class="btn bs bsm" id="pf-btn" onclick="planFactToggle()" title="Плановые точки/контуры: зелёные — выполнены, красные — нет; % и отставание от графика">🎯 План/факт</button>
     <button class="btn bd bsm" onclick="deleteSite('${s.id}')">🗑</button>
   </div>`;
-  if(typeof siteWeatherLoad==='function')siteWeatherLoad(s,document.getElementById('so-weather'));
 }
 
 function tabSiteBases(pb){

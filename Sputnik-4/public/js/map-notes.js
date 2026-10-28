@@ -4,12 +4,13 @@
 //   текст   — Point {name, _note:'text', _color, _size}
 //   стрелка — MultiLineString (линия + 2 «уса» наконечника), _note:'arrow'
 //   выноска — LineString (от точки к подписи, _note:'callout') + текст в конце
+//   рисунок — LineString от руки (карандаш), _note:'draw', _w — толщина
 // Поэтому заметки выгружаются в DXF/KML/MIF как обычные объекты и попадают
 // на карту в «Отчёте для заказчика».
 // ═══════════════════════════════════════════════════════════
-const MN = Object.assign({ color: '#dc2626', size: 16 }, (() => { try { return JSON.parse(localStorage.getItem('map_notes') || '{}'); } catch (e) { return {}; } })(),
-  { mode: null, pts: [], tmp: null });
-function _mnSave() { try { localStorage.setItem('map_notes', JSON.stringify({ color: MN.color, size: MN.size })); } catch (e) {} }
+const MN = Object.assign({ color: '#dc2626', size: 16, width: 4 }, (() => { try { return JSON.parse(localStorage.getItem('map_notes') || '{}'); } catch (e) { return {}; } })(),
+  { mode: null, pts: [], tmp: null, stroke: null });
+function _mnSave() { try { localStorage.setItem('map_notes', JSON.stringify({ color: MN.color, size: MN.size, width: MN.width })); } catch (e) {} }
 
 // Иконка текста заметки (используется при отрисовке слоя в kml-manager)
 function mapNoteIcon(p) {
@@ -50,19 +51,71 @@ function mapNotesOpen() {
   map.on('click', _mnClick);
   map.on('mousemove', _mnMove);
   document.addEventListener('keydown', _mnKey, true);
+  const el = map.getContainer();
+  el.addEventListener('mousedown', _mnDown, true); el.addEventListener('touchstart', _mnDown, { capture: true, passive: false });
+  document.addEventListener('mousemove', _mnDrag); document.addEventListener('touchmove', _mnDrag, { passive: false });
+  document.addEventListener('mouseup', _mnUp); document.addEventListener('touchend', _mnUp);
 }
 function _mnBar() {
   const t = document.getElementById('bnr-t'); if (!t) return;
   const btn = (m, l) => `<button class="btn bsm" style="${MN.mode === m ? 'background:#fff;color:#111' : 'background:rgba(255,255,255,.15);color:#fff'};border:1px solid rgba(255,255,255,.4)" onclick="event.stopPropagation();_mnMode('${m}')">${l}</button>`;
-  const hint = { idle: 'выберите инструмент', text: 'щёлкните, где поставить текст', arrow: MN.pts.length ? 'щёлкните, куда указывает стрелка' : 'щёлкните начало стрелки',
+  const hint = { idle: 'выберите инструмент', draw: 'ведите мышью с нажатой кнопкой — карта не двигается', text: 'щёлкните, где поставить текст', arrow: MN.pts.length ? 'щёлкните, куда указывает стрелка' : 'щёлкните начало стрелки',
     callout: MN.pts.length ? 'щёлкните, где будет подпись' : 'щёлкните точку, к которой выноска' }[MN.mode] || '';
-  t.innerHTML = `✏️ Заметки: ${btn('text', '🔤 Текст')} ${btn('arrow', '➡ Стрелка')} ${btn('callout', '💬 Выноска')}
+  t.innerHTML = `✏️ Заметки: ${btn('draw', '✍️ Рисовать')} ${btn('text', '🔤 Текст')} ${btn('arrow', '➡ Стрелка')} ${btn('callout', '💬 Выноска')}
     <input type="color" value="${MN.color}" title="Цвет" style="width:28px;height:22px;padding:0;border:none;vertical-align:middle" onclick="event.stopPropagation()" onchange="MN.color=this.value;_mnSave()">
-    <select title="Размер текста" style="font-size:11px;padding:1px 2px" onclick="event.stopPropagation()" onchange="MN.size=+this.value;_mnSave()">${[12, 14, 16, 20, 24, 32].map(z => `<option ${MN.size === z ? 'selected' : ''}>${z}</option>`).join('')}</select>
-    <span style="opacity:.85">· ${hint} · Esc — выход</span>`;
+    ${MN.mode === 'draw' ? `<select title="Толщина линии" style="font-size:11px;padding:1px 2px" onclick="event.stopPropagation()" onchange="MN.width=+this.value;_mnSave()">${[[2, 'тонко'], [4, 'средне'], [7, 'толсто'], [12, 'маркер']].map(([w, n]) => `<option value="${w}" ${MN.width === w ? 'selected' : ''}>${n}</option>`).join('')}</select>`
+      : `<select title="Размер текста" style="font-size:11px;padding:1px 2px" onclick="event.stopPropagation()" onchange="MN.size=+this.value;_mnSave()">${[12, 14, 16, 20, 24, 32].map(z => `<option ${MN.size === z ? 'selected' : ''}>${z}</option>`).join('')}</select>`}
+    <span style="opacity:.85">· ${hint} · Ctrl+Z — убрать последнее · Esc — выход</span>`;
   t.onclick = e => e.stopPropagation();
 }
-function _mnMode(m) { MN.mode = m; MN.pts = []; _mnTmpClear(); map.getContainer().style.cursor = 'crosshair'; _mnBar(); }
+function _mnMode(m) {
+  MN.mode = m; MN.pts = []; _mnTmpClear(); map.getContainer().style.cursor = 'crosshair'; _mnBar();
+  // карандаш: перетаскивание карты выключено, пока рисуем
+  if (m === 'draw') map.dragging.disable(); else map.dragging.enable();
+}
+
+// ── Карандаш: штрих от нажатия до отпускания кнопки мыши (или пальца) ──
+function _mnDown(e) {
+  if (MN.mode !== 'draw') return;
+  const t = e.touches ? e.touches[0] : e;
+  if (e.button > 0 || (e.target.closest && e.target.closest('.leaflet-control,#bnr'))) return;
+  e.preventDefault(); e.stopPropagation();
+  MN.stroke = [map.mouseEventToLatLng(t)];
+  _mnTmpClear();
+  MN.tmp = L.polyline(MN.stroke, { color: MN.color, weight: MN.width, opacity: 0.9, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(map);
+}
+function _mnDrag(e) {
+  if (!MN.stroke) return;
+  const t = e.touches ? e.touches[0] : e;
+  const ll = map.mouseEventToLatLng(t), last = MN.stroke[MN.stroke.length - 1];
+  if (map.latLngToContainerPoint(ll).distanceTo(map.latLngToContainerPoint(last)) < 2) return;
+  MN.stroke.push(ll); MN.tmp.setLatLngs(MN.stroke);
+  e.preventDefault();
+}
+// Упрощение штриха (Дуглас — Пекер, допуск ~1,5 пикселя), чтобы не хранить тысячи точек
+function _mnSimplify(lls) {
+  const P = lls.map(ll => map.latLngToContainerPoint(ll)), keep = new Uint8Array(P.length);
+  keep[0] = keep[P.length - 1] = 1;
+  const st = [[0, P.length - 1]];
+  while (st.length) {
+    const [a, b] = st.pop(); let md = 0, mi = -1;
+    for (let i = a + 1; i < b; i++) {
+      const dx = P[b].x - P[a].x, dy = P[b].y - P[a].y, l = Math.hypot(dx, dy) || 1;
+      const d = Math.abs(dy * P[i].x - dx * P[i].y + P[b].x * P[a].y - P[b].y * P[a].x) / l;
+      if (d > md) { md = d; mi = i; }
+    }
+    if (md > 1.5) { keep[mi] = 1; st.push([a, mi], [mi, b]); }
+  }
+  return lls.filter((_, i) => keep[i]);
+}
+async function _mnUp() {
+  if (!MN.stroke) return;
+  const s = MN.stroke; MN.stroke = null;
+  if (s.length < 2) { _mnTmpClear(); return; }
+  const c = x => [+x.lng.toFixed(7), +x.lat.toFixed(7)];
+  await _mnAdd([{ type: 'Feature', properties: { name: '', _note: 'draw', _color: MN.color, _w: MN.width }, geometry: { type: 'LineString', coordinates: _mnSimplify(s).map(c) } }]);
+  _mnTmpClear();
+}
 function _mnTmpClear() { if (MN.tmp) { try { map.removeLayer(MN.tmp); } catch (e) {} MN.tmp = null; } }
 function _mnMove(e) {
   if (!MN.pts.length || (MN.mode !== 'arrow' && MN.mode !== 'callout')) return;
@@ -87,7 +140,7 @@ async function _mnAskText(def) {
   });
 }
 async function _mnClick(e) {
-  if (!MN.mode || MN.mode === 'idle') return;
+  if (!MN.mode || MN.mode === 'idle' || MN.mode === 'draw') return;
   const ll = typeof mapSnapLL === 'function' ? mapSnapLL(e.latlng, e) : e.latlng;
   const c = x => [+x.lng.toFixed(7), +x.lat.toFixed(7)];
   if (MN.mode === 'text') {
@@ -109,15 +162,36 @@ async function _mnClick(e) {
   }
 }
 function _mnKey(e) {
+  if (MN.mode === 'draw' && (e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'я')) { e.preventDefault(); e.stopImmediatePropagation(); mapNotesUndo(); return; }
   if (e.key !== 'Escape' || !MN.mode || document.getElementById('mov')?.classList.contains('open')) return;
   e.preventDefault(); e.stopImmediatePropagation();
+  if (MN.stroke) { MN.stroke = null; _mnTmpClear(); return; }
   if (MN.pts.length) { MN.pts = []; _mnTmpClear(); _mnBar(); } else mapNotesStop();
 }
 function mapNotesStop() {
-  MN.mode = null; MN.pts = []; _mnTmpClear();
+  MN.mode = null; MN.pts = []; MN.stroke = null; _mnTmpClear();
   map.off('click', _mnClick); map.off('mousemove', _mnMove);
   document.removeEventListener('keydown', _mnKey, true);
+  const el = map.getContainer();
+  el.removeEventListener('mousedown', _mnDown, true); el.removeEventListener('touchstart', _mnDown, true);
+  document.removeEventListener('mousemove', _mnDrag); document.removeEventListener('touchmove', _mnDrag);
+  document.removeEventListener('mouseup', _mnUp); document.removeEventListener('touchend', _mnUp);
+  map.dragging.enable();
   map.getContainer().style.cursor = '';
   const bnr = document.getElementById('bnr'); if (bnr) { bnr.className = ''; bnr.style.display = 'none'; }
   const b = document.getElementById('tool-notes'); if (b) b.classList.remove('on');
+}
+
+// Ctrl+Z в режиме заметок — убрать последнюю добавленную заметку
+async function mapNotesUndo() {
+  const l = (layers || []).find(x => { const st = typeof kmlStyleOf === 'function' ? kmlStyleOf(x) : null; return st && st.notes; });
+  if (!l) return;
+  let gj; try { gj = JSON.parse(l.geojson); } catch (e) { return; }
+  if (!(gj.features || []).length) return;
+  const last = gj.features.pop();
+  // выноска = линия + текст: убираем обе части
+  if (last.properties && last.properties._note === 'text' && gj.features.length && (gj.features[gj.features.length - 1].properties || {})._note === 'callout') gj.features.pop();
+  await _kmlSaveGeojson(l, gj);
+  if (typeof kmlInvalidateLayerCache === 'function') kmlInvalidateLayerCache(l.id);
+  renderLayerGroups(); toast('↩ Последняя заметка убрана', 'ok');
 }

@@ -153,7 +153,7 @@ async function _srMapImage(o, sat) {
       const [x, y] = P(f.geometry.coordinates[0], f.geometry.coordinates[1]);
       g.font = `bold ${Math.round((+p._size || 16) * 2.2)}px sans-serif`; g.lineWidth = 9; g.strokeStyle = 'rgba(255,255,255,.95)'; g.fillStyle = col;
       String(p.name || '').split('\n').forEach((t, i) => { const yy = y + i * (+p._size || 16) * 2.5; g.strokeText(t, x, yy); g.fillText(t, x, yy); });
-    } else { g.lineWidth = 7; g.strokeStyle = col; (f.geometry.type === 'LineString' ? [f.geometry.coordinates] : f.geometry.coordinates).forEach(l => { g.beginPath(); l.forEach((c, i) => { const [x, y] = P(c[0], c[1]); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); }); }
+    } else { g.lineWidth = Math.max(4, (+p._w || 3) * 2); g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = col; (f.geometry.type === 'LineString' ? [f.geometry.coordinates] : f.geometry.coordinates).forEach(l => { g.beginPath(); l.forEach((c, i) => { const [x, y] = P(c[0], c[1]); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); }); }
   });
   g.font = 'bold 34px sans-serif';
   bases.forEach(b => {

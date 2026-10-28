@@ -2,8 +2,7 @@
 // site-analytics.js — по объекту:
 //   • прогноз окончания по текущему темпу (по каждому виду работ и в целом)
 //     с предупреждением о срыве срока по договору;
-//   • погода на 5 дней по координатам объекта (Open-Meteo, без ключа)
-//     и отметка «простой из-за погоды» в журнале объекта.
+//   • отметка «простой из-за погоды» в журнале объекта (видна в отчёте).
 // ═══════════════════════════════════════════════════════════
 const SF_WINDOW = 14;    // темп — по последним 14 дням (если за них нет работ — за всё время)
 const _sfDay = d => new Date(String(d).slice(0, 10) + 'T00:00:00');
@@ -53,52 +52,6 @@ function siteForecastHtml(o) {
       <td style="text-align:right;white-space:nowrap;${f.end && v.finish && v.finish > f.end ? 'color:var(--red);font-weight:700' : ''}">${v.complete ? '✅' : v.finish ? _sfFmt(v.finish) : '—'}</td></tr>`).join('')}</table></details></div>`;
 }
 
-// ── Погода ─────────────────────────────────────────────────
-function siteCenter(o) {
-  const pts = [];
-  const walk = c => { if (typeof c[0] === 'number') pts.push(c); else c.forEach(walk); };
-  (o.volumes || []).forEach(v => { try { const g = JSON.parse(v.geojson); (g.features || [g]).forEach(f => walk((f.geometry || f).coordinates || [])); } catch (e) {} });
-  if (!pts.length) (o.bases || []).forEach(b => { if (b.lat && b.lng) pts.push([b.lng, b.lat]); });
-  if (!pts.length) return null;
-  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-  return { lat: (Math.min(...ys) + Math.max(...ys)) / 2, lng: (Math.min(...xs) + Math.max(...xs)) / 2 };
-}
-const WMO = { 0: ['☀️', 'ясно'], 1: ['🌤', 'малооблачно'], 2: ['⛅', 'облачно'], 3: ['☁️', 'пасмурно'], 45: ['🌫', 'туман'], 48: ['🌫', 'туман, изморозь'],
-  51: ['🌦', 'морось'], 53: ['🌦', 'морось'], 55: ['🌦', 'морось'], 56: ['🌧', 'ледяная морось'], 57: ['🌧', 'ледяная морось'],
-  61: ['🌧', 'дождь'], 63: ['🌧', 'дождь'], 65: ['🌧', 'сильный дождь'], 66: ['🌧', 'ледяной дождь'], 67: ['🌧', 'ледяной дождь'],
-  71: ['🌨', 'снег'], 73: ['🌨', 'снег'], 75: ['❄️', 'сильный снег'], 77: ['🌨', 'снежная крупа'], 80: ['🌦', 'ливень'], 81: ['🌧', 'ливень'], 82: ['⛈', 'сильный ливень'],
-  85: ['🌨', 'снегопад'], 86: ['❄️', 'сильный снегопад'], 95: ['⛈', 'гроза'], 96: ['⛈', 'гроза с градом'], 99: ['⛈', 'гроза с градом'] };
-const _swCache = new Map();
-async function siteWeatherLoad(o, el) {
-  if (!el) return;
-  const c = siteCenter(o);
-  if (!c) { el.innerHTML = ''; return; }
-  const key = c.lat.toFixed(2) + ',' + c.lng.toFixed(2);
-  let w = _swCache.get(key);
-  if (!w || Date.now() - w.t > 30 * 60000) {
-    el.innerHTML = '<div style="font-size:10px;color:var(--tx3);margin-bottom:6px">⏳ Погода…</div>';
-    try {
-      const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${c.lat.toFixed(4)}&longitude=${c.lng.toFixed(4)}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,wind_gusts_10m_max&wind_speed_unit=ms&timezone=auto&forecast_days=5`, { signal: AbortSignal.timeout(8000) });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      w = { t: Date.now(), d: (await r.json()).daily }; _swCache.set(key, w);
-    } catch (e) { el.innerHTML = `<div style="font-size:10px;color:var(--tx3);margin-bottom:6px">🌥 Погода недоступна (нет интернета?) · <a href="#" onclick="event.preventDefault();siteDowntime('${escAttr(o.id)}')">отметить простой</a></div>`; return; }
-  }
-  const d = w.d, n = v => Math.round(v);
-  const days = d.time.map((t, i) => {
-    const [ic, txt] = WMO[d.weather_code[i]] || ['🌡', ''];
-    const bad = d.wind_gusts_10m_max[i] >= 15 || d.precipitation_sum[i] >= 10 || [65, 75, 82, 86, 95, 96, 99].includes(d.weather_code[i]);
-    const wd = new Date(t + 'T00:00:00').toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric' });
-    return `<div title="${esc(txt)}; ветер до ${n(d.wind_speed_10m_max[i])} м/с, порывы ${n(d.wind_gusts_10m_max[i])} м/с; осадки ${d.precipitation_sum[i]} мм"
-      style="flex:1;min-width:52px;text-align:center;padding:4px 2px;border-radius:6px;background:${bad ? 'color-mix(in srgb,var(--red) 12%,transparent)' : 'var(--s2)'}">
-      <div style="font-size:9px;color:var(--tx3)">${wd}</div><div style="font-size:18px;line-height:1.2">${ic}</div>
-      <div style="font-size:10px;font-weight:700">${n(d.temperature_2m_max[i])}° / ${n(d.temperature_2m_min[i])}°</div>
-      <div style="font-size:9px;color:var(--tx2)">💨 ${n(d.wind_gusts_10m_max[i])} м/с${d.precipitation_sum[i] >= 0.5 ? ` · 💧${n(d.precipitation_sum[i])}` : ''}</div></div>`;
-  }).join('');
-  el.innerHTML = `<div class="ic full" style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="icl">Погода на объекте</div>
-      <a href="#" style="font-size:10px" onclick="event.preventDefault();siteDowntime('${escAttr(o.id)}')">⛔ отметить простой</a></div>
-    <div style="display:flex;gap:4px;margin-top:4px">${days}</div>
-    <div style="font-size:9px;color:var(--tx3);margin-top:3px">Красным — порывы от 15 м/с, осадки от 10 мм, гроза/сильный снег. Open-Meteo.</div></div>`;
-}
 // Простой из-за погоды → журнал объекта (виден в «Журнале» и в отчёте для заказчика)
 function siteDowntime(siteId) {
   const today = _sfIso(Date.now());
