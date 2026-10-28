@@ -167,7 +167,7 @@ function kmlLegendShow() {}
 // ── Таблица атрибутов (панель снизу карты) ─────────────────
 const KAT = { layerId: null, sort: null, dir: 1, q: '', sel: -1, hl: null, max: 1500 };
 function kmlAttrTable(layerId) {
-  KAT.layerId = layerId; KAT.sort = null; KAT.dir = 1; KAT.q = ''; KAT.sel = -1; KAT.only = null;
+  KAT.layerId = layerId; KAT.sort = null; KAT.dir = 1; KAT.q = ''; KAT.sel = -1;
   let p = document.getElementById('kat-panel');
   if (!p) {
     p = document.createElement('div'); p.id = 'kat-panel';
@@ -206,7 +206,6 @@ function _katRender() {
   const ic = t => /Point/.test(t) ? '📍' : /LineString/.test(t) ? '〰' : /Polygon/.test(t) ? '⬡' : '•';
   let rows = feats.map((f, i) => ({ f, i, sz: _katSize(f) }));
   const q = KAT.q.trim().toLowerCase();
-  if (KAT.only) rows = rows.filter(r => KAT.only.has(r.i));
   if (q) rows = rows.filter(r => fields.some(k => String((r.f.properties || {})[k] ?? '').toLowerCase().includes(q)));
   if (KAT.sort) {
     const k = KAT.sort, d = KAT.dir;
@@ -222,11 +221,9 @@ function _katRender() {
   const arrow = k => KAT.sort === k ? (KAT.dir > 0 ? ' ▲' : ' ▼') : '';
   const st = kmlStyleOf(l) || {};
   p.innerHTML = `<div class="kat-hd">
-      <b>📋 ${esc(l.name)}</b><span style="color:var(--tx3)">${q || KAT.only ? `${total} из ${feats.length}` : feats.length} объект(ов)</span>
-      ${KAT.only ? `<span class="kat-only">🔎 по запросу <button onclick="KAT.only=null;_katRender()" title="Показать все">✕</button></span>` : ''}
+      <b>📋 ${esc(l.name)}</b><span style="color:var(--tx3)">${q ? `${total} из ${feats.length}` : feats.length} объект(ов)</span>
       <input id="kat-q" placeholder="🔍 Поиск по всем полям…" value="${escAttr(KAT.q)}" oninput="KAT.q=this.value;_katRender();setTimeout(()=>{const e=document.getElementById('kat-q');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},0)">
       <button class="btn bs bxs" onclick="_katAddField()">＋ Поле</button>
-      <button class="btn bs bxs" onclick="attrQueryOpen(KAT.layerId)" title="Найти объекты по условиям: глубина > 5 и статус = выполнено">🔎 Запрос</button>
       <span style="color:var(--tx3);font-size:10px">щелчок — к объекту · двойной щелчок — изменить · ПКМ по заголовку — поле</span>
       <button class="kml-panel-close" onclick="kmlAttrTableClose()" title="Закрыть">✕</button></div>
     <div class="kat-body"><table class="kat-tbl"><thead><tr><th>#</th><th></th>

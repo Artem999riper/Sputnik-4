@@ -5,7 +5,7 @@
 <title>ПурГеоКом</title>
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="css/tokens.css">
-<script>/* тема — до отрисовки, чтобы не мигало */try{var _u=JSON.parse(localStorage.getItem('ui_settings')||'{}'),_t=_u.theme||'light';if(_t==='auto')_t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.theme=_t;if(_u.dimMap!==false)document.documentElement.classList.add('dim-map');}catch(e){}</script>
+<script>/* тема — до отрисовки, чтобы не мигало */try{var _u=JSON.parse(localStorage.getItem('ui_settings')||'{}'),_s=(JSON.parse(localStorage.getItem('ui_srv')||'null')||{values:{}}),_v=_s.values||{},_t=(_s.lock&&_v.theme)||_u.theme||_v.theme||'light';if(_t==='auto')_t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.theme=_t;if(((_s.lock&&'dimMap' in _v)?_v.dimMap:('dimMap' in _u?_u.dimMap:_v.dimMap))!==false)document.documentElement.classList.add('dim-map');}catch(e){}</script>
 <link rel="stylesheet" href="css/layout.css">
 <link rel="stylesheet" href="css/panel.css">
 <link rel="stylesheet" href="css/components.css">
@@ -349,8 +349,6 @@
     <button class="mtp-i" id="tool-swipe" onclick="mtbClose();mapSwipeOpen()">↔ Шторка<small>сравнить две подложки</small></button>
     <button class="mtp-i" id="tool-notes" onclick="mtbClose();mapNotesOpen()">✏️ Заметки<small>рисунок, текст, стрелки, выноски</small></button>
     <button class="mtp-i" id="tool-ruler" onclick="mtbClose();startRuler('line')">📏 Линейка<small>расстояние; Z — шаг назад, Esc — выход</small></button>
-    <button class="mtp-i" id="tool-bm" onclick="mtbClose();bookmarksOpen()">🔖 Закладки<small>сохранённые виды карты, Alt+Shift+1…9</small></button>
-    <button class="mtp-i" id="tool-aq" onclick="mtbClose();attrQueryOpen()">🔎 Запрос по атрибутам<small>глубина &gt; 5 и статус = выполнено</small></button>
     <button class="mtp-i" id="tool-snap" onclick="mtbClose();mapSnapshotOpen()">🖼 Снимок карты<small>текущий вид в PNG или PDF, со штампом</small></button>
     <button class="mtp-i" id="tool-present" onclick="mtbClose();presentToggle()">🖥 Показ заказчику<small>только карта, заметки, масштаб и штамп</small></button>
   </div>

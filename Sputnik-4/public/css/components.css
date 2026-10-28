@@ -342,29 +342,8 @@ body.ui-nocoords #coord-widget{display:none!important}
 .sc-h{position:absolute;top:0;bottom:0;width:7px;cursor:ew-resize}
 .sc-h.l{left:0}.sc-h.r{right:0}
 .sc-h:hover{background:rgba(255,255,255,.35)}
-/* закладки, мини-карта, запрос */
-.bm-btn a{font-size:15px;line-height:30px;text-align:center;text-decoration:none;background:var(--s)!important;color:var(--tx)!important}
-#bm-pop{position:fixed;top:calc(var(--th) + 60px);right:56px;z-index:8600;width:300px;background:var(--s);border:1.5px solid var(--bd);border-radius:10px;box-shadow:var(--shl);padding:8px;font-size:12px}
-.bm-hd{display:flex;align-items:center;gap:6px;font-weight:800;padding:2px 4px 8px}
-.bm-hd small{font-weight:500;color:var(--tx3);flex:1}
-.bm-hd button{border:none;background:none;cursor:pointer;color:var(--tx3);font-size:13px}
-.bm-list{max-height:50vh;overflow-y:auto;margin-bottom:8px}
-.bm-row{display:flex;align-items:center;gap:2px;border-radius:6px}
-.bm-row:hover{background:var(--accl)}
-.bm-go{flex:1;padding:6px 6px;cursor:pointer;display:flex;gap:6px;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bm-go kbd{font-size:9px;color:var(--tx3);border:1px solid var(--bd);border-radius:3px;padding:0 3px;font-family:inherit}
-.bm-row button{border:none;background:none;cursor:pointer;padding:3px 5px;opacity:.5;color:var(--tx)}
-.bm-row button:hover{opacity:1}
-.bm-empty{color:var(--tx3);padding:10px;text-align:center}
-.mm-box{position:relative;width:200px;height:140px;border:2px solid var(--s);border-radius:8px;box-shadow:var(--shm);overflow:hidden;background:var(--s2)}
-.mm-box.small{width:110px;height:80px}
-.mm-map{position:absolute;inset:0}
-.mm-tg{position:absolute;top:2px;right:2px;z-index:1000;border:none;background:rgba(255,255,255,.85);border-radius:4px;cursor:pointer;font-size:10px;width:18px;height:16px;padding:0;line-height:16px}
-.mm-box.small .mm-tg{transform:rotate(180deg)}
-.aq-row{display:flex;gap:6px;align-items:center}
-.aq-row select{max-width:190px}
-.kat-only{background:#f97316;color:#fff;border-radius:10px;padding:1px 4px 1px 8px;font-size:10px;font-weight:700}
-.kat-only button{border:none;background:none;color:#fff;cursor:pointer;font-size:10px}
 .sett-theme{display:flex;gap:4px;margin-bottom:4px}
 .sett-theme button{flex:1;border:1.5px solid var(--bd);background:var(--s2);color:var(--tx);border-radius:6px;padding:5px 2px;font-size:11px;cursor:pointer;font-family:inherit}
 .sett-theme button.on{border-color:var(--acc);background:var(--accl);color:var(--acc);font-weight:700}
+.uis-srv{font-size:10.5px;color:var(--acc);background:var(--accl);border-radius:6px;padding:5px 8px;margin-top:8px}
+.sett-theme button:disabled{opacity:.55;cursor:not-allowed}

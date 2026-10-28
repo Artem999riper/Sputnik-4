@@ -498,6 +498,7 @@ function updateStats(){
 // ═══════════════════════════════════════════════════════════
 function applyMlblSize(px){
   px=parseInt(px,10);
+  if(typeof _uisLocked==='function'&&_uisLocked('mlbl'))px=parseInt(UIS_SRV.values.mlbl,10)||px;
   document.documentElement.style.setProperty('--mlbl-fs',px+'px');
   const val=document.getElementById('mlbl-size-val');
   if(val)val.textContent=px;

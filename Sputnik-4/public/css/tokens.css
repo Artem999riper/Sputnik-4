@@ -43,7 +43,6 @@ html[data-theme=dark] .leaflet-control-layers-toggle{filter:invert(.85)}
 html[data-theme=dark] .leaflet-tooltip:not(.mlbl):not(.lm-tip){background:var(--s);color:var(--tx);border-color:var(--bd)}
 html[data-theme=dark].dim-map .leaflet-tile-pane{filter:brightness(.78) contrast(1.05)}
 html[data-theme=dark] ::-webkit-scrollbar-thumb{background:#3b4656}
-html[data-theme=dark] .mm-tg{background:rgba(30,40,52,.85);color:#e5e7eb}
 html[data-theme=dark] #drop-hint{background:rgba(26,33,43,.95)}
 html[data-theme=dark] #coord-widget{background:rgba(26,33,43,.93)!important;border-color:var(--bd)!important}
 html[data-theme=dark] .leaflet-container{background:#1c232d}
