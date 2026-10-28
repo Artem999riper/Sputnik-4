@@ -41,7 +41,7 @@ async function openAuditLog(filter) {
       ${window._auF.date ? `<button class="btn bs bxs" onclick="window._auF.date='';document.getElementById('au-d').value='';_auLoad()" title="Все дни">✕ день</button>` : ''}
     </div>
     <div style="font-size:10px;color:var(--tx3);margin-bottom:6px">Хранится 120 дней. «↩ Откатить» возвращает прежние значения (нужны права администратора).</div>
-    <div id="au-list" style="max-height:min(520px,65vh);overflow:auto;min-width:min(760px,90vw)"><div style="padding:16px;color:var(--tx3)">⏳ Загрузка…</div></div>`,
+    <div id="au-list" style="max-height:min(520px,65vh);overflow:auto;min-width:min(760px,90vw)">${typeof skel==='function'?skel(6,18):'⏳ Загрузка…'}</div>`,
     [{ label: '👥 По пользователям', cls: 'bs', fn: () => openAuditUsers(window._auF.date) }, { label: '📋 Журнал действий', cls: 'bs', fn: () => { closeModal(); openGLog(); } }, { label: 'Закрыть', cls: 'bp', fn: closeModal }]);
   _auLoad();
 }

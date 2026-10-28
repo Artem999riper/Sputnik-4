@@ -109,7 +109,7 @@ async function _admReloadAll(){
 
 async function _admRenderRights(){
   const box=document.getElementById('adm-body');if(!box)return;
-  box.innerHTML='<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">⏳ Загрузка…</div>';
+  box.innerHTML=typeof skel==='function'?skel(4):'⏳ Загрузка…';
   let data={caps:{},clients:[]};
   try{const r=await fetch(`${API}/admin/clients`);if(r.ok)data=await r.json();else{const j=await r.json().catch(()=>({}));box.innerHTML='<div style="color:#ef4444;font-size:12px;padding:10px">'+esc(j.error||'Нет доступа')+'</div>';return;}}catch(e){box.innerHTML='<div style="color:#ef4444;padding:10px">Ошибка сети</div>';return;}
   _admCaps=data.caps;
@@ -194,7 +194,7 @@ const _ADM_TABS=[
 ];
 async function _admRenderTabs(){
   const box=document.getElementById('adm-body');if(!box)return;
-  box.innerHTML='<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">⏳ Загрузка…</div>';
+  box.innerHTML=typeof skel==='function'?skel(4):'⏳ Загрузка…';
   let hidden=[];
   try{const r=await fetch(`${API}/ui-config`);if(r.ok){const d=await r.json();hidden=Array.isArray(d&&d.hiddenTabs)?d.hiddenTabs:[];}}catch(e){}
   box.innerHTML=`
@@ -225,7 +225,7 @@ async function _admSaveTabs(){
 // ── Версия и обновление программы ─────────────────────────
 async function _admRenderUpdate(){
   const box=document.getElementById('adm-body');if(!box)return;
-  box.innerHTML='<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">⏳ Загрузка…</div>';
+  box.innerHTML=typeof skel==='function'?skel(4):'⏳ Загрузка…';
   const v=await _verFetch()||{};
   let snaps=[];try{snaps=await fetch(`${API}/admin/update/snapshots`).then(r=>r.json());}catch(e){}
   const row=(k,val)=>`<div style="color:var(--tx3)">${k}</div><div>${val}</div>`;

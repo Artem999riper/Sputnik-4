@@ -329,17 +329,27 @@
   max-height:40vh;overflow-y:auto;overflow-x:visible;pointer-events:auto;font-size:12px"></div>
 
 <div id="mtb">
-  <button class="mt on" id="tool-view" onclick="setTool('view')">👁 Просмотр</button>
-  <div style="width:1px;height:16px;background:rgba(0,0,0,.12);margin:0 2px;flex-shrink:0"></div>
-  <button class="mt" id="tool-kml" onclick="toggleKmlPanel()" title="Менеджер слоёв KML/GPX">🗂 Слои</button>
-  <div style="width:1px;height:16px;background:rgba(0,0,0,.12);margin:0 2px;flex-shrink:0"></div>
-  <button class="mt" id="tool-dem" onclick="openDEMPanel()" title="Выгрузка рельефа ArcticDEM">🏔 Рельеф</button>
-  <button class="mt" id="tool-flood" onclick="openFloodPanel()" title="Зона затопления по отметке БСВ-77">🌊 Затопление</button>
-  <button class="mt" id="tool-terrain" onclick="openTerrainPanel()" title="Анализ рельефа: уклоны, экспозиция, линии стока, водосбор, сравнение со съёмкой">🧭 Анализ</button>
-  <div style="width:1px;height:16px;background:rgba(0,0,0,.12);margin:0 2px;flex-shrink:0"></div>
-  <button class="mt" id="tool-elev" onclick="openElevationProfile()" title="Профиль высот по линии">📈 Профиль</button>
-  <button class="mt" id="tool-swipe" onclick="mapSwipeOpen()" title="Шторка: сравнить две подложки">↔ Шторка</button>
-  <button class="mt" id="tool-notes" onclick="mapNotesOpen()" title="Заметки на карте: текст, стрелки, выноски">✏️ Заметки</button>
+  <button class="mt on" id="tool-view" onclick="setTool('view')" title="Просмотр">👁<span class="mt-lbl"> Просмотр</span></button>
+  <div class="mt-sep"></div>
+  <button class="mt" id="tool-kml" onclick="toggleKmlPanel()" title="Менеджер слоёв KML/GPX">🗂<span class="mt-lbl"> Слои</span></button>
+  <div class="mt-sep"></div>
+  <button class="mt" id="tool-grp-relief" onclick="mtbMenu(this,'relief')" title="Рельеф: выгрузка, затопление, анализ, профиль">🏔<span class="mt-lbl"> Рельеф</span> ▾</button>
+  <button class="mt" id="tool-grp-tools" onclick="mtbMenu(this,'tools')" title="Инструменты: шторка, заметки, линейка, показ заказчику">🧰<span class="mt-lbl"> Инструменты</span> ▾</button>
+</div>
+<!-- Меню групп нижней панели (кнопки с прежними id: на них ссылаются справка и подсветка «вкл») -->
+<div id="mtb-pop">
+  <div class="mtp-g" data-g="relief">
+    <button class="mtp-i" id="tool-dem" onclick="mtbClose();openDEMPanel()">🏔 Выгрузка рельефа<small>горизонтали, отметки, подложка → DXF</small></button>
+    <button class="mtp-i" id="tool-flood" onclick="mtbClose();openFloodPanel()">🌊 Зона затопления<small>по отметке БСВ-77, в т.ч. с уклоном воды</small></button>
+    <button class="mtp-i" id="tool-terrain" onclick="mtbClose();openTerrainPanel()">🧭 Анализ рельефа<small>уклоны, сток, водосбор, сравнение со съёмкой</small></button>
+    <button class="mtp-i" id="tool-elev" onclick="mtbClose();openElevationProfile()">📈 Профиль высот<small>по линии: график, DXF, Excel</small></button>
+  </div>
+  <div class="mtp-g" data-g="tools">
+    <button class="mtp-i" id="tool-swipe" onclick="mtbClose();mapSwipeOpen()">↔ Шторка<small>сравнить две подложки</small></button>
+    <button class="mtp-i" id="tool-notes" onclick="mtbClose();mapNotesOpen()">✏️ Заметки<small>рисунок, текст, стрелки, выноски</small></button>
+    <button class="mtp-i" id="tool-ruler" onclick="mtbClose();startRuler('line')">📏 Линейка<small>расстояние; Z — шаг назад, Esc — выход</small></button>
+    <button class="mtp-i" id="tool-present" onclick="mtbClose();presentToggle()">🖥 Показ заказчику<small>только карта, заметки, легенда и штамп</small></button>
+  </div>
 </div>
 <div id="bnr"><span id="bnr-t">Кликните на карту</span>
   <button class="btn bsm" style="border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.15);color:#fff" onclick="cancelMode()">✕</button>
@@ -531,7 +541,7 @@
 <!-- MODAL -->
 <div id="mov" >
   <div id="modal">
-    <div class="mhd"><h3 id="mtit"></h3><button class="ph-x" onclick="closeModal()">✕</button></div>
+    <div class="mhd"><h3 id="mtit"></h3><button class="ph-x" onclick="typeof modalUserClose==='function'?modalUserClose():closeModal()">✕</button></div>
     <div class="mbd" id="mbd"></div>
     <div class="mft" id="mft"></div>
   </div>
@@ -566,6 +576,7 @@
 <script src="js/cargo.js"></script>
 <script src="js/tasks.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/ux.js"></script>
 <script src="js/admin.js"></script>
 <script src="js/dem.js"></script>
 <script src="js/dem-wizard.js"></script>

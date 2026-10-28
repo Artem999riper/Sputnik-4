@@ -30,7 +30,7 @@ function initMap(){
   map.on('contextmenu',onMapRClick);
   map.on('zoomend',_updateKmlLabelScale);
   document.addEventListener('click',e=>{if(!e.target.closest('#ctx'))hideCtx();});
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();cancelMode();clearRuler();}if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();undoLast();}if(e.key==='z'&&!e.ctrlKey&&!e.metaKey&&rulerActive){rulerUndoLast();}});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(typeof modalUserClose==='function'&&document.getElementById('mov').classList.contains('open'))modalUserClose();else closeModal();cancelMode();clearRuler();}if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();undoLast();}if(e.key==='z'&&!e.ctrlKey&&!e.metaKey&&rulerActive){rulerUndoLast();}});
   // Инициализация слоёв рельефа (terrain.js)
   setTimeout(initTerrain, 100);
   // Инициализация менеджера KML слоёв
@@ -76,6 +76,7 @@ function onMapRClick(e){
   const hasRuler=rulerPts.length>=2;
   showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
     {i:'🔎',l:'Найти на карте',f:openMapSearch},
+    ...((()=>{try{return localStorage.getItem('kml_legend_off')==='1';}catch(x){return false;}})()?[{i:'🗺',l:'Показать легенду',f:()=>kmlLegendShow()}]:[]),
     {i:'⬚',l:'Выделить объекты (область)',f:startKmlSelectMode},
     {sep:true},
     {i:'📌',l:'Поставить метку',f:()=>openPlaceMarkerModal(e.latlng)},

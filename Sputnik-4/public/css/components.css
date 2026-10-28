@@ -200,3 +200,57 @@ body.kat-open #mtb,body.kat-open #ep-panel{display:none}
 #msw-bar .msw-lbl{position:absolute;top:58px;white-space:nowrap;background:rgba(17,24,39,.75);color:#fff;font-size:11px;font-weight:600;padding:3px 8px;border-radius:10px}
 #msw-bar .msw-l{right:10px}#msw-bar .msw-r{left:10px}
 #msw-bar .msw-x{position:absolute;top:58px;left:-12px;transform:translateY(28px);width:24px;height:24px;border-radius:50%;border:none;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer;pointer-events:auto;font-size:11px}
+/* нижняя панель карты: группы-меню */
+#mtb .mt-sep{width:1px;height:16px;background:rgba(0,0,0,.12);margin:0 2px;flex-shrink:0;align-self:center}
+#mtb-pop{position:fixed;z-index:1550;display:none;flex-direction:column;min-width:250px;background:var(--s);border:1.5px solid var(--bd);border-radius:12px;box-shadow:var(--shl);padding:5px}
+#mtb-pop.open{display:flex}
+#mtb-pop .mtp-g{display:none;flex-direction:column}
+#mtb-pop .mtp-g.on{display:flex}
+#mtb-pop .mtp-i{display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;background:none;border:none;border-radius:8px;padding:7px 10px;font:inherit;font-size:12px;font-weight:700;color:var(--tx);cursor:pointer}
+#mtb-pop .mtp-i small{font-size:10px;font-weight:500;color:var(--tx3)}
+#mtb-pop .mtp-i:hover{background:var(--s2)}
+#mtb-pop .mtp-i.on{background:color-mix(in srgb,var(--acc) 14%,transparent);color:var(--acc)}
+@media (max-width:1100px){#mtb .mt-lbl{display:none}#mtb .mt{padding:5px 9px;font-size:14px}}
+/* связь с сервером (ux.js) */
+#net-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-left:8px;align-self:center;cursor:pointer;box-shadow:0 0 0 2px var(--s)}
+#net-dot.on{background:#16a34a}
+#net-dot.off{background:#dc2626;animation:netpulse 1.2s infinite}
+@keyframes netpulse{50%{opacity:.35}}
+#net-bar{position:fixed;top:var(--th);left:50%;transform:translate(-50%,-140%);visibility:hidden;z-index:6000;background:#b91c1c;color:#fff;font-size:12px;font-weight:700;padding:7px 14px;border-radius:0 0 10px 10px;box-shadow:var(--shm);transition:transform .25s}
+#net-bar.show{transform:translate(-50%,0);visibility:visible}
+#net-bar button{margin-left:8px;border:1px solid rgba(255,255,255,.6);background:rgba(255,255,255,.15);color:#fff;border-radius:6px;padding:2px 8px;cursor:pointer;font:inherit}
+/* левая панель: ручка ширины и сворачивание */
+#sb-handle{position:fixed;top:var(--th);bottom:0;left:calc(var(--sw) - 3px);width:6px;cursor:col-resize;z-index:1001}
+#sb-handle:hover,body.sb-resizing #sb-handle{background:color-mix(in srgb,var(--acc) 35%,transparent)}
+body.sb-resizing{user-select:none;cursor:col-resize}
+body.sb-resizing #map,body.sb-collapsed #sidebar{pointer-events:none}
+#sb-toggle{position:fixed;top:calc(var(--th) + 8px);left:calc(var(--sw) + 6px);z-index:1001;width:22px;height:30px;border:1.5px solid var(--bd);border-radius:0 8px 8px 0;background:var(--s);color:var(--tx2);cursor:pointer;font-size:12px;padding:0;box-shadow:var(--shm)}
+#sb-toggle::before{content:'⟨'}
+body.sb-collapsed #sb-toggle{left:0}
+body.sb-collapsed #sb-toggle::before{content:'⟩'}
+body.sb-collapsed #sidebar{visibility:hidden}
+#sidebar,#map,#mtb,#bnr{transition:width .15s,left .15s}
+body.sb-resizing #sidebar,body.sb-resizing #map,body.sb-resizing #mtb{transition:none}
+/* скелетон загрузки */
+.skel{display:flex;flex-direction:column;gap:8px;padding:8px 2px}
+.skel-l{border-radius:6px;background:linear-gradient(90deg,var(--s2) 0%,var(--s3,#e5e7eb) 50%,var(--s2) 100%);background-size:200% 100%;animation:skel 1.2s infinite linear}
+@keyframes skel{from{background-position:200% 0}to{background-position:-200% 0}}
+/* единый вид окон: заголовок, подвал, кнопки */
+#modal .mhd h3{font-size:14px;font-weight:800;letter-spacing:.1px}
+#mft{gap:6px;flex-wrap:wrap}
+#mft .btn{min-height:30px}
+#mbd .dw-info{border-radius:var(--rs)}
+#mov.side{background:rgba(17,25,40,.08)!important;backdrop-filter:none!important}
+/* режим «Показ заказчику» */
+body.present #tb,body.present #sidebar,body.present #mtb,body.present #mtb-pop,body.present #panel,body.present #mini-panel,body.present #kml-panel,
+body.present #coord-widget,body.present #site-stats-overlay,body.present #alert-strip,body.present #sb-handle,body.present #sb-toggle,
+body.present .leaflet-control-layers,body.present .leaflet-control-zoom,body.present #kat-panel,body.present #ep-panel,body.present #net-bar{display:none!important}
+body.present #map{top:0!important;left:0!important}
+.pres-stamp{background:rgba(255,255,255,.95);border:1.5px solid #9ca3af;border-radius:6px;padding:6px 12px;font-size:12px;color:#111827;text-align:right;line-height:1.35;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.pres-stamp b{font-size:14px;letter-spacing:.3px}
+#pres-exit{position:fixed;top:10px;right:10px;z-index:7000;border:none;border-radius:16px;padding:6px 12px;background:rgba(17,24,39,.7);color:#fff;font:inherit;font-size:12px;font-weight:700;cursor:pointer;opacity:.35;transition:opacity .2s}
+#pres-exit:hover{opacity:1}
+.kml-legend-r.sub{padding-left:20px;font-size:10.5px}
+/* легенда и прочие контролы слева внизу — над строкой координат */
+#map .leaflet-bottom.leaflet-left{bottom:44px}
+body.present #map .leaflet-bottom.leaflet-left{bottom:0}

@@ -422,6 +422,7 @@ const _djSt = { queued: '⏳ В очереди', running: '⚙️ Выполня
 const _djSize = b => b == null ? '' : b > 1048576 ? (b / 1048576).toFixed(1) + ' МБ' : Math.round(b / 1024) + ' КБ';
 async function demJobsOpen(all) {
   window._djAll = !!all;
+  if (!document.querySelector('.dj-row') && typeof skel === 'function') showModal('📦 Мои выгрузки', `<div style="min-width:min(560px,88vw)">${skel(4, 34)}</div>`, [{ label: 'Закрыть', cls: 'bs', fn: closeModal }]);
   const rows = await fetch(`${API}/dem/jobs${all ? '' : '?user=' + encodeURIComponent(un())}`).then(r => r.json()).catch(() => []);
   const html = !rows.length ? '<div style="padding:20px;text-align:center;color:var(--tx3)">Выгрузок пока нет. В мастере на последнем шаге — «📥 В очередь».</div>'
     : `<div id="dj-list" style="display:flex;flex-direction:column;gap:6px;max-height:60vh;overflow:auto">${rows.map(j => `
