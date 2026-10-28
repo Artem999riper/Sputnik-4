@@ -113,3 +113,23 @@ ds.GetRasterBand(1).WriteArray(z); ds=None`]);
     assert.ok(!(await S.api('GET', '/api/dem/jobs')).body.some(x => x.id === r.body.id));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('ГИС-операции: буфер, обрезка, разность, отбор, слияние', { skip: !HAS_GDAL && 'нет GDAL/Python' }, async () => {
+  const sq = (x, y, d) => ({ type: 'Polygon', coordinates: [[[x, y], [x + d, y], [x + d, y + d], [x, y + d], [x, y]]] });
+  const mk = async (name, geoms) => (await S.api('POST', '/api/layers', { name, geojson: JSON.stringify({ type: 'FeatureCollection', features: geoms.map((g, i) => ({ type: 'Feature', properties: { name: name + i, Тип: i % 2 ? 'Б' : 'А' }, geometry: g })) }) })).body.id;
+  const A = await mk('Лицензии', [sq(74.50, 66.50, 0.02), sq(74.53, 66.50, 0.02)]);
+  const B = await mk('ООПТ', [sq(74.51, 66.50, 0.015)]);
+  const P = await mk('Скважины', [{ type: 'Point', coordinates: [74.6, 66.6] }]);
+  const op = async b => { const r = await S.api('POST', '/api/gis/op', b); assert.strictEqual(r.status, 200, JSON.stringify(r.body)); return r.body; };
+  let r = await op({ op: 'buffer', layerA: P, distance: 100 });
+  assert.ok(Math.abs(r.stats.area_ha - Math.PI * 100 * 100 / 1e4) < 0.1, 'площадь буфера ' + r.stats.area_ha);
+  r = await op({ op: 'clip', layerA: A, layerB: B });
+  assert.strictEqual(r.features.length, 1);                                // задета только первая лицензия
+  r = await op({ op: 'select', layerA: A, layerB: B }); assert.strictEqual(r.features.length, 1);
+  const full = (await op({ op: 'dissolve', layerA: A })).stats.area_ha;
+  const diff = (await op({ op: 'difference', layerA: A, layerB: B })).stats.area_ha;
+  const clip = (await op({ op: 'clip', layerA: A, layerB: B })).stats.area_ha;
+  assert.ok(Math.abs(full - diff - clip) < 0.01, `${full} ≠ ${diff} + ${clip}`);
+  r = await op({ op: 'dissolve', layerA: A, field: 'Тип' }); assert.strictEqual(r.features.length, 2);
+  assert.strictEqual((await S.api('POST', '/api/gis/op', { op: 'clip', layerA: A })).status, 400);
+});

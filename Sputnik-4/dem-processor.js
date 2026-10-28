@@ -1299,6 +1299,23 @@ async function _ensureGeoidGrids() {
   }
 }
 
+// Запуск Python-скрипта из папки программы: params → (скрипт пишет JSON в params.out) → объект
+async function runPyJson(script, params, timeoutMs = 600000) {
+  findGDALBin();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pgkpy_'));
+  try {
+    const pf = path.join(dir, 'params.json'), out = path.join(dir, 'out.json');
+    fs.writeFileSync(pf, JSON.stringify({ ...params, out }));
+    try {
+      await execFileP(_pythonExe, [path.join(__dirname, script), pf], { env: gdalEnv(), timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 });
+    } catch (e) {
+      const msg = String(e.stderr || e.message || '').split(/\r?\n/).filter(l => l && !/Warning|warnings\.warn/.test(l)).pop() || 'ошибка Python';
+      throw new Error(msg.replace(/^ERROR:\s*/, '').slice(0, 400));
+    }
+    return JSON.parse(fs.readFileSync(out, 'utf8'));
+  } finally { cleanupTmp(dir); }
+}
+
 // Проверка «на деле»: считается ли поправка геоида (БСВ-77) в контрольной точке (ХМАО)
 async function geoidTest(lat = 61.25, lng = 73.4) {
   let n = null, err = null;
@@ -1447,7 +1464,7 @@ async function convertToGeoJSONRaw(srcPath, outPath) {
 }
 
 module.exports = {
-  processDEM, floodZones, geoidTest, cleanupTmp, checkGDAL, convertToTab, convertToGeoJSON, convertToGeoJSONRaw,
+  processDEM, floodZones, geoidTest, runPyJson, cleanupTmp, checkGDAL, convertToTab, convertToGeoJSON, convertToGeoJSONRaw,
   getElevationAtPoint, getElevationProfile, getDemTilesInfo, computeGeoidN,
   getDemTilesDir, setDemTilesDir,
   _downloadGeoidGrids: _ensureGeoidGrids,

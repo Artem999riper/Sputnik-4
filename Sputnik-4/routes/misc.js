@@ -1238,6 +1238,28 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json(await demProcessor.checkGDAL());
   });
 
+  // ── ГИС-операции над слоями (gis_ops.py): буфер, обрезка, разность, отбор, слияние ──
+  app.post('/api/gis/op', async (req, res) => {
+    if (!demProcessor || !demProcessor.runPyJson) return res.status(503).json({ error: 'Нужен GDAL (OSGeo4W) на сервере' });
+    const b = req.body || {};
+    const ops = ['buffer', 'clip', 'difference', 'select', 'dissolve'];
+    if (!ops.includes(b.op)) return res.status(400).json({ error: 'Неизвестная операция' });
+    const la = get(db(), 'SELECT name, geojson FROM kml_layers WHERE id=?', [b.layerA]);
+    if (!la) return res.status(404).json({ error: 'Слой A не найден' });
+    let lb = null;
+    if (['clip', 'difference', 'select'].includes(b.op)) {
+      lb = get(db(), 'SELECT name, geojson FROM kml_layers WHERE id=?', [b.layerB]);
+      if (!lb) return res.status(400).json({ error: 'Выберите второй слой' });
+    }
+    const fc = s => { try { const g = JSON.parse(s); return g.type === 'FeatureCollection' ? g : { type: 'FeatureCollection', features: [g.type === 'Feature' ? g : { type: 'Feature', geometry: g, properties: {} }] }; } catch (e) { return { type: 'FeatureCollection', features: [] }; } };
+    const hid = g => ({ ...g, features: (g.features || []).filter(f => !(f && f.properties && f.properties._hidden)) });
+    try {
+      const r = await demProcessor.runPyJson('gis_ops.py', { op: b.op, a: hid(fc(la.geojson)), b: lb ? hid(fc(lb.geojson)) : null,
+        distance: parseFloat(b.distance) || 0, dissolve: !!b.dissolve, field: b.field || null }, 300000);
+      res.json(r);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   // Работает ли перевод в БСВ-77 на деле (поправка геоида в контрольной точке)
   app.get('/api/dem/geoid-test', async (req, res) => {
     if (!demProcessor || !demProcessor.geoidTest) return res.json({ ok: false, hint: 'DEM процессор не загружен (нет GDAL)' });
