@@ -270,3 +270,9 @@ body.drop-on #map{outline:4px dashed var(--acc);outline-offset:-8px}
 .leaflet-tooltip.mlbl.lbl-hide{opacity:0!important}
 /* кружки группировки точек (kml-cluster.js) */
 .kcl{border-radius:50%;color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;border:3px solid rgba(255,255,255,.85);box-shadow:0 0 0 4px rgba(0,0,0,.12),0 2px 6px rgba(0,0,0,.35);cursor:pointer;text-shadow:0 1px 2px rgba(0,0,0,.4)}
+/* подменю контекстного меню */
+.ctx-sub{position:fixed;z-index:10000;background:var(--s);border:1.5px solid var(--bd);border-radius:var(--r);box-shadow:var(--shl);min-width:200px;display:none;overflow:hidden;max-height:calc(100vh - 12px);overflow-y:auto}
+.ctx-sub.show{display:block}
+.cx-hassub .cx-arr{margin-left:auto;padding-left:14px;color:var(--tx3);font-size:10px}
+.cx-hassub.on{background:var(--s2)}
+#ctx{max-height:calc(100vh - 12px);overflow-y:auto}

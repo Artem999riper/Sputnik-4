@@ -1,24 +1,50 @@
+// Пункт с sub:[…] — подменю (открывается при наведении или щелчке, ▸)
 function showCtx(x,y,items){
   CTX_ACTIONS=[];
   const m=document.getElementById('ctx');
-  m.innerHTML=items.map(it=>{
+  const subs=[];
+  const row=it=>{
     if(it.sep)return'<div class="cxs"></div>';
+    if(it.sub){const k=subs.length;subs.push(it.sub.filter(Boolean));
+      return`<div class="cxi cx-hassub" data-s="${k}">${it.i||''} ${it.html?it.l:esc(it.l||'')}<span class="cx-arr">▸</span></div>`;}
     const i=CTX_ACTIONS.length;CTX_ACTIONS.push(it.f);
     return`<div class="cxi ${esc(it.cls||'')}" data-i="${i}">${it.i||''} ${it.html?it.l:esc(it.l||'')}</div>`;
-  }).join('');
+  };
+  m.innerHTML=items.filter(Boolean).map(row).join('');
   // Блокируем всплытие с контекстного меню на карту
-  m.addEventListener('mousedown',e=>{e.stopPropagation();e.preventDefault();});
-  m.addEventListener('click',e=>{e.stopPropagation();e.preventDefault();});
-  m.querySelectorAll('.cxi').forEach(el=>{
+  m.onmousedown=e=>{e.stopPropagation();e.preventDefault();};
+  m.onclick=e=>{e.stopPropagation();e.preventDefault();};
+  let subEl=null;
+  const closeSub=()=>{if(subEl){subEl.remove();subEl=null;}m.querySelectorAll('.cx-hassub.on').forEach(e=>e.classList.remove('on'));};
+  const bindRun=root=>root.querySelectorAll('.cxi[data-i]').forEach(el=>{
     el.addEventListener('mousedown',e=>{
       e.stopPropagation();e.preventDefault();
       const fn=CTX_ACTIONS[parseInt(el.dataset.i)];
-      if(typeof fn==='function'){setTimeout(()=>{hideCtx();fn();},10);}
+      if(typeof fn==='function'){setTimeout(()=>{closeSub();hideCtx();fn();},10);}
     });
   });
-  m.style.left=Math.min(x,window.innerWidth-210-8)+'px';
-  m.style.top=Math.min(y,window.innerHeight-items.length*34-8)+'px';
+  const openSub=el=>{
+    if(el.classList.contains('on'))return;
+    closeSub();el.classList.add('on');
+    subEl=document.createElement('div');subEl.className='ctx-sub';
+    subEl.innerHTML=subs[+el.dataset.s].map(row).join('');
+    document.body.appendChild(subEl);
+    subEl.onmousedown=e=>{e.stopPropagation();e.preventDefault();};
+    bindRun(subEl);
+    const r=el.getBoundingClientRect(),w=subEl.offsetWidth,h=subEl.offsetHeight;
+    let L=r.right-2;if(L+w>innerWidth-6)L=Math.max(6,r.left-w+2);
+    subEl.style.left=L+'px';subEl.style.top=Math.max(6,Math.min(r.top-5,innerHeight-h-6))+'px';
+    subEl.classList.add('show');
+  };
+  bindRun(m);
+  m.querySelectorAll('.cxi').forEach(el=>{
+    el.addEventListener('mouseenter',()=>{if(el.classList.contains('cx-hassub'))openSub(el);else closeSub();});
+    if(el.classList.contains('cx-hassub'))el.addEventListener('mousedown',e=>{e.stopPropagation();e.preventDefault();openSub(el);});
+  });
+  window._ctxCloseSub=closeSub;
   m.classList.add('show');
+  m.style.left=Math.max(6,Math.min(x,window.innerWidth-m.offsetWidth-8))+'px';
+  m.style.top=Math.max(6,Math.min(y,window.innerHeight-m.offsetHeight-8))+'px';
 }
 // ── Стилизованное подтверждение вместо нативного confirm() ──
 // Отдельный оверлей ПОВЕРХ модалок (не заменяет открытую модалку).
@@ -60,6 +86,7 @@ document.addEventListener('keydown',e=>{
   if((ctx&&ctx.classList.contains('show'))||menus.length){
     window._ctxKeepUntil=0;
     if(ctx)ctx.classList.remove('show');
+    if(window._ctxCloseSub)window._ctxCloseSub();
     menus.forEach(m=>m.remove());
     e.preventDefault();e.stopImmediatePropagation();
   }
@@ -69,6 +96,7 @@ function hideCtx(){
   // не должно закрываться «хвостом» того же клика
   if(window._ctxKeepUntil&&Date.now()<window._ctxKeepUntil)return;
   document.getElementById('ctx').classList.remove('show');
+  if(window._ctxCloseSub)window._ctxCloseSub();
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -1807,50 +1807,61 @@ function renderLayerGroupsWithSymbols() {
               }
             } catch(e) {}
             const fIdx = gjRaw.features ? gjRaw.features.indexOf(f) : -1;
+            const _isDone=f.properties&&f.properties._color===KML_DONE_COLOR;
+            const _coordFn=()=>{
+              // точка — её координаты; линия/полигон — ближайшая вершина к месту щелчка
+              let lat=ev.latlng.lat,lng=ev.latlng.lng;
+              try{
+                if(f.geometry.type==='Point'){lng=f.geometry.coordinates[0];lat=f.geometry.coordinates[1];}
+                else{const T=map.latLngToContainerPoint(ev.latlng);let bd=Infinity;
+                  (function walk(c){if(typeof c[0]==='number'){const q=map.latLngToContainerPoint([c[1],c[0]]);const d=Math.hypot(q.x-T.x,q.y-T.y);if(d<bd){bd=d;lng=c[0];lat=c[1];}}else c.forEach(walk);})(f.geometry.coordinates);}
+              }catch(e){}
+              cvOpenPoint(lat,lng);
+            };
+            const _isLine=f.geometry&&/LineString/.test(f.geometry.type), _isPoly=f.geometry&&/Polygon/.test(f.geometry.type);
             showCtx(cx, cy, [
               {i:'🗺',l:`<b>${esc(featureName)}</b> <span style="color:var(--tx3);font-weight:400">${esc(l.name)}</span>`,f:null,html:true},{sep:true},
-              {i:'📍',l:'Отметка высоты (БСВ-77)',f:()=>showElevationAtPoint(ev.latlng)},
-              {i:'🧭',l:f.geometry&&f.geometry.type==='Point'?'Координаты точки во всех системах':'Координаты вершины во всех системах',f:()=>{
-                // точка — её координаты; линия/полигон — ближайшая вершина к месту щелчка
-                let lat=ev.latlng.lat,lng=ev.latlng.lng;
-                try{
-                  if(f.geometry.type==='Point'){lng=f.geometry.coordinates[0];lat=f.geometry.coordinates[1];}
-                  else{const T=map.latLngToContainerPoint(ev.latlng);let bd=Infinity;
-                    (function walk(c){if(typeof c[0]==='number'){const q=map.latLngToContainerPoint([c[1],c[0]]);const d=Math.hypot(q.x-T.x,q.y-T.y);if(d<bd){bd=d;lng=c[0];lat=c[1];}}else c.forEach(walk);})(f.geometry.coordinates);}
-                }catch(e){}
-                cvOpenPoint(lat,lng);
-              }},
-              {sep:true},
               {i:'🔍',l:'Приблизить',f:()=>{
                 try { map.flyToBounds(layer.getBounds ? layer.getBounds() : L.latLngBounds([[layer.getLatLng().lat,layer.getLatLng().lng]]), {padding:[60,60]}); }
                 catch(e){ try{map.flyTo(layer.getLatLng(),16);}catch(e2){} }
               }},
-              ...(f.geometry&&f.geometry.type!=='Point'&&f.geometry.type!=='MultiPoint'?[{i:'📐',l:/Polygon/.test(f.geometry.type)?'Площадь и периметр':'Длина',f:()=>measureGeometry(f.geometry,featureName)}]:[]),
-              ...(fIdx>=0?[{i:'✅',l:(f.properties&&f.properties._color===KML_DONE_COLOR)?'Снять «выполнено»':'Выполнить объект',f:()=>kmlToggleDone(l.id,fIdx)}]:[]),
-              ...(fIdx>=0&&!(f.properties&&f.properties._color===KML_DONE_COLOR)&&typeof kmlStyleOf==='function'&&(kmlStyleOf(l)||{}).fact?[{i:'⚙️',l:'Выполнить с параметрами… (объём, количество, дата)',f:()=>kmlToggleDone(l.id,fIdx,true)}]:[]),
+              ...(fIdx>=0?[{i:'✅',l:_isDone?'Снять «выполнено»':'Выполнить объект',f:()=>kmlToggleDone(l.id,fIdx)}]:[]),
+              ...(fIdx>=0&&!_isDone&&typeof kmlStyleOf==='function'&&(kmlStyleOf(l)||{}).fact?[{i:'⚙️',l:'Выполнить с параметрами…',f:()=>kmlToggleDone(l.id,fIdx,true)}]:[]),
               ...(fIdx>=0?[{i:'✏️',l:'Редактировать объект',f:()=>kmlEditFeature(l.id,fIdx)}]:[]),
-              ...(fIdx>=0&&f.geometry&&/LineString|Polygon/.test(f.geometry.type)?[{i:'✏️',l:'Изменить геометрию (вершины)',f:()=>kmlEditGeometry(l.id,fIdx)}]:[]),
-              ...(fIdx>=0?[{i:'↔',l:'Передвинуть',f:()=>startKmlMoveFeature(l.id,fIdx)}]:[]),
-              ...(fIdx>=0?[{i:'📤',l:'Перенести в другой слой',f:()=>kmlMoveFeature(l.id,fIdx)}]:[]),
-              {i:'💾',l:'Экспорт… (объект / слой → DXF, KML, MIF, GPX, CSV…)',f:()=>kmlExportFeature(l.id,fIdx)},
-              ...(f.geometry&&/LineString/.test(f.geometry.type)&&typeof epProfileFromLatLngs==='function'?[{i:'📈',l:'Профиль высот по линии',f:()=>{const c=f.geometry.type==='LineString'?f.geometry.coordinates:f.geometry.coordinates.slice().sort((a,b)=>b.length-a.length)[0];epProfileFromLatLngs(c.map(q=>[q[1],q[0]]));}}]:[]),
-              ...(fIdx>=0&&f.geometry&&f.geometry.type==='LineString'?[{i:'⬛',l:'Линия → полигон',f:()=>kmlLineToPolygon(l.id,fIdx)}]:[]),
-              ...(fIdx>=0&&f.geometry&&f.geometry.type==='Polygon'?[{i:'〰️',l:'Полигон → линия',f:()=>kmlPolygonToLine(l.id,fIdx)}]:[]),
-              ...(coordStr?[{i:'📋',l:'Копировать координаты',f:()=>{navigator.clipboard.writeText(coordStr).then(()=>toast('Скопировано','ok'));}}]:[]),
-              {i:'🔗',l:'Скопировать ссылку',f:()=>{_copyShareLink(buildKmlShareLink(layer, featureName, l.id));}},
+              {i:'📍',l:'Координаты и высота',sub:[
+                {i:'🧭',l:f.geometry&&f.geometry.type==='Point'?'Координаты точки во всех системах':'Координаты вершины во всех системах',f:_coordFn},
+                {i:'📍',l:'Отметка высоты (БСВ-77)',f:()=>showElevationAtPoint(ev.latlng)},
+                ...(coordStr?[{i:'📋',l:'Копировать координаты',f:()=>{navigator.clipboard.writeText(coordStr).then(()=>toast('Скопировано','ok'));}}]:[]),
+                {i:'🔗',l:'Скопировать ссылку',f:()=>{_copyShareLink(buildKmlShareLink(layer, featureName, l.id));}},
+              ]},
+              ...(fIdx>=0?[{i:'🛠',l:'Изменить',sub:[
+                ...(_isLine||_isPoly?[{i:'✏️',l:'Изменить геометрию (вершины)',f:()=>kmlEditGeometry(l.id,fIdx)}]:[]),
+                {i:'↔',l:'Передвинуть',f:()=>startKmlMoveFeature(l.id,fIdx)},
+                {i:'📤',l:'Перенести в другой слой',f:()=>kmlMoveFeature(l.id,fIdx)},
+                ...(f.geometry&&f.geometry.type==='LineString'?[{i:'⬛',l:'Линия → полигон',f:()=>kmlLineToPolygon(l.id,fIdx)}]:[]),
+                ...(f.geometry&&f.geometry.type==='Polygon'?[{i:'〰️',l:'Полигон → линия',f:()=>kmlPolygonToLine(l.id,fIdx)}]:[]),
+              ]}]:[]),
+              ...(_isLine||_isPoly?[{i:'📐',l:'Измерить и профиль',sub:[
+                {i:'📐',l:_isPoly?'Площадь и периметр':'Длина',f:()=>measureGeometry(f.geometry,featureName)},
+                ...(_isLine&&typeof epProfileFromLatLngs==='function'?[{i:'📈',l:'Профиль высот по линии',f:()=>{const c=f.geometry.type==='LineString'?f.geometry.coordinates:f.geometry.coordinates.slice().sort((a,b)=>b.length-a.length)[0];epProfileFromLatLngs(c.map(q=>[q[1],q[0]]));}}]:[]),
+              ]}]:[]),
+              {i:'💾',l:'Экспорт… (DXF, KML, MIF, GPX, CSV…)',f:()=>kmlExportFeature(l.id,fIdx)},
               {sep:true},
-              ...(typeof demBatchByLayer==='function'&&/"(Multi)?Polygon"/.test(l.geojson||'')?[{i:'🏔',l:'Рельеф по полигонам слоя…',f:()=>demWizardKml(l.id)}]:[]),
-              {i:'🎨',l:'Стиль слоя',f:()=>kmlOpenStyleModal(l.id)},
-              {i:'📋',l:'Объекты слоя',f:()=>kmlOpenFeatureList(l.id)},
-              {i:'📊',l:'Таблица атрибутов',f:()=>kmlAttrTable(l.id)},
-              {i:'🔗',l:'Связь с объёмом (факт)…',f:()=>kmlFactLinkEdit(l.id)},
-              {i:'🧰',l:'ГИС-операции (буфер, обрезка…)',f:()=>gisToolsOpen(l.id)},
-              {i:'👁',l:l.visible?'Скрыть слой':'Показать слой',f:()=>kmlToggleVis(l.id,l.visible?0:1)},
-              {i:'🏷',l:layerLabels[l.id]?'Скрыть подписи слоя':'Показать подписи слоя',f:()=>toggleLayerLabels(l.id)},
-              ...(l.group_id?[{sep:true},{i:'📄',l:'Убрать из группы',f:()=>kmlMoveToGroup(l.id,null)}]:[]),
-              {sep:true},
-              ...(fIdx>=0?[{i:'🗑',l:'Удалить объект',cls:'dan',f:()=>kmlDeleteFeature(l.id,fIdx,'inline')}]:[]),
-              {i:'🗑',l:'Удалить слой',cls:'dan',f:()=>kmlDeleteLayer(l.id)},
+              {i:'🗂',l:`Слой «${esc(String(l.name).slice(0,28))}»`,html:true,sub:[
+                {i:'📊',l:'Таблица атрибутов',f:()=>kmlAttrTable(l.id)},
+                {i:'📋',l:'Объекты слоя',f:()=>kmlOpenFeatureList(l.id)},
+                {i:'🎨',l:'Стиль слоя',f:()=>kmlOpenStyleModal(l.id)},
+                {i:'🏷',l:layerLabels[l.id]?'Скрыть подписи слоя':'Показать подписи слоя',f:()=>toggleLayerLabels(l.id)},
+                {i:'👁',l:l.visible?'Скрыть слой':'Показать слой',f:()=>kmlToggleVis(l.id,l.visible?0:1)},
+                {sep:true},
+                {i:'🧰',l:'ГИС-операции (буфер, обрезка…)',f:()=>gisToolsOpen(l.id)},
+                {i:'🔗',l:'Связь с объёмом (факт)…',f:()=>kmlFactLinkEdit(l.id)},
+                ...(typeof demBatchByLayer==='function'&&/"(Multi)?Polygon"/.test(l.geojson||'')?[{i:'🏔',l:'Рельеф по полигонам слоя…',f:()=>demWizardKml(l.id)}]:[]),
+                ...(l.group_id?[{i:'📄',l:'Убрать из группы',f:()=>kmlMoveToGroup(l.id,null)}]:[]),
+                {sep:true},
+                {i:'🗑',l:'Удалить слой',cls:'dan',f:()=>kmlDeleteLayer(l.id)},
+              ]},
+              ...(fIdx>=0?[{sep:true},{i:'🗑',l:'Удалить объект',cls:'dan',f:()=>kmlDeleteFeature(l.id,fIdx,'inline')}]:[]),
             ]);
           });
         }
