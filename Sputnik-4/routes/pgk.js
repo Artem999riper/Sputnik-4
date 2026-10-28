@@ -94,6 +94,24 @@ module.exports = (app, getDb, L) => {
     res.json({ id });
   }));
 
+  // Все вахты за период — для календаря смен
+  app.get('/api/pgk/shifts', wrap((req, res) => {
+    const from = req.query.from || '0000-00-00', to = req.query.to || '9999-99-99';
+    res.json(all(db(), `SELECT s.*, b.name as base_name FROM worker_shifts s LEFT JOIN bases b ON s.base_id=b.id
+      WHERE COALESCE(s.start_date,'') <= ? AND COALESCE(s.end_date,'9999-99-99') >= ? ORDER BY s.start_date`, [to, from]));
+  }));
+  // Изменить вахту (даты, база) — из календаря смен
+  app.put('/api/pgk/workers/shifts/:id', wrap((req, res) => {
+    const s = get(db(), 'SELECT * FROM worker_shifts WHERE id=?', [req.params.id]);
+    if (!s) return res.status(404).json({ error: 'Вахта не найдена' });
+    const o = { ...s, ...req.body };
+    if (o.start_date && o.end_date && o.end_date < o.start_date) return res.status(400).json({ error: 'Окончание раньше начала' });
+    const days = o.start_date && o.end_date ? Math.round((new Date(o.end_date) - new Date(o.start_date)) / 86400000) + 1 : (o.days || 0);
+    run(db(), 'UPDATE worker_shifts SET base_id=?,start_date=?,end_date=?,days=?,notes=? WHERE id=?',
+      [o.base_id || null, o.start_date || null, o.end_date || null, days, o.notes || '', req.params.id]);
+    res.json({ ok: true });
+  }));
+
   app.delete('/api/pgk/workers/shifts/:id', wrap((req, res) => {
     run(db(), 'DELETE FROM worker_shifts WHERE id=?', [req.params.id]);
     res.json({ ok: true });

@@ -279,6 +279,7 @@ TK.applyCF = tbodyId => {
     ghRows++; if (!hide) ghAny++;
   }
   closeGh();
+  TK._watch(tbodyId);
   // строка «Показано по фильтру столбцов»
   const n = act.length ? tb.querySelectorAll('tr.tk-fhide:not(.tk-gh)').length : 0;
   let info = table.parentElement.querySelector('.tk-cf-info');
@@ -405,3 +406,147 @@ document.addEventListener('click', ev => {
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', hook); else hook();
 })();
+
+// ═══ Итоги под таблицей ════════════════════════════════════════════════
+// Под числовыми столбцами — сумма по показанным строкам (и по выделенным,
+// если выделено больше одной); в подсказке — среднее, мин., макс.
+// Пересчёт — при любом изменении строк (поиск, фильтр, выделение).
+TK._num = s => {
+  s = String(s || '').replace(/(\d)[\s  ](?=\d)/g, '$1').trim();
+  const m = s.match(/^(-?\d+(?:[.,]\d+)?)\s*(дн\.?|шт\.?|кг|т|м|м²|м³|л|ч|%|га|км|п\.?м\.?)?$/i);
+  return m ? parseFloat(m[1].replace(',', '.')) : null;
+};
+TK._fmtN = v => (Math.round(v * 100) / 100).toLocaleString('ru-RU');
+TK._totSkip = /^(num|chk|name|year|phone|plate|plate_number|serial|serial_number|calib|act|notes)$/;
+TK.totals = tbodyId => {
+  const tb = document.getElementById(tbodyId); if (!tb) return;
+  const table = tb.closest('table'); if (!table || !table.tHead) return;
+  let tf = table.querySelector('tfoot.tk-tot');
+  if (typeof uiSet === 'function' && !uiSet('totals')) { if (tf) tf.remove(); return; }
+  const ths = [...table.tHead.rows[0].cells];
+  const rows = [...tb.rows].filter(r => r.matches(TK._rowSel) && !r.classList.contains('tk-fhide') && r.style.display !== 'none');
+  const sel = rows.filter(r => r.classList.contains('lasso-sel'));
+  if (!rows.length) { if (tf) tf.remove(); return; }
+  const cells = ths.map((th, i) => {
+    const col = th.dataset.col || '';
+    if (TK._totSkip.test(col) || th.classList.contains('tk-chk-td')) return null;
+    let n = 0, sum = 0, bad = 0, mn = Infinity, mx = -Infinity, ss = 0, sn = 0;
+    for (const r of rows) {
+      const t = TK._cellVal(r.cells[i]); if (!t) continue;
+      const v = TK._num(t); if (v == null) { bad++; if (bad > 0) break; continue; }
+      n++; sum += v; if (v < mn) mn = v; if (v > mx) mx = v;
+      if (r.classList.contains('lasso-sel')) { ss += v; sn++; }
+    }
+    if (bad || !n) return null;
+    return { sum, avg: sum / n, mn, mx, n, ss, sn };
+  });
+  if (!cells.some(Boolean)) { if (tf) tf.remove(); return; }
+  if (!tf) { tf = document.createElement('tfoot'); tf.className = 'tk-tot'; table.appendChild(tf); }
+  const lblIdx = ths.findIndex(th => th.dataset.col === 'name');
+  tf.innerHTML = '<tr>' + ths.map((th, i) => {
+    const c = cells[i];
+    if (c) return `<td title="Сумма по показанным: ${TK._fmtN(c.sum)}\nСреднее: ${TK._fmtN(c.avg)}\nМин.: ${TK._fmtN(c.mn)} · Макс.: ${TK._fmtN(c.mx)}\nЗначений: ${c.n}">Σ <b>${TK._fmtN(c.sum)}</b>${sel.length > 1 && c.sn ? `<div class="tk-tot-sel">выбр. ${TK._fmtN(c.ss)}</div>` : ''}<div class="tk-tot-avg">ср. ${TK._fmtN(c.avg)}</div></td>`;
+    if (i === (lblIdx >= 0 ? lblIdx : 1)) return `<td><b>Итого</b>: ${rows.length} стр.${sel.length > 1 ? `<div class="tk-tot-sel">выбрано ${sel.length}</div>` : ''}</td>`;
+    return '<td></td>';
+  }).join('') + '</tr>';
+};
+TK._watch = tbodyId => {
+  const tb = document.getElementById(tbodyId); if (!tb) return;
+  if (!tb._tkObs) {
+    let raf = 0;
+    tb._tkObs = new MutationObserver(() => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; TK.totals(tbodyId); }); });
+    tb._tkObs.observe(tb, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+  }
+  TK.totals(tbodyId);
+};
+TK.totalsAll = () => Object.keys(TK.reg).concat(['et-tbody']).forEach(id => { try { TK.totals(id); } catch (e) {} });
+
+// ═══ Клавиатура в таблице, как в Excel ═════════════════════════════════
+// Щелчок по ячейке — она становится текущей (рамка). Стрелки — по ячейкам,
+// Enter / F2 — править (или открыть карточку), начать печатать — правка с этой
+// буквы, Пробел — выделить строку, Ctrl+C — копировать значение ячейки.
+// В поле правки: Tab / Shift+Tab — сохранить и к следующей ячейке,
+// Enter — сохранить и на строку ниже, Esc — отмена.
+TK.kc = null;   // { tb, rid, ci }
+TK._kcRow = tr => tr.dataset.rid || tr.dataset.eid || tr.dataset.matid;
+TK._kcTd = () => {
+  const k = TK.kc; if (!k) return null;
+  const tb = document.getElementById(k.tb); if (!tb || !tb.offsetParent) return null;
+  const tr = [...tb.rows].find(r => TK._kcRow(r) === k.rid); return tr ? tr.cells[k.ci] : null;
+};
+TK._kcMark = () => {
+  document.querySelectorAll('td.tk-kc').forEach(t => t.classList.remove('tk-kc'));
+  const td = TK._kcTd(); if (td) { td.classList.add('tk-kc'); td.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+  return td;
+};
+TK._kcSet = td => {
+  const tr = td && td.closest('tr'); const tb = tr && tr.parentElement;
+  if (!tr || !tb || !tb.id || !tr.matches(TK._rowSel)) return;
+  TK.kc = { tb: tb.id, rid: TK._kcRow(tr), ci: td.cellIndex }; TK._kcMark();
+};
+TK._kcEditable = td => td && (td.classList.contains('td-editable') || td.hasAttribute('onclick'));
+TK._kcVisRows = tb => [...tb.rows].filter(r => r.matches(TK._rowSel) && r.offsetParent);
+TK._kcMove = (dr, dc, needEdit) => {
+  const td = TK._kcTd(); if (!td) return null;
+  const tb = document.getElementById(TK.kc.tb), rows = TK._kcVisRows(tb);
+  let ri = rows.indexOf(td.parentElement), ci = TK.kc.ci;
+  if (dr) ri = Math.max(0, Math.min(rows.length - 1, ri + dr));
+  if (dc) {
+    const n = rows[ri].cells.length;
+    for (let k = 0; k < n; k++) {
+      ci += dc;
+      if (ci >= n) { if (ri < rows.length - 1 && needEdit) { ri++; ci = 0; } else { ci = n - 1; break; } }
+      if (ci < 0) { if (ri > 0 && needEdit) { ri--; ci = rows[ri].cells.length - 1; } else { ci = 0; break; } }
+      const c = rows[ri].cells[ci];
+      if (c && !c.classList.contains('tk-chk-td') && !c.classList.contains('tk-num') && (!needEdit || TK._kcEditable(c))) break;
+    }
+  }
+  TK.kc = { tb: TK.kc.tb, rid: TK._kcRow(rows[ri]), ci };
+  return TK._kcMark();
+};
+// после сохранения таблица перерисовывается — ищем ячейку заново
+TK._kcAfter = fn => { let n = 0; const t = setInterval(() => { const td = TK._kcTd(); if ((td && !td.querySelector('input,select')) || ++n > 15) { clearInterval(t); TK._kcMark(); fn && fn(TK._kcTd()); } }, 80); };
+document.addEventListener('mousedown', ev => {
+  const td = ev.target.closest && ev.target.closest('table.wt-tbl tbody td');
+  if (!td) { if (!(ev.target.closest && ev.target.closest('#tk-hm,#ctx,.pick-pop'))) { if (TK.kc && !ev.target.closest('table.wt-tbl')) { TK.kc = null; TK._kcMark(); } } return; }
+  if (ev.target.closest('input,select,textarea')) return;
+  TK._kcSet(td);
+}, true);
+document.addEventListener('keydown', ev => {
+  const a = document.activeElement;
+  const inCell = a && a.closest && a.closest('table.wt-tbl tbody td');
+  if (inCell && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) {
+    if (!TK.kc || TK._kcTd() !== inCell) TK._kcSet(inCell);
+    if (ev.key === 'Tab') {
+      ev.preventDefault();
+      const dir = ev.shiftKey ? -1 : 1;
+      if (a.tagName === 'INPUT') a.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: false })); else a.blur();
+      TK._kcAfter(() => { const nx = TK._kcMove(0, dir, true); if (nx && TK._kcEditable(nx)) nx.click(); });
+    } else if (ev.key === 'Enter' && a.tagName !== 'TEXTAREA') {
+      TK._kcAfter(() => TK._kcMove(1, 0));
+    } else if (ev.key === 'Escape') TK._kcAfter();
+    return;
+  }
+  if (!TK.kc || ev.altKey) return;
+  if (a && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName) && a.type !== 'checkbox') return;
+  if (document.getElementById('mov')?.classList.contains('open') || document.getElementById('tk-hm') || document.querySelector('#ctx.show')) return;
+  const td = TK._kcTd(); if (!td) return;
+  const mv = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[ev.key];
+  if (mv && !ev.ctrlKey && !ev.metaKey) { ev.preventDefault(); if (ev.shiftKey && mv[0]) { const tr = td.parentElement; tr.classList.add('lasso-sel'); } TK._kcMove(mv[0], mv[1]); if (ev.shiftKey && mv[0]) { const t2 = TK._kcTd(); t2 && t2.parentElement.classList.add('lasso-sel'); TK.update(TK.reg[TK.kc.tb] || ''); } return; }
+  if (ev.key === 'Tab') { ev.preventDefault(); TK._kcMove(0, ev.shiftKey ? -1 : 1); return; }
+  if (ev.key === 'Home' || ev.key === 'End') { ev.preventDefault(); const tb = document.getElementById(TK.kc.tb), rows = TK._kcVisRows(tb);
+    const tr = ev.ctrlKey ? rows[ev.key === 'Home' ? 0 : rows.length - 1] : td.parentElement;
+    TK.kc = { tb: TK.kc.tb, rid: TK._kcRow(tr), ci: ev.ctrlKey ? TK.kc.ci : (ev.key === 'Home' ? 1 : tr.cells.length - 1) }; TK._kcMark(); return; }
+  if (ev.key === 'Enter' || ev.key === 'F2') { ev.preventDefault(); if (TK._kcEditable(td)) td.click(); return; }
+  if (ev.key === ' ') { ev.preventDefault(); const c = td.parentElement.querySelector('.tk-chk'); if (c) c.click(); return; }
+  if (ev.key === 'Escape') { TK.kc = null; TK._kcMark(); return; }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'c' && !String(getSelection() || '')) {
+    const v = TK._cellVal(td); if (navigator.clipboard) navigator.clipboard.writeText(v).then(() => toast('Скопировано: ' + v.slice(0, 40), 'ok'), () => {}); ev.preventDefault(); return; }
+  // начать печатать — правка ячейки с этой буквы
+  if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && td.classList.contains('td-editable')) {
+    ev.stopPropagation();          // не отдавать букву горячим клавишам (N — «добавить»)
+    td.click();
+    const inp = td.querySelector('input:not([type=checkbox]),textarea');
+    if (inp && inp.type !== 'date') { ev.preventDefault(); inp.value = ev.key; }
+  }
+}, true);

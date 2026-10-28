@@ -204,6 +204,7 @@ getDb().then(database => {
   require('./routes/inventory')(app, getDbInstance);
   require('./routes/dem-jobs')(app, getDbInstance, { demProcessor, broadcast: realtime.broadcast });
   require('./routes/editing')(app, { broadcast: realtime.broadcast, presenceEvents: realtime.presenceEvents });
+  require('./routes/bookmarks')(app, getDbInstance);
   routeMisc (app, getDbInstance, L, {
     upload, demProcessor, BACKUP_DIR, doBackup,
     getBackupSettings, setBackupSettings, performAutoBackup,

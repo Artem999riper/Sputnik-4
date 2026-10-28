@@ -5,10 +5,14 @@
 // ═══════════════════════════════════════════════════════════
 const UIS_DEF = [
   // [ключ, по умолчанию, подпись, подсказка, раздел]
+  ['dimMap', true, 'Приглушать подложку в тёмной теме', 'Спутник и схема чуть темнее, чтобы не слепили', 'Вид'],
   ['cluster', true, 'Группировать точки слоёв', 'В слоях от 200 точек при отдалении близкие точки собираются в кружок с числом', 'Карта'],
   ['declutter', true, 'Скрывать наложенные подписи', 'Подписи, которые залезают на соседние, прячутся до приближения', 'Карта'],
   ['liveMeasure', true, 'Длина и площадь у курсора при рисовании', 'Подсказка у курсора: отрезок, всего, площадь', 'Карта'],
   ['coords', true, 'Строка координат внизу карты', 'Координаты под курсором и масштаб', 'Карта'],
+  ['minimap', true, 'Мини-карта обзора в углу', 'Уменьшенная карта с рамкой текущего вида; щелчок по ней — перейти', 'Карта'],
+  ['hoverHL', true, 'Подсветка объекта при наведении на строку', 'Таблица атрибутов, «Объекты слоя», поиск: навели на строку — объект обводится на карте', 'Карта'],
+  ['totals', true, 'Итоги под таблицами', 'Под числовыми столбцами — сумма и среднее по показанным и выделенным строкам', 'Таблицы и окна'],
   ['compact', false, 'Компактные таблицы', 'Ниже строки — больше помещается на экран', 'Таблицы и окна'],
   ['zebra', false, 'Полосатые строки таблиц', 'Чередовать фон строк', 'Таблицы и окна'],
   ['nomotion', false, 'Без анимаций', 'Окна и панели появляются сразу', 'Таблицы и окна'],
@@ -26,6 +30,11 @@ function _uisApply(k) {
   if (!k || k === 'zebra') b.classList.toggle('ui-zebra', !!uiSet('zebra'));
   if (!k || k === 'nomotion') b.classList.toggle('ui-nomotion', !!uiSet('nomotion'));
   if (!k || k === 'coords') b.classList.toggle('ui-nocoords', !uiSet('coords'));
+  if (!k || k === 'theme') _uisTheme();
+  if (!k || k === 'dimMap') document.documentElement.classList.toggle('dim-map', !!uiSet('dimMap'));
+  if (k === 'totals' && typeof TK !== 'undefined' && TK.totalsAll) TK.totalsAll();
+  if (k === 'hoverHL' && typeof _hvClear === 'function') _hvClear();
+  if (k === 'minimap' && typeof minimapOn === 'function') uiSet('minimap') ? minimapOn() : minimapOff();
   if (k === 'declutter' && typeof labelDeclutter === 'function') labelDeclutter();
   if (k === 'liveMeasure' && !uiSet('liveMeasure') && typeof _lm !== 'undefined' && _lm.tip) { map.removeLayer(_lm.tip); _lm.tip = null; }
   if (k === 'cluster' && typeof lGroups !== 'undefined') {
@@ -35,10 +44,20 @@ function _uisApply(k) {
     }
   }
 }
+// тема: светлая / тёмная / как в системе
+function _uisTheme() {
+  let t = uiSet('theme') || 'light';
+  if (t === 'auto') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  document.documentElement.dataset.theme = t;
+}
+try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (uiSet('theme') === 'auto') _uisTheme(); }); } catch (e) {}
 function _uisRender() {
   const p = document.getElementById('settings-panel'); if (!p) return;
   const mlbl = (() => { try { return localStorage.getItem('mlbl_size') || '13'; } catch (e) { return '13'; } })();
-  let html = '<h4>Настройки интерфейса</h4>', sec = '';
+  const th = uiSet('theme') || 'light';
+  let html = `<h4>Настройки интерфейса</h4><div class="sett-sec" style="border-top:none;margin-top:0;padding-top:0">Вид</div>
+    <div class="sett-theme">${[['light', '☀️ Светлая'], ['dark', '🌙 Тёмная'], ['auto', '🖥 Как в системе']].map(([k, l]) =>
+      `<button class="${th === k ? 'on' : ''}" onclick="uiSetSave('theme','${k}');_uisRender()">${l}</button>`).join('')}</div>`, sec = 'Вид';
   for (const [k, , l, hint, s] of UIS_DEF) {
     if (s !== sec) {
       sec = s; html += `<div class="sett-sec">${esc(s)}</div>`;

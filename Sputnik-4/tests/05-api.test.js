@@ -144,3 +144,26 @@ test('кто редактирует: начало, другие, окончан�
   assert.deepStrictEqual(r.body.others, []);
   assert.strictEqual((await S.api('POST', '/api/editing', { cid: 'B' })).status, 400);
 });
+
+test('закладки карты: добавить, изменить, удалить', async () => {
+  const id = (await S.api('POST', '/api/bookmarks', { name: 'Карьер 1Г', lat: 66.5, lng: 74.5, zoom: 14 })).body.id;
+  assert.ok(id);
+  assert.strictEqual((await S.api('POST', '/api/bookmarks', { name: 'x', lat: 'a', lng: 1, zoom: 1 })).status, 400);
+  await S.api('PUT', `/api/bookmarks/${id}`, { name: 'Карьер 1Г — север', zoom: 15 });
+  const b = (await S.api('GET', '/api/bookmarks')).body.find(x => x.id === id);
+  assert.strictEqual(b.name, 'Карьер 1Г — север'); assert.strictEqual(b.zoom, 15); assert.strictEqual(b.lat, 66.5);
+  await S.api('DELETE', `/api/bookmarks/${id}`);
+  assert.ok(!(await S.api('GET', '/api/bookmarks')).body.some(x => x.id === id));
+});
+
+test('календарь смен: вахты за период и правка дат', async () => {
+  const wid = (await S.api('POST', '/api/pgk/workers', { name: 'Вахтовик' })).body.id;
+  const sid = (await S.api('POST', `/api/pgk/workers/${wid}/shifts`, { start_date: '2026-03-01', end_date: '2026-03-30', days: 30 })).body.id;
+  let list = (await S.api('GET', '/api/pgk/shifts?from=2026-03-15&to=2026-04-30')).body;
+  assert.ok(list.some(s => s.id === sid));
+  assert.ok(!(await S.api('GET', '/api/pgk/shifts?from=2026-05-01&to=2026-05-31')).body.some(s => s.id === sid));
+  assert.strictEqual((await S.api('PUT', `/api/pgk/workers/shifts/${sid}`, { start_date: '2026-03-10', end_date: '2026-03-01' })).status, 400);
+  ok(await S.api('PUT', `/api/pgk/workers/shifts/${sid}`, { start_date: '2026-03-05', end_date: '2026-03-14' }), 'правка');
+  const s = (await S.api('GET', `/api/pgk/workers/${wid}/shifts`)).body[0];
+  assert.strictEqual(s.start_date, '2026-03-05'); assert.strictEqual(s.days, 10);
+});
