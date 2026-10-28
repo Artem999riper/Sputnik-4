@@ -40,40 +40,43 @@ async function kmlFactAfterDone(layerId, idxs, done) {
   if (!todo.length) return;
   const st = (typeof kmlStyleOf === 'function' && kmlStyleOf(l)) || {};
   if (st.fact && st.fact.off) return;
-  if (st.fact && st.fact.volumeId) return _kfCreate(l, gj, todo, st.fact, _kfToday());
-  _kfAsk(l, gj, todo);
+  // Связь помнится всегда, но параметры (и дату работ) подтверждаем раз в день:
+  // сегодня уже подтверждали — засчитываем сразу с выбранной тогда датой
+  if (st.fact && st.fact.volumeId && st.fact.day === _kfToday()) return _kfCreate(l, gj, todo, st.fact, st.fact.workDate || _kfToday());
+  _kfAsk(l, gj, todo, st.fact && st.fact.volumeId ? st.fact : null);
 }
-async function _kfAsk(l, gj, todo) {
-  const sid0 = _kfSiteOfLayer(l);
+async function _kfAsk(l, gj, todo, prev) {
+  const sid0 = (prev && prev.siteId) || _kfSiteOfLayer(l);
   const fields = typeof kmlFields === 'function' ? kmlFields(l).filter(k => todo.some(f => Number.isFinite(_kaNum((f.properties || {})[k])))) : [];
   showModal('✅ Засчитать в факт объёма?', `<div style="min-width:min(460px,88vw);display:flex;flex-direction:column;gap:8px;font-size:12px">
     <div>Выполнено объектов слоя «${esc(l.name)}»: <b>${todo.length}</b>. Добавить их в факт объёма объекта?</div>
+    ${prev ? '<div style="font-size:11px;color:var(--acc)">Новый день — проверьте дату и параметры (прошлые подставлены).</div>' : ''}
     <div class="fg" style="margin:0"><label>Объект</label><select id="kf-site" onchange="_kfVols(this.value)">${sites.map(s => `<option value="${escAttr(s.id)}" ${s.id === sid0 ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div>
     <div class="fg" style="margin:0"><label>Объём (вид работ)</label><select id="kf-vol"><option value="">⏳…</option></select></div>
     <div class="fg" style="margin:0"><label>Сколько засчитывать за объект</label><select id="kf-amt">
-      <option value="">1 (штука: скважина, точка…)</option>${fields.map(k => `<option value="${escAttr(k)}">из поля «${esc(k)}»</option>`).join('')}</select></div>
+      <option value="">1 (штука: скважина, точка…)</option>${fields.map(k => `<option value="${escAttr(k)}" ${prev && prev.field === k ? 'selected' : ''}>из поля «${esc(k)}»</option>`).join('')}</select></div>
     <div class="fg" style="margin:0"><label>Дата</label><input id="kf-date" type="date" value="${_kfToday()}"></div>
-    <label style="display:flex;gap:6px;align-items:center;text-transform:none;font-weight:500;margin:0"><input type="checkbox" id="kf-rem" checked style="width:auto;margin:0"> Запомнить для этого слоя (дальше засчитывать сразу, без вопроса)</label>
+    <label style="display:flex;gap:6px;align-items:center;text-transform:none;font-weight:500;margin:0"><input type="checkbox" id="kf-rem" checked style="width:auto;margin:0"> Запомнить для этого слоя — до конца дня засчитывать сразу, без вопроса (завтра спрошу снова)</label>
     <div style="font-size:10px;color:var(--tx3)">Изменить связь — ПКМ по слою → «🔗 Связь с объёмом». Снятие «выполнено» убирает и факт.</div></div>`,
     [{ label: 'Не засчитывать', cls: 'bs', fn: async () => { if (document.getElementById('kf-rem').checked) await _kfSaveCfg(l, { off: true }); closeModal(); } },
      { label: '✅ Засчитать', cls: 'bp', fn: async () => {
        const cfg = { siteId: document.getElementById('kf-site').value, volumeId: document.getElementById('kf-vol').value, field: document.getElementById('kf-amt').value || null };
        if (!cfg.volumeId) { toast('Выберите объём', 'err'); return; }
        const date = document.getElementById('kf-date').value || _kfToday();
-       if (document.getElementById('kf-rem').checked) await _kfSaveCfg(l, cfg);
+       if (document.getElementById('kf-rem').checked) await _kfSaveCfg(l, { ...cfg, day: _kfToday(), workDate: date });
        closeModal();
        const l2 = layers.find(x => x.id === l.id) || l; let gj2; try { gj2 = JSON.parse(l2.geojson); } catch (e) { gj2 = gj; }
        const f2 = gj2.type === 'FeatureCollection' ? gj2.features : [gj2];
        const idx = (gj.type === 'FeatureCollection' ? gj.features : [gj]);
        _kfCreate(l2, gj2, todo.map(f => f2[idx.indexOf(f)]).filter(Boolean), cfg, date);
      } }]);
-  _kfVols(sid0 || (sites[0] || {}).id);
+  _kfVols(sid0 || (sites[0] || {}).id, prev && prev.volumeId);
 }
-async function _kfVols(siteId) {
+async function _kfVols(siteId, selId) {
   const sel = document.getElementById('kf-vol'); if (!sel || !siteId) return;
   const o = await fetch(`${API}/sites/${siteId}`).then(r => r.json()).catch(() => ({}));
   const vols = o.volumes || [];
-  sel.innerHTML = vols.length ? vols.map(v => `<option value="${escAttr(v.id)}">${esc(v.name)} — ${(+v.amount || 0).toLocaleString('ru-RU')} ${esc(v.unit || '')}</option>`).join('') : '<option value="">— у объекта нет объёмов —</option>';
+  sel.innerHTML = vols.length ? vols.map(v => `<option value="${escAttr(v.id)}" ${v.id === selId ? 'selected' : ''}>${esc(v.name)} — ${(+v.amount || 0).toLocaleString('ru-RU')} ${esc(v.unit || '')}</option>`).join('') : '<option value="">— у объекта нет объёмов —</option>';
 }
 async function _kfSaveCfg(l, cfg) {
   const st = Object.assign({}, (typeof kmlStyleOf === 'function' && kmlStyleOf(l)) || {});
@@ -103,12 +106,13 @@ function _kfAfterChange() {
 function kmlFactLinkEdit(layerId) {
   const l = (layers || []).find(x => x.id === layerId); if (!l) return;
   const cur = ((typeof kmlStyleOf === 'function' && kmlStyleOf(l)) || {}).fact;
-  const st = cur ? (cur.off ? 'засчёт отключён' : `связан с объёмом (${cur.field ? 'кол-во из поля «' + cur.field + '»' : '1 за объект'})`) : 'не связан';
+  const st = cur ? (cur.off ? 'засчёт отключён' : `связан с объёмом (${cur.field ? 'кол-во из поля «' + cur.field + '»' : '1 за объект'})` +
+    (cur.day === _kfToday() ? `, сегодня засчитывается датой ${String(cur.workDate || cur.day).split('-').reverse().join('.')}` : ', при первой отметке сегодня спрошу дату')) : 'не связан';
   showModal('🔗 Связь слоя с объёмом', `<div style="font-size:12px;min-width:min(420px,86vw)">Слой «${esc(l.name)}»: <b>${esc(st)}</b>.<br><br>
     Когда объект слоя отмечают «✅ Выполнить», он может сразу засчитываться в факт объёма объекта.</div>`,
     [{ label: 'Закрыть', cls: 'bs', fn: closeModal },
      ...(cur ? [{ label: '✕ Снять связь', cls: 'bs', fn: async () => { await _kfSaveCfg(l, null); closeModal(); toast('Связь снята — при следующей отметке программа спросит', 'ok'); } }] : []),
-     { label: '🔗 Настроить', cls: 'bp', fn: () => { _kfAsk(l, JSON.parse(l.geojson), []); const t = document.querySelector('#mbd div'); if (t) t.firstElementChild.textContent = 'Выберите объём, в который засчитывать выполненные объекты слоя.'; } }]);
+     { label: '🔗 Настроить', cls: 'bp', fn: () => { _kfAsk(l, JSON.parse(l.geojson), [], cur && cur.volumeId ? cur : null); const t = document.querySelector('#mbd div'); if (t) t.firstElementChild.textContent = 'Выберите объём, в который засчитывать выполненные объекты слоя.'; } }]);
 }
 
 // ═══ 46: План / факт на карте ═══════════════════════════════════════════
