@@ -121,17 +121,21 @@ async function _netPing() {
 })();
 
 // ── Левая панель: ширина перетаскиванием, сворачивание ─────
+// Свёрнутая панель — узкая полоска ⟩ у левого края (страницы сдвинуты на её ширину,
+// поэтому полоска ничего не закрывает). Кнопка ⟨ «свернуть» — в шапке панели.
+const SB_RAIL = 14;
 function _sbApply(w, save) {
   const collapsed = w <= 0;
-  document.documentElement.style.setProperty('--sw', (collapsed ? 0 : w) + 'px');
+  document.documentElement.style.setProperty('--sw', (collapsed ? SB_RAIL : w) + 'px');
   document.body.classList.toggle('sb-collapsed', collapsed);
   if (save) try { localStorage.setItem('sb_width', String(w)); } catch (e) {}
   if (window.map && map.invalidateSize) { clearTimeout(_sbApply.t); _sbApply.t = setTimeout(() => map.invalidateSize(), 60); }
 }
 function sidebarToggle() {
-  const cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sw')) || 0;
-  if (cur > 0) { try { localStorage.setItem('sb_width_open', String(cur)); } catch (e) {} _sbApply(0, true); }
-  else { let w = 260; try { w = +localStorage.getItem('sb_width_open') || 260; } catch (e) {} _sbApply(w, true); }
+  if (!document.body.classList.contains('sb-collapsed')) {
+    const cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sw')) || 260;
+    try { localStorage.setItem('sb_width_open', String(cur)); } catch (e) {} _sbApply(0, true);
+  } else { let w = 260; try { w = +localStorage.getItem('sb_width_open') || 260; } catch (e) {} _sbApply(w, true); }
 }
 (function () {
   const go = () => {
@@ -139,8 +143,11 @@ function sidebarToggle() {
     let w = null; try { w = localStorage.getItem('sb_width'); } catch (e) {}
     if (w != null && w !== '') _sbApply(+w, false);
     const h = document.createElement('div'); h.id = 'sb-handle'; h.title = 'Тяните — ширина панели; двойной щелчок — свернуть';
-    const t = document.createElement('button'); t.id = 'sb-toggle'; t.title = 'Свернуть / развернуть левую панель'; t.onclick = sidebarToggle;
+    const t = document.createElement('div'); t.id = 'sb-toggle'; t.title = 'Развернуть левую панель'; t.onclick = sidebarToggle;
     document.body.appendChild(h); document.body.appendChild(t);
+    const btns = sb.querySelector('.sbh > div > div');
+    if (btns) { const c = document.createElement('button'); c.id = 'sb-collapse'; c.className = 'btn bs bxs'; c.textContent = '⟨';
+      c.title = 'Свернуть левую панель'; c.onclick = sidebarToggle; btns.appendChild(c); }
     h.addEventListener('dblclick', sidebarToggle);
     h.addEventListener('mousedown', e => {
       e.preventDefault(); document.body.classList.add('sb-resizing');
@@ -299,7 +306,7 @@ function _lmState() {
 const _lmFmtL = m => m >= 1000 ? (m / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 3 }) + ' км' : m.toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' м';
 const _lmFmtA = a => a >= 1e6 ? (a / 1e6).toLocaleString('ru-RU', { maximumFractionDigits: 3 }) + ' км²' : a >= 1e4 ? (a / 1e4).toLocaleString('ru-RU', { maximumFractionDigits: 3 }) + ' га' : Math.round(a).toLocaleString('ru-RU') + ' м²';
 function _lmMove(e) {
-  const st = _lmState();
+  const st = typeof uiSet === 'function' && !uiSet('liveMeasure') ? null : _lmState();
   if (!st || !st[0].length) { if (_lm.tip) { map.removeLayer(_lm.tip); _lm.tip = null; } return; }
   _lm.ll = e.latlng;                 // берём последнее положение курсора
   if (_lm.raf) return;
@@ -327,7 +334,7 @@ function _lmMove(e) {
 // при приближении появляются снова.
 function labelDeclutter() {
   const els = [...document.querySelectorAll('.leaflet-tooltip.mlbl.leaflet-tooltip-top, .leaflet-tooltip.mlbl')];
-  if (els.length < 2) { els.forEach(e => e.classList.remove('lbl-hide')); return; }
+  if (els.length < 2 || (typeof uiSet === 'function' && !uiSet('declutter'))) { els.forEach(e => e.classList.remove('lbl-hide')); return; }
   els.forEach(e => e.classList.remove('lbl-hide'));
   const placed = [];
   for (const el of els) {

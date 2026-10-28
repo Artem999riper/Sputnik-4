@@ -9,6 +9,7 @@ const KCL = {};                  // id слоя → { g, markers, grp, upd }
 const KCL_MIN = 200, KCL_CELL = 64, KCL_FULL_ZOOM = 16;
 function kmlCluster(id, g, color) {
   kmlClusterOff(id);
+  if (typeof uiSet === 'function' && !uiSet('cluster')) return;   // выключено в ⚙ настройках
   const markers = g.getLayers().filter(x => typeof x.getLatLng === 'function');
   if (markers.length < KCL_MIN) return;
   const st = { g, markers, color: color || '#1a56db', grp: L.layerGroup() };
@@ -26,6 +27,7 @@ function kmlClusterOff(id) {
   map.off('zoomend moveend', st.upd);
   st.g.off('add', st.onAdd); st.g.off('remove', st.onRemove);
   st.onRemove();
+  if (map.hasLayer(st.g)) st.markers.forEach(m => { if (!map.hasLayer(m)) map.addLayer(m); });   // вернуть спрятанные точки
   delete KCL[id];
 }
 function _kclUpdate(st) {

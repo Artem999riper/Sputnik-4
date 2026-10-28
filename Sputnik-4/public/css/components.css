@@ -224,10 +224,11 @@ body.kat-open #mtb,body.kat-open #ep-panel{display:none}
 #sb-handle:hover,body.sb-resizing #sb-handle{background:color-mix(in srgb,var(--acc) 35%,transparent)}
 body.sb-resizing{user-select:none;cursor:col-resize}
 body.sb-resizing #map,body.sb-collapsed #sidebar{pointer-events:none}
-#sb-toggle{position:fixed;top:calc(var(--th) + 8px);left:calc(var(--sw) + 6px);z-index:1001;width:22px;height:30px;border:1.5px solid var(--bd);border-radius:0 8px 8px 0;background:var(--s);color:var(--tx2);cursor:pointer;font-size:12px;padding:0;box-shadow:var(--shm)}
-#sb-toggle::before{content:'⟨'}
-body.sb-collapsed #sb-toggle{left:0}
+#sb-toggle{display:none}
+body.sb-collapsed #sb-toggle{display:flex;align-items:center;justify-content:center;position:fixed;top:var(--th);bottom:0;left:0;width:14px;z-index:1001;background:var(--s2);border-right:1px solid var(--bd);color:var(--tx3);cursor:pointer;font-size:11px}
 body.sb-collapsed #sb-toggle::before{content:'⟩'}
+body.sb-collapsed #sb-toggle:hover{background:color-mix(in srgb,var(--acc) 15%,var(--s));color:var(--acc)}
+body.sb-collapsed #sb-handle{display:none}
 body.sb-collapsed #sidebar{visibility:hidden}
 #sidebar,#map,#mtb,#bnr{transition:width .15s,left .15s}
 body.sb-resizing #sidebar,body.sb-resizing #map,body.sb-resizing #mtb{transition:none}
@@ -278,3 +279,35 @@ body.drop-on #map{outline:4px dashed var(--acc);outline-offset:-8px}
 #ctx{max-height:calc(100vh - 12px);overflow-y:auto}
 .ed-who{background:#fef3c7;border:1.5px solid #f59e0b;color:#78350f;border-radius:var(--rs);padding:6px 10px;font-size:12px;margin:0 0 8px}
 #kat-panel .ed-who{margin:6px 10px 0}
+/* ⚙ настройки интерфейса */
+#settings-panel{min-width:270px;max-height:calc(100vh - 70px);overflow-y:auto}
+.sett-sec{font-size:9px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--tx3);margin:10px 0 5px;padding-top:6px;border-top:1px solid var(--bd)}
+.sett-chk{display:flex;gap:7px;align-items:center;font-size:12px;padding:3px 0;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--tx);margin:0}
+.sett-chk input{width:auto;margin:0;accent-color:var(--acc)}
+body.ui-compact .wt-tbl td{padding:2px 8px}
+body.ui-compact .wt-tbl thead th{padding:4px 8px}
+body.ui-zebra .wt-tbl tbody tr:nth-child(even):not(.tk-gh){background:color-mix(in srgb,var(--s2) 70%,transparent)}
+body.ui-nomotion *,body.ui-nomotion *::before,body.ui-nomotion *::after{transition:none!important;animation:none!important}
+body.ui-nocoords #coord-widget{display:none!important}
+/* меню заголовка столбца */
+.wt-tbl tbody tr.tk-fhide{display:none!important}
+.tk-hsel{display:none!important}
+.wt-tbl thead th:not(.no-sort):not(.tk-chk-td)[data-col]:not([data-col="num"])::before{content:'▾';float:right;margin-left:4px;opacity:0;color:var(--tx3)}
+.wt-tbl thead th:not(.tk-chk-td)[data-col]:not([data-col="num"]):hover::before{opacity:1}
+.wt-tbl thead th.tk-filtered{color:var(--acc)!important}
+.wt-tbl thead th.tk-filtered::before{content:'🔽'!important;opacity:1!important;font-size:9px}
+.tk-cf-info{font-size:11px;padding:4px 10px;background:color-mix(in srgb,var(--acc) 10%,var(--s));color:var(--acc);display:flex;gap:8px;align-items:center}
+#tk-hm{position:fixed;z-index:10000;background:var(--s);border:1.5px solid var(--bd);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:6px;font-size:12px;min-width:230px;max-width:340px}
+.tk-hm-t{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--tx3);padding:3px 8px 6px}
+.tk-hm-i{padding:6px 8px;border-radius:5px;cursor:pointer}
+.tk-hm-i:hover{background:var(--accl)}
+.tk-hm-i.on{color:var(--acc);font-weight:700}
+.tk-hm-sep{height:1px;background:var(--bd);margin:5px 0}
+.tk-hm-sub{font-weight:700;padding:3px 8px;color:var(--tx2)}
+.tk-hm-q{width:100%;box-sizing:border-box;font-size:11px;padding:4px 7px;margin:3px 0;border:1.5px solid var(--bd);border-radius:5px;background:var(--s2)}
+.tk-hm-list{max-height:240px;overflow-y:auto}
+.tk-hm-v{display:flex;gap:6px;align-items:center;padding:3px 8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;color:var(--tx);margin:0;font-size:12px}
+.tk-hm-v input{width:auto;margin:0;accent-color:var(--acc)}
+.tk-hm-v span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tk-hm-v small{color:var(--tx3);font-size:10px}
+.tk-hm-foot{font-size:10px;color:var(--tx3);padding:6px 8px 2px;border-top:1px solid var(--bd);margin-top:5px}
