@@ -111,12 +111,39 @@ def main(params_file):
     edge[:, 1:] |= inside[:, 1:] & ~inside[:, :-1]; edge[:, :-1] |= inside[:, :-1] & ~inside[:, 1:]
     edge[0, :] |= inside[0, :]; edge[-1, :] |= inside[-1, :]; edge[:, 0] |= inside[:, 0]; edge[:, -1] |= inside[:, -1]
     source = (inside & raw_nodata) | edge
-    flood = valid & (dem <= level)
+    # Уровень воды: ровная отметка или с уклоном вдоль оси реки (levels = [в начале, в конце]):
+    # для каждой ячейки — пикетаж её проекции на ось, уровень — линейно между отметками
+    W = np.full(dem.shape, level, dtype=np.float64)
+    axis, levels = p.get('axis'), p.get('levels')
+    if axis and levels and len(axis) >= 2:
+        ax = []
+        for lng, lat in axis:
+            q = to_m.TransformPoint(lng, lat); ax.append((q[0], q[1]))
+        seg_len = [math.hypot(ax[i + 1][0] - ax[i][0], ax[i + 1][1] - ax[i][1]) for i in range(len(ax) - 1)]
+        total = sum(seg_len) or 1.0
+        xs = gt[0] + (np.arange(cols) + 0.5) * gt[1]; ys = gt[3] + (np.arange(rows) + 0.5) * gt[5]
+        X, Y = np.meshgrid(xs, ys)
+        best = np.full(dem.shape, np.inf); chain = np.zeros(dem.shape)
+        acc = 0.0
+        for i, L in enumerate(seg_len):
+            (x1, y1), (x2, y2) = ax[i], ax[i + 1]
+            if L <= 0:
+                continue
+            t = np.clip(((X - x1) * (x2 - x1) + (Y - y1) * (y2 - y1)) / (L * L), 0, 1)
+            dd = np.hypot(X - (x1 + t * (x2 - x1)), Y - (y1 + t * (y2 - y1)))
+            m = dd < best
+            best[m] = dd[m]; chain[m] = acc + t[m] * L
+            acc += L
+        l0, l1 = float(levels[0]), float(levels[1])
+        W = l0 + (l1 - l0) * chain / total
+        level = max(l0, l1)
+    flood = valid & (dem <= W)
+    depth = W - dem
     if water_as_flood:
         flood |= water
 
     stats = {
-        'level': level, 'res': res,
+        'level': level, 'res': res, 'levels': [float(x) for x in levels] if (axis and levels) else None,
         'dem_min': float(dem[valid].min()) if valid.any() else None,
         'dem_max': float(dem[valid].max()) if valid.any() else None,
         'water_pct': round(100.0 * water.sum() / max(1, inside.sum()), 1),
@@ -152,8 +179,8 @@ def main(params_file):
     zcnt = np.zeros(n + 1, dtype=np.int64)
     m = (lab > 0) & valid
     if m.any():
-        np.minimum.at(zmin, lab[m], dem[m])
-        np.add.at(zsum, lab[m], dem[m])
+        np.minimum.at(zmin, lab[m], -depth[m])        # наибольшая глубина = −min(−глубина)
+        np.add.at(zsum, lab[m], depth[m])
         np.add.at(zcnt, lab[m], 1)
     has_water = np.zeros(n + 1, dtype=bool)
     mw = (lab > 0) & source
@@ -186,8 +213,8 @@ def main(params_file):
         g = g.SimplifyPreserveTopology(res * 0.75)
         if g is None or g.IsEmpty():
             continue
-        dmax = (level - zmin[zid]) if np.isfinite(zmin[zid]) else None
-        dmean = (level - zsum[zid] / zcnt[zid]) if zcnt[zid] else None
+        dmax = (-zmin[zid]) if np.isfinite(zmin[zid]) else None
+        dmean = (zsum[zid] / zcnt[zid]) if zcnt[zid] else None
         g.Transform(to_wgs)
         try:
             gj = json.loads(g.ExportToJson(['COORDINATE_PRECISION=7']))

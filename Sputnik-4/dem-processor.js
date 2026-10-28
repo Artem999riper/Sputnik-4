@@ -1213,7 +1213,8 @@ function _floodCacheSweep() {
   const now = Date.now();
   for (const [k, v] of _floodDemCache) if (now - v.t > FLOOD_CACHE_MS) { cleanupTmp(v.tmpDir); _floodDemCache.delete(k); }
 }
-async function floodZones({ bbox, clip, level, minArea, waterAsFlood, connectedOnly, onProgress }) {
+// Рельеф области в БСВ-77 (WGS-84 GeoTIFF) из кэша на 30 минут: затопление, анализ рельефа
+async function demCached(bbox, onProgress) {
   findGDALBin();
   _floodCacheSweep();
   const key = ['minLng', 'minLat', 'maxLng', 'maxLat'].map(k => Number(bbox[k]).toFixed(5)).join('_');
@@ -1228,6 +1229,10 @@ async function floodZones({ bbox, clip, level, minArea, waterAsFlood, connectedO
     } catch (e) { cleanupTmp(tmpDir); e.gdal_log = log; throw e; }
   }
   c.t = Date.now();
+  return c;
+}
+async function floodZones({ bbox, clip, level, minArea, waterAsFlood, connectedOnly, axis, levels, onProgress }) {
+  const c = await demCached(bbox, onProgress);
   onProgress && onProgress(70, 'Расчёт зон затопления...');
   const runDir = fs.mkdtempSync(path.join(c.tmpDir, 'run_'));
   try {
@@ -1235,6 +1240,7 @@ async function floodZones({ bbox, clip, level, minArea, waterAsFlood, connectedO
     fs.writeFileSync(paramsFile, JSON.stringify({
       dem_tif: c.demTif, bbox, clip: clip && clip.type === 'Polygon' ? clip : null,
       level, min_area: minArea, water_as_flood: waterAsFlood, connected_only: connectedOnly, out_geojson: outFile,
+      axis: Array.isArray(axis) && axis.length >= 2 ? axis : null, levels: Array.isArray(levels) && levels.length === 2 ? levels.map(Number) : null,
     }));
     try {
       await execFileP(_pythonExe, [path.join(__dirname, 'flood_zones.py'), paramsFile],
@@ -1297,6 +1303,16 @@ async function _ensureGeoidGrids() {
       try { fs.unlinkSync(target + '.tmp'); } catch(_) {}
     }
   }
+}
+
+// Анализ рельефа (terrain_analysis.py): уклоны, экспозиция, линии стока, водосбор, сравнение со съёмкой
+async function terrainAnalysis(params, onProgress) {
+  const c = await demCached(params.bbox, onProgress);
+  onProgress && onProgress(70, 'Анализ рельефа...');
+  const r = await runPyJson('terrain_analysis.py', { ...params, dem_tif: c.demTif, cache_dir: c.tmpDir }, 600000);
+  r.stats = Object.assign(r.stats || {}, { geoid: !!c.geoid, source: c.usedRes });
+  onProgress && onProgress(100, 'Готово');
+  return r;
 }
 
 // Запуск Python-скрипта из папки программы: params → (скрипт пишет JSON в params.out) → объект
@@ -1464,7 +1480,7 @@ async function convertToGeoJSONRaw(srcPath, outPath) {
 }
 
 module.exports = {
-  processDEM, floodZones, geoidTest, runPyJson, cleanupTmp, checkGDAL, convertToTab, convertToGeoJSON, convertToGeoJSONRaw,
+  processDEM, floodZones, terrainAnalysis, geoidTest, runPyJson, cleanupTmp, checkGDAL, convertToTab, convertToGeoJSON, convertToGeoJSONRaw,
   getElevationAtPoint, getElevationProfile, getDemTilesInfo, computeGeoidN,
   getDemTilesDir, setDemTilesDir,
   _downloadGeoidGrids: _ensureGeoidGrids,

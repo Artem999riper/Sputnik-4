@@ -1238,6 +1238,26 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json(await demProcessor.checkGDAL());
   });
 
+  // ── Анализ рельефа: уклоны, экспозиция, линии стока, водосбор, сравнение со съёмкой ──
+  // body: { mode, bbox, clip?, steep?, threshold_km2?, point?:[lng,lat], points?:[[lng,lat,h]] }
+  app.post('/api/dem/analysis', async (req, res) => {
+    if (!demProcessor || !demProcessor.terrainAnalysis) return res.status(503).json({ error: 'Нужен GDAL (OSGeo4W) на сервере' });
+    const b = req.body || {}, bb = b.bbox || {};
+    if (!['slope', 'aspect', 'flow', 'watershed', 'compare'].includes(b.mode)) return res.status(400).json({ error: 'Неизвестный режим' });
+    if (![bb.minLat, bb.maxLat, bb.minLng, bb.maxLng].every(v => Number.isFinite(+v)) || +bb.minLat >= +bb.maxLat || +bb.minLng >= +bb.maxLng)
+      return res.status(400).json({ error: 'Не указана область расчёта' });
+    const bbox = { minLat: +bb.minLat, maxLat: +bb.maxLat, minLng: +bb.minLng, maxLng: +bb.maxLng };
+    const km2 = (bbox.maxLat - bbox.minLat) * 111.32 * (bbox.maxLng - bbox.minLng) * 111.32 * Math.cos((bbox.minLat + bbox.maxLat) / 2 * Math.PI / 180);
+    if (km2 > 1500) return res.status(400).json({ error: `Область слишком большая (${Math.round(km2)} км²) — не больше 1500 км²` });
+    if (b.mode === 'watershed' && !(Array.isArray(b.point) && b.point.length === 2)) return res.status(400).json({ error: 'Укажите точку на карте' });
+    try {
+      res.json(await demProcessor.terrainAnalysis({ mode: b.mode, bbox, clip: b.clip && b.clip.type === 'Polygon' ? b.clip : null,
+        steep: parseFloat(b.steep) || 10, min_area: parseFloat(b.minArea) || 200, threshold_km2: parseFloat(b.threshold_km2) || 0,
+        point: b.point || null, points: Array.isArray(b.points) ? b.points.slice(0, 20000) : null },
+        (pct, text) => broadcast({ type: 'flood_progress', pct, text })));
+    } catch (e) { res.status(500).json({ error: e.message || 'Ошибка анализа рельефа' }); }
+  });
+
   // ── ГИС-операции над слоями (gis_ops.py): буфер, обрезка, разность, отбор, слияние ──
   app.post('/api/gis/op', async (req, res) => {
     if (!demProcessor || !demProcessor.runPyJson) return res.status(503).json({ error: 'Нужен GDAL (OSGeo4W) на сервере' });
@@ -1456,7 +1476,12 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     const bb = b.bbox || {};
     if (![bb.minLat, bb.maxLat, bb.minLng, bb.maxLng].every(v => Number.isFinite(+v)) || +bb.minLat >= +bb.maxLat || +bb.minLng >= +bb.maxLng)
       return res.status(400).json({ error: 'Не указана область расчёта' });
-    const level = parseFloat(String(b.level).replace(',', '.'));
+    // Уклон воды: ось реки (от начала к концу) и отметки в начале и в конце
+    const num = v => parseFloat(String(v).replace(',', '.'));
+    const levels = Array.isArray(b.levels) && b.levels.length === 2 ? b.levels.map(num) : null;
+    const axis = Array.isArray(b.axis) && b.axis.length >= 2 && b.axis.every(q => Array.isArray(q) && q.length >= 2 && q.every(Number.isFinite)) ? b.axis.slice(0, 500).map(q => [+q[0], +q[1]]) : null;
+    if (levels && (!axis || !levels.every(v => Number.isFinite(v) && v > -500 && v < 9000))) return res.status(400).json({ error: 'Для уклона воды нужны ось реки и две отметки' });
+    const level = levels ? Math.max(...levels) : num(b.level);
     if (!Number.isFinite(level) || level < -500 || level > 9000) return res.status(400).json({ error: 'Укажите отметку уровня воды (м, БСВ-77)' });
     const bbox = { minLat: +bb.minLat, maxLat: +bb.maxLat, minLng: +bb.minLng, maxLng: +bb.maxLng };
     const km2 = (bbox.maxLat - bbox.minLat) * 111.32 * (bbox.maxLng - bbox.minLng) * 111.32 * Math.cos((bbox.minLat + bbox.maxLat) / 2 * Math.PI / 180);
@@ -1465,7 +1490,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
       const gj = await demProcessor.floodZones({
         bbox, clip: b.clip || null, level,
         minArea: Math.max(0, parseFloat(b.minArea) || 0),
-        waterAsFlood: b.waterAsFlood !== false, connectedOnly: !!b.connectedOnly,
+        waterAsFlood: b.waterAsFlood !== false, connectedOnly: !!b.connectedOnly, axis: levels ? axis : null, levels,
         onProgress: (pct, text) => broadcast({ type: 'flood_progress', pct, text }),
       });
       res.json(gj);

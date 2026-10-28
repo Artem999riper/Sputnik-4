@@ -4,10 +4,13 @@
 // flood_zones.py). Зоны выгружаются в DXF/KML/MIF… или сохраняются слоем.
 // Область рисуется теми же инструментами, что и в «Рельефе» (_demBbox/_demClip).
 // ═══════════════════════════════════════════════════════════
-const FL = Object.assign({ level: '', minArea: 100, water: true, connected: false },
+const FL = Object.assign({ level: '', minArea: 100, water: true, connected: false, slope: false, l0: '', l1: '' },
   (() => { try { return JSON.parse(localStorage.getItem('flood_opts') || '{}'); } catch (e) { return {}; } })(),
-  { area: '', result: null, busy: false, layer: null, kmlName: '' });
-function _flSave() { try { localStorage.setItem('flood_opts', JSON.stringify({ level: FL.level, minArea: FL.minArea, water: FL.water, connected: FL.connected })); } catch (e) {} }
+  { area: '', result: null, busy: false, layer: null, kmlName: '', axis: null, axisLayer: null, axisDraw: false });
+function _flSave() { try { localStorage.setItem('flood_opts', JSON.stringify({ level: FL.level, minArea: FL.minArea, water: FL.water, connected: FL.connected, slope: FL.slope, l0: FL.l0, l1: FL.l1 })); } catch (e) {} }
+const _flN = v => parseFloat(String(v).replace(',', '.'));
+// Подпись уровня: «12,5 м» или «7 → 12 м» (уклон вдоль реки)
+const _flLvlText = st => st && st.levels ? `${_flNum(st.levels[0])} → ${_flNum(st.levels[1])} м` : `${_flNum(st ? st.level : _flLevel())} м`;
 const _flLevel = () => parseFloat(String(FL.level).replace(',', '.'));
 const _flHa = m2 => m2 >= 1e6 ? (m2 / 1e6).toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' км²' : (m2 / 1e4).toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' га';
 const _flNum = (v, d = 2) => v == null ? '—' : Number(v).toLocaleString('ru-RU', { maximumFractionDigits: d });
@@ -28,7 +31,7 @@ function openFloodPanel() {
         <span>${_flNum(st.dem_max, 1)}</span></div>
        <div style="font-size:10px;color:var(--tx3)">Высоты в области: ${_flNum(st.dem_min, 1)} … ${_flNum(st.dem_max, 1)} м — двигайте ползунок, пересчёт сразу.</div>` : '';
   const res = !r ? '' : `<div class="dw-info" style="border-color:#93c5fd;background:color-mix(in srgb,#2563eb 8%,var(--s2))">
-      🌊 При отметке <b>${_flNum(st.level)} м</b>: затоплено <b>${_flHa(st.flood_m2 || 0)}</b>${st.area_total_m2 ? ` (${_flNum(100 * st.flood_m2 / st.area_total_m2, 1)}% области)` : ''},
+      🌊 ${st.levels ? 'При уровне воды' : 'При отметке'} <b>${_flLvlText(st)}</b>: затоплено <b>${_flHa(st.flood_m2 || 0)}</b>${st.area_total_m2 ? ` (${_flNum(100 * st.flood_m2 / st.area_total_m2, 1)}% области)` : ''},
       зон: <b>${st.zones}</b>${st.depth_max != null ? `, наибольшая глубина <b>${_flNum(st.depth_max)} м</b>` : ''}.
       ${st.truncated ? `<br>Показаны ${st.zones} крупнейших зон из ${st.zones + st.truncated}.` : ''}
       ${st.dropped_small ? `<br><span style="color:var(--tx3)">Не показано мелких зон (меньше ${_flNum(FL.minArea, 0)} м²): ${st.dropped_small}.</span>` : ''}
@@ -44,14 +47,22 @@ function openFloodPanel() {
       ${card(FL.area === 'kml', "_flArea('kml')", '🗂', 'Полигон из слоя', 'щёлкните по контуру на карте')}
     </div>
     <div class="dw-info">${areaInfo}</div>
-    <div class="dw-h" style="margin-top:14px">2. Отметка уровня воды, м (БСВ-77)</div>
+    <div class="dw-h" style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">2. Уровень воды, м (БСВ-77)
+      <span class="dw-st${!FL.slope ? ' on' : ''}" onclick="FL.slope=false;_flSave();openFloodPanel()">ровная отметка</span>
+      <span class="dw-st${FL.slope ? ' on' : ''}" onclick="FL.slope=true;_flSave();openFloodPanel()">с уклоном вдоль реки</span></div>
+    ${FL.slope ? `<div style="display:flex;flex-direction:column;gap:6px;font-size:12px">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="btn ${FL.axis ? 'bs' : 'bp'} bsm" onclick="_flAxisDraw()">〰 ${FL.axis ? 'Перерисовать' : 'Нарисовать'} ось реки</button>
+        <span style="color:var(--tx3)">${FL.axis ? `ось: ${FL.axis.length} точек, ${_flNum(_flAxisLen() / 1000, 2)} км` : 'щёлкайте по руслу от начала (вверх по течению) к концу'}</span></div>
+      <div style="display:flex;gap:8px;align-items:center"><label style="text-transform:none;font-weight:500;margin:0;display:flex;gap:4px;align-items:center">в начале <input id="fl-l0" inputmode="decimal" value="${esc(String(FL.l0))}" style="width:90px;font-weight:700;text-align:center" onchange="FL.l0=this.value.replace(',','.');_flSave()"></label>
+        <label style="text-transform:none;font-weight:500;margin:0;display:flex;gap:4px;align-items:center">в конце <input id="fl-l1" inputmode="decimal" value="${esc(String(FL.l1))}" style="width:90px;font-weight:700;text-align:center" onchange="FL.l1=this.value.replace(',','.');_flSave()"></label> м</div>
+      <div style="font-size:10px;color:var(--tx3)">Уровень меняется линейно по длине оси; для каждой точки берётся ближайшее место на оси.</div></div>` : `
     <div style="display:flex;gap:4px;align-items:center">
       <button class="btn bs bsm" onclick="_flStep(-0.5)">−0,5</button><button class="btn bs bsm" onclick="_flStep(-0.1)">−0,1</button>
       <input id="fl-level" type="text" inputmode="decimal" placeholder="например 12,5" value="${esc(String(FL.level))}" style="flex:1;font-size:15px;font-weight:700;text-align:center"
         onchange="_flSetLevel(this.value)" onkeydown="if(event.key==='Enter'){_flSetLevel(this.value);floodRun()}">
       <button class="btn bs bsm" onclick="_flStep(0.1)">+0,1</button><button class="btn bs bsm" onclick="_flStep(0.5)">+0,5</button>
     </div>
-    ${slider}
+    ${slider}`}
     <details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;color:var(--acc);font-weight:700">Дополнительно</summary>
       <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px;font-size:12px">
         <label style="display:flex;gap:6px;align-items:center;text-transform:none;font-weight:500;margin:0">Не показывать зоны меньше
@@ -91,7 +102,9 @@ function _flArea(kind) {
   if (kind === 'rect') demStartDraw(); else demStartPolygon();
 }
 let _flPickFn = null, _flPickKey = null;
-function _flPick() {
+// cb — что открыть после выбора контура (по умолчанию окно затопления)
+function _flPick(cb) {
+  const back = cb || openFloodPanel;
   const all = [];
   (layers || []).filter(_dwOnMap).forEach(l => _dwPolys(l).forEach(p => { if (!p.hidden) all.push({ l, p }); }));
   if (!all.length) { toast('На карте не показано ни одного слоя с полигонами — включите нужный слой', 'warn'); return; }
@@ -111,10 +124,10 @@ function _flPick() {
     demClearDraw();
     _demBbox = { minLat: Math.min(...ring.map(c => c[1])), maxLat: Math.max(...ring.map(c => c[1])), minLng: Math.min(...ring.map(c => c[0])), maxLng: Math.max(...ring.map(c => c[0])) };
     _demClip = { type: 'Polygon', coordinates: [ring.map(c => [c[0], c[1]])] };
-    FL.area = 'kml'; FL.kmlName = hit.p.name; FL.result = null;
-    _flPickStop(); _flDraw(); openFloodPanel(); _flFit();
+    if (back === openFloodPanel) { FL.area = 'kml'; FL.kmlName = hit.p.name; FL.result = null; }
+    _flPickStop(); if (back === openFloodPanel) { _flDraw(); openFloodPanel(); _flFit(); } else back(hit.p.name);
   };
-  _flPickKey = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); _flPickStop(); openFloodPanel(); } };
+  _flPickKey = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); _flPickStop(); back(); } };
   el.addEventListener('click', _flPickFn, true);
   document.addEventListener('keydown', _flPickKey, true);
 }
@@ -129,8 +142,15 @@ function _flPickStop() {
 // ── Расчёт ─────────────────────────────────────────────────
 async function floodRun() {
   const inp = document.getElementById('fl-level'); if (inp) _flSetLevel(inp.value);
+  ['l0', 'l1'].forEach(k => { const e = document.getElementById('fl-' + k); if (e) FL[k] = e.value.replace(',', '.'); });
   if (!_demBbox) { toast('Сначала выберите область расчёта', 'err'); return; }
-  const level = _flLevel();
+  let level = _flLevel(), extra = {};
+  if (FL.slope) {
+    const a = _flN(FL.l0), b = _flN(FL.l1);
+    if (!FL.axis || FL.axis.length < 2) { toast('Нарисуйте ось реки (от начала к концу)', 'err'); return; }
+    if (!Number.isFinite(a) || !Number.isFinite(b)) { toast('Введите отметки в начале и в конце', 'err'); return; }
+    extra = { levels: [a, b], axis: FL.axis }; level = Math.max(a, b);
+  }
   if (!Number.isFinite(level)) { toast('Введите отметку уровня воды, м (БСВ-77)', 'err'); inp && inp.focus(); return; }
   if (FL.busy) return;
   FL.busy = true;
@@ -141,19 +161,19 @@ async function floodRun() {
   sse.onmessage = e => { try { const d = JSON.parse(e.data); if ((d.type === 'flood_progress' || d.type === 'dem_progress') && stEl()) stEl().textContent = `⏳ ${d.text} (${d.pct}%)`; } catch (x) {} };
   try {
     const r = await fetch(`${API}/dem/flood`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bbox: _demBbox, clip: _demClip || null, level, minArea: FL.minArea, waterAsFlood: FL.water, connectedOnly: FL.connected }) });
+      body: JSON.stringify({ bbox: _demBbox, clip: _demClip || null, level, minArea: FL.minArea, waterAsFlood: FL.water, connectedOnly: FL.connected, ...extra }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || 'Ошибка сервера');
     const first = !FL.result;
     FL.result = j;
     _flDraw();
     if (first) setTimeout(_flFit, 50);
-    if (!j.features.length) toast(`При отметке ${_flNum(level)} м затопленных зон нет`, 'warn');
+    if (!j.features.length) toast(`При уровне ${_flLvlText(j.stats)} затопленных зон нет`, 'warn');
   } catch (e) {
     toast('❌ ' + e.message, 'err');
   } finally {
     sse.close(); FL.busy = false;
-    if (document.getElementById('fl-level')) openFloodPanel();
+    if (document.getElementById('fl-status')) openFloodPanel();
   }
 }
 // Показать область расчёта в свободной от окна части карты
@@ -207,7 +227,8 @@ function _flLabelPt(ring) {
   return best || ring[0];
 }
 function _flParts(feats) {
-  const lv = _flLevel();
+  const st = FL.result && FL.result.stats;
+  const lv = st && st.levels ? (st.levels[0] + st.levels[1]) / 2 : _flLevel();
   const z = g => g.type === 'Polygon' ? g.coordinates.map(r => r.map(c => [c[0], c[1], lv]))
     : g.coordinates.map(p => p.map(r => r.map(c => [c[0], c[1], lv])));
   const polys = feats.map(f => ({ type: 'Feature', properties: { name: f.properties.name }, geometry: { type: f.geometry.type, coordinates: z(f.geometry) } }));
@@ -226,7 +247,7 @@ function _flParts(feats) {
 }
 function floodExport(one) {
   const r = FL.result; if (!r || !r.features.length) { toast('Сначала рассчитайте зоны', 'warn'); return; }
-  const lv = _flNum(_flLevel()).replace(',', '_');
+  const lv = _flLvlText(r.stats).replace(/[ м]/g, '').replace(/,/g, '_').replace('→', '-');
   const choices = [];
   if (one) choices.push({ key: 'one', label: `Только ${esc(one.properties.name)} (${_flHa(one.properties.area_m2)})`, parts: _flParts([one]) });
   choices.push({ key: 'all', label: `Все зоны затопления (${r.features.length})`, parts: _flParts(r.features) });
@@ -234,8 +255,8 @@ function floodExport(one) {
 }
 async function floodSaveLayer() {
   const r = FL.result; if (!r || !r.features.length) return;
-  const lv = _flLevel();
-  const name = `Затопление ${_flNum(lv)} м БСВ-77`;
+  const lv = r.stats && r.stats.levels ? `${r.stats.levels[0]}…${r.stats.levels[1]}` : _flLevel();
+  const name = `Затопление ${_flLvlText(r.stats)} БСВ-77`;
   const feats = r.features.map(f => ({ type: 'Feature', geometry: f.geometry, properties: {
     name: f.properties.name, 'Площадь, га': +(f.properties.area_m2 / 1e4).toFixed(3),
     'Глубина макс., м': f.properties.depth_max, 'Глубина средн., м': f.properties.depth_mean, 'Отметка БСВ-77, м': lv } }));
@@ -248,4 +269,42 @@ async function floodSaveLayer() {
     try { if (typeof kmlPanelOpen !== 'undefined' && kmlPanelOpen) renderKmlPanel(); } catch (e) {}
     toast(`💾 Сохранено слоем «${name}»`, 'ok');
   } catch (e) { toast('Не удалось сохранить слой', 'err'); }
+}
+
+// ── Ось реки для уклона воды: щелчки по руслу от начала к концу ──────────────
+function _flAxisLen() { const a = FL.axis || []; let d = 0; for (let i = 1; i < a.length; i++) d += map.distance([a[i - 1][1], a[i - 1][0]], [a[i][1], a[i][0]]); return d; }
+function _flAxisShow() {
+  if (FL.axisLayer) { try { map.removeLayer(FL.axisLayer); } catch (e) {} FL.axisLayer = null; }
+  const a = FL.axis; if (!a || !a.length) return;
+  const ll = a.map(c => [c[1], c[0]]);
+  FL.axisLayer = L.layerGroup([L.polyline(ll, { color: '#0ea5e9', weight: 4, dashArray: '8 5', interactive: false }),
+    L.circleMarker(ll[0], { radius: 7, color: '#fff', weight: 2, fillColor: '#0ea5e9', fillOpacity: 1, interactive: false }).bindTooltip('начало', { permanent: true, direction: 'left' }),
+    ...(ll.length > 1 ? [L.circleMarker(ll[ll.length - 1], { radius: 7, color: '#fff', weight: 2, fillColor: '#0369a1', fillOpacity: 1, interactive: false }).bindTooltip('конец', { permanent: true, direction: 'right' })] : [])]).addTo(map);
+}
+let _flAxPts = [], _flAxKey = null;
+function _flAxisDraw() {
+  closeModal();
+  FL.axisDraw = true; _flAxPts = []; FL.axis = null; _flAxisShow();
+  const bnr = document.getElementById('bnr'), t = document.getElementById('bnr-t');
+  if (t) t.textContent = '〰 Ось реки: щёлкайте по руслу от начала к концу · Enter или ПКМ — готово · Esc — отмена';
+  if (bnr) { bnr.className = 'show draw'; bnr.style.display = 'flex'; }
+  map.getContainer().style.cursor = 'crosshair';
+  map.on('click', _flAxClick); map.on('contextmenu', _flAxDone);
+  _flAxKey = e => { if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); _flAxDone(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); _flAxPts = []; _flAxDone(); } };
+  document.addEventListener('keydown', _flAxKey, true);
+}
+function _flAxClick(e) {
+  const ll = typeof mapSnapLL === 'function' ? mapSnapLL(e.latlng, e) : e.latlng;
+  _flAxPts.push(ll); FL.axis = _flAxPts.map(p => [+p.lng.toFixed(7), +p.lat.toFixed(7)]); _flAxisShow();
+}
+function _flAxDone(e) {
+  if (e && e.originalEvent) { e.originalEvent.preventDefault(); L.DomEvent.stopPropagation(e); }
+  map.off('click', _flAxClick); map.off('contextmenu', _flAxDone);
+  document.removeEventListener('keydown', _flAxKey, true);
+  FL.axisDraw = false; map.getContainer().style.cursor = '';
+  const bnr = document.getElementById('bnr'); if (bnr) { bnr.className = ''; bnr.style.display = 'none'; }
+  FL.axis = _flAxPts.length >= 2 ? _flAxPts.map(p => [+p.lng.toFixed(7), +p.lat.toFixed(7)]) : null;
+  if (!FL.axis) toast('Ось не задана — нужно минимум 2 точки', 'warn');
+  _flAxisShow(); FL.result = null; _flDraw();
+  openFloodPanel();
 }

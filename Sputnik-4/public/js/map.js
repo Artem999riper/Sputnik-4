@@ -546,8 +546,9 @@ function clearMapSelections(){
   let n=0;
   if(typeof _demBbox!=='undefined'&&(_demBbox||_demRect)){demClearDraw();n++;}
   if(typeof DW!=='undefined'&&DW.kml&&DW.kml.length){DW.kml=[];if(DW.area==='kml')DW.area='';_dwKmlShow();n++;}
-  if(typeof FL!=='undefined'&&(FL.layer||FL.result)){if(FL.layer){try{map.removeLayer(FL.layer);}catch(e){}FL.layer=null;}FL.result=null;FL.area='';FL.kmlName='';n++;}
+  if(typeof FL!=='undefined'&&(FL.layer||FL.result||FL.axisLayer)){if(FL.layer){try{map.removeLayer(FL.layer);}catch(e){}FL.layer=null;}FL.result=null;FL.area='';FL.kmlName='';FL.axis=null;if(typeof _flAxisShow==='function')_flAxisShow();n++;}
   if(typeof _ksTmp!=='undefined'&&_ksTmp){_ksCleanup();n++;}
+  if(typeof TA!=='undefined'&&(TA.ov||TA.vec)){_taClear();n++;}
   if(n)toast('Выделение на карте снято','ok');
   return n;
 }
@@ -567,7 +568,7 @@ let _snapMk = null, _snapRaf = 0, _snapLast = null;
 function _snapModeOn(){
   return !!((typeof _kdActive!=='undefined'&&_kdActive)||(typeof _demVertMode!=='undefined'&&_demVertMode&&_demDrawing)||
     (typeof _epActive!=='undefined'&&_epActive)||(typeof _ksActive!=='undefined'&&_ksActive)||
-    (typeof MN!=='undefined'&&MN.mode&&MN.mode!=='idle'));
+    (typeof MN!=='undefined'&&MN.mode&&MN.mode!=='idle')||(typeof FL!=='undefined'&&FL.axisDraw));
 }
 function _snapOwnPts(){
   const a=[];

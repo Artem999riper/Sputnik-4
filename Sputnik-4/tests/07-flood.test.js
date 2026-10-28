@@ -67,6 +67,14 @@ ds.GetRasterBand(1).WriteArray(z); ds=None`]);
     // Ниже реки — ничего
     r = await S.api('POST', '/api/dem/flood', { bbox, level: 3 + off });
     assert.strictEqual(r.body.features.length, 0);
+    // Уклон воды вдоль реки: 7 м в начале (запад) → 12 м в конце (восток) — зона шире, чем при 7, и уже, чем при 12
+    const a7 = (await S.api('POST', '/api/dem/flood', { bbox, level: 7 + off })).body.stats.flood_m2;
+    const a12 = (await S.api('POST', '/api/dem/flood', { bbox, level: 12 + off, connectedOnly: true })).body.stats.flood_m2;
+    r = await S.api('POST', '/api/dem/flood', { bbox, levels: [7 + off, 12 + off], axis: [[74.505, 66.51], [74.545, 66.51]], connectedOnly: true });
+    assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+    const as = r.body.stats.flood_m2;
+    assert.ok(as > a7 * 1.2 && as < a12 * 0.95, `уклон: ${a7} < ${as} < ${a12}`);
+    assert.strictEqual((await S.api('POST', '/api/dem/flood', { bbox, levels: [7, 12] })).status, 400);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -132,4 +140,40 @@ test('ГИС-операции: буфер, обрезка, разность, о�
   assert.ok(Math.abs(full - diff - clip) < 0.01, `${full} ≠ ${diff} + ${clip}`);
   r = await op({ op: 'dissolve', layerA: A, field: 'Тип' }); assert.strictEqual(r.features.length, 2);
   assert.strictEqual((await S.api('POST', '/api/gis/op', { op: 'clip', layerA: A })).status, 400);
+});
+
+test('анализ рельефа: уклоны, сток, водосбор, сравнение со съёмкой', { skip: !HAS_GDAL && 'нет GDAL/Python' }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pgk_ta_'));
+  try {
+    // наклонная плоскость: 1 м на 100 м к западу (уклон ≈ 0,57°) + долина вдоль широты 66.61
+    execFileSync(PY, ['-c', `
+import numpy as np
+from osgeo import gdal, osr
+x0,x1,y0,y1=74.60,74.65,66.60,66.62
+dx=4/(111320*np.cos(np.radians(66.61))); dy=4/111320
+c=int((x1-x0)/dx); r=int((y1-y0)/dy)
+X,Y=np.meshgrid(np.linspace(x0,x1,c),np.linspace(y1,y0,r))
+z=(20+np.abs(Y-66.61)*111320*0.02+(X-x0)*111320*np.cos(np.radians(66.61))*0.01).astype(np.float32)
+ds=gdal.GetDriverByName('GTiff').Create(r'${path.join(dir, 'dem_74.600_66.600_74.650_66.620.tif')}',c,r,1,gdal.GDT_Float32)
+ds.SetGeoTransform((x0,dx,0,y1,0,-dy)); s=osr.SpatialReference(); s.ImportFromEPSG(4326); ds.SetProjection(s.ExportToWkt())
+ds.GetRasterBand(1).WriteArray(z); ds=None`]);
+    await S.api('PUT', '/api/dem/tiles-dir', { dir });
+    const bbox = { minLat: 66.601, maxLat: 66.619, minLng: 74.601, maxLng: 74.649 };
+    const A = async b => { const r = await S.api('POST', '/api/dem/analysis', { bbox, ...b }); assert.strictEqual(r.status, 200, JSON.stringify(r.body)); return r.body; };
+    let r = await A({ mode: 'slope' });
+    assert.ok(r.stats.mean > 0.9 && r.stats.mean < 1.6, 'средний уклон ' + r.stats.mean);   // √(1,15²+0,57²) ≈ 1,28°
+    assert.ok(r.overlay && r.overlay.png.length > 100);
+    r = await A({ mode: 'flow' });
+    assert.ok(r.lines.features.length > 0);
+    const main = r.lines.features.reduce((a, f) => f.properties.catchment_km2 > a.properties.catchment_km2 ? f : a);
+    assert.ok(main.properties.catchment_km2 > 1, 'главный тальвег ' + main.properties.catchment_km2);
+    r = await A({ mode: 'watershed', point: [74.603, 66.61] });
+    assert.ok(r.stats.area_km2 > 2 && r.stats.area_km2 <= 4.3, 'водосбор ' + r.stats.area_km2);
+    // сравнение: сначала узнаём высоты ArcticDEM в точках, затем «съёмка» на 0,5 м выше
+    const P = [[74.61, 66.605], [74.62, 66.612], [74.63, 66.615], [74.64, 66.607]];
+    const d0 = (await A({ mode: 'compare', points: P.map(q => [...q, 0]) })).points.features.map(f => f.properties.dem);
+    r = await A({ mode: 'compare', points: P.map((q, i) => [...q, d0[i] + 0.5]) });
+    assert.ok(Math.abs(r.stats.mean - 0.5) < 0.2, 'сдвиг съёмки ' + r.stats.mean);
+    assert.strictEqual((await S.api('POST', '/api/dem/analysis', { bbox, mode: 'watershed' })).status, 400);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
