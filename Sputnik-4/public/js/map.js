@@ -566,12 +566,14 @@ const SNAP_PX = 12;
 let _snapMk = null, _snapRaf = 0, _snapLast = null;
 function _snapModeOn(){
   return !!((typeof _kdActive!=='undefined'&&_kdActive)||(typeof _demVertMode!=='undefined'&&_demVertMode&&_demDrawing)||
-    (typeof _epActive!=='undefined'&&_epActive)||(typeof _ksActive!=='undefined'&&_ksActive));
+    (typeof _epActive!=='undefined'&&_epActive)||(typeof _ksActive!=='undefined'&&_ksActive)||
+    (typeof MN!=='undefined'&&MN.mode&&MN.mode!=='idle'));
 }
 function _snapOwnPts(){
   const a=[];
   [typeof _kdPts!=='undefined'&&_kdActive?_kdPts:null, typeof _demVerts!=='undefined'&&_demVertMode?_demVerts:null,
-   typeof _epPts!=='undefined'&&_epActive?_epPts:null, typeof _ksPts!=='undefined'&&_ksActive?_ksPts:null]
+   typeof _epPts!=='undefined'&&_epActive?_epPts:null, typeof _ksPts!=='undefined'&&_ksActive?_ksPts:null,
+   typeof MN!=='undefined'&&MN.mode?MN.pts:null]
     .forEach(arr=>{if(arr)arr.forEach(p=>{if(p&&p.lat!=null)a.push(p);});});
   return a;
 }

@@ -81,6 +81,7 @@ async function _srCollect(siteId, from, to) {
   return { o, vols, fact, log, photos };
 }
 
+const _pfPtsAny = g => { const o = []; const w = c => { if (typeof c[0] === 'number') o.push(c); else c.forEach(w); }; if (g && g.coordinates) w(g.coordinates); return o; };
 // ── Карта: подложка с сервера + объёмы и базы, рисуем сами ─
 async function _srMapImage(o, sat) {
   const feats = [];
@@ -93,6 +94,10 @@ async function _srMapImage(o, sat) {
     try { const gj = JSON.parse(l.geojson); (gj.features || []).forEach(f => f && f.geometry && !(f.properties || {})._hidden && feats.push({ f, color: (f.properties || {})._color || l.color || '#7c3aed', kind: 'kml' })); } catch (e) {}
   });
   const bases = (o.bases || []).filter(b => b && b.lat && b.lng);
+  // заметки на карте (слой «Заметки») — добавим те, что попали в область объекта (после расчёта рамки)
+  const notes = [];
+  (layers || []).forEach(l => { const st = typeof kmlStyleOf === 'function' ? kmlStyleOf(l) : null; if (!st || !st.notes || !l.visible) return;
+    try { (JSON.parse(l.geojson).features || []).forEach(f => f && f.geometry && f.properties && f.properties._note && notes.push(f)); } catch (e) {} });
   const pts = [];
   const walk = c => { if (typeof c[0] === 'number') pts.push(c); else c.forEach(walk); };
   feats.forEach(x => walk(x.f.geometry.coordinates || []));
@@ -140,6 +145,16 @@ async function _srMapImage(o, sat) {
     } else if (t === 'GeometryCollection') (geom.geometries || []).forEach(x => drawGeom(x, color, kind));
   };
   ['kml', 'vol', 'fact'].forEach(k => feats.filter(x => x.kind === k).forEach(x => drawGeom(x.f.geometry, x.color, k)));
+  // заметки: стрелки/выноски линиями, текст — крупно с белой обводкой
+  const inBox = c => c[0] >= minLng && c[0] <= maxLng && c[1] >= minLat && c[1] <= maxLat;
+  notes.filter(f => _pfPtsAny(f.geometry).some(inBox)).forEach(f => {
+    const p = f.properties, col = p._color || '#dc2626';
+    if (f.geometry.type === 'Point') {
+      const [x, y] = P(f.geometry.coordinates[0], f.geometry.coordinates[1]);
+      g.font = `bold ${Math.round((+p._size || 16) * 2.2)}px sans-serif`; g.lineWidth = 9; g.strokeStyle = 'rgba(255,255,255,.95)'; g.fillStyle = col;
+      String(p.name || '').split('\n').forEach((t, i) => { const yy = y + i * (+p._size || 16) * 2.5; g.strokeText(t, x, yy); g.fillText(t, x, yy); });
+    } else { g.lineWidth = 7; g.strokeStyle = col; (f.geometry.type === 'LineString' ? [f.geometry.coordinates] : f.geometry.coordinates).forEach(l => { g.beginPath(); l.forEach((c, i) => { const [x, y] = P(c[0], c[1]); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); }); }
+  });
   g.font = 'bold 34px sans-serif';
   bases.forEach(b => {
     const [x, y] = P(b.lng, b.lat);

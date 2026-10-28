@@ -1755,10 +1755,11 @@ function renderLayerGroupsWithSymbols() {
         pane: 'kmlPane',
         renderer: getCanvasRenderer('kmlPane'),
         // Цвет: «выполнено» → раскраска по атрибуту → цвет объекта → цвет слоя
-        style: (f) => ({ color: _kmlFeatColor(l, f && f.properties) || color, weight:2.5, opacity:.85,
+        style: (f) => ({ color: _kmlFeatColor(l, f && f.properties) || color, weight: f && f.properties && f.properties._note ? 3.5 : 2.5, opacity:.85,
           fillOpacity: l.fill_opacity != null ? l.fill_opacity : .2, dashArray:dashArr }),
         pointToLayer: (f, ll) => {
           // Точки — в markerPane (z-600), иначе markerPane перехватывает события
+          if (f.properties && f.properties._note === 'text' && typeof mapNoteIcon === 'function') return L.marker(ll, { icon: mapNoteIcon(f.properties) });
           const fc = _kmlFeatColor(l, f.properties);
           const icon = kmlFeatureDivIcon(l, fc ? { ...(f.properties || {}), _color: fc } : f.properties);
           return L.marker(ll, { icon });
@@ -1769,7 +1770,7 @@ function renderLayerGroupsWithSymbols() {
           const lsz = typeof kmlLabelSize === 'function' ? kmlLabelSize(l) : 0;
           const tip0 = esc(nm) + (cmt ? (nm ? '<br>' : '') + '<span style="color:#65a30d;font-weight:700">✅ ' + esc(cmt) + '</span>' : '');
           const tip = tip0 && lsz ? `<span style="font-size:${lsz}px">${tip0}</span>` : tip0;
-          if (tip) layer.bindTooltip(tip, {permanent:showLabels, className:'mlbl', direction:'top'});
+          if (tip && !(f.properties && f.properties._note)) layer.bindTooltip(tip, {permanent:showLabels, className:'mlbl', direction:'top'});
 
           // Клик по объекту KML добавляет точку в активный инструмент (линейка/рисование).
           // Для точки — её точные координаты, для линии/полигона — место клика с привязкой
