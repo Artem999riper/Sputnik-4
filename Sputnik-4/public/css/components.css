@@ -193,3 +193,10 @@ a{color:var(--acc);text-decoration:none;word-break:break-all}a:hover{text-decora
 .kml-legend-r{display:flex;gap:6px;align-items:center;padding:1px 0}
 body.kat-open .leaflet-bottom{bottom:calc(38vh + 4px)}
 body.kat-open #mtb,body.kat-open #ep-panel{display:none}
+/* шторка подложек (map-swipe.js) */
+#msw-bar{position:absolute;top:0;bottom:0;width:0;z-index:700;pointer-events:none}
+#msw-bar .msw-line{position:absolute;top:0;bottom:0;left:-2px;width:4px;background:#fff;box-shadow:0 0 6px rgba(0,0,0,.6);cursor:ew-resize;pointer-events:auto}
+#msw-bar .msw-knob{position:absolute;top:50%;left:-18px;width:36px;height:36px;margin-top:-18px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-weight:700;cursor:ew-resize;pointer-events:auto;user-select:none}
+#msw-bar .msw-lbl{position:absolute;top:58px;white-space:nowrap;background:rgba(17,24,39,.75);color:#fff;font-size:11px;font-weight:600;padding:3px 8px;border-radius:10px}
+#msw-bar .msw-l{right:10px}#msw-bar .msw-r{left:10px}
+#msw-bar .msw-x{position:absolute;top:58px;left:-12px;transform:translateY(28px);width:24px;height:24px;border-radius:50%;border:none;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer;pointer-events:auto;font-size:11px}

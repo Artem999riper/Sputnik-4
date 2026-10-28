@@ -203,7 +203,9 @@ function _srHtml(d, opt, imgs) {
     <table class="kv">${row('Объект', esc(o.name))}${row('Заказчик', esc(o.client || ''))}${row('Договор', esc(o.contract_number || ''))}
       ${row('Адрес / район', esc(o.address || ''))}${row('Сроки по договору', o.start_date || o.end_date ? `${_srD(o.start_date)} — ${_srD(o.end_date)}` : '')}
       ${row('Ожидаемое окончание', o.estimated_end ? _srD(o.estimated_end) : '')}${row('Статус', esc(st))}
-      ${row('Готовность объекта', o.completion_percent != null ? `<b>${_srN(o.completion_percent, 0)} %</b>` : '')}</table>`;
+      ${row('Готовность объекта', o.completion_percent != null ? `<b>${_srN(o.completion_percent, 0)} %</b>` : '')}
+      ${(() => { if (typeof siteForecast !== 'function') return ''; const f = siteForecast(o, opt.to); if (!f.finish || f.allDone) return '';
+        return row('Прогноз окончания (по темпу)', `${_srD(f.finish)}${f.lateDays != null ? (f.lateDays > 0 ? ` — <b>позже срока на ${f.lateDays} дн.</b>` : ` — в срок, запас ${-f.lateDays} дн.`) : ''}`); })()}</table>`;
   if (opt.note) h += `<p class="note">${esc(opt.note).replace(/\n/g, '<br>')}</p>`;
   if (opt.map && imgs.map) h += `<h2>Карта объекта</h2>${img('map')}<p class="cap">Объёмы работ — цветом видов работ, выполненное — зелёным, базы — фиолетовым.</p>`;
   if (opt.vol && d.vols.length) {
@@ -222,6 +224,8 @@ function _srHtml(d, opt, imgs) {
     h += `<h2>Журнал работ за период</h2>` + (L.length ? `<table class="t"><tr><th>Дата</th><th>Вид работ</th><th>Выполнено</th><th>Исполнители</th><th>Акт</th><th>Примечание</th></tr>
       ${L.map(p => { const v = d.vols.find(x => x.id === p.volume_id) || {}; return `<tr><td>${_srD(p.work_date)}</td><td>${esc(vname(p.volume_id))}</td><td class="n">${_srN(p.completed)} ${esc(v.unit || '')}</td><td>${esc(wname(p.worker_ids))}</td><td>${esc(p.act_number || '')}</td><td>${esc(p.notes || '')}</td></tr>`; }).join('')}</table>
       ${d.log.length > L.length ? `<p class="cap">Показаны последние ${L.length} записей из ${d.log.length}.</p>` : ''}` : '<p>За период записей нет.</p>');
+    const dt = (o.log || []).filter(x => x.action === 'Простой из-за погоды');
+    if (dt.length) h += `<h3>Простои из-за погоды</h3><table class="t"><tr><th>Запись</th><th>Кто отметил</th></tr>${dt.map(x => `<tr><td>${esc(x.details || '')}</td><td>${esc(x.user_name || '')}</td></tr>`).join('')}</table>`;
   }
   if (opt.team && (o.bases || []).length) {
     h += `<h2>Персонал и техника</h2>`;

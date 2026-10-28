@@ -69,6 +69,15 @@ module.exports = (app, getDb, L) => {
     res.json({ success: true });
   }));
 
+  // Запись в журнал объекта (напр. «Простой из-за погоды»)
+  app.post('/api/sites/:id/log', wrap((req, res) => {
+    const { action, details, user_name } = req.body || {};
+    if (!action) return res.status(400).json({ error: 'action обязателен' });
+    if (!get(db(), 'SELECT id FROM sites WHERE id=?', [req.params.id])) return res.status(404).json({ error: 'Not found' });
+    L(req.params.id, null, String(action).slice(0, 120), String(details || '').slice(0, 1000), user_name);
+    res.json({ success: true });
+  }));
+
   app.delete('/api/sites/:id', wrap((req, res) => {
     const d = db();
     // Всё удаление объекта — одной транзакцией: падение посередине

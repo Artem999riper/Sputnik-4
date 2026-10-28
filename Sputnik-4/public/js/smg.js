@@ -1648,8 +1648,10 @@ function gsearchInput(q){
         res.push({type:key.slice(0,-1),id:it.id,name:it.name||it.title,sub:it.client||it.role||it.plate_number||it.site_name||it.type||''});
       }));
     }
-    if(!res.length&&!coordHtml){drop.innerHTML='<div style="padding:10px;font-size:11px;color:var(--tx3)">Ничего не найдено</div>';drop.classList.add('show');return;}
-    drop.innerHTML=coordHtml+res.map(r=>`<div class="gsr" onclick="gsearchGo('${r.type}','${r.id}')">
+    // Объекты слоёв KML — по названию и по любому атрибуту (№ скважины, № лицензии…)
+    const kmlHtml=typeof kmlSearchHtml==='function'?kmlSearchHtml(q):'';
+    if(!res.length&&!coordHtml&&!kmlHtml){drop.innerHTML='<div style="padding:10px;font-size:11px;color:var(--tx3)">Ничего не найдено</div>';drop.classList.add('show');return;}
+    drop.innerHTML=coordHtml+kmlHtml+res.map(r=>`<div class="gsr" onclick="gsearchGo('${r.type}','${r.id}')">
       <span class="gsr-ico">${GTYPE_ICONS[r.type]||'🔍'}</span>
       <div style="flex:1;min-width:0">
         <div class="gsr-nm">${esc(r.name||'')}</div>

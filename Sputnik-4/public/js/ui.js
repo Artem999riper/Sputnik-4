@@ -492,7 +492,7 @@ function doGlobalSearch(q){
       <span class="gsr-item-icon">📍</span><div><div class="gsr-item-main">${esc(s.name)}</div><div class="gsr-item-sub">${esc(s.client||'')} · ${s.completion_percent}%</div></div></div>`);
     html+=section('Базы','🏕',r.bases||[],b=>`<div class="gsr-item" onclick="closeGlobalSearch();selectBase('${escAttr(b.id)}');switchView('map')">
       <span class="gsr-item-icon">🏕</span><div><div class="gsr-item-main">${esc(b.name)}</div></div></div>`);
-    html+=section('Сотрудники','👤',r.workers||[],w=>`<div class="gsr-item" onclick="closeGlobalSearch();if(w_base_${w.id})selectBase('${w.base_id||''}');switchView('pgk')">
+    html+=section('Сотрудники','👤',r.workers||[],w=>`<div class="gsr-item" onclick="closeGlobalSearch();${w.base_id?`switchView('map');selectBase('${escAttr(w.base_id)}')`:`switchView('workers')`}">
       <span class="gsr-item-icon">👤</span><div><div class="gsr-item-main">${esc(w.name)}</div><div class="gsr-item-sub">${esc(w.role||'')}${w.phone?' · '+esc(w.phone):''}</div></div></div>`);
     html+=section('Техника','🚛',r.machinery||[],m=>`<div class="gsr-item" onclick="closeGlobalSearch();flyToMach('${escAttr(m.id)}');switchView('map')">
       <span class="gsr-item-icon">🚛</span><div><div class="gsr-item-main">${esc(m.name)}</div><div class="gsr-item-sub">${esc(m.type||'')} ${esc(m.plate_number||'')}</div></div></div>`);

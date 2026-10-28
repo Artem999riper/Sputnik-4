@@ -50,7 +50,7 @@ function kmlLabelText(l, props) {
 function kmlLabelSize(l) { const st = kmlStyleOf(l); return st && st.labelSize ? st.labelSize : 0; }
 
 async function kmlSaveStyle(l, st) {
-  const clean = st && (st.colorBy || st.labelField || st.labelSize) ? st : null;
+  const clean = st && Object.keys(st).length ? st : null;
   const r = await fetch(`${API}/layers/${l.id}/style`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style: clean }) });
   if (!r.ok) return false;
   l.style_json = clean ? JSON.stringify(clean) : null;
@@ -335,4 +335,45 @@ function _katFieldMenu(e, k) {
       if (st.colorBy === k || st.labelField === k) { if (st.colorBy === k) delete st.colorBy; if (st.labelField === k) delete st.labelField; await kmlSaveStyle(l, st); }
     } },
   ]);
+}
+
+// ── Общий поиск: объекты слоёв KML по названию и атрибутам ─────────────────
+const _kaCache = new Map();   // layerId → {src, feats}
+function _kaFeatsCached(l) {
+  const c = _kaCache.get(l.id);
+  if (c && c.src === l.geojson) return c.feats;
+  const feats = _kaFeatures(l); _kaCache.set(l.id, { src: l.geojson, feats }); return feats;
+}
+function kmlSearch(q, max = 15) {
+  q = String(q || '').trim().toLowerCase(); if (q.length < 2) return [];
+  const out = [];
+  for (const l of (layers || [])) {
+    const feats = _kaFeatsCached(l);
+    for (let i = 0; i < feats.length && out.length < max; i++) {
+      const p = (feats[i] && feats[i].properties) || {};
+      const nm = String(p.name || p.Name || '');
+      let hit = nm.toLowerCase().includes(q) ? { k: '', v: nm } : null;
+      if (!hit) for (const k in p) { if (k.startsWith('_') || p[k] == null || typeof p[k] === 'object') continue; const v = String(p[k]); if (v.toLowerCase().includes(q)) { hit = { k, v }; break; } }
+      if (hit) out.push({ layerId: l.id, idx: i, layer: l.name, name: nm || `Объект ${i + 1}`, field: hit.k, value: hit.v, type: feats[i].geometry && feats[i].geometry.type });
+    }
+    if (out.length >= max) break;
+  }
+  return out;
+}
+function kmlSearchHtml(q) {
+  const r = kmlSearch(q); window._gsKml = r;
+  const ic = t => /Point/.test(t || '') ? '📍' : /Line/.test(t || '') ? '〰' : '⬡';
+  return r.map((x, i) => `<div class="gsr" onclick="gsearchClear();kmlSearchGo(${i})">
+    <span class="gsr-ico">${ic(x.type)}</span><div style="flex:1;min-width:0"><div class="gsr-nm">${esc(x.name)}</div>
+    <div class="gsr-sub">${esc(x.layer)}${x.field ? ` · ${esc(x.field)}: ${esc(x.value.length > 60 ? x.value.slice(0, 60) + '…' : x.value)}` : ''}</div></div><span class="gsr-type">Слой</span></div>`).join('');
+}
+function kmlSearchGo(i) {
+  const x = (window._gsKml || [])[i]; if (!x) return;
+  if (typeof switchView === 'function') switchView('map');
+  const l = (layers || []).find(z => z.id === x.layerId); if (!l) return;
+  const f = _kaFeatsCached(l)[x.idx];
+  KAT.layerId = x.layerId; _katHl(f);       // жёлтая подсветка, как в таблице атрибутов
+  setTimeout(() => { if (!document.getElementById('kat-panel')?.classList.contains('open')) KAT.layerId = null; }, 0);
+  try { const b = KAT.hl.getBounds(); if (b.getNorthEast().equals(b.getSouthWest())) map.flyTo(b.getCenter(), Math.max(map.getZoom(), 16), { duration: 0.7 }); else map.flyToBounds(b, { padding: [60, 60], maxZoom: 17, duration: 0.7 }); } catch (e) {}
+  setTimeout(() => { if (!document.getElementById('kat-panel')?.classList.contains('open')) _katHl(null); }, 6000);
 }
