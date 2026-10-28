@@ -1079,7 +1079,7 @@ async function kmlPolygonToLine(layerId, fIdx){
 
 // «Выполнить объект»: красит один объект слоя в салатовый и ставит
 // комментарий «Выполнено» (повторный вызов снимает отметку).
-async function kmlToggleDone(layerId, fIdx){
+async function kmlToggleDone(layerId, fIdx, force){
   const l=layers.find(x=>x.id===layerId);if(!l)return;
   let gj;try{gj=JSON.parse(l.geojson);}catch(e){toast('Ошибка разбора слоя','err');return;}
   const features=gj.type==='FeatureCollection'?gj.features:[gj];
@@ -1100,7 +1100,7 @@ async function kmlToggleDone(layerId, fIdx){
     await _kmlSaveGeojson(l,gj);
     renderLayerGroups();
     toast(done?'↩️ Отметка «выполнено» снята':'✅ Объект выполнен','ok');
-    if(typeof kmlFactAfterDone==='function')kmlFactAfterDone(layerId,[fIdx],!done);
+    if(typeof kmlFactAfterDone==='function')kmlFactAfterDone(layerId,[fIdx],!done,force);
   }catch(e){toast('Ошибка сохранения','err');}
 }
 
@@ -1827,6 +1827,7 @@ function renderLayerGroupsWithSymbols() {
               }},
               ...(f.geometry&&f.geometry.type!=='Point'&&f.geometry.type!=='MultiPoint'?[{i:'📐',l:/Polygon/.test(f.geometry.type)?'Площадь и периметр':'Длина',f:()=>measureGeometry(f.geometry,featureName)}]:[]),
               ...(fIdx>=0?[{i:'✅',l:(f.properties&&f.properties._color===KML_DONE_COLOR)?'Снять «выполнено»':'Выполнить объект',f:()=>kmlToggleDone(l.id,fIdx)}]:[]),
+              ...(fIdx>=0&&!(f.properties&&f.properties._color===KML_DONE_COLOR)&&typeof kmlStyleOf==='function'&&(kmlStyleOf(l)||{}).fact?[{i:'⚙️',l:'Выполнить с параметрами… (объём, количество, дата)',f:()=>kmlToggleDone(l.id,fIdx,true)}]:[]),
               ...(fIdx>=0?[{i:'✏️',l:'Редактировать объект',f:()=>kmlEditFeature(l.id,fIdx)}]:[]),
               ...(fIdx>=0&&f.geometry&&/LineString|Polygon/.test(f.geometry.type)?[{i:'✏️',l:'Изменить геометрию (вершины)',f:()=>kmlEditGeometry(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'↔',l:'Передвинуть',f:()=>startKmlMoveFeature(l.id,fIdx)}]:[]),

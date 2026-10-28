@@ -17,12 +17,14 @@ function _kfSiteOfLayer(l) {
   return currentType === 'site' && currentObj ? currentObj.id : (ids[0] || null);
 }
 function _kfAmount(cfg, f) {
+  if (cfg.amount != null && cfg.amount !== '') return +cfg.amount;     // своё число за каждый объект
   if (!cfg.field) return 1;
   const v = typeof _kaNum === 'function' ? _kaNum((f.properties || {})[cfg.field]) : parseFloat((f.properties || {})[cfg.field]);
   return Number.isFinite(v) ? v : 0;
 }
 // Вызывается после отметки «выполнено» (done=true) или её снятия (done=false)
-async function kmlFactAfterDone(layerId, idxs, done) {
+// force — показать окно параметров, даже если сегодня уже подтверждали (ПКМ → «Выполнить с параметрами…»)
+async function kmlFactAfterDone(layerId, idxs, done, force) {
   const l = (layers || []).find(x => x.id === layerId); if (!l) return;
   let gj; try { gj = JSON.parse(l.geojson); } catch (e) { return; }
   const feats = gj.type === 'FeatureCollection' ? gj.features : [gj];
@@ -39,10 +41,10 @@ async function kmlFactAfterDone(layerId, idxs, done) {
   const todo = sel.filter(f => !(f.properties && f.properties._fact));
   if (!todo.length) return;
   const st = (typeof kmlStyleOf === 'function' && kmlStyleOf(l)) || {};
-  if (st.fact && st.fact.off) return;
+  if (st.fact && st.fact.off && !force) return;
   // Связь помнится всегда, но параметры (и дату работ) подтверждаем раз в день:
   // сегодня уже подтверждали — засчитываем сразу с выбранной тогда датой
-  if (st.fact && st.fact.volumeId && st.fact.day === _kfToday()) return _kfCreate(l, gj, todo, st.fact, st.fact.workDate || _kfToday());
+  if (!force && st.fact && st.fact.volumeId && st.fact.day === _kfToday()) return _kfCreate(l, gj, todo, st.fact, st.fact.workDate || _kfToday());
   _kfAsk(l, gj, todo, st.fact && st.fact.volumeId ? st.fact : null);
 }
 async function _kfAsk(l, gj, todo, prev) {
@@ -53,14 +55,24 @@ async function _kfAsk(l, gj, todo, prev) {
     ${prev ? '<div style="font-size:11px;color:var(--acc)">Новый день — проверьте дату и параметры (прошлые подставлены).</div>' : ''}
     <div class="fg" style="margin:0"><label>Объект</label><select id="kf-site" onchange="_kfVols(this.value)">${sites.map(s => `<option value="${escAttr(s.id)}" ${s.id === sid0 ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div>
     <div class="fg" style="margin:0"><label>Объём (вид работ)</label><select id="kf-vol"><option value="">⏳…</option></select></div>
-    <div class="fg" style="margin:0"><label>Сколько засчитывать за объект</label><select id="kf-amt">
-      <option value="">1 (штука: скважина, точка…)</option>${fields.map(k => `<option value="${escAttr(k)}" ${prev && prev.field === k ? 'selected' : ''}>из поля «${esc(k)}»</option>`).join('')}</select></div>
+    <div class="fg" style="margin:0"><label>Сколько засчитывать за объект</label>
+      <div style="display:flex;gap:6px"><select id="kf-amt" style="flex:1" onchange="const n=document.getElementById('kf-num');n.style.display=this.value==='#num'?'':'none';if(this.value==='#num')n.focus()">
+        <option value="">1 (штука: скважина, точка…)</option>
+        <option value="#num" ${prev && prev.amount != null ? 'selected' : ''}>своё число…</option>
+        ${fields.map(k => `<option value="${escAttr(k)}" ${prev && prev.field === k ? 'selected' : ''}>из поля «${esc(k)}»</option>`).join('')}</select>
+      <input id="kf-num" type="text" inputmode="decimal" placeholder="напр. 15,5" value="${prev && prev.amount != null ? esc(String(prev.amount)) : ''}" style="width:110px;${prev && prev.amount != null ? '' : 'display:none'}"></div></div>
     <div class="fg" style="margin:0"><label>Дата</label><input id="kf-date" type="date" value="${_kfToday()}"></div>
     <label style="display:flex;gap:6px;align-items:center;text-transform:none;font-weight:500;margin:0"><input type="checkbox" id="kf-rem" checked style="width:auto;margin:0"> Запомнить для этого слоя — до конца дня засчитывать сразу, без вопроса (завтра спрошу снова)</label>
-    <div style="font-size:10px;color:var(--tx3)">Изменить связь — ПКМ по слою → «🔗 Связь с объёмом». Снятие «выполнено» убирает и факт.</div></div>`,
+    <div style="font-size:10px;color:var(--tx3)">Открыть это окно снова в любой момент — ПКМ по объекту → «✅ Выполнить с параметрами…» или ПКМ по слою → «🔗 Связь с объёмом». Снятие «выполнено» убирает и факт.</div></div>`,
     [{ label: 'Не засчитывать', cls: 'bs', fn: async () => { if (document.getElementById('kf-rem').checked) await _kfSaveCfg(l, { off: true }); closeModal(); } },
      { label: '✅ Засчитать', cls: 'bp', fn: async () => {
-       const cfg = { siteId: document.getElementById('kf-site').value, volumeId: document.getElementById('kf-vol').value, field: document.getElementById('kf-amt').value || null };
+       const am = document.getElementById('kf-amt').value;
+       const cfg = { siteId: document.getElementById('kf-site').value, volumeId: document.getElementById('kf-vol').value, field: am && am !== '#num' ? am : null };
+       if (am === '#num') {
+         const n = parseFloat(String(document.getElementById('kf-num').value).replace(',', '.').replace(/\s/g, ''));
+         if (!(n > 0)) { toast('Введите число больше 0', 'err'); document.getElementById('kf-num').focus(); return; }
+         cfg.amount = n;
+       }
        if (!cfg.volumeId) { toast('Выберите объём', 'err'); return; }
        const date = document.getElementById('kf-date').value || _kfToday();
        if (document.getElementById('kf-rem').checked) await _kfSaveCfg(l, { ...cfg, day: _kfToday(), workDate: date });
@@ -106,7 +118,7 @@ function _kfAfterChange() {
 function kmlFactLinkEdit(layerId) {
   const l = (layers || []).find(x => x.id === layerId); if (!l) return;
   const cur = ((typeof kmlStyleOf === 'function' && kmlStyleOf(l)) || {}).fact;
-  const st = cur ? (cur.off ? 'засчёт отключён' : `связан с объёмом (${cur.field ? 'кол-во из поля «' + cur.field + '»' : '1 за объект'})` +
+  const st = cur ? (cur.off ? 'засчёт отключён' : `связан с объёмом (${cur.amount != null ? cur.amount + ' за объект' : cur.field ? 'кол-во из поля «' + cur.field + '»' : '1 за объект'})` +
     (cur.day === _kfToday() ? `, сегодня засчитывается датой ${String(cur.workDate || cur.day).split('-').reverse().join('.')}` : ', при первой отметке сегодня спрошу дату')) : 'не связан';
   showModal('🔗 Связь слоя с объёмом', `<div style="font-size:12px;min-width:min(420px,86vw)">Слой «${esc(l.name)}»: <b>${esc(st)}</b>.<br><br>
     Когда объект слоя отмечают «✅ Выполнить», он может сразу засчитываться в факт объёма объекта.</div>`,
