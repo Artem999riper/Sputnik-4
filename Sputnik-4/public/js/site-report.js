@@ -67,14 +67,17 @@ function _srShrink(src, maxPx) {
 // ── Сбор данных ────────────────────────────────────────────
 async function _srCollect(siteId, from, to) {
   const o = await fetch(`${API}/sites/${siteId}`).then(r => r.json());
-  const fact = (o.vol_progress || []).filter(p => (p.row_type || 'fact') !== 'plan' && !p.hidden);
+  const fact = (o.vol_progress || []).filter(p => (p.row_type || 'fact') === 'fact' && !p.hidden);
   const inP = d => (!from || d >= from) && (!to || d <= to);
   const vols = (o.volumes || []).map(v => {
     const rows = fact.filter(p => p.volume_id === v.id);
     const total = rows.filter(p => !to || p.work_date <= to).reduce((s, p) => s + (+p.completed || 0), 0);
     const period = rows.filter(p => inP(p.work_date)).reduce((s, p) => s + (+p.completed || 0), 0);
     const plan = +v.amount || 0;
-    return { ...v, plan, total, period, pct: plan ? total / plan * 100 : null, left: plan ? Math.max(0, plan - total) : null };
+    // второй показатель объёма-слоя (например п.м. по полю «глубина»)
+    const m2 = v.layer_id && typeof volMeasure === 'function' ? volMeasure(v).second : null;
+    const total2 = rows.filter(p => !to || p.work_date <= to).reduce((s, p) => s + (+p.amount2 || 0), 0);
+    return { ...v, plan, total, period, m2, total2, pct: plan ? total / plan * 100 : null, left: plan ? Math.max(0, plan - total) : null };
   });
   const log = fact.filter(p => inP(p.work_date)).sort((a, b) => a.work_date < b.work_date ? 1 : -1);
   const photos = await fetch(`${API}/photos?entity_type=site&entity_id=${encodeURIComponent(siteId)}`).then(r => r.json()).catch(() => []);
@@ -85,12 +88,18 @@ const _pfPtsAny = g => { const o = []; const w = c => { if (typeof c[0] === 'num
 // ── Карта: подложка с сервера + объёмы и базы, рисуем сами ─
 async function _srMapImage(o, sat) {
   const feats = [];
-  (o.volumes || []).forEach(v => { try { const g = JSON.parse(v.geojson); (g.type === 'FeatureCollection' ? g.features : [g.type === 'Feature' ? g : { type: 'Feature', geometry: g }]).forEach(f => f && f.geometry && feats.push({ f, color: v.color || '#1a56db', kind: 'vol' })); } catch (e) {} });
-  (o.vol_progress || []).forEach(p => { if (!p.geojson || p.hidden) return; try { const g = JSON.parse(p.geojson); (g.type === 'FeatureCollection' ? g.features : [g.type === 'Feature' ? g : { type: 'Feature', geometry: g }]).forEach(f => f && f.geometry && feats.push({ f, color: '#16a34a', kind: 'fact' })); } catch (e) {} });
+  // объёмы — слои KML: выполненные объекты зелёным, остальные цветом объёма, исключённые — не рисуем
+  const volLayerIds = new Set();
+  (o.volumes || []).forEach(v => {
+    const l = v.layer_id && (layers || []).find(x => x.id === v.layer_id); if (!l) return;
+    volLayerIds.add(l.id);
+    try { (JSON.parse(l.geojson).features || []).forEach(f => { const p = (f && f.properties) || {}; if (!f || !f.geometry || p._skip || p._hidden) return;
+      feats.push({ f, color: p._done ? '#16a34a' : (v.color || l.color || '#1a56db'), kind: p._done ? 'fact' : 'vol' }); }); } catch (e) {}
+  });
   (layers || []).forEach(l => {
     const g = l.group_id && typeof kmGroups === 'object' ? kmGroups[l.group_id] : null;
     const ids = g ? (g.site_ids || (g.site_id ? [g.site_id] : [])) : [];
-    if (l.site_id !== o.id && !ids.includes(o.id)) return;
+    if (volLayerIds.has(l.id) || (l.site_id !== o.id && !ids.includes(o.id))) return;
     try { const gj = JSON.parse(l.geojson); (gj.features || []).forEach(f => f && f.geometry && !(f.properties || {})._hidden && feats.push({ f, color: (f.properties || {})._color || l.color || '#7c3aed', kind: 'kml' })); } catch (e) {}
   });
   const bases = (o.bases || []).filter(b => b && b.lat && b.lng);
@@ -228,7 +237,7 @@ function _srHtml(d, opt, imgs) {
     let cat = null, i = 0;
     d.vols.forEach(v => {
       if (v.category !== cat) { cat = v.category; h += `<tr class="cat"><td colspan="8">${esc(_srCat[cat] || cat || 'Прочее')}</td></tr>`; }
-      h += `<tr><td>${++i}</td><td>${esc(v.name)}</td><td>${esc(v.unit || '')}</td><td class="n">${_srN(v.plan)}</td><td class="n">${_srN(v.period)}</td><td class="n"><b>${_srN(v.total)}</b></td><td class="n">${v.pct == null ? '—' : _srN(v.pct, 1)}</td><td class="n">${v.left == null ? '—' : _srN(v.left)}</td></tr>`;
+      h += `<tr><td>${++i}</td><td>${esc(v.name)}${v.m2 ? `<div class="cap">${esc(v.m2.unit || '')}: ${_srN(v.total2)} из ${_srN(+v.amount2 || 0)}</div>` : ''}</td><td>${esc(v.unit || '')}</td><td class="n">${_srN(v.plan)}</td><td class="n">${_srN(v.period)}</td><td class="n"><b>${_srN(v.total)}</b></td><td class="n">${v.pct == null ? '—' : _srN(v.pct, 1)}</td><td class="n">${v.left == null ? '—' : _srN(v.left)}</td></tr>`;
     });
     h += '</table>';
   }
@@ -237,7 +246,7 @@ function _srHtml(d, opt, imgs) {
     const L = d.log.slice(0, 200), vname = id => (d.vols.find(v => v.id === id) || {}).name || '';
     const wname = ids => String(ids || '').split(',').map(x => x.trim()).filter(Boolean).map(id => ((typeof pgkWorkers !== 'undefined' ? pgkWorkers : []).find(w => w.id === id) || {}).name || '').filter(Boolean).join(', ');
     h += `<h2>Журнал работ за период</h2>` + (L.length ? `<table class="t"><tr><th>Дата</th><th>Вид работ</th><th>Выполнено</th><th>Исполнители</th><th>Акт</th><th>Примечание</th></tr>
-      ${L.map(p => { const v = d.vols.find(x => x.id === p.volume_id) || {}; return `<tr><td>${_srD(p.work_date)}</td><td>${esc(vname(p.volume_id))}</td><td class="n">${_srN(p.completed)} ${esc(v.unit || '')}</td><td>${esc(wname(p.worker_ids))}</td><td>${esc(p.act_number || '')}</td><td>${esc(p.notes || '')}</td></tr>`; }).join('')}</table>
+      ${L.map(p => { const v = d.vols.find(x => x.id === p.volume_id) || {}; return `<tr><td>${_srD(p.work_date)}</td><td>${esc(vname(p.volume_id))}</td><td class="n">${_srN(p.completed)} ${esc(v.unit || '')}${p.amount2 != null && v.m2 ? ` · ${_srN(p.amount2)} ${esc(v.m2.unit || '')}` : ''}</td><td>${esc(wname(p.worker_ids))}</td><td>${esc(p.act_number || '')}</td><td>${esc(p.notes || '')}</td></tr>`; }).join('')}</table>
       ${d.log.length > L.length ? `<p class="cap">Показаны последние ${L.length} записей из ${d.log.length}.</p>` : ''}` : '<p>За период записей нет.</p>');
     const dt = (o.log || []).filter(x => x.action === 'Простой из-за погоды');
     if (dt.length) h += `<h3>Простои из-за погоды</h3><table class="t"><tr><th>Запись</th><th>Кто отметил</th></tr>${dt.map(x => `<tr><td>${esc(x.details || '')}</td><td>${esc(x.user_name || '')}</td></tr>`).join('')}</table>`;

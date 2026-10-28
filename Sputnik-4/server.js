@@ -194,6 +194,17 @@ getDb().then(database => {
     restoreFromData: realtime.restoreFromData, trashAndDelete: realtime.trashAndDelete,
     presenceEvents: realtime.presenceEvents, getPresence: realtime.getPresence });
 
+  // Объёмы → слои KML: один раз перенести старые объёмы (перед этим — резервная копия)
+  try {
+    const VS = require('./routes/volume-sync');
+    if (VS.needsMigration(db)) {
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      db.backup(path.join(BACKUP_DIR, `backup_before_volumes_kml_${ts}.db`))
+        .then(() => { const st = VS.migrate(db); console.log('  📦  Объёмы перенесены в слои KML:', JSON.stringify(st)); realtime.broadcast({ type: 'change', path: '/api/volumes' }); })
+        .catch(e => console.error('  ❌  Перенос объёмов не выполнен (нет резервной копии):', e.message));
+    } else VS.migrate(db);   // пустая база — просто поставить отметку
+  } catch (e) { console.error('  ❌  Перенос объёмов:', e.message); }
+
   routeBases(app, getDbInstance, L);
   routeSites(app, getDbInstance, L);
   routePgk  (app, getDbInstance, L);

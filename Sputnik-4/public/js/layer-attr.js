@@ -209,7 +209,8 @@ function _katRender() {
   if (q) rows = rows.filter(r => fields.some(k => String((r.f.properties || {})[k] ?? '').toLowerCase().includes(q)));
   if (KAT.sort) {
     const k = KAT.sort, d = KAT.dir;
-    const val = r => k === '#size' ? r.sz.v : (r.f.properties || {})[k];
+    const pr = r => r.f.properties || {};
+    const val = r => k === '#size' ? r.sz.v : k === '#done' ? (pr(r)._done ? 2 : pr(r)._skip ? 0 : 1) : k === '#date' ? pr(r)._done_date : k === '#f2' ? pr(r)._fact2 : pr(r)[k];
     rows.sort((a, b) => {
       const va = val(a), vb = val(b), na = _kaNum(va), nb = _kaNum(vb);
       if (va == null || va === '') return 1; if (vb == null || vb === '') return -1;
@@ -220,6 +221,8 @@ function _katRender() {
   const total = rows.length; rows = rows.slice(0, KAT.max);
   const arrow = k => KAT.sort === k ? (KAT.dir > 0 ? ' ▲' : ' ▼') : '';
   const st = kmlStyleOf(l) || {};
+  // слой — объём объекта: столбцы «выполнено», дата, факт второго показателя
+  const vol = typeof volByLayer === 'function' ? volByLayer(l.id) : null, vm = vol ? volMeasure(vol) : null;
   p.innerHTML = `<div class="kat-hd">
       <b>📋 ${esc(l.name)}</b><span style="color:var(--tx3)">${q ? `${total} из ${feats.length}` : feats.length} объект(ов)</span>
       <input id="kat-q" placeholder="🔍 Поиск по всем полям…" value="${escAttr(KAT.q)}" oninput="KAT.q=this.value;_katRender();setTimeout(()=>{const e=document.getElementById('kat-q');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},0)">
@@ -227,12 +230,16 @@ function _katRender() {
       <span style="color:var(--tx3);font-size:10px">щелчок — к объекту · двойной щелчок — изменить · ПКМ по заголовку — поле</span>
       <button class="kml-panel-close" onclick="kmlAttrTableClose()" title="Закрыть">✕</button></div>
     <div class="kat-body"><table class="kat-tbl"><thead><tr><th>#</th><th></th>
+      ${vol ? `<th onclick="_katSort('#done')" title="Выполнено (щелчок по ячейке — отметить)">✅${arrow('#done')}</th><th onclick="_katSort('#date')">Дата${arrow('#date')}</th>${vm.second ? `<th onclick="_katSort('#f2')" title="Факт. ${esc(vm.second.field)}; двойной щелчок — изменить">Факт, ${esc(vm.second.unit || '')}${arrow('#f2')}</th>` : ''}` : ''}
       ${fields.map(k => `<th onclick="_katSort('${escAttr(k)}')" oncontextmenu="event.preventDefault();_katFieldMenu(event,'${escAttr(k)}')" title="${esc(k)}">${esc(k)}${st.colorBy === k ? ' 🌈' : ''}${st.labelField === k ? ' 🏷' : ''}${arrow(k)}</th>`).join('')}
       <th onclick="_katSort('#size')">Площадь / длина${arrow('#size')}</th></tr></thead><tbody>
       ${rows.map(r => {
         const pr = r.f.properties || {}, c = kmlAttrColor(l, pr);
-        return `<tr data-i="${r.i}" class="${r.i === KAT.sel ? 'on' : ''}${pr._hidden ? ' hid' : ''}" onclick="_katPick(${r.i})">
+        return `<tr data-i="${r.i}" class="${r.i === KAT.sel ? 'on' : ''}${pr._hidden || pr._skip ? ' hid' : ''}" onclick="_katPick(${r.i})">
           <td>${r.i + 1}</td><td>${c ? `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${c};margin-right:3px"></span>` : ''}${ic(r.f.geometry && r.f.geometry.type)}</td>
+          ${vol ? `<td class="kat-done" onclick="event.stopPropagation();kmlToggleDone('${escAttr(l.id)}',${r.i})" title="${pr._skip ? 'Исключён из объёма' : pr._done ? 'Снять «выполнено»' : 'Выполнить'}">${pr._done ? '✅' : pr._skip ? '🚫' : '⬜'}</td>
+            <td style="color:var(--tx2)" ondblclick="event.stopPropagation();volDoneDialog('${escAttr(l.id)}',[${r.i}])">${pr._done && pr._done_date ? fmt(pr._done_date) : ''}</td>
+            ${vm.second ? `<td ondblclick="event.stopPropagation();volDoneDialog('${escAttr(l.id)}',[${r.i}])">${pr._done ? esc(String(pr._fact2 != null ? pr._fact2 : (pr[vm.second.field] ?? ''))) : ''}</td>` : ''}` : ''}
           ${fields.map(k => `<td ondblclick="event.stopPropagation();_katEdit(this,${r.i},'${escAttr(k)}')">${esc(pr[k] == null ? '' : String(pr[k]))}</td>`).join('')}
           <td style="color:var(--tx2)">${r.sz.t}</td></tr>`;
       }).join('')}

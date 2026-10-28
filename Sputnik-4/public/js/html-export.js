@@ -256,13 +256,16 @@ async function generateHtmlExport(siteId, bbox) {
       });
     } catch(e) {}
   };
-  (s.vol_progress||[]).forEach(p => {
-    if (p.row_type&&p.row_type!=='fact') return;
-    const vol = volMap[p.volume_id];
-    if (!vol) return;
-    collectFromGJ(p.geojson, vol.name, vol.color, p.work_date, vol.category);
+  // объёмы — слои KML: выполненные зелёным с датой, глубина — в семантику
+  (s.volumes||[]).forEach(v => {
+    const l = v.layer_id && (layers||[]).find(x=>x.id===v.layer_id); if (!l) return;
+    const m = typeof volMeasure==='function' ? volMeasure(v) : {};
+    const feats = _kaFeatures(l).filter(f=>f&&f.geometry&&!(f.properties||{})._skip).map(f=>{
+      const p = f.properties||{}, h = m.second ? (p._done&&p._fact2!=null?p._fact2:p[m.second.field]) : null;
+      return {type:'Feature', geometry:f.geometry, properties:{color:p._done?'#16a34a':(v.color||l.color), sem:h!=null&&h!==''?{type:'borehole',data:{depth:h}}:{}}};
+    });
+    feats.forEach(f => collectFromGJ(JSON.stringify(f), v.name, v.color, f.properties.color==='#16a34a'?'выполнено':'', v.category));
   });
-  (s.volumes||[]).forEach(v => collectFromGJ(v.geojson, v.name, v.color, null, v.category));
 
   // ── KML слои ──────────────────────────────────────────
   const kmlData = (_htmlExOpts.kmlIds||[]).map(id => {

@@ -3,6 +3,7 @@ const fs   = require('fs');
 const { v4: uuid } = require('uuid');
 const { all, get, run } = require('../database');
 const { required, wrap } = require('./validate');
+const VS = require('./volume-sync');
 const { trashAndDelete, broadcast } = require('./realtime');
 const proj4 = require('proj4');
 
@@ -570,6 +571,9 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     if (geojson !== undefined) {
       run(db(), 'UPDATE kml_layers SET name=?,color=?,visible=?,symbol=?,group_id=?,line_dash=?,min_zoom=?,max_zoom=?,size=?,geojson=?,show_labels=?,fill_opacity=? WHERE id=?',
         [name, color || '#1a56db', vis, symbol || '', group_id || '', line_dash || 'solid', minZ, maxZ, sz, geojson, lbl, fillOp, req.params.id]);
+      // слой — объём объекта: пересчитать план и выполнение; если объектам раздали _uid — вернуть слой
+      const synced = VS.syncLayer(db(), req.params.id);
+      if (synced) return res.json({ success: true, geojson: synced });
     } else {
       run(db(), 'UPDATE kml_layers SET name=?,color=?,visible=?,symbol=?,group_id=?,line_dash=?,min_zoom=?,max_zoom=?,size=?,show_labels=?,fill_opacity=? WHERE id=?',
         [name, color || '#1a56db', vis, symbol || '', group_id || '', line_dash || 'solid', minZ, maxZ, sz, lbl, fillOp, req.params.id]);
@@ -598,6 +602,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
   app.delete('/api/layers/:id', wrap((req, res) => {
     const _restore = trashAndDelete(db(), 'kml_layers', req.params.id);
     if (!_restore) return res.status(404).json({ error: 'Not found' });
+    VS.syncLayer(db(), req.params.id);   // объём на этом слое — обнулить
     res.json({ success: true, _restore });
   }));
 

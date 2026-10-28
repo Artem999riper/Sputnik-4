@@ -45,7 +45,6 @@ function onMapClick(e){
   if(moveMode==='machine'){doMoveMachine(e.latlng);return;}
   if(mapMode==='base'){openAddBaseModal(e.latlng.lat,e.latlng.lng);return;}
   if(mapMode==='machine'&&machinePlaceId){placeMachineOnMap(e.latlng.lat,e.latlng.lng);return;}
-  if(drawMode){addDrawPt(e.latlng);return;}
 }
 function onMapRClick(e){
   e.originalEvent.preventDefault();
@@ -54,16 +53,6 @@ function onMapRClick(e){
   if(typeof _kdActive!=='undefined'&&_kdActive){_kdRClick(e);return;}
   if(typeof _ksActive!=='undefined'&&_ksActive){_ksRClick(e);return;}
   if(typeof _kgeActive!=='undefined'&&_kgeActive){_kgeRClick(e);return;}
-  if(vertexEditLayerId){_handleVertexEditRCM(e);return;}
-  if(drawMode){
-    showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
-      {i:'✅',l:'Завершить рисование',f:finishDraw},
-      {i:'↩️',l:'Отменить последнюю точку',f:undoDrawPt},
-      {sep:true},
-      {i:'❌',l:'Отменить рисование',cls:'dan',f:cancelDraw}
-    ]);
-    return;
-  }
   if(rulerActive){
     showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
       {i:'↩️',l:'Отменить последнюю точку',f:rulerUndoLast},
@@ -332,7 +321,7 @@ function cancelMode(){
   if(typeof _kmvActive!=='undefined'&&_kmvActive){_kmvCancel();return;}
   if(typeof _kdActive!=='undefined'&&_kdActive){_kdCancel();return;}
   if(typeof _ksActive!=='undefined'&&_ksActive){_ksCancel();return;}
-  if(drawMode){cancelDraw();return;}
+
   moveMode=null;moveData=null;
   restoreMarkerEvents();
   setMachineryFocus(false);
@@ -537,7 +526,7 @@ function _mapEscBusy(){
   if(document.getElementById('mov')?.classList.contains('open'))return true;
   if(document.querySelector('#ctx.show,#tk-cols-menu,#eq-cols-menu,#search-pick,#tour-box,#help-ov.show'))return true;
   if(vis('bnr'))return true;                               // идёт режим с подсказкой сверху
-  if(drawMode||moveMode||mapMode!=='view')return true;
+  if(moveMode||mapMode!=='view')return true;
   if(typeof rulerActive!=='undefined'&&rulerActive)return true;
   if(typeof _kgeActive!=='undefined'&&_kgeActive)return true;
   if(typeof _demDrawing!=='undefined'&&_demDrawing)return true;

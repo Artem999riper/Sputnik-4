@@ -365,12 +365,18 @@ function _collectDxfFeatures(site, sys, selectedIds){
     }
   };
 
+  // объёмы — слои KML: берём объекты слоя (исключённые — нет); глубина — из факта или поля
   for(const vol of vols){
-    if(vol.geojson) processGJ(vol.geojson, vol.name, false);
-    for(const vp of (site.vol_progress||[])){
-      if(vp.volume_id !== vol.id || !vp.geojson) continue;
-      processGJ(vp.geojson, vol.name, true);
-    }
+    const l = vol.layer_id && (typeof layers!=='undefined'?layers:[]).find(x=>x.id===vol.layer_id);
+    if(!l) continue;
+    const m = typeof volMeasure==='function' ? volMeasure(vol) : {};
+    const feats = _kaFeatures(l).filter(f=>f&&f.geometry&&!(f.properties||{})._skip).map(f=>{
+      const p = f.properties||{}, h = m.second ? (p._done && p._fact2!=null ? p._fact2 : p[m.second.field]) : null;
+      const props = {...p, name:(p.name||p.Name||'')+(p._done?' (вып.)':'')};
+      if(h!=null && h!=='') props.sem = {type:'borehole', data:{depth:h}};
+      return {type:'Feature', geometry:f.geometry, properties:props};
+    });
+    processGJ({type:'FeatureCollection', features:feats}, vol.name, false);
   }
   return {points, polylines, polygons};
 }

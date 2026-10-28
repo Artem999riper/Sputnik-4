@@ -442,6 +442,7 @@ function handleSseChange(ev){
   // Точечная синхронизация по типу сущности — вместо полной перезагрузки (loadAll)
   if(url.indexOf('/layers')>=0){
     _sseResyncKind('layers',_sseSyncLayers);
+    _sseResyncKind('vol-layers',async()=>{ if(typeof volOnLayersChanged==='function'){ await volLoad(); const m=url.match(/\/layers\/([^/?]+)/); volOnLayersChanged(m?m[1]:null); } });
   } else if(url.indexOf('/machinery')>=0){
     _sseResyncKind('machinery',_sseSyncMachinery);
   } else if(url.match(/\/(bases|materials|workers|equipment|pgk)/)){

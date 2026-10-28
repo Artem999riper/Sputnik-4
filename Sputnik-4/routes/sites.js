@@ -1,6 +1,7 @@
 const { v4: uuid } = require('uuid');
 const { all, get, run } = require('../database');
 const { required, wrap } = require('./validate');
+const VS = require('./volume-sync');
 const { trashAndDelete } = require('./realtime');
 
 module.exports = (app, getDb, L) => {
@@ -123,24 +124,48 @@ module.exports = (app, getDb, L) => {
     res.json(all(db(), 'SELECT * FROM volumes WHERE site_id=? ORDER BY category,name', [req.params.id]));
   }));
 
+  // Объём: ручной (план числом) или на слое KML (layer_id + measure_json — план и факт
+  // считаются по объектам слоя, см. volume-sync.js)
+  const _measure = m => m == null ? null : (typeof m === 'string' ? m : JSON.stringify(m));
+  const _layerBusy = (layerId, selfId) => layerId ? get(db(), 'SELECT id, name FROM volumes WHERE layer_id=? AND id<>?', [layerId, selfId || '']) : null;
+  // Все объёмы (кратко) — клиенту, чтобы по слою знать, объём ли он и чего
+  app.get('/api/volumes', wrap((req, res) => {
+    res.json(all(db(), `SELECT v.id, v.site_id, v.name, v.category, v.layer_id, v.measure_json, v.unit, v.amount, v.amount2, v.color, s.name AS site_name
+      FROM volumes v LEFT JOIN sites s ON s.id = v.site_id ORDER BY s.name, v.name`));
+  }));
+
   app.post('/api/sites/:id/volumes', wrap((req, res) => {
     const err = required(['name'], req.body);
     if (err) return res.status(400).json({ error: err });
     const id = uuid();
-    const { category, name, amount, unit, geojson, color, fill_opacity, plan_start, plan_end, notes } = req.body;
-    run(db(), 'INSERT INTO volumes(id,site_id,category,name,amount,unit,geojson,color,fill_opacity,plan_start,plan_end,notes)VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
-      [id, req.params.id, category || 'geology', name, amount || 0, unit || 'шт', geojson || null,
-       color || '#1a56db', fill_opacity !== undefined ? fill_opacity : 0.25, plan_start || null, plan_end || null, notes || '']);
-    res.json({ id });
+    const { category, name, amount, unit, color, fill_opacity, plan_start, plan_end, notes, layer_id, measure_json, amount2 } = req.body;
+    const busy = _layerBusy(layer_id);
+    if (busy) return res.status(400).json({ error: `Этот слой уже объём «${busy.name}»` });
+    if (layer_id && !get(db(), 'SELECT id FROM kml_layers WHERE id=?', [layer_id])) return res.status(400).json({ error: 'Слой не найден' });
+    run(db(), 'INSERT INTO volumes(id,site_id,category,name,amount,unit,color,fill_opacity,plan_start,plan_end,notes,layer_id,measure_json,amount2)VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [id, req.params.id, category || 'geology', name, amount || 0, unit || 'шт',
+       color || '#1a56db', fill_opacity !== undefined ? fill_opacity : 0.25, plan_start || null, plan_end || null, notes || '',
+       layer_id || null, _measure(measure_json), amount2 != null ? amount2 : null]);
+    const txt = VS.syncVolumeId(db(), id);
+    if (!layer_id) VS.recalcSite(db(), req.params.id);
+    res.json({ id, layerChanged: !!txt });
   }));
 
+  // Частичная правка: поля, которых нет в запросе, не меняются
   app.put('/api/volumes/:id', wrap((req, res) => {
-    const err = required(['name'], req.body);
-    if (err) return res.status(400).json({ error: err });
-    const { category, name, amount, unit, geojson, color, fill_opacity, plan_start, plan_end, notes } = req.body;
-    run(db(), 'UPDATE volumes SET category=?,name=?,amount=?,unit=?,geojson=?,color=?,fill_opacity=?,plan_start=?,plan_end=?,notes=? WHERE id=?',
-      [category, name, amount || 0, unit || 'шт', geojson || null, color || '#1a56db',
-       fill_opacity !== undefined ? fill_opacity : 0.25, plan_start || null, plan_end || null, notes || '', req.params.id]);
+    const ex = get(db(), 'SELECT * FROM volumes WHERE id=?', [req.params.id]);
+    if (!ex) return res.status(404).json({ error: 'Not found' });
+    const b = req.body || {};
+    const pick = k => b[k] !== undefined ? b[k] : ex[k];
+    const name = pick('name'); if (!name) return res.status(400).json({ error: 'Не указано название' });
+    const layer_id = b.layer_id !== undefined ? (b.layer_id || null) : ex.layer_id;
+    const busy = _layerBusy(layer_id, ex.id);
+    if (busy) return res.status(400).json({ error: `Этот слой уже объём «${busy.name}»` });
+    run(db(), 'UPDATE volumes SET category=?,name=?,amount=?,unit=?,color=?,fill_opacity=?,plan_start=?,plan_end=?,notes=?,layer_id=?,measure_json=?,amount2=? WHERE id=?',
+      [pick('category') || 'geology', name, pick('amount') || 0, pick('unit') || 'шт', pick('color') || '#1a56db',
+       pick('fill_opacity') != null ? pick('fill_opacity') : 0.25, pick('plan_start') || null, pick('plan_end') || null, pick('notes') || '',
+       layer_id, b.measure_json !== undefined ? _measure(b.measure_json) : ex.measure_json, pick('amount2'), req.params.id]);
+    VS.syncVolumeId(db(), req.params.id);   // отвязали слой — зеркальные строки уйдут; ручной — пересчёт %
     res.json({ success: true });
   }));
 
@@ -151,25 +176,32 @@ module.exports = (app, getDb, L) => {
   }));
 
   app.delete('/api/volumes/:id', wrap((req, res) => {
+    const v = get(db(), 'SELECT site_id FROM volumes WHERE id=?', [req.params.id]);
     const _restore = trashAndDelete(db(), 'volumes', req.params.id, {
       children: [{ table: 'vol_progress', fkColumn: 'volume_id' }],
     });
     if (!_restore) return res.status(404).json({ error: 'Not found' });
+    if (v) VS.recalcSite(db(), v.site_id);
     res.json({ success: true, _restore });
   }));
 
   // ── VOL_PROGRESS ───────────────────────────────────────────
+  // source='kml' — строки, построенные из отметок «выполнено» в слое: руками не правятся
   app.get('/api/sites/:id/vol_progress', wrap((req, res) =>
     res.json(all(db(), 'SELECT * FROM vol_progress WHERE site_id=? ORDER BY work_date DESC', [req.params.id]))
   ));
 
   app.post('/api/volumes/:id/progress', wrap((req, res) => {
     const pid = uuid();
-    const { site_id, work_date, completed, notes, geojson, worker_ids } = req.body;
+    const { site_id, work_date, completed, notes, geojson, worker_ids, amount2 } = req.body;
     const { cell_color = '', machine_id = null, act_number = '', row_type = 'fact' } = req.body;
-    run(db(), 'INSERT INTO vol_progress(id,volume_id,site_id,work_date,completed,notes,geojson,worker_ids,machine_id,act_number,cell_color,row_type)VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
-      [pid, req.params.id, site_id, work_date, completed || 0, notes || '', geojson || null,
+    if (!work_date) return res.status(400).json({ error: 'Не указана дата' });
+    const vol = get(db(), 'SELECT site_id FROM volumes WHERE id=?', [req.params.id]);
+    if (!vol) return res.status(404).json({ error: 'Объём не найден' });
+    run(db(), "INSERT INTO vol_progress(id,volume_id,site_id,work_date,completed,amount2,notes,geojson,worker_ids,machine_id,act_number,cell_color,row_type,source)VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'manual')",
+      [pid, req.params.id, site_id || vol.site_id, work_date, completed || 0, amount2 != null && amount2 !== '' ? amount2 : null, notes || '', geojson || null,
        worker_ids || '', machine_id || null, act_number || '', cell_color || '', row_type]);
+    VS.recalcSite(db(), site_id || vol.site_id);
     res.json({ id: pid });
   }));
 
@@ -177,22 +209,22 @@ module.exports = (app, getDb, L) => {
     const d = db();
     const existing = get(d, 'SELECT * FROM vol_progress WHERE id=?', [req.params.id]);
     if (!existing) return res.status(404).json({ error: 'Not found' });
-    const work_date  = req.body.work_date  !== undefined ? req.body.work_date  : existing.work_date;
-    const completed  = req.body.completed  !== undefined ? req.body.completed  : existing.completed;
-    const notes      = req.body.notes      !== undefined ? req.body.notes      : existing.notes;
-    const geojson    = req.body.geojson    !== undefined ? req.body.geojson    : existing.geojson;
-    const act_date   = req.body.act_date   !== undefined ? req.body.act_date   : existing.act_date;
-    const cell_color = req.body.cell_color !== undefined ? req.body.cell_color : existing.cell_color;
-    const row_type   = req.body.row_type   !== undefined ? req.body.row_type   : (existing.row_type || 'fact');
-    const hidden     = req.body.hidden     !== undefined ? (req.body.hidden ? 1 : 0) : (existing.hidden || 0);
-    run(d, 'UPDATE vol_progress SET work_date=?,completed=?,notes=?,geojson=?,act_date=?,cell_color=?,row_type=?,hidden=? WHERE id=?',
-      [work_date, completed || 0, notes || '', geojson, act_date || null, cell_color || '', row_type, hidden, req.params.id]);
+    if (existing.source === 'kml') return res.status(400).json({ error: 'Это выполнение из слоя — меняйте отметку на объекте слоя' });
+    const b = req.body, pick = k => b[k] !== undefined ? b[k] : existing[k];
+    const hidden = b.hidden !== undefined ? (b.hidden ? 1 : 0) : (existing.hidden || 0);
+    run(d, 'UPDATE vol_progress SET work_date=?,completed=?,amount2=?,notes=?,geojson=?,act_date=?,cell_color=?,row_type=?,hidden=?,worker_ids=?,machine_id=? WHERE id=?',
+      [pick('work_date'), pick('completed') || 0, pick('amount2'), pick('notes') || '', pick('geojson'), pick('act_date') || null,
+       pick('cell_color') || '', pick('row_type') || 'fact', hidden, pick('worker_ids') || '', pick('machine_id') || null, req.params.id]);
+    VS.recalcSite(d, existing.site_id);
     res.json({ success: true });
   }));
 
   app.delete('/api/vol_progress/:id', wrap((req, res) => {
+    const ex = get(db(), 'SELECT site_id, source FROM vol_progress WHERE id=?', [req.params.id]);
+    if (ex && ex.source === 'kml') return res.status(400).json({ error: 'Это выполнение из слоя — снимите отметку на объекте слоя' });
     const _restore = trashAndDelete(db(), 'vol_progress', req.params.id);
     if (!_restore) return res.status(404).json({ error: 'Not found' });
+    if (ex) VS.recalcSite(db(), ex.site_id);
     res.json({ success: true, _restore });
   }));
 

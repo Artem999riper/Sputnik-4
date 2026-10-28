@@ -541,18 +541,18 @@ async function openWorkerDetail(wid){
     ${volProg.length?Object.keys(vpBySite).map(sn=>`
       <div class="wdc-vol-site">🏗 ${esc(sn)}</div>
       ${vpBySite[sn].map(p=>`<div class="wdc-vol-row">
-        <div><span class="wdc-vol-val">${p.completed} ${esc(p.unit)}</span> — ${esc(p.vol_name)}</div>
+        <div><span class="wdc-vol-val">${p.completed} ${esc(p.unit)}${p.amount2!=null?` · ${p.amount2} ${esc(((typeof volMeasure==='function'?volMeasure(p):{}).second||{}).unit||'')}`:''}</span> — ${esc(p.vol_name)}${p.source==='kml'?' 🗺':''}</div>
         <div class="wdc-vol-date">${fmt(p.work_date)}${p.notes?' · '+esc(p.notes):''}</div>
       </div>`).join('')}`).join(''):'<div class="wdc-empty">Нет данных</div>'}
   </div>`;
   showModal('👤 '+esc(w.name),html,[
     {label:'Закрыть',cls:'bs',fn:closeModal},
     {label:'🗑 Очистить историю',cls:'bd',fn:async()=>{
-      if(!await confirmDlg('Удалить всю историю вахт и объёмов сотрудника '+w.name+'?'))return;
+      if(!await confirmDlg('Удалить всю историю вахт и ручных записей объёмов сотрудника '+w.name+'?\n(Отметки на объектах слоёв KML 🗺 остаются — их снимают на карте.)'))return;
       const sh=await fetch(`${API}/pgk/workers/${wid}/shifts`).then(r=>r.json()).catch(()=>[]);
       for(const s2 of sh)await fetch(`${API}/pgk/workers/shifts/${s2.id}`,{method:'DELETE'}).catch(()=>{});
       const freshVp=await fetch(`${API}/pgk/workers/${wid}/vol_progress`).then(r=>r.json()).catch(()=>[]);
-      for(const vp of freshVp)await fetch(`${API}/vol_progress/${vp.id}`,{method:'DELETE'}).catch(()=>{});
+      for(const vp of freshVp.filter(x=>x.source!=='kml'))await fetch(`${API}/vol_progress/${vp.id}`,{method:'DELETE'}).catch(()=>{});
       if(currentObj)await refreshCurrent();
       toast('История очищена','ok');
       await openWorkerDetail(wid);
@@ -3945,151 +3945,8 @@ const VOL_SECTIONS={
   ecology:  {label:'Экология',    icon:'🌿', color:'#15803d'},
 };
 
-function openVolSectionPicker(){
-  showModal('Выберите раздел',`
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:4px 0">
-      ${Object.entries(VOL_SECTIONS).map(([k,s])=>`
-        <button class="btn bs" style="padding:18px 10px;flex-direction:column;gap:6px;font-size:14px;border-radius:var(--r);justify-content:center;align-items:center;border:2px solid var(--bd);transition:all .15s"
-          onmouseover="this.style.borderColor='${s.color}';this.style.background='${s.color}18'"
-          onmouseout="this.style.borderColor='';this.style.background=''"
-          onclick="closeModal();openAddVolModal('${k}')">
-          <span style="font-size:26px">${s.icon}</span>
-          <span style="font-weight:800;font-size:13px">${s.label}</span>
-        </button>`).join('')}
-    </div>`,
-  [{label:'Отмена',cls:'bs',fn:closeModal}]);
-}
-
-function openAddVolModal(cat){
-  const sec=VOL_SECTIONS[cat]||{label:'Объём',icon:'📋',color:'#1a56db'};
-  showModal(`${sec.icon} Новый объём — ${sec.label}`,`<div class="fgr">
-    <div class="fg s2"><label>Вид работ *</label><input id="f-vn" placeholder="Бурение, съёмка, нивелировка..."></div>
-    <div class="fg"><label>Плановый объём</label><input id="f-va" type="number" value="0" step="any"></div>
-    <div class="fg"><label>Единица</label><input id="f-vu" value="шт"></div>
-    <div class="fg"><label>Начало (план)</label><input id="f-vps" type="date"></div>
-    <div class="fg"><label>Конец (план)</label><input id="f-vpe" type="date"></div>
-    <div class="fg s2"><label>Цвет на карте</label><input id="f-vc" type="color" value="${sec.color}" style="width:100%;height:30px"></div>
-    <div class="fg s2"><label>Прозрачность заливки: <span id="f-vop-lbl">25%</span></label>
-      <input id="f-vop" type="range" min="0" max="100" value="25" style="width:100%" oninput="document.getElementById('f-vop-lbl').textContent=this.value+'%'"></div>
-    <div class="fg s2"><label>Примечания</label><textarea id="f-vnt"></textarea></div>
-  </div>`,[{label:'← Назад',cls:'bs',fn:()=>{closeModal();openVolSectionPicker();}},{label:'Добавить',cls:'bp',fn:()=>saveVol(null,cat)}]);
-}
-function openEditVolModal(id){
-  const vol=(currentObj?.volumes||[]).find(x=>x.id===id);if(!vol)return;
-  const opPct=Math.round((vol.fill_opacity!==undefined&&vol.fill_opacity!==null?vol.fill_opacity:.25)*100);
-  showModal('Редактировать объём',`<div class="fgr">
-    <div class="fg s2"><label>Вид работ *</label><input id="f-vn" value="${esc(vol.name)}"></div>
-    <div class="fg"><label>Плановый объём</label><input id="f-va" type="number" value="${vol.amount}" step="any"></div>
-    <div class="fg"><label>Единица</label><input id="f-vu" value="${esc(vol.unit)}"></div>
-    <div class="fg"><label>Начало (план)</label><input id="f-vps" type="date" value="${vol.plan_start||''}"></div>
-    <div class="fg"><label>Конец (план)</label><input id="f-vpe" type="date" value="${vol.plan_end||''}"></div>
-    <div class="fg s2"><label>Цвет</label><input id="f-vc" type="color" value="${vol.color||'#1a56db'}" style="width:100%;height:30px"></div>
-    <div class="fg s2"><label>Прозрачность заливки: <span id="f-vop-lbl">${opPct}%</span></label>
-      <input id="f-vop" type="range" min="0" max="100" value="${opPct}" style="width:100%" oninput="document.getElementById('f-vop-lbl').textContent=this.value+'%'"></div>
-    <div class="fg s2"><label>Примечания</label><textarea id="f-vnt">${esc(vol.notes||'')}</textarea></div>
-  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:()=>saveVol(id,vol.category)}]);
-}
-async function saveVol(id,cat){
-  const name=v('f-vn').trim();if(!name){toast('Введите название','err');return;}
-  const ex=id?(currentObj?.volumes||[]).find(x=>x.id===id):null;
-  const opEl=document.getElementById('f-vop');
-  const fillOp=opEl?parseFloat(opEl.value)/100:.25;
-  const data={category:cat||ex?.category,name,amount:parseFloat(v('f-va'))||0,unit:v('f-vu')||'шт',color:v('f-vc')||'#1a56db',fill_opacity:fillOp,geojson:ex?.geojson??null,plan_start:v('f-vps')||null,plan_end:v('f-vpe')||null,notes:v('f-vnt')};
-  if(id)await fetch(`${API}/volumes/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-  else  await fetch(`${API}/sites/${currentObj.id}/volumes`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-  closeModal();await refreshCurrent();toast(id?'Обновлено':'Добавлено','ok');
-}
-async function deleteVol(id){
-  if(!await confirmDlg('Удалить объём? Будут также удалены все записи факта для этого объёма.'))return;
-  // Remove vol_progress map layers that belong to this volume
-  const volProg = (currentObj && currentObj.vol_progress || []).filter(p => p.volume_id === id);
-  volProg.forEach(p => {
-    if(vpLayers[p.id]){try{map.removeLayer(vpLayers[p.id]);}catch(e){}delete vpLayers[p.id];}
-  });
-  // Remove the volume's own layer
-  if(volLayers[id]){try{map.removeLayer(volLayers[id]);}catch(e){}delete volLayers[id];}
-  await apiDelUndo(`/volumes/${id}`,'Объём удалён',refreshCurrent);
-}
-function zoomVol(id){
-  const vol=(currentObj?.volumes||[]).find(x=>x.id===id);if(!vol?.geojson)return;
-  try{const g=L.geoJSON(JSON.parse(vol.geojson));map.fitBounds(g.getBounds().pad(.25));}catch(e){}
-}
-
-// ── Volume drawing ─────────────────────────────────────────
-function startVolDraw(volId, drawAction){
-  // drawAction: 'replace' (default) или 'add' (продолжить)
-  drawAction=drawAction||'replace';
-  const siteId=currentObj?.id||activeSiteId;
-  drawVolId=volId;drawSiteId=siteId;
-  const vol=(currentObj?.volumes||[]).find(x=>x.id===volId);
-  drawVolData=vol?{...vol}:null;
-  // При продолжении — загружаем уже нарисованные точки
-  if(drawAction==='add'&&vol?.geojson){
-    try{
-      const gj=JSON.parse(vol.geojson);
-      const coords=gj.type==='FeatureCollection'
-        ?gj.features.map(f=>[f.geometry.coordinates[1],f.geometry.coordinates[0]])
-        :gj.geometry.type==='LineString'
-          ?gj.geometry.coordinates.map(c=>[c[1],c[0]])
-          :gj.geometry.type==='Polygon'
-            ?gj.geometry.coordinates[0].slice(0,-1).map(c=>[c[1],c[0]])
-            :[];
-      drawPts=[...coords];
-    }catch(e){drawPts=[];}
-  } else {
-    drawPts=[];
-  }
-  if(drawTmpLayer){try{map.removeLayer(drawTmpLayer);}catch(e){}drawTmpLayer=null;}
-  closePanel();
-  switchView('map');
-  if(vol?.geojson){try{const g=L.geoJSON(JSON.parse(vol.geojson));map.fitBounds(g.getBounds().pad(.3));}catch(e){}}
-  const isAdd=drawAction==='add'&&drawPts.length>0;
-  const hint=isAdd?`Продолжаете рисование (уже ${drawPts.length} точек). ПКМ для меню.`:'Кликайте на карту. ПКМ для меню.';
-  // Если продолжаем — не показываем диалог выбора типа, используем тот же тип
-  const existType=vol?.geojson?( ()=>{try{const gj=JSON.parse(vol.geojson);return gj.type==='FeatureCollection'?'points':gj.geometry?.type==='LineString'?'line':'polygon';}catch(e){return'polygon';}} )():'polygon';
-  if(isAdd){
-    drawMode=existType;
-    closeModal();
-    document.getElementById('bnr-t').textContent=`🖊 Продолжение — ПКМ для меню`;
-    document.getElementById('bnr').className='show draw';
-    map.getContainer().style.cursor='crosshair';
-    updateDrawPreview();
-    toast(hint,'ok');
-  } else {
-    showModal('Тип геометрии',`<div class="draw-hint">📍 ${hint}<br>
-      <strong>Правая кнопка мыши</strong> → меню рисования</div>
-      <div class="fg"><label>Тип</label><select id="f-gtype">
-        <option value="polygon" ${existType==='polygon'?'selected':''}>Полигон — площадь/контур</option>
-        <option value="points" ${existType==='points'?'selected':''}>Точки — скважины, реперы</option>
-        <option value="line" ${existType==='line'?'selected':''}>Линия — маршрут, трасса</option>
-      </select></div>`,
-      [{label:'Отмена',cls:'bs',fn:()=>{closeModal();if(siteId)selectSite(siteId);}},
-       {label:'🖊 Начать',cls:'bp',fn:()=>{drawMode=v('f-gtype')||'polygon';closeModal();document.getElementById('bnr-t').textContent=`🖊 ПКМ для меню`;document.getElementById('bnr').className='show draw';map.getContainer().style.cursor='crosshair';toast('Кликайте · ПКМ = меню','ok');}}]);
-  }
-}
-
-function addDrawPt(ll){
-  if(!drawMode)return;
-  const snap=_snapToKml(ll,20);
-  drawPts.push([snap.lat,snap.lng]);
-  drawPtNames.push(snap.snapped&&snap.name?snap.name:'');
-  if(snap.snapped)toast(snap.name?`📌 Привязано: ${snap.name}`:'📌 Привязано к KML','ok');
-  updateDrawPreview();
-}
-// Добавить точку рисования с привязкой к объекту KML.
-// exactLatLng задан (клик прямо по точечному объекту) → точно его координаты + его имя;
-// иначе — обычная привязка к ближайшей вершине/точке (near-snap).
-function addDrawPtSnapped(ll, exactLatLng, name){
-  if(!drawMode)return;
-  if(exactLatLng){
-    drawPts.push([exactLatLng.lat,exactLatLng.lng]);
-    drawPtNames.push(name||'');
-    toast(name?`📌 Привязано: ${name}`:'📌 Привязано к объекту KML','ok');
-    updateDrawPreview();
-    return;
-  }
-  addDrawPt(ll);
-}
+// Объёмы: окно объёма, отметка выполнения — vol-layers.js. Рисование объёмов и фактов убрано:
+// объём — это слой KML. _snapToKml — привязка к объектам KML (камералка, правка вершин).
 function _snapToKml(ll,pxRadius){
   if(!window.map||!lGroups)return{lat:ll.lat,lng:ll.lng,snapped:false,name:''};
   const T=map.latLngToContainerPoint(ll);
@@ -4155,121 +4012,6 @@ function _snapToKml(ll,pxRadius){
   }
   if(bestPx){const s=map.containerPointToLatLng(bestPx);return{lat:s.lat,lng:s.lng,snapped:true,name:''};}
   return{lat:ll.lat,lng:ll.lng,snapped:false,name:''};
-}
-function updateDrawPreview(){
-  if(drawTmpLayer){map.removeLayer(drawTmpLayer);drawTmpLayer=null;}
-  const pts=drawPts;if(!pts.length)return;
-  // цвет берём из drawVolData (сохранён до closePanel) или из currentObj если панель ещё открыта
-  const vol=drawVolData||(currentObj?.volumes||[]).find(x=>x.id===drawVolId);
-  const color=vol?.color||'#0891b2';
-  // Предпросмотр — в factsPane (поверх KML), иначе точки прячутся за точками KML
-  const rOpts={pane:'factsPane',renderer:getSvgRenderer('factsPane')};
-  if(drawMode==='points'){
-    drawTmpLayer=L.layerGroup(pts.map(p=>L.circleMarker(p,{radius:7,fillColor:color,color:'#fff',weight:2,fillOpacity:.9,...rOpts}))).addTo(map);
-  }else if(drawMode==='polygon'&&pts.length>=2){
-    drawTmpLayer=L.polygon(pts,{color,weight:2.5,fillOpacity:.2,...rOpts}).addTo(map);
-  }else if(drawMode==='line'&&pts.length>=2){
-    drawTmpLayer=L.polyline(pts,{color,weight:3,...rOpts}).addTo(map);
-  }
-}
-function undoDrawPt(){if(!drawPts.length){toast('Нет точек','err');return;}drawPts.pop();updateDrawPreview();toast(`Отменена точка. Осталось: ${drawPts.length}`,'ok');}
-async function finishDraw(){
-  if(!drawMode||!drawPts.length){cancelDraw();return;}
-  const pts=drawPts;let gj;
-  if(drawMode==='points'){gj={type:'FeatureCollection',features:pts.map((p,i)=>({type:'Feature',geometry:{type:'Point',coordinates:[p[1],p[0]]},properties:{...(drawPtNames[i]?{name:drawPtNames[i]}:{}),sem:{type:'borehole',data:{label:drawPtNames[i]||''}}}}))};}
-  else if(drawMode==='polygon'){const cl=[...pts,pts[0]];gj={type:'Feature',geometry:{type:'Polygon',coordinates:[cl.map(p=>[p[1],p[0]])]},properties:{}};}
-  else{gj={type:'Feature',geometry:{type:'LineString',coordinates:pts.map(p=>[p[1],p[0]])},properties:{}};}
-  const sid=drawSiteId;
-  const volId=drawVolId;
-  const factId=drawingFactId;
-  drawingFactId=null;
-  endDraw();
-  // ── Сохраняем геометрию ──────────────────────────────────────────────────
-  if(factId){
-    // Факт выполнения: PUT только geojson (остальные поля server сохраняет)
-    const r=await fetch(`${API}/vol_progress/${factId}`,{method:'PUT',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({geojson:JSON.stringify(gj)})});
-    if(!r.ok){toast('Ошибка сохранения: '+r.status,'err');return;}
-    toast(`Контур факта сохранён (${pts.length} точек)`,'ok');
-  } else {
-    // Объём: PUT с полными данными
-    if(!sid||!volId){toast('Ошибка: объект не найден','err');return;}
-    const fresh=await fetch(`${API}/sites/${sid}`).then(r=>r.json());
-    const vol=(fresh.volumes||[]).find(x=>x.id===volId);
-    if(!vol){toast('Объём не найден','err');return;}
-    const r=await fetch(`${API}/volumes/${volId}`,{method:'PUT',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({category:vol.category,name:vol.name,amount:vol.amount,
-        unit:vol.unit,color:vol.color||'#1a56db',
-        plan_start:vol.plan_start||null,plan_end:vol.plan_end||null,
-        notes:vol.notes||'',geojson:JSON.stringify(gj)})});
-    if(!r.ok){toast('Ошибка сохранения: '+r.status,'err');return;}
-    toast(`Контур объёма сохранён (${pts.length} точек)`,'ok');
-  }
-  // ── Обновляем карту и панель ──────────────────────────────────────────────
-  const updated=await fetch(`${API}/sites/${sid}`).then(r=>r.json());
-  currentObj=updated; currentType='site'; activeSiteId=sid;
-  // Сначала рисуем слои на карте
-  renderVolumesOnMap(updated.volumes||[]);
-  renderVpLayers(updated.vol_progress||[]);
-  renderMachineMarkers(updated.bases||[]);
-  // Затем открываем панель (сдвигает карту, но слои уже добавлены)
-  if(!document.getElementById('panel').classList.contains('open')){
-    openPanel(false);
-    setupSiteTabs();
-  }
-  // Возвращаемся на вкладку объёмов
-  currentTab='volumes';
-  if(factId&&volId)volExpanded[volId]=true;
-  document.querySelectorAll('.ptab').forEach(t=>t.classList.toggle('on',t.dataset.t==='volumes'));
-  renderTab(); renderSidebar();
-}
-function cancelDraw(){const sid=drawSiteId;toast('Рисование отменено','ok');endDraw();if(sid)selectSite(sid);}
-function endDraw(){
-  if(drawTmpLayer){try{map.removeLayer(drawTmpLayer);}catch(e){}drawTmpLayer=null;}
-  drawMode=null;drawPts=[];drawPtNames=[];drawVolId=null;drawSiteId=null;
-  document.getElementById('bnr').className='';map.getContainer().style.cursor='';
-}
-
-// ═══════════════════════════════════════════════════════════
-// PROGRESS
-// ═══════════════════════════════════════════════════════════
-function openAddProgModal(){
-  showModal('Добавить прогресс',`<div class="fgr">
-    <div class="fg s2"><label>Вид работ *</label><input id="f-wt" list="wtl" placeholder="Скважины пробурены"><datalist id="wtl"><option>Скважины пробурены</option><option>Гектары съёмки</option><option>Геологические пробы</option><option>КМ маршрута</option><option>Шурфы</option></datalist></div>
-    <div class="fg"><label>Выполнено</label><input id="f-dn" type="number" value="0" step="any"></div>
-    <div class="fg"><label>Всего (план)</label><input id="f-tt" type="number" value="0" step="any"></div>
-    <div class="fg s2"><label>Единица</label><input id="f-u" value="шт"></div>
-    <div class="fg s2"><label>Примечания</label><textarea id="f-nt"></textarea></div>
-  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Добавить',cls:'bp',fn:saveProg}]);
-}
-function openEditProgModal(id){
-  const p=(currentObj?.progress||[]).find(x=>x.id===id);if(!p)return;
-  showModal('Редактировать прогресс',`<div class="fgr">
-    <div class="fg s2"><label>Вид работ *</label><input id="f-wt" value="${esc(p.work_type)}"></div>
-    <div class="fg"><label>Выполнено</label><input id="f-dn" type="number" value="${p.completed}" step="any"></div>
-    <div class="fg"><label>Всего</label><input id="f-tt" type="number" value="${p.total}" step="any"></div>
-    <div class="fg s2"><label>Единица</label><input id="f-u" value="${esc(p.unit)}"></div>
-    <div class="fg s2"><label>Примечания</label><textarea id="f-nt">${esc(p.notes||'')}</textarea></div>
-  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'Сохранить',cls:'bp',fn:()=>saveProg(id)}]);
-}
-async function saveProg(id){
-  const wt=v('f-wt').trim();if(!wt){toast('Укажите вид работ','err');return;}
-  const data={work_type:wt,completed:parseFloat(v('f-dn'))||0,total:parseFloat(v('f-tt'))||0,unit:v('f-u')||'шт',notes:v('f-nt'),site_id:currentObj.id,user_name:un()};
-  if(id)await fetch(`${API}/progress/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-  else  await fetch(`${API}/sites/${currentObj.id}/progress`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-  closeModal();await refreshCurrent();toast(id?'Обновлено':'Добавлено','ok');
-}
-async function deleteProg(id){if(!await confirmDlg('Удалить?'))return;await apiDelUndo(`/progress/${id}`,'Прогресс удалён',refreshCurrent);}
-async function recalcPct(){
-  const pp=currentObj?.progress||[];if(!pp.length){toast('Нет данных прогресса','err');return;}
-  const pcts=pp.filter(p=>p.total>0).map(p=>(p.completed/p.total)*100);
-  if(!pcts.length){toast('Нет плановых значений','err');return;}
-  const avg=Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length);
-  const s=currentObj;
-  await fetch(`${API}/sites/${s.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...s,completion_percent:avg,user_name:un()})});
-  await loadAll();await refreshCurrent();toast(`Готовность: ${avg}%`,'ok');
 }
 
 // ═══════════════════════════════════════════════════════════

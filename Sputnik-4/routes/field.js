@@ -10,6 +10,7 @@ const AdmZip = require('adm-zip');
 const multer = require('multer');
 const { v4: uuid } = require('uuid');
 const { all, get, run } = require('../database');
+const VS = require('./volume-sync');
 const { wrap } = require('./validate');
 const { broadcast } = require('./realtime');
 
@@ -432,9 +433,41 @@ module.exports = (app, getDb, L) => {
     } catch(e) {}
 
     if (!volumeId) { cleanup(); return res.status(400).json({ error: 'volume_id обязателен' }); }
-    const volume = get(d, 'SELECT id, site_id, name, amount, unit FROM volumes WHERE id=?', [volumeId]);
+    const volume = get(d, 'SELECT id, site_id, name, amount, unit, layer_id, measure_json FROM volumes WHERE id=?', [volumeId]);
     if (!volume) { cleanup(); return res.status(404).json({ error: 'Объём не найден' }); }
     const siteId = volume.site_id;
+    // Объём на слое KML: скважина отмечается выполненной на объекте слоя (по имени или
+    // ближайшему в 15 м), не найденная — добавляется в слой выполненной; vol_progress строит сервер.
+    const kml = (() => {
+      if (!volume.layer_id) return null;
+      const l = get(d, 'SELECT id, geojson FROM kml_layers WHERE id=?', [volume.layer_id]); if (!l) return null;
+      let gj; try { gj = JSON.parse(l.geojson); } catch (e) { gj = null; }
+      if (!gj || gj.type !== 'FeatureCollection') gj = { type: 'FeatureCollection', features: gj && gj.type === 'Feature' ? [gj] : [] };
+      return { id: l.id, gj, m: VS.parseMeasure(volume) };
+    })();
+    const kmlMark = (name, lat, lng, depth, date, workers, machine, note) => {
+      const F = kml.gj.features, nm = String(name || '').trim().toLowerCase();
+      let f = nm ? F.find(x => x && x.properties && String(x.properties.name || x.properties.Name || '').trim().toLowerCase() === nm) : null;
+      if (!f && lat != null && lng != null) {
+        let bd = 15;
+        F.forEach(x => { if (!x || !x.geometry || x.geometry.type !== 'Point') return; const dd = VS.dist([lng, lat], x.geometry.coordinates); if (dd < bd) { bd = dd; f = x; } });
+      }
+      if (!f) {
+        if (lat == null || lng == null) return null;
+        f = { type: 'Feature', properties: { name }, geometry: { type: 'Point', coordinates: [lng, lat] } };
+        if (kml.m.second && depth) f.properties[kml.m.second.field] = depth;
+        F.push(f);
+      }
+      const p = f.properties = f.properties || {};
+      if (!p._uid) p._uid = uuid().slice(0, 12);
+      Object.assign(p, { _done: 1, _done_date: String(date).slice(0, 10), _done_by: 'Спутник Полевик' });
+      delete p._skip;
+      if (kml.m.second && depth) p._fact2 = depth;
+      if (workers) p._workers = workers;
+      if (machine) p._machine = machine;
+      if (note) p._note = String(note).slice(0, 300);
+      return `kml:${volumeId}:${p._uid}`;
+    };
 
     let zip;
     try { zip = new AdmZip(tmpPath); }
@@ -566,7 +599,10 @@ module.exports = (app, getDb, L) => {
         }) : null;
 
         let vpId;
-        if (exists && exists.vol_progress_id) {
+        if (kml) {
+          vpId = kmlMark(name, lat, lng, depth, drillDate, bhWorkerIdsCsv, bhTransportId, bhSharedNote);
+          if (exists) counts.skipped++; else counts.vol_progress_added++;
+        } else if (exists && exists.vol_progress_id) {
           // Повторный импорт той же скважины — обновляем vol_progress
           vpId = exists.vol_progress_id;
           run(d, `UPDATE vol_progress SET volume_id=?, site_id=?, work_date=?, completed=?,
@@ -700,6 +736,10 @@ module.exports = (app, getDb, L) => {
 
     // ── Лог импорта ──────────────────────────────────────────
     const enrichedManifest = { ...manifest, volume_id: volumeId, site_id: siteId };
+    if (kml) {
+      run(d, 'UPDATE kml_layers SET geojson=? WHERE id=?', [JSON.stringify(kml.gj), kml.id]);
+      VS.syncLayer(d, kml.id);
+    }
     run(d, `INSERT INTO field_imports (id, filename, imported_at, imported_by, manifest_json, counts_json, status)
             VALUES (?,?,datetime('now'),?,?,?,?)`,
       [importId, importedFromSpk, (req.body && req.body.user_name) || 'Система',

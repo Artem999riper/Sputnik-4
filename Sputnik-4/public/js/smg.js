@@ -29,6 +29,8 @@ const SMG_DOWS = ['вс','пн','вт','ср','чт','пт','сб'];
 const SMG_CAT  = {
   geology: {label:'Геология', icon:'⛏', color:'#059669'},
   geodesy: {label:'Геодезия', icon:'📐', color:'#0369a1'},
+  hydromet:{label:'Гидромет', icon:'💧', color:'#1d4ed8'},
+  ecology: {label:'Экология', icon:'🌿', color:'#15803d'},
 };
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -332,7 +334,7 @@ function smgRender(){
 
   // ── Table body
   let tbody='';
-  const cats=['geology','geodesy'];
+  const cats=Object.keys(SMG_CAT);
 
   cats.forEach(cat=>{
     const catVols=filteredVols.filter(v=>v.category===cat);
@@ -391,7 +393,7 @@ function smgRender(){
           <div style="min-width:0;flex:1">
             <div style="font-size:12px;font-weight:600;color:var(--tx);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(vol.name)}">${esc(vol.name)}</div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px">
-              <span style="font-size:10px;color:var(--tx3)">${vol.amount.toLocaleString('ru-RU')} ${esc(vol.unit)}</span>
+              <span style="font-size:10px;color:var(--tx3)">${vol.amount.toLocaleString('ru-RU')} ${esc(vol.unit)}${(()=>{const m=typeof volMeasure==='function'?volMeasure(vol):null;if(!m||!m.second||!vol.layer_id)return'';const d2=factEntries.reduce((a,p)=>a+(+p.amount2||0),0);return ` · ${(+d2.toFixed(2)).toLocaleString('ru-RU')}/${(+vol.amount2||0).toLocaleString('ru-RU')} ${esc(m.second.unit||'')}`;})()}${vol.layer_id?' <span title="Выполнение — отметки на объектах слоя KML">🗺</span>':''}</span>
               ${smgSparkline(sparkPoints,vol.color||'#1a56db')}
             </div>
             ${pbar}
@@ -1136,7 +1138,7 @@ function smgSetShiftStart(val){_smgShiftStart=val;smgRender();}
 
 function smgAddRow(){
   if(!smgSiteId){toast('Выберите объект','err');return;}
-  selectSite(smgSiteId).then(()=>{switchView('map');setTimeout(()=>openVolSectionPicker(),300);});
+  selectSite(smgSiteId).then(()=>{switchView('map');setTimeout(()=>volEditModal(),300);});
 }
 
 // ── Excel export helpers ──────────────────────────────────────
@@ -1204,9 +1206,9 @@ function _smgBuildMonthSheet(site,vols,prog,y,m,today){
     hdr,
   ];
 
-  const cats=['geology','geodesy'];
-  const catLabels={geology:'ГЕОЛОГИЯ',geodesy:'ГЕОДЕЗИЯ'};
-  const catFills={geology:'00B050',geodesy:'00B0F0'};
+  const cats=Object.keys(SMG_CAT);
+  const catLabels={geology:'ГЕОЛОГИЯ',geodesy:'ГЕОДЕЗИЯ',hydromet:'ГИДРОМЕТ',ecology:'ЭКОЛОГИЯ'};
+  const catFills={geology:'00B050',geodesy:'00B0F0',hydromet:'4472C4',ecology:'70AD47'};
 
   const merges=[],groupRows=[],planRows=[],factRows=[];
   merges.push({s:{r:0,c:0},e:{r:0,c:TOTAL_COLS-1}});
@@ -2067,47 +2069,6 @@ async function pgkQuickStatus(machId, newStatus){
   if(currentObj)refreshCurrent();
 }
 
-// ═══════════════════════════════════════════════════════════
-// TEMPLATES
-// ═══════════════════════════════════════════════════════════
-const SITE_TEMPLATES={
-  'inzh-geo':{name:'Инженерно-геологические изыскания',volumes:[
-    {name:'Буровые работы',unit:'пог.м',category:'geology'},
-    {name:'Полевые испытания грунтов',unit:'опыт',category:'geology'},
-    {name:'Отбор проб',unit:'проба',category:'geology'},
-    {name:'Лабораторные работы',unit:'проба',category:'geology'},
-    {name:'Камеральная обработка',unit:'%',category:'geology'},
-  ]},
-  'inzh-geod':{name:'Инженерно-геодезические изыскания',volumes:[
-    {name:'Топографическая съёмка',unit:'га',category:'geodesy'},
-    {name:'Нивелирование',unit:'км',category:'geodesy'},
-    {name:'Разбивочные работы',unit:'точка',category:'geodesy'},
-    {name:'Камеральная обработка',unit:'%',category:'geodesy'},
-  ]},
-  'inzh-eco':{name:'Инженерно-экологические изыскания',volumes:[
-    {name:'Маршрутные наблюдения',unit:'км',category:'geology'},
-    {name:'Отбор проб воды',unit:'проба',category:'geology'},
-    {name:'Отбор проб грунта',unit:'проба',category:'geology'},
-    {name:'Лабораторный анализ',unit:'проба',category:'geology'},
-    {name:'Камеральная обработка',unit:'%',category:'geology'},
-  ]},
-  'inzh-metr':{name:'Инженерно-метеорологические изыскания',volumes:[
-    {name:'Полевые наблюдения',unit:'день',category:'geology'},
-    {name:'Обработка данных',unit:'%',category:'geology'},
-  ]},
-};
-function openSiteTemplateModal(){
-  const opts=Object.entries(SITE_TEMPLATES).map(([k,t])=>
-    `<option value="${k}">${t.name}</option>`).join('');
-  showModal('Шаблон объекта',`<div class="fgr fone">
-    <div class="fg"><label>Шаблон работ</label><select id="f-tpl"><option value="">— без шаблона —</option>${opts}</select></div>
-    <p style="font-size:10px;color:var(--tx3);margin-top:4px">Выбрав шаблон, объёмы работ будут добавлены автоматически</p>
-  </div>`,[
-    {label:'Без шаблона',cls:'bs',fn:()=>{closeModal();openAddSiteModal();}},
-    {label:'Создать →',cls:'bp',fn:()=>{window._siteTemplate=v('f-tpl')||null;closeModal();openAddSiteModal();}}
-  ]);
-}
-
 async function openPhotosModal(refType, refId){
   const title=refType==='site'?'📷 Фото объекта':'📷 Фото базы';
   // Fetch photos first, then show modal with content
@@ -2194,3 +2155,51 @@ async function showDailyDigest(){
 let historyLayer=null;
 
 
+
+
+// ═══ Объёмы на слоях KML в СМГ ═══════════════════════════════
+// Факт такого объёма строится из отметок «выполнено» на объектах слоя (дата
+// выполнения), поэтому ячейки ФАКТ здесь не правятся: щелчок показывает, какие
+// объекты выполнены в этот день. План по дням и актировка — как у всех.
+const _smgKml = volId => !!((smgSiteData?.volumes || []).find(v => v.id === volId)?.layer_id);
+const _smgKmlMsg = () => toast('Выполнение этого объёма — отметки на объектах слоя (ПКМ по объекту → «✅ Выполнить»)', 'warn');
+function smgKmlDay(volId, ds) {
+  const vol = (smgSiteData?.volumes || []).find(v => v.id === volId); if (!vol) return;
+  const m = typeof volMeasure === 'function' ? volMeasure(vol) : {};
+  const rows = (smgSiteData.vol_progress || []).filter(p => p.volume_id === volId && p.work_date === ds && p.source === 'kml');
+  const manual = (smgSiteData.vol_progress || []).filter(p => p.volume_id === volId && p.work_date === ds && p.source !== 'kml' && (p.row_type || 'fact') === 'fact');
+  const wn = ids => String(ids || '').split(',').filter(Boolean).map(id => (pgkWorkers || []).find(w => w.id === id)?.name).filter(Boolean).join(', ');
+  showModal(`📅 ${fmt(ds)} — ${vol.name}`, `<div style="min-width:min(440px,86vw);font-size:12px">
+    ${rows.length ? `<div style="margin-bottom:6px">Выполнено объектов слоя: <b>${rows.length}</b>${m.second ? ` · ${(+rows.reduce((a, p) => a + (+p.amount2 || 0), 0).toFixed(2)).toLocaleString('ru-RU')} ${esc(m.second.unit || '')}` : ''}</div>
+      ${rows.map(p => `<div style="display:flex;gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid var(--bd)">
+        <b style="flex:1">${esc(p.notes || '')}</b>${p.amount2 != null ? `<span>${p.amount2} ${esc(m.second ? m.second.unit || '' : '')}</span>` : ''}
+        <span style="color:var(--tx3);font-size:10px">${esc(wn(p.worker_ids))}</span>
+        <button class="btn bs bxs" onclick="closeModal();switchView('map');volZoomFeature('${vol.layer_id}','${escAttr(p.feature_uid || '')}')">🔍</button></div>`).join('')}`
+      : '<div style="color:var(--tx3)">В этот день объекты слоя не отмечались.</div>'}
+    ${manual.length ? `<div style="margin-top:8px;color:var(--tx3)">Ручные записи: ${manual.map(p => `+${p.completed}`).join(', ')}</div>` : ''}
+    <div style="margin-top:10px;font-size:11px;color:var(--tx3)">Отметить выполнение — на карте: ПКМ по объекту → «✅ Выполнить» (или выделите областью).</div>
+  </div>`, [{ label: '🗺 Слой на карте', cls: 'bs', fn: () => { closeModal(); switchView('map'); volShowLayer(volId); } }, { label: 'Закрыть', cls: 'bp', fn: closeModal }]);
+}
+(function () {
+  const wrap = (name, guard) => { const o = window[name]; if (typeof o !== 'function') return; window[name] = function () { const r = guard.apply(this, arguments); if (r === false) return; return o.apply(this, arguments); }; };
+  wrap('smgCellDblClick', (ev, volId, day, row) => { if (row === 'fact' && _smgKml(volId)) { ev && ev.stopPropagation && ev.stopPropagation(); smgKmlDay(volId, smgDateStr(day)); return false; } });
+  wrap('smgStartInlineEdit', (td, volId, day, row) => { if (row === 'fact' && _smgKml(volId)) { _smgKmlMsg(); return false; } });
+  wrap('smgFactCellClick', (volId, ds) => { if (_smgKml(volId)) { smgKmlDay(volId, ds); return false; } });
+  wrap('smgAddAnotherEntry', volId => { if (_smgKml(volId)) { _smgKmlMsg(); return false; } });
+  ['smgAbPaste', 'smgAbDelete', 'smgAbEdit'].forEach(n => wrap(n, () => { if (_smgSelected && _smgSelected.row === 'fact' && _smgKml(_smgSelected.volId)) { _smgKmlMsg(); return false; } }));
+  wrap('smgDragStart', (ev, volId) => { if (_smgKml(volId)) return false; });
+  wrap('smgFillMonth', (volId, mode) => { if (mode === 'fact' && _smgKml(volId)) { _smgKmlMsg(); return false; } });
+  wrap('smgClearMonth', volId => { if (_smgKml(volId)) { _smgKmlMsg(); return false; } });
+  wrap('smgCtxMenu', (ev, volId, day) => {
+    if (!_smgKml(volId)) return;
+    ev.preventDefault(); const ds = smgDateStr(day);
+    const acted = (smgSiteData?.vol_progress || []).some(p => p.volume_id === volId && p.work_date === ds && p.row_type === 'act');
+    showCtx(ev.clientX, ev.clientY, [
+      { i: '🔍', l: 'Что выполнено в этот день', f: () => smgKmlDay(volId, ds) },
+      { i: '🗺', l: 'Слой на карте', f: () => { switchView('map'); volShowLayer(volId); } },
+      { sep: true },
+      { i: acted ? '🟠' : '📜', l: acted ? 'Снять актировку' : 'Актировать день (пропуск)', f: () => smgSetAct(volId, ds) },
+    ]);
+    return false;
+  });
+})();

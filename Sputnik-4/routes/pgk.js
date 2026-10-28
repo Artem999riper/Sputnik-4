@@ -72,8 +72,8 @@ module.exports = (app, getDb, L) => {
         const volEnd = w.last_shift_end || today;
         const r = all(d,
           `SELECT COALESCE(SUM(CAST(completed AS REAL)), 0) as total
-           FROM vol_progress WHERE worker_ids LIKE ? AND work_date BETWEEN ? AND ? AND row_type != 'plan'`,
-          [`%${w.id}%`, w.last_shift_start, volEnd]);
+           FROM vol_progress WHERE (','||REPLACE(COALESCE(worker_ids,''),' ','')||',') LIKE ? AND work_date BETWEEN ? AND ? AND COALESCE(row_type,'fact') NOT IN ('plan','act')`,
+          [`%,${w.id},%`, w.last_shift_start, volEnd]);
         w.last_shift_volume = r[0] ? r[0].total : 0;
       } else {
         w.last_shift_volume = null;
@@ -119,14 +119,14 @@ module.exports = (app, getDb, L) => {
 
   app.get('/api/pgk/workers/:id/vol_progress', wrap((req, res) => {
     res.json(all(db(),
-      `SELECT vp.work_date, vp.completed, vp.notes, vp.worker_ids, vp.machine_id, vp.act_number,
-              v.name as vol_name, v.unit, v.category, s.name as site_name
+      `SELECT vp.id, vp.work_date, vp.completed, vp.amount2, vp.notes, vp.worker_ids, vp.machine_id, vp.act_number, vp.source,
+              v.name as vol_name, v.unit, v.measure_json, v.category, s.name as site_name
        FROM vol_progress vp
        JOIN volumes v ON vp.volume_id = v.id
        JOIN sites s ON vp.site_id = s.id
-       WHERE vp.worker_ids LIKE ? OR vp.machine_id LIKE ?
+       WHERE (','||REPLACE(COALESCE(vp.worker_ids,''),' ','')||',') LIKE ? AND COALESCE(vp.row_type,'fact') NOT IN ('plan','act')
        ORDER BY vp.work_date DESC LIMIT 200`,
-      ['%' + req.params.id + '%', '%' + req.params.id + '%']
+      ['%,' + req.params.id + ',%']
     ));
   }));
 
@@ -187,12 +187,12 @@ module.exports = (app, getDb, L) => {
 
   app.get('/api/pgk/machinery/:id/vol_progress', wrap((req, res) => {
     res.json(all(db(),
-      `SELECT vp.work_date, vp.completed, vp.notes, vp.worker_ids, vp.machine_id, vp.act_number,
-              v.name as vol_name, v.unit, v.category, s.name as site_name
+      `SELECT vp.id, vp.work_date, vp.completed, vp.amount2, vp.notes, vp.worker_ids, vp.machine_id, vp.act_number, vp.source,
+              v.name as vol_name, v.unit, v.measure_json, v.category, s.name as site_name
        FROM vol_progress vp
        JOIN volumes v ON vp.volume_id = v.id
        JOIN sites s ON vp.site_id = s.id
-       WHERE vp.machine_id = ?
+       WHERE vp.machine_id = ? AND COALESCE(vp.row_type,'fact') NOT IN ('plan','act')
        ORDER BY vp.work_date DESC LIMIT 200`,
       [req.params.id]
     ));

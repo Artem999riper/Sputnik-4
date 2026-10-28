@@ -603,7 +603,7 @@ function kmlLayerCtx(ev, id) {
     {i:_kmlExpanded.has(id)?'▼':'▶',l:_kmlExpanded.has(id)?'Свернуть объекты':'Показать объекты',f:()=>{if(!_kmlExpanded.has(id))_kmlExpanded.add(id);_kmlRenderLayerPane();}},
     {i:'🎨',l:'Стиль / условный знак',f:()=>kmlOpenStyleModal(id)},
     {i:'📊',l:'Таблица атрибутов',f:()=>kmlAttrTable(id)},
-    {i:'🔗',l:'Связь с объёмом (факт)…',f:()=>kmlFactLinkEdit(id)},
+    {i:'📦',l:(typeof volByLayer==='function'&&volByLayer(id))?'Объём объекта…':'Сделать объёмом объекта…',f:()=>volBindLayer(id)},
     {i:'🧰',l:'ГИС-операции (буфер, обрезка…)',f:()=>gisToolsOpen(id)},
     {i:'✏️',l:'Переименовать',f:()=>kmlRenameLayer(id)},
     {i:'🔍',l:'Приблизить к слою',f:()=>kmlZoomTo(id)},
@@ -893,14 +893,12 @@ function _ksMenu(cx,cy){
   const items=[
     {i:'⬚',l:`<b>Выделено: ${s.total} объект(ов)</b>`,f:null,html:true},
     {sep:true},
-    {i:'✅',l:'Перевести в выполненные',f:()=>{const ent=_ksFactEntries(s);_ksApply('Выполнено',f=>{
-      f.properties._color=KML_DONE_COLOR;f.properties.comment='Выполнено';f.properties._done=1;}).then(()=>_ksFactRun(ent,true));}},
+    {i:'✅',l:'Перевести в выполненные (сегодня)',f:()=>_ksApply('Выполнено',f=>{_vlSetDone(f.properties,{});delete f.properties._skip;}).then(()=>_ksVolRefresh(s))},
+    {i:'⚙️',l:'В выполненные с параметрами (дата, люди, буровая)…',f:()=>{const t=(s.entries||[]).filter(en=>!en.isSite).map(en=>({layerId:en.rec.id,idxs:en.idxs.slice()}));_ksCleanup();if(t.length)volDoneDialog(t);}},
     {i:'🎨',l:'Изменить цвет…',f:_ksColorModal},
     {i:'🏷',l:'Переименовать…',f:_ksRenameModal},
-    {i:'↩️',l:'Снять «выполнено» / инд. цвет',f:()=>{const ent=_ksFactEntries(s);_ksApply('Сброшено',f=>{
-      delete f.properties._color;
-      if(f.properties.comment==='Выполнено')delete f.properties.comment;
-      if(f.properties._done)delete f.properties._done;}).then(()=>_ksFactRun(ent,false));}},
+    {i:'↩️',l:'Снять «выполнено»',f:()=>_ksApply('Отметка снята',f=>_vlClearDone(f.properties)).then(()=>_ksVolRefresh(s))},
+    {i:'🎨',l:'Сбросить инд. цвет',f:()=>_ksApply('Цвет сброшен',f=>{delete f.properties._color;})},
   ];
   if(s.lines)items.push({i:'⬛',l:`Линии → полигоны (${s.lines})`,f:()=>_ksApply('Преобразовано',f=>{
     const g=f.geometry;
@@ -924,14 +922,11 @@ function _ksMenu(cx,cy){
   items.push({i:'✕',l:'Отмена',f:()=>{_ksCleanup();}});
   showCtx(cx,cy,items);
 }
-// Факт объёма по выделенным (только глобальные слои; слои объекта — без привязки)
-function _ksFactEntries(s){
-  return (s.entries||[]).filter(en=>!en.isSite).map(en=>({layerId:en.rec.id,all:en.idxs.slice(),idxs:en.idxs.filter(i=>{
-    const f=en.gj.features[i];return f&&f.properties&&f.properties._color!==KML_DONE_COLOR;})}));
-}
-async function _ksFactRun(ent,done){
-  if(typeof kmlFactAfterDone!=='function')return;
-  for(const e of ent){ const ix=done?e.idxs:e.all; if(ix.length) await kmlFactAfterDone(e.layerId,ix,done); }
+// После массовой отметки — пересчитать объёмы на затронутых слоях
+function _ksVolRefresh(s){
+  const ids=new Set((s&&s.entries||[]).map(en=>en.rec&&en.rec.id).filter(Boolean));
+  const vols=[...ids].map(id=>typeof volByLayer==='function'&&volByLayer(id)).filter(Boolean);
+  if(vols.length&&typeof volAfterChange==='function')vols.forEach(v=>volAfterChange(v.site_id));
 }
 // Применяет мутатор к каждой выделенной фигуре и сохраняет изменённые слои
 async function _ksApply(label,mutator){
@@ -1077,32 +1072,7 @@ async function kmlPolygonToLine(layerId, fIdx){
   }catch(e){toast('Ошибка сохранения','err');}
 }
 
-// «Выполнить объект»: красит один объект слоя в салатовый и ставит
-// комментарий «Выполнено» (повторный вызов снимает отметку).
-async function kmlToggleDone(layerId, fIdx, force){
-  const l=layers.find(x=>x.id===layerId);if(!l)return;
-  let gj;try{gj=JSON.parse(l.geojson);}catch(e){toast('Ошибка разбора слоя','err');return;}
-  const features=gj.type==='FeatureCollection'?gj.features:[gj];
-  const f=features[fIdx];if(!f)return;
-  if(!f.properties)f.properties={};
-  const done=f.properties._color===KML_DONE_COLOR;
-  if(done){
-    // снять «выполнено»
-    delete f.properties._color;
-    if(f.properties.comment==='Выполнено')delete f.properties.comment;
-    if(f.properties._done)delete f.properties._done;
-  } else {
-    f.properties._color=KML_DONE_COLOR;
-    f.properties.comment='Выполнено';
-    f.properties._done=1;
-  }
-  try{
-    await _kmlSaveGeojson(l,gj);
-    renderLayerGroups();
-    toast(done?'↩️ Отметка «выполнено» снята':'✅ Объект выполнен','ok');
-    if(typeof kmlFactAfterDone==='function')kmlFactAfterDone(layerId,[fIdx],!done,force);
-  }catch(e){toast('Ошибка сохранения','err');}
-}
+// «Выполнить объект» / «с параметрами» / «исключить» — vol-layers.js (kmlToggleDone, volDoneDialog, kmlToggleSkip)
 
 // ── Передвинуть объект KML (ПКМ → Передвинуть → клик по карте) ──
 let _kmvActive = null; // { layerId, fIdx }
@@ -1701,7 +1671,8 @@ function _kmlLayerSig(l) {
     l.fill_opacity, l.min_zoom, l.max_zoom, layerLabels[l.id] ? 1 : 0, l.style_json || ''].join('|');
 }
 function _kmlFeatColor(l, p) {
-  if (p && p._color === KML_DONE_COLOR) return KML_DONE_COLOR;
+  if (p && p._skip) return '#9ca3af';                       // исключён из объёма
+  if (p && (p._done || p._color === KML_DONE_COLOR)) return KML_DONE_COLOR;
   return (typeof kmlAttrColor === 'function' && kmlAttrColor(l, p)) || (p && p._color) || null;
 }
 // Принудительно сбросить кэш рендера слоя (гарантирует перестроение при смене стиля).
@@ -1769,7 +1740,12 @@ function renderLayerGroupsWithSymbols() {
           const nm = typeof kmlLabelText === 'function' ? kmlLabelText(l, f.properties) : (f.properties?.name || f.properties?.Name || '');
           const cmt = f.properties?.comment || '';
           const lsz = typeof kmlLabelSize === 'function' ? kmlLabelSize(l) : 0;
-          const tip0 = esc(nm) + (cmt ? (nm ? '<br>' : '') + '<span style="color:#65a30d;font-weight:700">✅ ' + esc(cmt) + '</span>' : '');
+          // выполнено / исключено — в подсказке (на постоянных подписях — не загромождаем)
+          const fp = f.properties || {};
+          const dn = !showLabels && fp._done ? `✅ выполнено ${fp._done_date ? fmt(fp._done_date) : ''}${fp._fact2 != null ? ' · факт ' + fp._fact2 : ''}${fp._done_by ? ' · ' + esc(fp._done_by) : ''}`
+            : !showLabels && fp._skip ? '🚫 исключён из объёма' : '';
+          const tip0 = esc(nm) + (cmt ? (nm ? '<br>' : '') + '<span style="color:#65a30d;font-weight:700">✅ ' + esc(cmt) + '</span>' : '')
+            + (dn ? (nm || cmt ? '<br>' : '') + `<span style="color:${fp._skip ? '#6b7280' : '#65a30d'};font-weight:700">${dn}</span>` : '');
           const tip = tip0 && lsz ? `<span style="font-size:${lsz}px">${tip0}</span>` : tip0;
           if (tip && !(f.properties && f.properties._note)) layer.bindTooltip(tip, {permanent:showLabels, className:'mlbl', direction:'top'});
 
@@ -1807,7 +1783,8 @@ function renderLayerGroupsWithSymbols() {
               }
             } catch(e) {}
             const fIdx = gjRaw.features ? gjRaw.features.indexOf(f) : -1;
-            const _isDone=f.properties&&f.properties._color===KML_DONE_COLOR;
+            const _isDone=typeof kmlIsDone==='function'?kmlIsDone(f.properties):!!(f.properties&&f.properties._done);
+            const _vol=typeof volByLayer==='function'?volByLayer(l.id):null, _isSkip=!!(f.properties&&f.properties._skip);
             const _coordFn=()=>{
               // точка — её координаты; линия/полигон — ближайшая вершина к месту щелчка
               let lat=ev.latlng.lat,lng=ev.latlng.lng;
@@ -1825,8 +1802,9 @@ function renderLayerGroupsWithSymbols() {
                 try { map.flyToBounds(layer.getBounds ? layer.getBounds() : L.latLngBounds([[layer.getLatLng().lat,layer.getLatLng().lng]]), {padding:[60,60]}); }
                 catch(e){ try{map.flyTo(layer.getLatLng(),16);}catch(e2){} }
               }},
-              ...(fIdx>=0?[{i:'✅',l:_isDone?'Снять «выполнено»':'Выполнить объект',f:()=>kmlToggleDone(l.id,fIdx)}]:[]),
-              ...(fIdx>=0&&!_isDone&&typeof kmlStyleOf==='function'&&(kmlStyleOf(l)||{}).fact?[{i:'⚙️',l:'Выполнить с параметрами…',f:()=>kmlToggleDone(l.id,fIdx,true)}]:[]),
+              ...(fIdx>=0?[{i:'✅',l:_isDone?'Снять «выполнено»':'Выполнить',f:()=>kmlToggleDone(l.id,fIdx)}]:[]),
+              ...(fIdx>=0?[{i:'⚙️',l:_isDone?'Изменить выполнение (дата, факт, люди)…':'Выполнить с параметрами…',f:()=>kmlToggleDone(l.id,fIdx,true)}]:[]),
+              ...(fIdx>=0&&_vol?[{i:'🚫',l:_isSkip?'Вернуть в объём':'Исключить из объёма (отменён, перенесён)',f:()=>kmlToggleSkip(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'✏️',l:'Редактировать объект',f:()=>kmlEditFeature(l.id,fIdx)}]:[]),
               {i:'📍',l:'Координаты и высота',sub:[
                 {i:'🧭',l:f.geometry&&f.geometry.type==='Point'?'Координаты точки во всех системах':'Координаты вершины во всех системах',f:_coordFn},
@@ -1855,7 +1833,7 @@ function renderLayerGroupsWithSymbols() {
                 {i:'👁',l:l.visible?'Скрыть слой':'Показать слой',f:()=>kmlToggleVis(l.id,l.visible?0:1)},
                 {sep:true},
                 {i:'🧰',l:'ГИС-операции (буфер, обрезка…)',f:()=>gisToolsOpen(l.id)},
-                {i:'🔗',l:'Связь с объёмом (факт)…',f:()=>kmlFactLinkEdit(l.id)},
+                {i:'📦',l:_vol?`Объём «${esc(String(_vol.name).slice(0,24))}»…`:'Сделать объёмом объекта…',html:true,f:()=>volBindLayer(l.id)},
                 ...(typeof demBatchByLayer==='function'&&/"(Multi)?Polygon"/.test(l.geojson||'')?[{i:'🏔',l:'Рельеф по полигонам слоя…',f:()=>demWizardKml(l.id)}]:[]),
                 ...(l.group_id?[{i:'📄',l:'Убрать из группы',f:()=>kmlMoveToGroup(l.id,null)}]:[]),
                 {sep:true},

@@ -1,232 +1,5 @@
-function openVolCommentModal(volId){
-  const vol=(currentObj?.volumes||[]).find(v=>v.id===volId);if(!vol)return;
-  showModal('💬 Комментарий — '+esc(vol.name),
-    '<div class="fgr fone">'
-    +'<div class="fg"><label>Комментарий / примечание</label>'
-    +'<textarea id="f-vnotes" rows="4">'+esc(vol.notes||'')+'</textarea></div>'
-    +'</div>',
-    [{label:'Отмена',cls:'bs',fn:closeModal},{label:'💾 Сохранить',cls:'bp',fn:async function(){
-      const notes=document.getElementById('f-vnotes').value;
-      await fetch(`${API}/volumes/${volId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({...vol,notes})});
-      closeModal();await refreshCurrent();renderTab();toast('Комментарий сохранён','ok');
-    }}]);
-}
-
-let vertexEditLayerId=null, vertexEditMarkers=[];
-// State shared with RCM handler
-let _veCoords=null, _veGJ=null, _veId=null, _veIsVP=false, _veColor='#1a56db', _veUpdatePreview=null, _veRingRef=null, _veGeomRef=null;
-
-function startVolVertexEdit(volId){
-  const vol=(currentObj?.volumes||[]).find(v=>v.id===volId);
-  if(!vol||!vol.geojson){toast('Сначала нарисуйте контур','err');return;}
-  let gj;
-  try{gj=JSON.parse(vol.geojson);}catch(e){toast('Ошибка чтения геометрии','err');return;}
-  stopVertexEdit();
-  vertexEditLayerId=volId;
-  switchView('map');
-  const coords=[];
-  function extractCoords(geom){
-    if(!geom)return;
-    if(geom.type==='Point'){coords.push(geom.coordinates);}
-    else if(geom.type==='LineString'){geom.coordinates.forEach(c=>coords.push(c));}
-    else if(geom.type==='Polygon'){if(geom.coordinates[0]){_veGeomRef=geom;_veRingRef=geom.coordinates[0];geom.coordinates[0].forEach(c=>coords.push(c));}}
-    else if(geom.type==='MultiPolygon'){geom.coordinates.forEach(poly=>{if(poly[0])poly[0].forEach(c=>coords.push(c));});}
-    else if(geom.type==='FeatureCollection'){(geom.features||[]).forEach(f=>extractCoords(f.geometry));}
-    else if(geom.type==='Feature'){extractCoords(geom.geometry);}
-  }
-  extractCoords(gj);
-  if(!coords.length){toast('Нет вершин для редактирования','err');return;}
-  let previewLayer=null;
-  function updatePreview(){
-    if(previewLayer){try{map.removeLayer(previewLayer);}catch(e){}}
-    try{previewLayer=L.geoJSON(gj,{
-      style:{color:vol.color||'#1a56db',weight:2,opacity:.7,fillOpacity:.15,dashArray:'4 3'},
-      pointToLayer:function(f,ll){return L.circleMarker(ll,{radius:5,fillColor:'#1a56db',color:'#fff',weight:1.5,fillOpacity:.8});}
-    }).addTo(map);previewLayer.bringToFront&&previewLayer.bringToFront();}catch(e){}
-  }
-  updatePreview();
-  _veCoords=coords; _veGJ=gj; _veId=volId; _veIsVP=false;
-  _veColor=vol.color||'#1a56db'; _veUpdatePreview=updatePreview;
-  coords.forEach(function(c){ _addVertexMarker(c, volId, gj, coords, updatePreview, false); });
-  vertexEditMarkers.push({_isPreview:true,remove:function(){if(previewLayer){try{map.removeLayer(previewLayer);}catch(e){}}}});
-  toast('Тяните вершины. Двойной клик — удалить. ПКМ — меню действий.','ok');
-}
-
-function _addVertexMarker(c, volId, gj, coords, updatePreview, isVP){
-  const color=isVP?'#7c3aed':'#1a56db';
-  const mk=L.marker([c[1],c[0]],{
-    draggable:true,
-    icon:L.divIcon({className:'',iconSize:[14,14],iconAnchor:[7,7],
-      html:'<div style="width:14px;height:14px;background:#fff;border:2.5px solid '+color+';border-radius:50%;cursor:move;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>'})
-  }).addTo(map);
-  mk.on('drag',function(){const ll=mk.getLatLng();c[0]=ll.lng;c[1]=ll.lat;updatePreview();});
-  mk.on('dragend',function(){
-    const ll=mk.getLatLng();c[0]=ll.lng;c[1]=ll.lat;
-    updatePreview();
-    if(!isVP) saveVertexEdit(volId,gj);
-    else _saveVpVertex(volId,gj);
-  });
-  mk.on('dblclick',function(){
-    const idx=coords.indexOf(c);
-    if(idx>-1&&coords.length>3){coords.splice(idx,1);if(_veRingRef){const ri=_veRingRef.indexOf(c);if(ri>-1)_veRingRef.splice(ri,1);}}
-    updatePreview();
-    if(!isVP) saveVertexEdit(volId,gj); else _saveVpVertex(volId,gj);
-    try{map.removeLayer(mk);}catch(e){}
-    const mi=vertexEditMarkers.indexOf(mk);
-    if(mi>-1)vertexEditMarkers.splice(mi,1);
-  });
-  // insert before preview sentinel if it exists
-  const pi=vertexEditMarkers.findIndex(m=>m._isPreview);
-  if(pi>-1)vertexEditMarkers.splice(pi,0,mk); else vertexEditMarkers.push(mk);
-  return mk;
-}
-
-// Перестроить ring внутри _veGJ из _veCoords (для splice-операций — drag мутирует in-place).
-// Идемпотентен и безопасен: вызывается из меню перед preview и внутри _saveVpVertex.
-function _rebuildVpRingFromCoords(){
-  if(!_veCoords||!_veGeomRef||_veCoords.length<3)return;
-  const ring=_veCoords.map(function(c){return[c[0],c[1]];});
-  const f=ring[0],l=ring[ring.length-1];
-  if(f[0]!==l[0]||f[1]!==l[1])ring.push([f[0],f[1]]);
-  _veGeomRef.coordinates[0]=ring;
-}
-
-async function _saveVpVertex(factId, gj){
-  _rebuildVpRingFromCoords();
-  const idx=(currentObj&&currentObj.vol_progress||[]).findIndex(x=>x.id===factId);
-  await fetch(`${API}/vol_progress/${factId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({geojson:JSON.stringify(gj)})}).catch(()=>{});
-  if(idx>=0)currentObj.vol_progress[idx]={...currentObj.vol_progress[idx],geojson:JSON.stringify(gj)};
-  renderVpLayers(currentObj&&currentObj.vol_progress||[]);
-}
-
-async function saveVertexEdit(volId,gj){
-  const vol=(currentObj?.volumes||[]).find(v=>v.id===volId);if(!vol)return;
-  // Rebuild polygon ring directly from _veCoords (fresh arrays, properly closed)
-  if(_veCoords&&_veGeomRef&&_veCoords.length>=3){
-    const ring=_veCoords.map(function(c){return[c[0],c[1]];});
-    const f=ring[0],l=ring[ring.length-1];
-    if(f[0]!==l[0]||f[1]!==l[1])ring.push([f[0],f[1]]);
-    _veGeomRef.coordinates[0]=ring;
-  }
-  const r=await fetch(`${API}/volumes/${volId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({...vol,geojson:JSON.stringify(gj)})});
-  if(!r.ok){toast('Ошибка сохранения','err');return;}
-  const geojsonStr=JSON.stringify(gj);
-  const vIdx=(currentObj?.volumes||[]).findIndex(v=>v.id===volId);
-  if(vIdx>=0)currentObj.volumes[vIdx]={...vol,geojson:geojsonStr};
-}
-function stopVertexEdit(){
-  vertexEditMarkers.forEach(function(m){
-    if(m._isPreview){m.remove();}
-    else{try{map.removeLayer(m);}catch(e){}}
-  });
-  vertexEditMarkers=[];
-  vertexEditLayerId=null;
-  _veCoords=null; _veGJ=null; _veId=null; _veIsVP=false; _veUpdatePreview=null; _veRingRef=null; _veGeomRef=null;
-  if(currentObj){
-    refreshCurrent().then(function(){
-      renderVolumesOnMap(currentObj.volumes||[]);
-      renderVpLayers(currentObj.vol_progress||[]);
-      renderTab();
-    });
-  }
-}
-
-// Called from onMapRClick when vertexEditLayerId is set
-function _handleVertexEditRCM(e){
-  if(e.originalEvent)e.originalEvent.preventDefault();
-  const clickPx=map.latLngToContainerPoint(e.latlng);
-  const cx=e.originalEvent.clientX, cy=e.originalEvent.clientY;
-  showCtx(cx,cy,[
-    {i:'✅',l:'Закончить редактирование',f:function(){
-      if(_veIsVP){_saveVpVertex(_veId,_veGJ).then(stopVertexEdit);}
-      else{saveVertexEdit(_veId,_veGJ).then(stopVertexEdit);}
-    }},
-    {i:'❌',l:'Удалить ближайшую вершину',f:async function(){
-      if(!_veCoords||_veCoords.length<=3){toast('Минимум 3 вершины','err');return;}
-      let bestMk=null,bestDist=Infinity;
-      vertexEditMarkers.forEach(function(mk){
-        if(mk._isPreview||!mk.getLatLng)return;
-        const p=map.latLngToContainerPoint(mk.getLatLng());
-        const d=Math.hypot(p.x-clickPx.x,p.y-clickPx.y);
-        if(d<bestDist){bestDist=d;bestMk=mk;}
-      });
-      if(!bestMk)return;
-      const ll=bestMk.getLatLng();
-      const idx=_veCoords.findIndex(c=>Math.abs(c[0]-ll.lng)<1e-9&&Math.abs(c[1]-ll.lat)<1e-9);
-      if(idx>-1){const rc=_veCoords[idx];_veCoords.splice(idx,1);if(_veRingRef){const ri=_veRingRef.indexOf(rc);if(ri>-1)_veRingRef.splice(ri,1);}}
-      try{map.removeLayer(bestMk);}catch(ex){}
-      const mi=vertexEditMarkers.indexOf(bestMk);
-      if(mi>-1)vertexEditMarkers.splice(mi,1);
-      _rebuildVpRingFromCoords();
-      if(_veUpdatePreview)_veUpdatePreview();
-      if(_veIsVP) await _saveVpVertex(_veId,_veGJ); else { await saveVertexEdit(_veId,_veGJ); if(currentObj) renderVolumesOnMap(currentObj.volumes||[]); }
-    }},
-    {i:'➕',l:'Добавить вершину здесь',f:async function(){
-      if(!_veCoords||!_veGJ)return;
-      const T=clickPx;
-      let bestSeg=-1,bestDist=Infinity;
-      for(let i=0;i<_veCoords.length;i++){
-        const j=(i+1)%_veCoords.length;
-        const A=map.latLngToContainerPoint([_veCoords[i][1],_veCoords[i][0]]);
-        const B=map.latLngToContainerPoint([_veCoords[j][1],_veCoords[j][0]]);
-        const dx=B.x-A.x,dy=B.y-A.y,len2=dx*dx+dy*dy;
-        if(len2===0)continue;
-        const t=Math.max(0,Math.min(1,((T.x-A.x)*dx+(T.y-A.y)*dy)/len2));
-        const d=Math.hypot(A.x+t*dx-T.x,A.y+t*dy-T.y);
-        if(d<bestDist){bestDist=d;bestSeg=i;}
-      }
-      if(bestSeg<0)return;
-      const newC=[e.latlng.lng,e.latlng.lat];
-      _veCoords.splice(bestSeg+1,0,newC);
-      if(_veRingRef)_veRingRef.splice(bestSeg+1,0,newC);
-      _addVertexMarker(newC,_veId,_veGJ,_veCoords,_veUpdatePreview,_veIsVP);
-      _rebuildVpRingFromCoords();
-      if(_veUpdatePreview)_veUpdatePreview();
-      if(_veIsVP) await _saveVpVertex(_veId,_veGJ); else { await saveVertexEdit(_veId,_veGJ); if(currentObj) renderVolumesOnMap(currentObj.volumes||[]); }
-    }}
-  ]);
-}
-
-async function startVpVertexEdit(factId){
-  const p=(currentObj&&currentObj.vol_progress||[]).find(x=>x.id===factId);
-  if(!p||!p.geojson){toast('Нет контура для редактирования','err');return;}
-  let gj; try{gj=JSON.parse(p.geojson);}catch(e){toast('Ошибка геометрии','err');return;}
-  stopVertexEdit();
-  vertexEditLayerId='vp_'+factId;
-  switchView('map');
-  const coords=[];
-  function extractVpCoords(geom){
-    if(!geom)return;
-    if(geom.type==='Point'){coords.push(geom.coordinates);}
-    else if(geom.type==='LineString'){geom.coordinates.forEach(c=>coords.push(c));}
-    else if(geom.type==='Polygon'){if(geom.coordinates[0]){_veGeomRef=geom;geom.coordinates[0].forEach(c=>coords.push(c));}}
-    else if(geom.type==='FeatureCollection'){(geom.features||[]).forEach(f=>extractVpCoords(f.geometry));}
-    else if(geom.type==='Feature'){extractVpCoords(geom.geometry);}
-  }
-  extractVpCoords(gj);
-  if(!coords.length){toast('Нет вершин','err');return;}
-  let previewLayer=null;
-  function updatePreview2(){
-    if(previewLayer){try{map.removeLayer(previewLayer);}catch(e){}}
-    try{previewLayer=L.geoJSON(gj,{
-      style:{color:'#7c3aed',weight:2,opacity:.7,fillOpacity:.15,dashArray:'4 3'},
-      pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:5,fillColor:'#7c3aed',color:'#fff',weight:1.5,fillOpacity:.8})
-    }).addTo(map);}catch(e){}
-  }
-  updatePreview2();
-  _veCoords=coords; _veGJ=gj; _veId=factId; _veIsVP=true;
-  _veColor='#7c3aed'; _veUpdatePreview=updatePreview2;
-  coords.forEach(function(c){ _addVertexMarker(c,factId,gj,coords,updatePreview2,true); });
-  vertexEditMarkers.push({_isPreview:true,remove:function(){if(previewLayer){try{map.removeLayer(previewLayer);}catch(e){}}}});
-  toast('Тяните вершины факта. Двойной клик — удалить. ПКМ — меню действий.','ok');
-}
-
-// ═══════════════════════════════════════════════════════════
-// ASSIGN FROM PGK TO BASE
-// ═══════════════════════════════════════════════════════════
+// Правка вершин объёмов и фактов убрана: объём — слой KML (правка геометрии — kml-edit.js).
+let vertexEditLayerId=null;
 async function openAssignWorkerModal(){
   if(!currentObj){toast('Выберите базу','err');return;}
   const allWorkers=await fetch(`${API}/pgk/workers`).then(r=>r.json()).catch(()=>[]);
@@ -350,22 +123,6 @@ async function exportExcel(siteId){
   const wb=XLSX.utils.book_new();
   const sh=(data,name)=>XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(data),name);
 
-  // Семантика хранится в notes как __SEM__:{"type":"...","data":{...}}\nтекст
-  // Regex \{.*?\} не работает для вложенных объектов (захватывает только до первой '}').
-  // Правильный способ: взять строку между '__SEM__:' и первым '\n', распарсить как JSON.
-  const parseSem=notes=>{
-    if(!notes)return{type:'',data:{},cleanNotes:''};
-    if(!notes.startsWith('__SEM__:'))return{type:'',data:{},cleanNotes:notes};
-    const rest=notes.slice(8); // длина '__SEM__:' = 8
-    const nl=rest.indexOf('\n');
-    const jsonStr=nl>=0?rest.slice(0,nl):rest;
-    const cleanNotes=nl>=0?rest.slice(nl+1).trim():'';
-    try{const p=JSON.parse(jsonStr);return{type:p.type||'',data:p.data||{},cleanNotes};}catch(e){}
-    return{type:'',data:{},cleanNotes:notes};
-  };
-  const SEM_LABEL={borehole:'Скважина',pit:'Шурф',ggs:'Пункт ГГС',ogs:'Пункт ОГС',
-    repere:'Репер',benchmark:'Марка',steel_angle:'Металлический уголок',other:'Другое'};
-
   // Карты ID→имя для работников и техники
   const wMap={},mMap={};
   (s.bases||[]).forEach(b=>{
@@ -396,96 +153,47 @@ async function exportExcel(siteId){
   sh([['Материал','Кол-во','Ед.','Мин. запас','База'],
     ...(s.bases||[]).flatMap(b=>(b.materials||[]).map(m=>[m.name,m.amount,m.unit,m.min_amount,b.name]))],'Материалы');
 
-  // ── Прогресс ───────────────────────────────────────────────
-  sh([['Вид работ','Выполнено','Всего','Ед.','%','Примечания'],
-    ...(s.progress||[]).map(p=>[p.work_type,p.completed,p.total,p.unit,p.total>0?Math.round(p.completed/p.total*100)+'%':'—',p.notes||''])],'Прогресс');
-
-  // ── Объёмы (расширено: плановые даты, тип семантики, чистые примечания) ──
-  sh([['Вид работ','Категория','Кол-во план.','Ед.','Нач. план','Оконч. план','Тип семантики','Геометрия','Примечания'],
+  // ── Объёмы: план и выполнение (на слоях — по объектам слоя) ──
+  const catName=c=>(typeof VOL_SECTIONS!=='undefined'&&VOL_SECTIONS[c]||{}).label||c||'';
+  (pgkWorkers||[]).forEach(w=>{wMap[w.id]=wMap[w.id]||w.name;});
+  (pgkMachinery||[]).forEach(m=>{mMap[m.id]=mMap[m.id]||m.name;});
+  const fact=(s.vol_progress||[]).filter(p=>(p.row_type||'fact')==='fact');
+  const volMap={};(s.volumes||[]).forEach(v=>{volMap[v.id]=v;});
+  sh([['Вид работ','Раздел','Источник','План','Ед.','Выполнено','%','Второй показатель','План 2','Выполнено 2','Нач. план','Оконч. план'],
     ...(s.volumes||[]).map(v=>{
-      const sem=parseSem(v.notes);
-      return[v.name,v.category==='geology'?'Геология':'Геодезия',
-        v.amount,v.unit,fmt(v.plan_start),fmt(v.plan_end),
-        SEM_LABEL[sem.type]||'',v.geojson?'Есть':'—',sem.cleanNotes];
+      const m=volMeasure(v), rows=fact.filter(p=>p.volume_id===v.id);
+      const done=rows.reduce((a,p)=>a+(+p.completed||0),0), done2=rows.reduce((a,p)=>a+(+p.amount2||0),0);
+      const l=v.layer_id&&(layers||[]).find(x=>x.id===v.layer_id);
+      return[v.name,catName(v.category),v.layer_id?('Слой: '+(l?l.name:'(удалён)')):'Без карты',v.amount,v.unit,+done.toFixed(3),
+        v.amount>0?Math.round(done/v.amount*100)+'%':'—',m.second&&v.layer_id?m.second.unit:'',m.second&&v.layer_id?v.amount2:'',m.second&&v.layer_id?+done2.toFixed(3):'',
+        fmt(v.plan_start),fmt(v.plan_end)];
     })],'Объёмы');
 
-  // ── Карта объёмов (нужна и для семантики, и для выполнения) ──
-  const volMap={};
-  (s.volumes||[]).forEach(v=>{volMap[v.id]=v;});
-
-  // ── Семантика объёмов (только точки с заполненным типом) ──
-  // Семантика хранится в трёх местах:
-  // 1. volumes.notes — __SEM__:... (openVolPointSemantics, для всего объёма)
-  // 2. volumes.geojson → features[].properties.sem (openFeatureSemantics без vpId)
-  // 3. vol_progress.geojson → features[].properties.sem (openFeatureSemantics с vpId — основной случай)
-  const semRows=[['Объём','Дата записи','Категория','Тип','Глубина (м)','Диаметр (мм)','УГВ (м)','Дата','Исполнитель','Описание / Примечание']];
-
-  const extractSemFromGJ=(gjStr,name,cat,dateLabel)=>{
-    if(!gjStr)return;
-    try{
-      const gj=JSON.parse(gjStr);
-      const features=gj.type==='FeatureCollection'?gj.features:(gj.type==='Feature'?[gj]:[]);
-      features.forEach(feat=>{
-        const sem=(feat.properties&&feat.properties.sem)||{};
-        if(!sem.type)return;
-        const d=sem.data||{};
-        semRows.push([name,dateLabel,cat,
-          SEM_LABEL[sem.type]||sem.type,
-          d.depth||'',d.diam||'',d.ugv||'',
-          d.date||'',d.exec||'',
-          d.desc||d.note||'']);
-      });
-    }catch(e){}
-  };
-
-  (s.volumes||[]).forEach(v=>{
-    const cat=v.category==='geology'?'Геология':'Геодезия';
-    // Способ 1: семантика в volumes.notes
-    const noteSem=parseSem(v.notes);
-    if(noteSem.type){
-      const d=noteSem.data||{};
-      semRows.push([v.name,'—',cat,
-        SEM_LABEL[noteSem.type]||noteSem.type,
-        d.depth||'',d.diam||'',d.ugv||'',
-        d.date||'',d.exec||'',
-        d.desc||d.note||noteSem.cleanNotes]);
-    }
-    // Способ 2: семантика в volumes.geojson
-    extractSemFromGJ(v.geojson,v.name,cat,'—');
+  // ── Объекты слоёв-объёмов: каждый пункт с отметкой выполнения ──
+  const fr=[['Объём','Объект','Тип','Широта','Долгота','План (поле)','Выполнено','Дата','Факт','Исполнители','Техника','Примечание','Атрибуты']];
+  (s.volumes||[]).filter(v=>v.layer_id).forEach(v=>{
+    const l=(layers||[]).find(x=>x.id===v.layer_id);if(!l)return;
+    const m=volMeasure(v);
+    _kaFeatures(l).forEach((f,i)=>{
+      const p=f.properties||{};if(!f.geometry)return;
+      const c=f.geometry.type==='Point'?f.geometry.coordinates:null;
+      const attrs=Object.keys(p).filter(k=>!k.startsWith('_')&&k!=='name'&&k!=='Name'&&(!m.second||k!==m.second.field)).map(k=>k+': '+p[k]).join('; ');
+      fr.push([v.name,p.name||p.Name||('Объект '+(i+1)),f.geometry.type,c?+c[1].toFixed(7):'',c?+c[0].toFixed(7):'',
+        m.second?(p[m.second.field]??''):'',p._skip?'исключён':p._done?'да':'нет',p._done?fmt(p._done_date):'',
+        p._done&&m.second?(p._fact2!=null?p._fact2:(p[m.second.field]??'')):'',
+        String(p._workers||'').split(',').filter(Boolean).map(id=>wMap[id]||id).join(', '),p._machine?(mMap[p._machine]||p._machine):'',p._note||'',attrs]);
+    });
   });
+  if(fr.length>1)sh(fr,'Объекты объёмов');
 
-  // Способ 3: семантика в vol_progress.geojson (главный источник при работе с прогрессом)
-  (s.vol_progress||[]).forEach(p=>{
-    if(p.row_type&&p.row_type!=='fact')return;
-    const vol=volMap[p.volume_id];
-    if(!vol||!p.geojson)return;
-    const cat=vol.category==='geology'?'Геология':'Геодезия';
-    extractSemFromGJ(p.geojson,vol.name,cat,fmt(p.work_date));
+  // ── Выполнение по дням (журнал) ────────────────────────────
+  const vpRows=[['Дата','Объём','Ед.','Выполнено','Второй показатель','Объект / запись','Работники','Техника','Источник']];
+  fact.slice().sort((a,b)=>a.work_date<b.work_date?-1:1).forEach(p=>{
+    const vol=volMap[p.volume_id];if(!vol)return;const m=volMeasure(vol);
+    vpRows.push([fmt(p.work_date),vol.name,vol.unit,p.completed,p.amount2!=null?p.amount2+' '+((m.second||{}).unit||''):'',p.notes||'',
+      (p.worker_ids||'').split(',').filter(Boolean).map(id=>wMap[id]||id).join(', '),p.machine_id?(mMap[p.machine_id]||p.machine_id):'',p.source==='kml'?'отметка в слое':'вручную']);
   });
-
-  if(semRows.length>1)sh(semRows,'Семантика объёмов');
-
-  // ── Выполнение объёмов (vol_progress, только факт) ────────
-  // Итог по каждому объёму для расчёта %
-  const volDone={};
-  (s.vol_progress||[]).forEach(p=>{
-    if(p.row_type&&p.row_type!=='fact')return;
-    volDone[p.volume_id]=(volDone[p.volume_id]||0)+(p.completed||0);
-  });
-  const vpRows=[['Объём','Категория','Ед.','Дата','Выполнено за запись','Итого выполнено','% от плана','Работники','Техника','№ акта','Примечание']];
-  (s.vol_progress||[]).forEach(p=>{
-    if(p.row_type&&p.row_type!=='fact')return;
-    const vol=volMap[p.volume_id];
-    if(!vol)return;
-    const total=volDone[p.volume_id]||0;
-    const pct=vol.amount>0?Math.round(total/vol.amount*100)+'%':'—';
-    const workers=(p.worker_ids||'').split(',').filter(Boolean).map(id=>wMap[id]||id).join(', ');
-    const mac=p.machine_id?(mMap[p.machine_id]||p.machine_id):'';
-    vpRows.push([vol.name,vol.category==='geology'?'Геология':'Геодезия',
-      vol.unit,fmt(p.work_date),p.completed,total,pct,
-      workers,mac,p.act_number||'',p.notes||'']);
-  });
-  if(vpRows.length>1)sh(vpRows,'Выполнение объёмов');
+  if(vpRows.length>1)sh(vpRows,'Выполнение по дням');
 
   // ── Камеральные ────────────────────────────────────────────
   const kr=[['Специалист','Роль','Ревизия','% готовности','Папка отчёта','Откр.замечаний','Закр.замечаний']];

@@ -296,6 +296,14 @@ async function getDb() {
   ta("ALTER TABLE field_samples ADD COLUMN depth_top_m REAL");
   ta("ALTER TABLE field_samples ADD COLUMN depth_bottom_m REAL");
   ta("ALTER TABLE volumes ADD COLUMN visible INTEGER DEFAULT 1");
+  // Объёмы на слоях KML (routes/volume-sync.js)
+  ta("ALTER TABLE volumes ADD COLUMN layer_id TEXT");
+  ta("ALTER TABLE volumes ADD COLUMN measure_json TEXT");
+  ta("ALTER TABLE volumes ADD COLUMN amount2 REAL");
+  ta("ALTER TABLE vol_progress ADD COLUMN source TEXT DEFAULT 'manual'");
+  ta("ALTER TABLE vol_progress ADD COLUMN amount2 REAL");
+  ta("ALTER TABLE vol_progress ADD COLUMN feature_uid TEXT");
+  ta("CREATE INDEX IF NOT EXISTS idx_volumes_layer      ON volumes(layer_id)");
 
   // Реестр известных клиентов (для присутствия и настройки прав офлайн-пользователям)
   ta("CREATE TABLE IF NOT EXISTS known_clients (client_id TEXT PRIMARY KEY, name TEXT DEFAULT '', first_seen TEXT DEFAULT (datetime('now')), last_seen TEXT DEFAULT (datetime('now')))");

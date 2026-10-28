@@ -8,11 +8,12 @@ function freePort() {
   return new Promise((res, rej) => { const s = net.createServer(); s.listen(0, () => { const p = s.address().port; s.close(() => res(p)); }); s.on('error', rej); });
 }
 // Сервер с пустой временной базой; рабочая survey.db и бэкапы не затрагиваются
-async function startServer() {
+// opts.dir — использовать уже существующую папку с test.db (не удалять при stop: opts.keep)
+async function startServer(opts = {}) {
   const port = await freePort();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pgk_test_'));
+  const dir = opts.dir || fs.mkdtempSync(path.join(os.tmpdir(), 'pgk_test_'));
   const env = { ...process.env, PORT: String(port), PGK_DB: path.join(dir, 'test.db'), PGK_BACKUP_DIR: path.join(dir, 'backups'), PGK_NO_BROWSER: '1' };
-  fs.mkdirSync(env.PGK_BACKUP_DIR);
+  if (!fs.existsSync(env.PGK_BACKUP_DIR)) fs.mkdirSync(env.PGK_BACKUP_DIR);
   const proc = spawn(process.execPath, ['server.js'], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = ''; proc.stdout.on('data', d => { log += d; }); proc.stderr.on('data', d => { log += d; });
   const base = `http://127.0.0.1:${port}`;
@@ -26,7 +27,7 @@ async function startServer() {
     const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (e) { j = t; }
     return { status: r.status, body: j };
   };
-  const stop = () => new Promise(res => { proc.on('exit', () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} res(); }); proc.kill(); });
+  const stop = () => new Promise(res => { proc.on('exit', () => { if (!opts.keep) try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} res(); }); proc.kill(); });
   return { base, port, api, stop, log: () => log, dir };
 }
 // Браузерные скрипты (public/js) — в песочницу с заглушками DOM

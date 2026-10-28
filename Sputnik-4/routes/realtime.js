@@ -137,6 +137,15 @@ function restoreFromData(db, data) {
   return { ok: true, table, id: row.id };
 }
 
+// после восстановления слоя/объёма/выполнения — пересчитать объёмы (volume-sync.js)
+function _afterRestore(db, table, row) {
+  try {
+    const VS = require('./volume-sync');
+    if (table === 'kml_layers') VS.syncLayer(db, row.id);
+    else if (table === 'volumes') VS.syncVolumeId(db, row.id);
+    else if (table === 'vol_progress') VS.recalcSite(db, row.site_id);
+  } catch (e) {}
+}
 function attachUndo(app, getDb) {
   app.post('/api/restore', (req, res) => {
     // Пакетное восстановление (массовое удаление): { items:[{table,row,children}, …] }
@@ -145,7 +154,7 @@ function attachUndo(app, getDb) {
       for (const it of req.body.items) {
         if (!it || !it.table || !it.row) continue;
         const r = restoreFromData(getDb(), { table: it.table, row: it.row, children: it.children || [] });
-        if (r.ok) ok++; else errors.push(r.reason);
+        if (r.ok) { ok++; _afterRestore(getDb(), it.table, it.row); } else errors.push(r.reason);
       }
       if (!ok && errors.length) return res.status(422).json({ error: 'Не удалось восстановить: ' + errors[0] });
       return res.json({ ok: true, restored: ok });
@@ -154,6 +163,7 @@ function attachUndo(app, getDb) {
     if (!table || !row) return res.status(400).json({ error: 'Не переданы данные для восстановления' });
     const result = restoreFromData(getDb(), { table, row, children: children || [] });
     if (!result.ok) return res.status(422).json({ error: 'Не удалось восстановить: ' + result.reason });
+    _afterRestore(getDb(), table, row);
     res.json(result);
   });
 }
