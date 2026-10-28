@@ -584,7 +584,7 @@ async function kmlDeleteLayer(id) {
   layers=layers.filter(l=>l.id!==id);renderKmlPanel();
   await apiDelUndo(`/layers/${id}`,'Слой удалён',async()=>{
     const fresh=await fetch(`${API}/layers`).then(r=>r.json()).catch(()=>[]);
-    layers=fresh;renderKmlPanel();try{reloadKmlLayers();}catch(e){}
+    layers=fresh;renderKmlPanel();try{renderLayerGroups();}catch(e){}
   });
 }
 

@@ -511,11 +511,11 @@ document.addEventListener('keydown',e=>{
 // ═══════════════════════════════════════════════════════════
 // PHOTOS
 // ═══════════════════════════════════════════════════════════
+// container — элемент или его id; сетку с загрузкой рисует renderPhotos (smg.js)
 async function loadPhotos(entityType, entityId, container){
-  try{
-    const photos=await fetch(`${API}/photos?entity_type=${entityType}&entity_id=${entityId}`).then(r=>r.json());
-    renderPhotos(photos, entityType, entityId, container);
-  }catch(e){}
+  const el=typeof container==='string'?document.getElementById(container):container;
+  if(!el)return;
+  try{await renderPhotos(entityType, entityId, el);}catch(e){}
 }
 // ═══════════════════════════════════════════════════════════
 // BACKUP

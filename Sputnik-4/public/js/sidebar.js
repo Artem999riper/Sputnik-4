@@ -333,7 +333,7 @@ async function deleteLayer(id){
   layers=layers.filter(l=>l.id!==id);renderLP();
   await apiDelUndo(`/layers/${id}`,'Слой удалён',async()=>{
     const fresh=await fetch(`${API}/layers`).then(r=>r.json()).catch(()=>[]);
-    layers=fresh;renderLP();try{reloadKmlLayers();}catch(e){}
+    layers=fresh;renderLP();try{renderLayerGroups();}catch(e){}
   });
 }
 async function _readFileText(file) {

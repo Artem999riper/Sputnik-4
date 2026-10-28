@@ -155,7 +155,6 @@ function openFullSitePanel(){
   document.getElementById('mini-panel').classList.remove('open');
   hideSiteStatsOverlay();
   openPanel(false);setupSiteTabs();renderTab();
-  loadPhotos('site',currentObj.id,'photos-site');
 }
 
 function closeMiniPanel(){
@@ -176,7 +175,6 @@ async function selectBase(id){
     openPanel(true);setupBaseTabs();renderTab();
     if(bMarkers[id])map.panTo([currentObj.lat,currentObj.lng],{animate:true});
     await repaintMap();
-    loadPhotos('base',id,'photos-base');
   }catch(e){toast('Ошибка загрузки базы','err');}
 }
 
@@ -213,12 +211,12 @@ function closePanel(){
 }
 function setupSiteTabs(){
   currentTab='overview';
-  document.getElementById('ptabs').innerHTML=[['overview','Обзор'],['bases','Базы'],['volumes','Объёмы'],['progress','Прогресс']]
+  document.getElementById('ptabs').innerHTML=[['overview','Обзор'],['bases','Базы'],['volumes','Объёмы'],['progress','Прогресс'],['photos','📷 Фото']]
     .map(([k,l])=>`<div class="ptab${k===currentTab?' on':''}" data-t="${k}" onclick="switchTab(this)">${l}</div>`).join('');
 }
 function setupBaseTabs(){
   currentTab='overview';
-  document.getElementById('ptabs').innerHTML=[['overview','Обзор'],['workers','Персонал'],['machinery','Техника'],['equipment','Оборудование'],['materials','Материалы']]
+  document.getElementById('ptabs').innerHTML=[['overview','Обзор'],['workers','Персонал'],['machinery','Техника'],['equipment','Оборудование'],['materials','Материалы'],['photos','📷 Фото']]
     .map(([k,l])=>`<div class="ptab ob${k===currentTab?' on':''}" data-t="${k}" onclick="switchTab(this)">${l}</div>`).join('');
 }
 function switchTab(el){
@@ -227,8 +225,13 @@ function switchTab(el){
 }
 function renderTab(){
   const pb=document.getElementById('pbody');
-  if(currentType==='site')({overview:tabSiteOv,bases:tabSiteBases,volumes:tabVolumes,progress:tabProgress})[currentTab]?.(pb);
-  else({overview:tabBaseOv,workers:tabWorkers,machinery:tabMachinery,equipment:tabEquipment,materials:tabMaterials})[currentTab]?.(pb);
+  if(currentType==='site')({overview:tabSiteOv,bases:tabSiteBases,volumes:tabVolumes,progress:tabProgress,photos:tabPhotos})[currentTab]?.(pb);
+  else({overview:tabBaseOv,workers:tabWorkers,machinery:tabMachinery,equipment:tabEquipment,materials:tabMaterials,photos:tabPhotos})[currentTab]?.(pb);
+}
+// Вкладка «Фото» объекта/базы: сетка, загрузка, просмотр, удаление (renderPhotos — smg.js)
+function tabPhotos(pb){
+  pb.innerHTML=`<div style="font-size:11px;color:var(--tx3);margin-bottom:6px">${currentType==='site'?'Фото объекта попадают в «Отчёт для заказчика».':'Фото базы.'} Щелчок — просмотр.</div><div id="photos-tab"></div>`;
+  renderPhotos(currentType,currentObj.id,document.getElementById('photos-tab'));
 }
 async function refreshCurrent(){
   if(!currentObj)return;

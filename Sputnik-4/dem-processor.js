@@ -1071,7 +1071,10 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
     // Вычисляем textHeight
     const latM=(maxLat-minLat)*111320;
     const lngM=(maxLng-minLng)*111320*Math.cos((minLat+maxLat)/2*Math.PI/180);
-    const textHeight=Math.max(2,Math.round(Math.min(latM,lngM)/400));
+    // Высота подписей — от размера участка; при мелком сечении горизонтали идут плотно,
+    // поэтому текст уменьшаем пропорционально шагу (0,5 м → ×0,5, 0,1 м → ×0,25)
+    const baseTH=Math.max(2,Math.round(Math.min(latM,lngM)/400));
+    const textHeight=Math.max(0.5,Math.round(baseTH*Math.max(0.25,Math.min(1,parseFloat(interval)||2))*10)/10);
 
     const paramsFile=path.join(tmpDir,'params.json');
     const outDxf=path.join(tmpDir,'result.dxf');
@@ -1296,6 +1299,15 @@ async function _ensureGeoidGrids() {
   }
 }
 
+// Проверка «на деле»: считается ли поправка геоида (БСВ-77) в контрольной точке (ХМАО)
+async function geoidTest(lat = 61.25, lng = 73.4) {
+  let n = null, err = null;
+  try { n = await computeGeoidN(lat, lng); } catch (e) { err = e.message; }
+  const ok = n != null && Math.abs(n) > 0.5 && Math.abs(n) < 120;
+  return { ok, n, lat, lng, python: _pythonExe, projLib: _projLib, error: err,
+    hint: ok ? null : `Нет файлов геоида для PROJ. Положите us_nga_egm08_25.tif (EGM2008, ~56 МБ) или us_nga_egm96_15.tif (EGM96) с cdn.proj.org в папку ${_projLib || 'share/proj (OSGeo4W: C:\\OSGeo4W\\share\\proj)'} и перезапустите сервер. Без них высоты остаются эллипсоидальными (WGS-84), а не в БСВ-77.` };
+}
+
 async function checkGDAL(){
   try{
     const bin=findGDALBin();
@@ -1435,7 +1447,7 @@ async function convertToGeoJSONRaw(srcPath, outPath) {
 }
 
 module.exports = {
-  processDEM, floodZones, cleanupTmp, checkGDAL, convertToTab, convertToGeoJSON, convertToGeoJSONRaw,
+  processDEM, floodZones, geoidTest, cleanupTmp, checkGDAL, convertToTab, convertToGeoJSON, convertToGeoJSONRaw,
   getElevationAtPoint, getElevationProfile, getDemTilesInfo, computeGeoidN,
   getDemTilesDir, setDemTilesDir,
   _downloadGeoidGrids: _ensureGeoidGrids,

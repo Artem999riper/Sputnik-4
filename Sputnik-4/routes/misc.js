@@ -656,7 +656,8 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     const entity_type = req.query.entity_type || req.query.ref_type;
     const entity_id   = req.query.entity_id   || req.query.ref_id;
     if (!entity_type || !entity_id) return res.json([]);
-    res.json(all(db(), 'SELECT * FROM photos WHERE entity_type=? AND entity_id=? ORDER BY created_at DESC', [entity_type, entity_id]));
+    res.json(all(db(), 'SELECT * FROM photos WHERE entity_type=? AND entity_id=? ORDER BY created_at DESC', [entity_type, entity_id])
+      .map(p => ({ ...p, url: '/uploads/' + encodeURIComponent(p.filename || '') })));
   }));
 
   app.post('/api/photos/upload', (req, res) => {
@@ -669,7 +670,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
       try {
         run(db(), 'INSERT INTO photos(id,entity_type,entity_id,filename,caption)VALUES(?,?,?,?,?)',
           [id, entity_type, entity_id, req.file.filename, caption || '']);
-        res.json({ id, url: '/photos/' + req.file.filename });
+        res.json({ id, url: '/uploads/' + encodeURIComponent(req.file.filename) });
       } catch(e) {
         console.error('[API Error] POST /api/photos/upload', e.message);
         res.status(500).json({ error: 'Внутренняя ошибка сервера' });
@@ -1235,6 +1236,12 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
   app.get('/api/dem/status', async (req, res) => {
     if (!demProcessor) return res.json({ available: false, reason: 'dem-processor не загружен' });
     res.json(await demProcessor.checkGDAL());
+  });
+
+  // Работает ли перевод в БСВ-77 на деле (поправка геоида в контрольной точке)
+  app.get('/api/dem/geoid-test', async (req, res) => {
+    if (!demProcessor || !demProcessor.geoidTest) return res.json({ ok: false, hint: 'DEM процессор не загружен (нет GDAL)' });
+    try { res.json(await demProcessor.geoidTest()); } catch (e) { res.json({ ok: false, error: e.message, hint: 'GDAL/Python недоступны: ' + e.message }); }
   });
 
   // Диагностика и ручной запуск скачивания геоид-гридов

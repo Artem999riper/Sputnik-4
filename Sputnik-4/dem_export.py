@@ -26,7 +26,10 @@ def run(params_file):
     interval      = float(p.get('interval', 2)) or 2.0
     if interval < 0.01: interval = 0.01
     grid_step_m   = float(p.get('grid_step_m', 20))  # шаг в метрах
-    label_step    = interval * 2          # каждая вторая горизонталь
+    # Подписываем каждую 2-ю горизонталь; при сечении меньше 1 м — каждую 5-ю
+    # (утолщённую, как в топографии), иначе подписи сливаются
+    label_every   = 5 if interval < 1 - 1e-9 else 2
+    label_step    = interval * label_every
     # Подпись высоты: столько знаков после запятой, сколько в шаге (2 → «120», 0.5 → «120.5», 0.25 → «120.25»)
     _dec = 0
     while _dec < 3 and abs(interval * 10 ** _dec - round(interval * 10 ** _dec)) > 1e-6:
@@ -134,7 +137,7 @@ def run(params_file):
             # Подпись каждой второй горизонтали. Номер горизонтали считаем от шага
             # (а не от целых метров) — иначе при шаге < 1 м (0.1, 0.25…) деление на ноль.
             k = int(round(elev / interval))
-            if k % 2 == 0:
+            if k % label_every == 0:
                 mid = pts[len(pts)//2]
                 p1  = pts[max(0, len(pts)//2 - 1)]
                 p2  = pts[min(len(pts)-1, len(pts)//2 + 1)]

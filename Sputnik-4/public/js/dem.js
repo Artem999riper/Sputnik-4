@@ -1014,7 +1014,13 @@ async function demCheckGeoid() {
     const grids = j.geoid_grids || [];
     const ok    = grids.filter(g => g.present);
     const miss  = grids.filter(g => !g.present);
-
+    // Главное — работает ли перевод на деле (файлы могут лежать и в другой папке PROJ)
+    const t = await fetch('/api/dem/geoid-test').then(r => r.json()).catch(() => ({}));
+    if (t.ok) {
+      el.innerHTML = `<span style="color:var(--grn)">✅ БСВ-77 работает: поправка геоида в ХМАО ${(+t.n).toFixed(2)} м</span>` +
+        `<button onclick="demCheckGeoid()" style="float:right;font-size:9px;padding:1px 6px;background:var(--s3);border:1px solid var(--bd);border-radius:3px;cursor:pointer;color:var(--tx2)">↺</button>`;
+      return;
+    }
     if (ok.length > 0) {
       el.innerHTML =
         `<span style="color:var(--grn)">✅ Геоид OK: ${ok.map(g=>g.file.replace('us_nga_','').replace('.tif','')).join(', ')}</span>` +
