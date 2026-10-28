@@ -240,7 +240,8 @@ body.sb-resizing #sidebar,body.sb-resizing #map,body.sb-resizing #mtb{transition
 #mft{gap:6px;flex-wrap:wrap}
 #mft .btn{min-height:30px}
 #mbd .dw-info{border-radius:var(--rs)}
-#mov.side{background:rgba(17,25,40,.08)!important;backdrop-filter:none!important}
+#mov.side{background:transparent!important;backdrop-filter:none!important;pointer-events:none}
+#mov.side #modal{pointer-events:auto;box-shadow:0 10px 40px rgba(0,0,0,.28)}
 /* режим «Показ заказчику» */
 body.present #tb,body.present #sidebar,body.present #mtb,body.present #mtb-pop,body.present #panel,body.present #mini-panel,body.present #kml-panel,
 body.present #coord-widget,body.present #site-stats-overlay,body.present #alert-strip,body.present #sb-handle,body.present #sb-toggle,

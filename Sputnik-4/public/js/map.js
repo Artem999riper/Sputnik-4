@@ -76,7 +76,6 @@ function onMapRClick(e){
   const hasRuler=rulerPts.length>=2;
   showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
     {i:'🔎',l:'Найти на карте',f:openMapSearch},
-    ...((()=>{try{return localStorage.getItem('kml_legend_off')==='1';}catch(x){return false;}})()?[{i:'🗺',l:'Показать легенду',f:()=>kmlLegendShow()}]:[]),
     {i:'⬚',l:'Выделить объекты (область)',f:startKmlSelectMode},
     {sep:true},
     {i:'📌',l:'Поставить метку',f:()=>openPlaceMarkerModal(e.latlng)},

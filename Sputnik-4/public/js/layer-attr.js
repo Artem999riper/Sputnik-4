@@ -160,47 +160,9 @@ function kmlAttrStyleRead() {
 
 // ── Легенда на карте ───────────────────────────────────────
 let _kaLegend = null;
-// Общая легенда: все слои, нарисованные на карте (значок/цвет, название, скрыть),
-// у раскрашенных по атрибуту — их классы. force — развернуть (режим показа заказчику)
-function kmlRenderLegend(force) {
-  if (!window.map) return;
-  if (!kmlRenderLegend._z) { kmlRenderLegend._z = true; map.on('zoomend', () => setTimeout(kmlRenderLegend, 0)); }
-  const onMap = l => lGroups[l.id] && map.hasLayer(lGroups[l.id]);
-  const shown = (layers || []).filter(onMap);
-  let off = false; try { off = localStorage.getItem('kml_legend_off') === '1'; } catch (e) {}
-  if (!shown.length || (off && !force)) { if (_kaLegend) { _kaLegend.remove(); _kaLegend = null; } return; }
-  if (!_kaLegend) {
-    _kaLegend = L.control({ position: 'bottomleft' });
-    _kaLegend.onAdd = () => { const d = L.DomUtil.create('div', 'kml-legend'); L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d); return d; };
-    _kaLegend.addTo(map);
-  }
-  let collapsed = false; try { collapsed = localStorage.getItem('kml_legend_min') === '1'; } catch (e) {}
-  if (force === true) collapsed = false;
-  const el = _kaLegend.getContainer();
-  const sw = c => `<span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${c};border:1px solid rgba(0,0,0,.25);flex-shrink:0"></span>`;
-  // значок слоя: точка — его условный знак, линия — отрезок, полигон — квадрат с заливкой
-  const icon = l => {
-    const g = l.geojson || '', c = l.color || '#1a56db';
-    if (/"Point"/.test(g) && !/"(Multi)?(Polygon|LineString)"/.test(g) && typeof kmlSvgIcon === 'function') return `<span style="display:inline-flex;width:14px;justify-content:center">${kmlSvgIcon(l.symbol || 'point', c, 14)}</span>`;
-    if (/"(Multi)?Polygon"/.test(g)) return `<span style="display:inline-block;width:13px;height:11px;border:2px solid ${c};background:${c}40;border-radius:2px;flex-shrink:0"></span>`;
-    return `<span style="display:inline-block;width:14px;height:0;border-top:3px solid ${c};flex-shrink:0;margin:0 0 1px"></span>`;
-  };
-  const rowsOf = l => {
-    const st = kmlStyleOf(l); if (!st || !st.colorBy) return '';
-    const rows = st.mode === 'ranges'
-      ? (st.classes || []).map(c => `<div class="kml-legend-r sub">${sw(c.color)} ${(+c.min).toLocaleString('ru-RU')} – ${(+c.max).toLocaleString('ru-RU')}</div>`)
-      : Object.entries(st.colors || {}).slice(0, 15).map(([v, c]) => `<div class="kml-legend-r sub">${sw(c)} ${v === '' ? '<i>(пусто)</i>' : esc(v)}</div>`);
-    const more = st.mode !== 'ranges' && Object.keys(st.colors || {}).length > 15 ? `<div class="kml-legend-r sub" style="color:#6b7280">… ещё ${Object.keys(st.colors).length - 15}</div>` : '';
-    return `<div class="kml-legend-r sub" style="color:#6b7280">по полю «${esc(st.colorBy)}»:</div>${rows.join('')}${more}`;
-  };
-  const present = document.body.classList.contains('present');
-  el.innerHTML = `<div class="kml-legend-h" style="display:flex;gap:8px;justify-content:space-between">
-      <span onclick="try{localStorage.setItem('kml_legend_min','${collapsed ? 0 : 1}')}catch(e){};kmlRenderLegend()">🗺 Легенда ${collapsed ? '▸' : '▾'}</span>
-      ${present ? '' : `<span title="Спрятать легенду (вернуть — ПКМ по карте или «Слои»)" style="cursor:pointer;color:#9ca3af" onclick="try{localStorage.setItem('kml_legend_off','1')}catch(e){};kmlRenderLegend()">✕</span>`}</div>` +
-    (collapsed ? '' : shown.map(l => `<div class="kml-legend-l" style="display:flex;gap:6px;align-items:center">${icon(l)}<span style="flex:1">${esc(l.name)}</span>
-        ${present ? '' : `<span title="Скрыть слой" style="cursor:pointer;opacity:.55" onclick="kmlToggleVis('${escAttr(l.id)}',0)">👁</span>`}</div>${rowsOf(l)}`).join(''));
-}
-function kmlLegendShow() { try { localStorage.removeItem('kml_legend_off'); localStorage.removeItem('kml_legend_min'); } catch (e) {} kmlRenderLegend(); }
+// Легенда на карте убрана; функции оставлены пустыми, чтобы старые вызовы не ломались
+function kmlRenderLegend() { if (_kaLegend) { try { _kaLegend.remove(); } catch (e) {} _kaLegend = null; } }
+function kmlLegendShow() {}
 
 // ── Таблица атрибутов (панель снизу карты) ─────────────────
 const KAT = { layerId: null, sort: null, dir: 1, q: '', sel: -1, hl: null, max: 1500 };

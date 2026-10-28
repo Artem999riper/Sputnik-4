@@ -154,7 +154,7 @@ function sidebarToggle() {
 })();
 
 // ── Режим «Показ заказчику» ────────────────────────────────
-// Прячет панели и служебные кнопки; остаются карта, заметки, легенда, масштаб и штамп.
+// Прячет панели и служебные кнопки; остаются карта, заметки, масштаб и штамп.
 const PRES = { on: false, scale: null, stamp: null };
 function presentToggle() { if (PRES.on) presentOff(); else presentOn(); }
 function presentOn() {
@@ -177,7 +177,7 @@ function presentOn() {
   document.body.appendChild(x);
   document.addEventListener('keydown', _presKey, true);
   try { if (document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {}); } catch (e) {}
-  setTimeout(() => { map.invalidateSize(); if (typeof kmlRenderLegend === 'function') kmlRenderLegend(true); }, 200);
+  setTimeout(() => map.invalidateSize(), 200);
 }
 function presentOff() {
   if (!PRES.on) return;
