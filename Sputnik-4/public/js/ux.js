@@ -196,3 +196,150 @@ function _presKey(e) {
   e.preventDefault(); e.stopImmediatePropagation(); presentOff();
 }
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && PRES.on) { /* вышли из полноэкранного — режим показа остаётся */ } });
+
+// ═══ Отмена правок слоёв (Ctrl+Z) ══════════════════════════════════════
+// Любое сохранение геометрии/атрибутов слоя (PUT /api/layers/:id с geojson) запоминает
+// прежнее состояние в общем стеке отмены (undoStack, Ctrl+Z → undoLast). Охватывает
+// правку вершин, таблицу атрибутов, удаление/перенос объектов, «выполнено», заметки…
+const _luBase = {};          // id слоя → последний известный серверный geojson
+(function () {
+  const of = window.fetch;
+  window.fetch = async function (u, o) {
+    const m = typeof u === 'string' && o && o.method === 'PUT' && typeof o.body === 'string' ? u.match(/\/api\/layers\/([^/?]+)$/) : null;
+    if (!m || !o.body.includes('"geojson"') || (o.headers && o.headers['X-No-Undo'])) return of.apply(this, arguments);
+    const id = decodeURIComponent(m[1]);
+    let prev = _luBase[id];
+    if (prev == null) { try { const r = await of(`${API}/layers/${encodeURIComponent(id)}`); if (r.ok) prev = (await r.json()).geojson; } catch (e) {} }
+    const res = await of.apply(this, arguments);
+    if (res.ok) {
+      let body = null; try { body = JSON.parse(o.body); } catch (e) {}
+      if (body && typeof body.geojson === 'string') {
+        _luBase[id] = body.geojson;
+        if (prev != null && prev !== body.geojson && typeof undoStack !== 'undefined') {
+          undoStack.push({ label: `изменение слоя «${body.name || ''}»`, fn: () => _luRestore(id, { ...body, geojson: prev }) });
+          if (undoStack.length > 50) undoStack.shift();
+        }
+      }
+    }
+    return res;
+  };
+})();
+async function _luRestore(id, body) {
+  const r = await fetch(`${API}/layers/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-No-Undo': '1' }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error('save');
+  _luBase[id] = body.geojson;
+  const l = (layers || []).find(x => x.id === id); if (l) l.geojson = body.geojson;
+  if (typeof kmlInvalidateLayerCache === 'function') kmlInvalidateLayerCache(id);
+  try { renderLayerGroups(); if (typeof kmlPanelOpen !== 'undefined' && kmlPanelOpen) renderKmlPanel(); } catch (e) {}
+  try { if (typeof KAT !== 'undefined' && KAT.layerId === id) _katRender(); } catch (e) {}
+}
+
+// ═══ Боковые окна: положение и «свернуть» сохраняются при обновлении окна ══
+const _sideState = {};       // заголовок → {left, top, collapsed}
+(function () {
+  const prevShow = window.showModal;
+  window.showModal = showModal = function (title, body, buttons) {
+    const m = document.getElementById('modal'), mov = document.getElementById('mov');
+    const cur = document.getElementById('mtit') ? document.getElementById('mtit').textContent : '';
+    if (mov && mov.classList.contains('open') && mov.classList.contains('side') && cur && m.style.left)
+      _sideState[cur] = { left: m.style.left, top: m.style.top, collapsed: m.classList.contains('mcol') };
+    const r = prevShow.apply(this, arguments);
+    m.classList.remove('mcol');
+    // «свернуть» — только у боковых окон; для них же возвращаем прежнее место
+    setTimeout(() => {
+      const side = mov.classList.contains('side'), hd = document.querySelector('#modal .mhd');
+      let b = document.getElementById('m-col');
+      if (side && hd && !b) { b = document.createElement('button'); b.id = 'm-col'; b.className = 'ph-x'; b.title = 'Свернуть / развернуть окно'; b.textContent = '▁';
+        b.onclick = e => { e.stopPropagation(); m.classList.toggle('mcol'); b.textContent = m.classList.contains('mcol') ? '▢' : '▁'; };
+        hd.insertBefore(b, hd.querySelector('.ph-x')); }
+      if (b) b.style.display = side ? '' : 'none';
+      const st = side && _sideState[String(title)];
+      if (st) { m.style.position = 'fixed'; m.style.left = st.left; m.style.top = st.top; m.style.transform = 'none'; m.style.margin = '0';
+        if (st.collapsed) { m.classList.add('mcol'); if (b) b.textContent = '▢'; } }
+    }, 0);
+    return r;
+  };
+})();
+
+// ═══ Перетащить файл на карту → импорт ═════════════════════════════════
+(function () {
+  const go = () => {
+    const el = document.getElementById('map'); if (!el) return;
+    let n = 0;
+    const ok = e => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+    el.addEventListener('dragenter', e => { if (!ok(e)) return; e.preventDefault(); n++; document.body.classList.add('drop-on'); });
+    el.addEventListener('dragover', e => { if (ok(e)) e.preventDefault(); });
+    el.addEventListener('dragleave', () => { if (--n <= 0) { n = 0; document.body.classList.remove('drop-on'); } });
+    el.addEventListener('drop', e => {
+      if (!ok(e)) return;
+      e.preventDefault(); n = 0; document.body.classList.remove('drop-on');
+      const files = [...e.dataTransfer.files];
+      const bad = files.filter(f => !/\.(kml|kmz|gpx|dxf|shp|dbf|prj|cpg|shx|csv|txt|xlsx|xls|tab|map|id|dat|zip|geojson|json)$/i.test(f.name));
+      if (bad.length === files.length) { toast('Этот файл не импортируется в слои: ' + bad.map(f => f.name).join(', '), 'err'); return; }
+      if (typeof importLayer === 'function') importLayer({ target: { files: files.filter(f => !bad.includes(f)), value: '' } });
+    });
+    const hint = document.createElement('div'); hint.id = 'drop-hint'; hint.innerHTML = '📥 Отпустите файл — импорт в слои<br><small>KML, SHP, DXF, CSV, Excel, MapInfo, GPX, ZIP</small>';
+    document.body.appendChild(hint);
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
+})();
+
+// ═══ Длина и площадь у курсора при рисовании ═══════════════════════════
+const _lm = { tip: null, raf: 0 };
+function _lmState() {
+  // [точки, это полигон?] для активного инструмента рисования
+  if (typeof _kdActive !== 'undefined' && _kdActive) return [_kdPts, _kdActive === 'polygon'];
+  if (typeof _demVertMode !== 'undefined' && _demVertMode && _demDrawing) return [_demVerts || [], _demVertMode === 'polygon'];
+  if (typeof _ksActive !== 'undefined' && _ksActive) return [_ksPts, true];
+  if (typeof _epActive !== 'undefined' && _epActive) return [_epPts, false];
+  if (typeof FL !== 'undefined' && FL.axisDraw) return [_flAxPts || [], false];
+  if (typeof drawMode !== 'undefined' && drawMode && typeof drawPts !== 'undefined') return [drawPts.map(p => Array.isArray(p) ? L.latLng(p[0], p[1]) : p), drawMode === 'polygon'];
+  return null;
+}
+const _lmFmtL = m => m >= 1000 ? (m / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 3 }) + ' км' : m.toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' м';
+const _lmFmtA = a => a >= 1e6 ? (a / 1e6).toLocaleString('ru-RU', { maximumFractionDigits: 3 }) + ' км²' : a >= 1e4 ? (a / 1e4).toLocaleString('ru-RU', { maximumFractionDigits: 3 }) + ' га' : Math.round(a).toLocaleString('ru-RU') + ' м²';
+function _lmMove(e) {
+  const st = _lmState();
+  if (!st || !st[0].length) { if (_lm.tip) { map.removeLayer(_lm.tip); _lm.tip = null; } return; }
+  _lm.ll = e.latlng;                 // берём последнее положение курсора
+  if (_lm.raf) return;
+  _lm.raf = requestAnimationFrame(() => {
+    _lm.raf = 0;
+    const ll = _lm.ll, st2 = _lmState(); if (!st2 || !st2[0].length) return;
+    const pts = st2[0].map(p => L.latLng(p.lat, p.lng)).concat([ll]);
+    const D = (a, b) => typeof _geoDist === 'function' ? _geoDist(a, b) : map.distance(a, b);
+    const seg = D(pts[pts.length - 2], ll);
+    let len = 0; for (let i = 1; i < pts.length; i++) len += D(pts[i - 1], pts[i]);
+    let html = `отрезок <b>${_lmFmtL(seg)}</b>`;
+    if (pts.length > 2) html += `<br>всего ${_lmFmtL(len)}`;
+    if (st2[1] && pts.length >= 3 && typeof _geoArea === 'function') html += `<br>площадь <b>${_lmFmtA(_geoArea(pts))}</b> · периметр ${_lmFmtL(len + D(ll, pts[0]))}`;
+    if (!_lm.tip) _lm.tip = L.tooltip({ permanent: true, direction: 'right', offset: [16, 0], className: 'lm-tip', interactive: false }).setLatLng(ll).setContent(html).addTo(map);
+    else _lm.tip.setLatLng(ll).setContent(html);
+  });
+}
+(function () {
+  const go = () => { if (!window.map) return setTimeout(go, 500); map.on('mousemove', _lmMove); map.on('mouseout', () => { if (_lm.tip) { map.removeLayer(_lm.tip); _lm.tip = null; } }); };
+  setTimeout(go, 600);
+})();
+
+// ═══ Подписи без наложения ═════════════════════════════════════════════
+// Постоянные подписи объектов (.mlbl) скрываются, если залезают на уже показанные;
+// при приближении появляются снова.
+function labelDeclutter() {
+  const els = [...document.querySelectorAll('.leaflet-tooltip.mlbl.leaflet-tooltip-top, .leaflet-tooltip.mlbl')];
+  if (els.length < 2) { els.forEach(e => e.classList.remove('lbl-hide')); return; }
+  els.forEach(e => e.classList.remove('lbl-hide'));
+  const placed = [];
+  for (const el of els) {
+    if (el.style.visibility === 'hidden' || el.offsetParent === null) continue;
+    const r = el.getBoundingClientRect();
+    if (!r.width) continue;
+    if (placed.some(p => r.left < p.right && r.right > p.left && r.top < p.bottom && r.bottom > p.top)) el.classList.add('lbl-hide');
+    else placed.push(r);
+  }
+}
+(function () {
+  let t = null; const sched = () => { clearTimeout(t); t = setTimeout(labelDeclutter, 120); };
+  const go = () => { if (!window.map) return setTimeout(go, 500); map.on('zoomend moveend layeradd', sched); };
+  setTimeout(go, 600);
+})();

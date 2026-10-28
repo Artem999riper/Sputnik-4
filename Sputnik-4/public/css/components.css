@@ -255,3 +255,16 @@ body.present #map{top:0!important;left:0!important}
 /* легенда и прочие контролы слева внизу — над строкой координат */
 #map .leaflet-bottom.leaflet-left{bottom:44px}
 body.present #map .leaflet-bottom.leaflet-left{bottom:0}
+/* свёрнутое боковое окно */
+#modal.mcol #mbd,#modal.mcol #mft{display:none}
+#modal .mhd #m-col{margin-left:auto;margin-right:4px}
+/* перетаскивание файла на карту */
+#drop-hint{position:fixed;left:calc(var(--sw) + (100vw - var(--sw)) / 2);top:50%;transform:translate(-50%,-50%);z-index:6500;display:none;text-align:center;padding:22px 34px;border:3px dashed var(--acc);border-radius:16px;background:rgba(255,255,255,.95);font-size:16px;font-weight:800;color:var(--acc);pointer-events:none}
+#drop-hint small{font-size:11px;font-weight:600;color:var(--tx3)}
+body.drop-on #drop-hint{display:block}
+body.drop-on #map{outline:4px dashed var(--acc);outline-offset:-8px}
+/* длина/площадь у курсора */
+.lm-tip{background:rgba(17,24,39,.85);color:#fff;border:none;border-radius:6px;font-size:11px;padding:3px 7px;box-shadow:0 2px 6px rgba(0,0,0,.3);line-height:1.35}
+.lm-tip::before{display:none}
+/* подписи без наложения */
+.leaflet-tooltip.mlbl.lbl-hide{opacity:0!important}
