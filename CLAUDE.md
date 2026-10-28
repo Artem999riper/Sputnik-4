@@ -32,6 +32,8 @@ Chromium). Also available as Admin → Обновление → «🧪 Само�
 - `routes/` — one file per domain: `sites.js`, `bases.js`, `pgk.js`, `cargo.js`, `tasks.js`, `misc.js`, `realtime.js`
 - `dem-processor.js` — GDAL orchestration for ArcticDEM STAC data → GeoTIFF → DXF pipeline
 - `flood_zones.py` — flood zones below a БСВ-77 level (called from `floodZones()` in dem-processor.js, `/api/dem/flood`; UI in `public/js/flood.js`)
+- `terrain_analysis.py` — slope, aspect, flow lines, watershed, survey comparison (`/api/dem/analysis`, UI `public/js/terrain-ui.js`); `gis_ops.py` — buffer/clip/difference/select/dissolve (`/api/gis/op`, UI `public/js/gis-tools.js`)
+- `routes/dem-jobs.js` — background DEM export queue (`/api/dem/jobs`), archives in `exports/` next to the DB
 - `satellite-fetcher.js` — downloads Esri World Imagery tiles and assembles JPEG+JGW worldfile
 - `dxf-writer.js` — minimal DXF R12 format builder for CAD export
 
