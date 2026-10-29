@@ -404,7 +404,9 @@ async function volDoneDialog(layerId, idxs, after) {
     <div class="fg"><label>Буровая / техника</label><select id="vd-mach"><option value="">— не выбрана —</option>${machines.map(x => `<option value="${escAttr(x.id)}" ${x.id === def.machine ? 'selected' : ''}>${esc(x.name)}${x.type ? ` (${esc(x.type)})` : ''}</option>`).join('')}</select></div>
     <div class="fg"><label>Примечание</label><input id="vd-note" value="${escAttr(p0._note || '')}"></div>
     <label class="sc-chk"><input type="checkbox" id="vd-remember" checked> запомнить исполнителей для следующих отметок</label>
-  </div>`, [{ label: 'Отмена', cls: 'bs', fn: closeModal }, { label: '✅ Выполнено', cls: 'bp', fn: async () => {
+  </div>`, [{ label: 'Отмена', cls: 'bs', fn: closeModal },
+    ...(f0 && f0.geometry && f0.geometry.type === 'LineString' && !p0._done ? [{ label: '📏 Только участок…', cls: 'bs', fn: () => { closeModal(); volSegStart(first.layerId, first.idxs[0]); } }] : []),
+    { label: '✅ Выполнено', cls: 'bp', fn: async () => {
     const o = { date: document.getElementById('vd-date').value || _vlToday(), workers: _vpwSelected().ids, machine: document.getElementById('vd-mach').value,
       brigade: document.getElementById('vd-brig').value, note: document.getElementById('vd-note').value.trim() };
     if (document.getElementById('vd-remember').checked) volExecRemember(o);
@@ -693,3 +695,124 @@ async function volMarkClick(layerId, fIdx, oe) {
   try { await _vlSaveLayer(l, gj, was ? '↩️ Снято' : '✅ ' + (p.name || p.Name || 'Выполнено')); } catch (e) { toast('Ошибка сохранения', 'err'); }
 }
 setTimeout(() => volBrigades(), 1500);
+
+// ═══ Участок линии: выполнено 10 км из 100 ══════════════════════════════
+// ПКМ по линии → «📏 Выполнен участок…»: щёлкните начало и конец участка на
+// линии (точки прилипают к линии). Линия делится на части: участок — выполнен
+// (с датой и исполнителями), остальное — как было. Длина считается по частям,
+// поэтому в объёме сразу «10 / 100 км». «✂ Разрезать здесь» — просто поделить.
+const VSEG = { on: false, layerId: null, fIdx: -1, pts: [], tmp: null, mk: [] };
+// [lng,lat] ↔ L.latLng; проекция точки на ломаную: {i, t, s(м от начала), ll}
+function _vsegProject(coords, ll) {
+  const P = c => map.latLngToLayerPoint([c[1], c[0]]), q = map.latLngToLayerPoint(ll);
+  let best = null, acc = 0;
+  for (let i = 1; i < coords.length; i++) {
+    const a = P(coords[i - 1]), b = P(coords[i]), dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy;
+    let t = L2 ? ((q.x - a.x) * dx + (q.y - a.y) * dy) / L2 : 0; t = Math.max(0, Math.min(1, t));
+    const x = a.x + t * dx, y = a.y + t * dy, d = Math.hypot(q.x - x, q.y - y);
+    const segM = map.distance([coords[i - 1][1], coords[i - 1][0]], [coords[i][1], coords[i][0]]);
+    if (!best || d < best.d) best = { i, t, d, s: acc + t * segM, ll: [coords[i - 1][0] + t * (coords[i][0] - coords[i - 1][0]), coords[i - 1][1] + t * (coords[i][1] - coords[i - 1][1])] };
+    acc += segM;
+  }
+  return best;
+}
+// разрезать ломаную по проекциям (по возрастанию) → массив кусков координат
+function _vsegCut(coords, cuts) {
+  const out = []; let cur = [coords[0]], ci = 0;
+  cuts = cuts.slice().sort((a, b) => a.s - b.s);
+  for (let i = 1; i < coords.length; i++) {
+    while (ci < cuts.length && cuts[ci].i === i) { cur.push(cuts[ci].ll); out.push(cur); cur = [cuts[ci].ll]; ci++; }
+    cur.push(coords[i]);
+  }
+  out.push(cur);
+  // выкинуть вырожденные куски (точка на вершине / в самом начале или конце)
+  return out.map(c => c.filter((p, k) => !k || p[0] !== c[k - 1][0] || p[1] !== c[k - 1][1])).filter(c => c.length >= 2);
+}
+// куски с положением вдоль линии: [{c, s0, s1}] (м от начала)
+function _vsegPieces(coords, cuts) {
+  const D = (p, q) => map.distance([p[1], p[0]], [q[1], q[0]]);
+  let acc = 0;
+  return _vsegCut(coords, cuts).map(c => { const len = c.reduce((t, q, k) => k ? t + D(c[k - 1], q) : 0, 0); const r = { c, s0: acc, s1: acc + len }; acc += len; return r; });
+}
+function _vsegLine(layerId, fIdx) {
+  const l = (layers || []).find(x => x.id === layerId); if (!l) return null;
+  let gj; try { gj = JSON.parse(l.geojson); } catch (e) { return null; }
+  const feats = gj.type === 'FeatureCollection' ? gj.features : [gj], f = feats[fIdx];
+  if (!f || !f.geometry || f.geometry.type !== 'LineString') return null;
+  return { l, gj, feats, f };
+}
+function volSegStart(layerId, fIdx, splitOnly) {
+  const x = _vsegLine(layerId, fIdx);
+  if (!x) { toast('Это не линия (для мультилиний — сначала разбейте на части)', 'warn'); return; }
+  _vsegStop();
+  Object.assign(VSEG, { on: true, layerId, fIdx, pts: [], split: !!splitOnly });
+  const tot = x.f.geometry.coordinates.reduce((s, c, i, a) => i ? s + map.distance([a[i - 1][1], a[i - 1][0]], [c[1], c[0]]) : 0, 0);
+  VSEG.total = tot;
+  VSEG.hl = L.polyline(x.f.geometry.coordinates.map(c => [c[1], c[0]]), { color: '#0ea5e9', weight: 9, opacity: 0.35, interactive: false }).addTo(map);
+  map.getContainer().style.cursor = 'crosshair';
+  map.on('click', _vsegClick); map.on('mousemove', _vsegMove);
+  document.addEventListener('keydown', _vsegKey, true);
+  const bnr = document.getElementById('bnr');
+  if (bnr) { bnr.className = 'show draw'; const t = document.getElementById('bnr-t'); if (t) t.textContent = splitOnly ? '✂ Щёлкните на линии место разреза · Esc — отмена' : `📏 Участок: щёлкните НАЧАЛО на линии (длина линии ${_vlN(tot / 1000)} км) · Esc — отмена`; }
+}
+function _vsegStop() {
+  map.off('click', _vsegClick); map.off('mousemove', _vsegMove);
+  document.removeEventListener('keydown', _vsegKey, true);
+  [VSEG.tmp, VSEG.hl, ...VSEG.mk].forEach(x => { if (x) try { map.removeLayer(x); } catch (e) {} });
+  Object.assign(VSEG, { on: false, tmp: null, hl: null, mk: [], pts: [] });
+  map.getContainer().style.cursor = '';
+  const bnr = document.getElementById('bnr'); if (bnr) bnr.className = '';
+}
+function _vsegKey(e) { if (e.key === 'Escape') { e.stopImmediatePropagation(); _vsegStop(); toast('Отменено', 'ok'); } }
+function _vsegMove(e) {
+  if (!VSEG.on || !VSEG.pts.length) return;
+  const x = _vsegLine(VSEG.layerId, VSEG.fIdx); if (!x) return;
+  const p = _vsegProject(x.f.geometry.coordinates, e.latlng);
+  const a = Math.min(VSEG.pts[0].s, p.s), b = Math.max(VSEG.pts[0].s, p.s);
+  const mid = (_vsegPieces(x.f.geometry.coordinates, [VSEG.pts[0], p]).find(r => r.s0 >= a - 1 && r.s1 <= b + 1 && r.s1 - r.s0 > 0.5) || { c: [] }).c;
+  if (VSEG.tmp) map.removeLayer(VSEG.tmp);
+  VSEG.tmp = L.polyline(mid.map(c => [c[1], c[0]]), { color: '#16a34a', weight: 7, opacity: 0.9, interactive: false }).addTo(map);
+  VSEG.tmp.bindTooltip(`${_vlN((b - a) / 1000)} км`, { permanent: true, direction: 'top', className: 'lm-tip' }).openTooltip(e.latlng);
+}
+function _vsegClick(e) {
+  if (!VSEG.on) return;
+  const x = _vsegLine(VSEG.layerId, VSEG.fIdx); if (!x) { _vsegStop(); return; }
+  const p = _vsegProject(x.f.geometry.coordinates, e.latlng);
+  VSEG.mk.push(L.circleMarker([p.ll[1], p.ll[0]], { radius: 7, color: '#fff', weight: 2, fillColor: '#16a34a', fillOpacity: 1, interactive: false }).addTo(map));
+  VSEG.pts.push(p);
+  if (VSEG.split) { const cut = VSEG.pts.slice(); _vsegStop(); _vsegApply(cut, null); return; }
+  if (VSEG.pts.length === 1) { const t = document.getElementById('bnr-t'); if (t) t.textContent = '📏 Теперь щёлкните КОНЕЦ участка · Esc — отмена'; return; }
+  const [p1, p2] = VSEG.pts, len = Math.abs(p2.s - p1.s);
+  const lid = VSEG.layerId, fi = VSEG.fIdx, cut = [p1, p2];
+  map.off('click', _vsegClick); map.off('mousemove', _vsegMove);
+  showModal(`📏 Выполнен участок — ${_vlN(len / 1000)} км`, `<div class="vl-form">
+    <div class="vl-hint">Линия будет разделена: участок <b>${_vlN(len / 1000)} км</b> — выполнен, остальное (${_vlN((VSEG.total - len) / 1000)} км) — как было.</div>
+    <div class="fg"><label>Дата выполнения</label><input id="vs-date" type="date" value="${_vlToday()}"></div>
+    <div class="vl-exec" onclick="volExecEdit()">Исполнители: <b>${esc(volExecLabel())}</b> ✏️</div>
+    <div class="fg"><label>Примечание</label><input id="vs-note"></div>
+  </div>`, [{ label: 'Отмена', cls: 'bs', fn: () => { closeModal(); _vsegStop(); } },
+    { label: '✂ Только разрезать', cls: 'bs', fn: () => { closeModal(); _vsegStop(); _vsegApply(cut, null); } },
+    { label: '✅ Участок выполнен', cls: 'bp', fn: () => { const o = Object.assign(volExecNow(), { date: document.getElementById('vs-date').value || _vlToday(), note: document.getElementById('vs-note').value.trim() }); closeModal(); _vsegStop(); _vsegApply(cut, o, lid, fi); } }]);
+  VSEG.layerId = lid; VSEG.fIdx = fi;
+}
+// разрезать линию; если o задан — средний (между двумя точками) кусок выполнен
+async function _vsegApply(cut, o, lid, fi) {
+  lid = lid || VSEG.layerId; fi = fi == null ? VSEG.fIdx : fi;
+  const x = _vsegLine(lid, fi); if (!x) return;
+  const coords = x.f.geometry.coordinates;
+  const parts = _vsegPieces(coords, cut);
+  if (parts.length < 2 && !(o && parts.length === 1)) { toast('Точки совпали с концами линии — делить нечего', 'warn'); return; }
+  const a = Math.min(...cut.map(c => c.s)), b = Math.max(...cut.map(c => c.s));
+  const base = x.f.properties || {};
+  const pieces = parts.map((r, k) => {
+    const p = JSON.parse(JSON.stringify(base));
+    if (k > 0) { delete p._uid; }              // новый кусок — новый постоянный id (сервер выдаст)
+    const inside = o && cut.length === 2 && r.s0 >= a - 1 && r.s1 <= b + 1;
+    if (inside) { _vlSetDone(p, o); delete p._skip; }
+    else if (o && p._done) { /* остальное — как было */ }
+    return { type: 'Feature', properties: p, geometry: { type: 'LineString', coordinates: r.c } };
+  });
+  x.feats.splice(fi, 1, ...pieces);
+  try { await _vlSaveLayer(x.l, x.gj, o ? `✅ Участок ${_vlN((b - a) / 1000)} км выполнен` : `✂ Линия разделена на ${pieces.length} части`); }
+  catch (e) { toast('Ошибка сохранения', 'err'); }
+}

@@ -20,7 +20,7 @@ const R = 6378137, rad = d => d * Math.PI / 180;
 function dist(a, b) {   // [lng,lat] → м
   const dLat = rad(b[1] - a[1]), dLng = rad(b[0] - a[0]);
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[1])) * Math.cos(rad(b[1])) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+  return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h)));   // радиус как у карты (Leaflet) — длины совпадают с линейкой
 }
 function ringArea(c) {  // м², как L.GeometryUtil.geodesicArea
   let a = 0; const n = c.length; if (n < 3) return 0;
