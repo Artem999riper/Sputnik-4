@@ -13,10 +13,25 @@
     _initTile(tile) {
       orig.call(this, tile);
       const s = this.getTileSize();
-      tile.style.width = (s.x + 1) + 'px';
-      tile.style.height = (s.y + 1) + 'px';
+      tile.style.width = (s.x + 2) + 'px';    // перекрытие 2 px — при масштабе браузера 90/110 % 1 px мало
+      tile.style.height = (s.y + 2) + 'px';
     },
   });
+})();
+
+// Фон под подложкой — в тон снимку: если где-то и останется щель между квадратами,
+// она будет тёмной и незаметной, а не белой полосой (спутник — тёмный фон, схема — светлый)
+(function () {
+  const go = () => {
+    if (!window.map || !window._mapBaseLayers) return setTimeout(go, 500);
+    const set = () => {
+      const base = Object.entries(window._mapBaseLayers).find(([, l]) => map.hasLayer(l));
+      const dark = base && /Спутник|Гибрид/i.test(base[0]);
+      map.getContainer().style.background = dark ? '#2f3a2c' : '';
+    };
+    map.on('baselayerchange', set); set();
+  };
+  setTimeout(go, 600);
 })();
 
 const MGRID = { layer: null, kind: 'none' };

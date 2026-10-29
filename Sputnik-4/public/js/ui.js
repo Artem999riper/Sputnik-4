@@ -31,10 +31,12 @@ function showCtx(x,y,items){
     document.body.appendChild(subEl);
     subEl.onmousedown=e=>{e.stopPropagation();e.preventDefault();};
     bindRun(subEl);
+    // сначала показать невидимым — иначе размеры = 0 и подменю уезжает за край экрана
+    subEl.style.visibility='hidden';subEl.classList.add('show');
     const r=el.getBoundingClientRect(),w=subEl.offsetWidth,h=subEl.offsetHeight;
     let L=r.right-2;if(L+w>innerWidth-6)L=Math.max(6,r.left-w+2);
     subEl.style.left=L+'px';subEl.style.top=Math.max(6,Math.min(r.top-5,innerHeight-h-6))+'px';
-    subEl.classList.add('show');
+    subEl.style.visibility='';
   };
   bindRun(m);
   m.querySelectorAll('.cxi').forEach(el=>{
