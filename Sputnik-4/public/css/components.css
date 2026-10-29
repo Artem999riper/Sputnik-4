@@ -458,3 +458,27 @@ html[data-theme=dark] .sc-norm .sc-day.okn{background:#123d24;color:#bbf7d0}
 #ksel-bar{position:fixed;bottom:64px;left:calc(var(--sw) + (100vw - var(--sw)) / 2);transform:translateX(-50%);z-index:1550;display:flex;gap:8px;align-items:center;background:#b45309;color:#fff;border-radius:12px;padding:6px 10px;box-shadow:var(--shl);font-size:12px;flex-wrap:wrap;justify-content:center}
 #ksel-bar button{border:1.5px solid rgba(255,255,255,.7);background:rgba(255,255,255,.16);color:#fff;border-radius:8px;padding:3px 10px;cursor:pointer;font:inherit;font-weight:700}
 #ksel-bar small{opacity:.85;font-size:10px}
+/* сетка координат (map-grid.js) */
+.leaflet-tooltip.mgrid-lbl{background:rgba(255,255,255,.82);border:none;box-shadow:none;color:#0f172a;font-size:10px;font-weight:700;padding:0 4px;border-radius:3px}
+.leaflet-tooltip.mgrid-lbl::before{display:none}
+html[data-theme=dark] .leaflet-tooltip.mgrid-lbl{background:rgba(15,23,42,.8);color:#e2e8f0}
+.leaflet-tooltip.pk-lbl{background:rgba(255,255,255,.88);border:1px solid rgba(0,0,0,.2);box-shadow:none;color:#0f172a;font-size:10px;font-weight:700;padding:0 4px;border-radius:3px}
+.leaflet-tooltip.pk-lbl::before{display:none}
+html[data-theme=dark] .leaflet-tooltip.pk-lbl{background:rgba(15,23,42,.85);color:#e2e8f0}
+/* досье сотрудника */
+.wd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin-bottom:8px}
+.wd-c{background:var(--s2);border-radius:8px;padding:6px 8px;font-size:12px;line-height:1.35}
+.wd-c small{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.4px;color:var(--tx3);font-weight:700}
+.wd-warn{font-size:11px;color:#92400e;background:#fef3c7;border-radius:7px;padding:5px 8px;margin-top:6px}
+html[data-theme=dark] .wd-warn{background:#3f3410;color:#fde68a}
+.wd-years{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
+.wd-y{display:grid;grid-template-columns:44px 110px 1fr;align-items:end;gap:6px;font-size:12px}
+.wd-y span{color:var(--tx2);font-size:11px}
+.wd-bars{display:flex;gap:2px;height:26px;align-items:flex-end;background:var(--s2);border-radius:4px;padding:2px}
+.wd-bars i{flex:1;background:var(--grn);border-radius:2px 2px 0 0;min-height:1px;opacity:.85}
+.wd-months{display:flex;flex-direction:column;font-size:11px;margin-bottom:8px}
+.wd-months>div{display:flex;gap:8px;padding:3px 0;border-bottom:1px solid var(--bd)}
+.wd-months span{min-width:70px;color:var(--tx3)}
+.wd-doc{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px}
+.wd-exp{font-size:10px;font-weight:800;border:1.5px solid;border-radius:9px;padding:1px 7px;white-space:nowrap}
+.wd-files{display:flex;flex-wrap:wrap;gap:6px;font-size:11px;margin-top:2px}

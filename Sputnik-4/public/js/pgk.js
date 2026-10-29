@@ -486,14 +486,17 @@ async function openWorkerDetail(wid){
     if(fresh){const i=pgkWorkers.findIndex(x=>x.id===wid);if(i>=0)pgkWorkers[i]=fresh;}
   }catch(e){}
   const w=pgkWorkers.find(x=>x.id===wid);if(!w)return;
-  const [shifts,volProg]=await Promise.all([
+  const [shifts,volProg,docs,brigs]=await Promise.all([
     fetch(`${API}/pgk/workers/${wid}/shifts`).then(r=>r.json()).catch(()=>[]),
-    fetch(`${API}/pgk/workers/${wid}/vol_progress`).then(r=>r.json()).catch(()=>[])
+    fetch(`${API}/pgk/workers/${wid}/vol_progress`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/pgk/workers/${wid}/docs`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/pgk/brigades`).then(r=>r.json()).catch(()=>[])
   ]);
+  const D=_wdcDossier(w,shifts,volProg,docs,brigs);
   const b=bases.find(x=>x.id===w.base_id);
   const parts=w.name.trim().split(/\s+/);
   const initials=parts.slice(0,2).map(p=>p[0]||'').join('').toUpperCase();
-  const st=w.status||'home';
+  const st=w.status==='fired'?'fired':w.start_date?'working':(w.status||'home');   // открытая вахта — «В работе»
   const stStyle={
     working:'color:var(--grn);background:var(--grnl);border-color:#a7f3d0',
     home:'color:var(--tx2);background:var(--s3);border-color:var(--bd)',
@@ -525,13 +528,16 @@ async function openWorkerDetail(wid){
     <button class="wdc-tab on" onclick="wdcSwitch(this,'main')">Основное</button>
     <button class="wdc-tab" onclick="wdcSwitch(this,'shifts')">История вахт (${shifts.length})</button>
     <button class="wdc-tab" onclick="wdcSwitch(this,'vols')">Объёмы (${volProg.length})</button>
+    <button class="wdc-tab" onclick="wdcSwitch(this,'docs')">Документы (${docs.length})${D.docWarn?' ⚠':''}</button>
   </div>
   <div id="wdc-main" class="wdc-panel">
+    ${D.mainHtml}
     ${w.phone?`<div class="wdc-row"><span class="wdc-lbl">Телефон</span><span>${esc(w.phone)}</span></div>`:''}
     ${w.notes?`<div class="wdc-row"><span class="wdc-lbl">Примечания</span><span style="color:var(--tx2)">${esc(w.notes)}</span></div>`:''}
     ${!w.phone&&!w.notes?'<div class="wdc-empty">Дополнительная информация не указана</div>':''}
   </div>
   <div id="wdc-shifts" class="wdc-panel" style="display:none">
+    ${D.yearsHtml}
     ${shifts.length?shifts.map(s=>`<div class="wdc-shift">
       <div class="wdc-shift-base">${s.planned?'📅 <i>план</i> · ':''}${esc(s.base_name||'—')} · <b>${s.days||0} дн.</b></div>
       <div class="wdc-shift-meta">${fmt(s.start_date)}${s.end_date?' → '+fmt(s.end_date):' — по сей день'}</div>
@@ -539,13 +545,15 @@ async function openWorkerDetail(wid){
     </div>`).join(''):'<div class="wdc-empty">Вахт не было</div>'}
   </div>
   <div id="wdc-vols" class="wdc-panel" style="display:none">
+    ${D.volHtml}
     ${volProg.length?Object.keys(vpBySite).map(sn=>`
       <div class="wdc-vol-site">🏗 ${esc(sn)}</div>
       ${vpBySite[sn].map(p=>`<div class="wdc-vol-row">
         <div><span class="wdc-vol-val">${p.completed} ${esc(p.unit)}${p.amount2!=null?` · ${p.amount2} ${esc(((typeof volMeasure==='function'?volMeasure(p):{}).second||{}).unit||'')}`:''}</span> — ${esc(p.vol_name)}${p.source==='kml'?' 🗺':''}</div>
         <div class="wdc-vol-date">${fmt(p.work_date)}${p.notes?' · '+esc(p.notes):''}</div>
       </div>`).join('')}`).join(''):'<div class="wdc-empty">Нет данных</div>'}
-  </div>`;
+  </div>
+  <div id="wdc-docs" class="wdc-panel" style="display:none">${D.docsHtml}</div>`;
   showModal('👤 '+esc(w.name),html,[
     {label:'Закрыть',cls:'bs',fn:closeModal},
     {label:'🗑 Очистить историю',cls:'bd',fn:async()=>{
@@ -4188,3 +4196,82 @@ function pgkWorkersReset(){
     toast(`🧹 Список очищен: ${r.workers} чел., удалено вахт: ${r.shifts}. Копия базы: ${r.backup}`,'ok');
   }}]);
 }
+
+
+// ═══ Досье сотрудника: сводка, вахты по годам, выработка по месяцам, документы ═══
+const _wdN=x=>(Math.round((+x||0)*10)/10).toLocaleString('ru-RU');
+const _wdDays=(a,b)=>Math.max(0,Math.round((new Date(b)-new Date(a))/864e5)+1);
+function _wdcDossier(w,shifts,vp,docs,brigs){
+  const today=new Date().toISOString().slice(0,10), year=today.slice(0,4);
+  const real=shifts.filter(s=>!s.planned&&s.start_date);
+  // вахты: текущая (открытая) + завершённые; по годам — дни и число вахт
+  const all=real.map(s=>({s:s.start_date,e:s.end_date||today,base:s.base_name||''}));
+  if(w.start_date)all.push({s:w.start_date,e:today,base:((bases||[]).find(b=>b.id===w.base_id)||{}).name||'',open:true});
+  const byYear={};
+  all.forEach(x=>{ for(let y=+x.s.slice(0,4);y<=+x.e.slice(0,4);y++){ const a=x.s>`${y}-01-01`?x.s:`${y}-01-01`,b=x.e<`${y}-12-31`?x.e:`${y}-12-31`;
+    const r=byYear[y]=byYear[y]||{days:0,n:0,months:new Array(12).fill(0)}; r.days+=_wdDays(a,b); r.n++;
+    for(let d=new Date(a);d<=new Date(b);d.setDate(d.getDate()+1))r.months[d.getMonth()]++; }});
+  const totDays=Object.values(byYear).reduce((s,r)=>s+r.days,0);
+  const myBr=(brigs||[]).filter(b=>(b.member_ids||[]).includes(w.id));
+  const mach=(pgkMachinery||[]).find(m=>m.id===w.machine_id||m.driver_id===w.id);
+  // выработка: суммы по единицам — всего, за год, за 30 дней; по месяцам
+  const sum=(rows)=>{const o={};rows.forEach(p=>{o[p.unit||'шт']=(o[p.unit||'шт']||0)+(+p.completed||0);const u2=((typeof volMeasure==='function'?volMeasure(p):{}).second||{}).unit;if(u2&&p.amount2!=null)o[u2]=(o[u2]||0)+(+p.amount2||0);});return o;};
+  const fmtS=o=>Object.entries(o).filter(([,v])=>v).map(([u,v])=>`<b>${_wdN(v)}</b> ${esc(u)}`).join(' · ')||'—';
+  const d30=new Date(Date.now()-30*864e5).toISOString().slice(0,10);
+  const byM={};vp.forEach(p=>{const k=String(p.work_date).slice(0,7);(byM[k]=byM[k]||[]).push(p);});
+  const months=Object.keys(byM).sort().reverse().slice(0,12);
+  const MON=['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+  // документы: просрочен / скоро (≤30 дн.) / ок
+  const dSt=d=>{if(!d.expires)return['без срока','#64748b'];const n=Math.round((new Date(d.expires)-new Date(today))/864e5);return n<0?[`просрочен ${-n} дн.`,'#dc2626']:n<=30?[`осталось ${n} дн.`,'#d97706']:[`до ${fmt(d.expires)}`,'#16a34a'];};
+  const docWarn=docs.some(d=>d.expires&&Math.round((new Date(d.expires)-new Date(today))/864e5)<=30);
+  const card=(t,v)=>`<div class="wd-c"><small>${t}</small><b>${v}</b></div>`;
+  const mainHtml=`<div class="wd-grid">
+      ${card('Сейчас',w.start_date?`на вахте ${_wdDays(w.start_date,today)} дн.`:w.status==='fired'?'уволен':'дома')}
+      ${card(`Вахт в ${year}`,`${(byYear[year]||{}).n||0} · ${(byYear[year]||{}).days||0} дн.`)}
+      ${card('Всего на вахтах',`${totDays} дн.`)}
+      ${card('Выработка за 30 дн.',fmtS(sum(vp.filter(p=>p.work_date>=d30))))}
+    </div>
+    ${myBr.length?`<div class="wdc-row"><span class="wdc-lbl">Бригада</span><span>${myBr.map(b=>`👥 ${esc(b.name)}${b.machine_driver_id===w.id?' (водитель)':''}`).join(', ')}</span></div>`:''}
+    ${mach?`<div class="wdc-row"><span class="wdc-lbl">Техника</span><span>🚛 ${esc(mach.name)}${mach.driver_id===w.id?' · водитель':''}</span></div>`:''}
+    ${docWarn?`<div class="wd-warn">⚠ Документы: ${docs.filter(d=>d.expires&&Math.round((new Date(d.expires)-new Date(today))/864e5)<=30).map(d=>`${esc(d.title)} — ${dSt(d)[0]}`).join('; ')}</div>`:''}`;
+  const years=Object.keys(byYear).sort().reverse();
+  const yearsHtml=years.length?`<div class="wd-years">${years.map(y=>{const r=byYear[y],mx=Math.max(1,...r.months);
+      return `<div class="wd-y"><b>${y}</b><span>${r.n} вахт · ${r.days} дн.</span><div class="wd-bars">${r.months.map((v,i)=>`<i title="${MON[i]}: ${v} дн." style="height:${Math.round(v/31*100)}%"></i>`).join('')}</div></div>`;}).join('')}</div>`:'';
+  const volHtml=vp.length?`<div class="wd-grid">${card('Всего',fmtS(sum(vp)))}${card(year,fmtS(sum(vp.filter(p=>String(p.work_date).startsWith(year)))))}${card('30 дней',fmtS(sum(vp.filter(p=>p.work_date>=d30))))}</div>
+      <div class="wd-months">${months.map(k=>`<div><span>${MON[+k.slice(5,7)-1]} ${k.slice(0,4)}</span>${fmtS(sum(byM[k]))}</div>`).join('')}</div>`:'';
+  const docsHtml=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span class="wdc-lbl">Удостоверения, допуски, медосмотры</span>
+      <button class="btn bp bxs" onclick="wdDocEdit('${escAttr(w.id)}')">＋ Документ</button></div>
+    ${docs.length?docs.map(d=>{const [t,c]=dSt(d);return `<div class="wd-doc">
+        <div style="flex:1;min-width:0"><b>${esc(d.title)}</b>${d.number?` <span class="wdc-lbl">№ ${esc(d.number)}</span>`:''}
+          <div class="wdc-shift-meta">${d.issued?'выдан '+fmt(d.issued):''}${d.notes?' · '+esc(d.notes):''}</div>
+          ${(d.files||[]).length?`<div class="wd-files">${d.files.map(f=>`<a href="${f.url}" target="_blank" title="${escAttr(f.caption||'')}">📎 ${esc(f.caption||'файл')}</a>`).join('')}</div>`:''}</div>
+        <span class="wd-exp" style="color:${c};border-color:${c}">${t}</span>
+        <button class="btn bs bxs" onclick="wdDocEdit('${escAttr(w.id)}','${escAttr(d.id)}')">✏️</button></div>`;}).join(''):'<div class="wdc-empty">Документов нет. Добавьте удостоверения и допуски со сроком — за 30 дней до конца срока появится ⚠.</div>'}`;
+  return {mainHtml,yearsHtml,volHtml,docsHtml,docWarn};
+}
+// окно документа: название, №, даты, файл (скан/фото)
+async function wdDocEdit(wid,did){
+  let d={title:'',number:'',issued:'',expires:'',notes:'',files:[]};
+  if(did){try{d=(await fetch(`${API}/pgk/workers/${wid}/docs`).then(r=>r.json())).find(x=>x.id===did)||d;}catch(e){}}
+  const reopen=()=>openWorkerDetail(wid).then(()=>{const t=[...document.querySelectorAll('.wdc-tab')].find(b=>/Документы/.test(b.textContent));if(t)wdcSwitch(t,'docs');});
+  showModal(did?'✏️ Документ':'＋ Документ сотрудника',`<div class="vl-form">
+    <div class="fg"><label>Название *</label><input id="wd-t" list="wd-tl" value="${escAttr(d.title)}" placeholder="Удостоверение машиниста буровой"><datalist id="wd-tl">${['Медосмотр','Удостоверение машиниста буровой','Допуск по электробезопасности','Охрана труда','Пожарно-технический минимум','Промышленная безопасность','Водительское удостоверение','Удостоверение тракториста-машиниста','Первая помощь','Работы на высоте'].map(x=>`<option value="${x}">`).join('')}</datalist></div>
+    <div class="fgr"><div class="fg"><label>Номер</label><input id="wd-n" value="${escAttr(d.number||'')}"></div>
+      <div class="fg"><label>Выдан</label><input id="wd-i" type="date" value="${escAttr(d.issued||'')}"></div>
+      <div class="fg"><label>Действует до</label><input id="wd-e" type="date" value="${escAttr(d.expires||'')}"></div></div>
+    <div class="fg"><label>Примечание</label><input id="wd-x" value="${escAttr(d.notes||'')}"></div>
+    <div class="fg"><label>Скан / фото (необязательно)</label><input id="wd-f" type="file" accept="image/*,.pdf"></div>
+    ${(d.files||[]).length?`<div class="wd-files">${d.files.map(f=>`<span><a href="${f.url}" target="_blank">📎 ${esc(f.caption||'файл')}</a> <button class="btn bg bxs" onclick="wdDocFileDel('${escAttr(f.id)}','${escAttr(wid)}','${escAttr(did)}')">✕</button></span>`).join('')}</div>`:''}
+  </div>`,[...(did?[{label:'🗑',cls:'bd',fn:async()=>{if(!await confirmDlg('Удалить документ?'))return;closeModal();await apiDelUndo(`/pgk/worker-docs/${did}`,'Документ удалён',reopen);}}]:[]),
+    {label:'Отмена',cls:'bs',fn:()=>{closeModal();reopen();}},
+    {label:'💾 Сохранить',cls:'bp',fn:async()=>{
+      const b={title:document.getElementById('wd-t').value.trim(),number:document.getElementById('wd-n').value.trim(),issued:document.getElementById('wd-i').value||null,expires:document.getElementById('wd-e').value||null,notes:document.getElementById('wd-x').value.trim()};
+      if(!b.title){toast('Укажите название','warn');return;}
+      const r=await fetch(did?`${API}/pgk/worker-docs/${did}`:`${API}/pgk/workers/${wid}/docs`,{method:did?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(x=>x.json()).catch(()=>({}));
+      const id=did||r.id; const f=document.getElementById('wd-f').files[0];
+      if(id&&f){const fd=new FormData();fd.append('photo',f);fd.append('entity_type','worker_doc');fd.append('entity_id',id);fd.append('caption',f.name);
+        const u=await fetch(`${API}/photos/upload`,{method:'POST',body:fd});if(!u.ok)toast('Файл не загружен (до 15 МБ)','warn');}
+      closeModal();toast('Документ сохранён','ok');reopen();
+    }}]);
+}
+async function wdDocFileDel(pid,wid,did){await fetch(`${API}/photos/${pid}`,{method:'DELETE'});wdDocEdit(wid,did);}

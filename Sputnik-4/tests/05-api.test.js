@@ -217,3 +217,17 @@ test('очистить список сотрудников: остаются Ф�
   assert.deepStrictEqual([w.name, w.role, w.status, w.base_id, w.start_date, w.notes], ['Сбросов', 'Бурильщик', 'home', null, null, '']);
   assert.strictEqual((await S.api('GET', `/api/pgk/workers/${a}/shifts`)).body.length, 0);
 });
+
+test('документы сотрудника: добавить, изменить, истекающие, удалить с отменой', async () => {
+  const wid = (await S.api('POST', '/api/pgk/workers', { name: 'Документов' })).body.id;
+  const soon = new Date(Date.now() + 10 * 864e5).toISOString().slice(0, 10);
+  const id = (await S.api('POST', `/api/pgk/workers/${wid}/docs`, { title: 'Медосмотр', expires: soon })).body.id;
+  ok(await S.api('POST', `/api/pgk/workers/${wid}/docs`, { title: 'Допуск', expires: '2099-01-01' }), 'второй');
+  assert.strictEqual((await S.api('GET', `/api/pgk/workers/${wid}/docs`)).body.length, 2);
+  assert.ok((await S.api('GET', '/api/pgk/worker-docs/expiring?days=30')).body.some(d => d.id === id && d.worker_name === 'Документов'));
+  ok(await S.api('PUT', `/api/pgk/worker-docs/${id}`, { number: 'А-1' }), 'правка');
+  assert.strictEqual((await S.api('GET', `/api/pgk/workers/${wid}/docs`)).body.find(d => d.id === id).number, 'А-1');
+  const del = await S.api('DELETE', `/api/pgk/worker-docs/${id}`); ok(del, 'удалить');
+  ok(await S.api('POST', '/api/restore', del.body._restore), 'отмена');
+  assert.strictEqual((await S.api('GET', `/api/pgk/workers/${wid}/docs`)).body.length, 2);
+});

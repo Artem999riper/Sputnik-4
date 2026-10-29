@@ -94,6 +94,39 @@ module.exports = (app, getDb, L) => {
     res.json({ id });
   }));
 
+  // ── Документы сотрудника (удостоверения, допуски, медосмотры) ──
+  // Файлы — через /api/photos/upload с entity_type='worker_doc', entity_id=<id документа>
+  const docFiles = id => all(db(), "SELECT id, filename, caption, created_at FROM photos WHERE entity_type='worker_doc' AND entity_id=? ORDER BY created_at", [id])
+    .map(p => ({ ...p, url: '/uploads/' + encodeURIComponent(p.filename || '') }));
+  app.get('/api/pgk/workers/:id/docs', wrap((req, res) => {
+    res.json(all(db(), 'SELECT * FROM worker_docs WHERE worker_id=? ORDER BY COALESCE(expires, \'9999\'), title', [req.params.id]).map(d => ({ ...d, files: docFiles(d.id) })));
+  }));
+  app.post('/api/pgk/workers/:id/docs', wrap((req, res) => {
+    const err = required(['title'], req.body); if (err) return res.status(400).json({ error: err });
+    const id = uuid(), { title, number, issued, expires, notes } = req.body;
+    run(db(), 'INSERT INTO worker_docs(id,worker_id,title,number,issued,expires,notes) VALUES(?,?,?,?,?,?,?)', [id, req.params.id, title, number || '', issued || null, expires || null, notes || '']);
+    res.json({ id });
+  }));
+  app.put('/api/pgk/worker-docs/:id', wrap((req, res) => {
+    const ex = get(db(), 'SELECT * FROM worker_docs WHERE id=?', [req.params.id]); if (!ex) return res.status(404).json({ error: 'Not found' });
+    const o = { ...ex, ...req.body };
+    if (!o.title) return res.status(400).json({ error: 'Не указано название' });
+    run(db(), 'UPDATE worker_docs SET title=?,number=?,issued=?,expires=?,notes=? WHERE id=?', [o.title, o.number || '', o.issued || null, o.expires || null, o.notes || '', req.params.id]);
+    res.json({ success: true });
+  }));
+  app.delete('/api/pgk/worker-docs/:id', wrap((req, res) => {
+    const _restore = trashAndDelete(db(), 'worker_docs', req.params.id);
+    if (!_restore) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true, _restore });
+  }));
+  // Документы, у которых срок кончается в ближайшие N дней (или уже истёк) — для значков и уведомлений
+  app.get('/api/pgk/worker-docs/expiring', wrap((req, res) => {
+    const days = Math.max(1, Math.min(365, parseInt(req.query.days) || 30));
+    const lim = new Date(Date.now() + days * 864e5).toISOString().slice(0, 10);
+    res.json(all(db(), `SELECT d.*, w.name AS worker_name FROM worker_docs d JOIN pgk_workers w ON w.id=d.worker_id
+      WHERE d.expires IS NOT NULL AND d.expires<>'' AND d.expires<=? AND COALESCE(w.status,'')<>'fired' ORDER BY d.expires`, [lim]));
+  }));
+
   // Все вахты за период — для календаря смен
   app.get('/api/pgk/shifts', wrap((req, res) => {
     const from = req.query.from || '0000-00-00', to = req.query.to || '9999-99-99';

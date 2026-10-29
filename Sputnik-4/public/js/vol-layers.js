@@ -804,9 +804,13 @@ async function _vsegApply(cut, o, lid, fi) {
   if (parts.length < 2 && !(o && parts.length === 1)) { toast('Точки совпали с концами линии — делить нечего', 'warn'); return; }
   const a = Math.min(...cut.map(c => c.s)), b = Math.max(...cut.map(c => c.s));
   const base = x.f.properties || {};
+  const st = (typeof kmlStyleOf === 'function' && kmlStyleOf(x.l)) || {}, pkG = s => (+st.pkStart || 0) + (+base._pk0 || 0) + s;
+  if (o && cut.length === 2 && typeof pkFmt === 'function') o = Object.assign({}, o, { note: [o.note, `${pkFmt(pkG(a))} — ${pkFmt(pkG(b))}`].filter(Boolean).join(' · ') });
   const pieces = parts.map((r, k) => {
     const p = JSON.parse(JSON.stringify(base));
     if (k > 0) { delete p._uid; }              // новый кусок — новый постоянный id (сервер выдаст)
+    p._pk0 = (+base._pk0 || 0) + r.s0;          // место куска на всей трассе — для пикетажа
+    if (!p._pk0) delete p._pk0;
     const inside = o && cut.length === 2 && r.s0 >= a - 1 && r.s1 <= b + 1;
     if (inside) { _vlSetDone(p, o); delete p._skip; }
     else if (o && p._done) { /* остальное — как было */ }
@@ -815,4 +819,43 @@ async function _vsegApply(cut, o, lid, fi) {
   x.feats.splice(fi, 1, ...pieces);
   try { await _vlSaveLayer(x.l, x.gj, o ? `✅ Участок ${_vlN((b - a) / 1000)} км выполнен` : `✂ Линия разделена на ${pieces.length} части`); }
   catch (e) { toast('Ошибка сохранения', 'err'); }
+}
+
+// Участок по пикетам: «с ПК12+50 по ПК35» — без щелчков по карте
+function _vsegAt(coords, sl) {
+  let acc = 0;
+  for (let i = 1; i < coords.length; i++) {
+    const d = map.distance([coords[i - 1][1], coords[i - 1][0]], [coords[i][1], coords[i][0]]);
+    if (acc + d >= sl || i === coords.length - 1) { const t = d ? Math.max(0, Math.min(1, (sl - acc) / d)) : 0;
+      return { i, t, s: Math.min(sl, acc + d), ll: [coords[i - 1][0] + t * (coords[i][0] - coords[i - 1][0]), coords[i - 1][1] + t * (coords[i][1] - coords[i - 1][1])] }; }
+    acc += d;
+  }
+}
+function volSegByPk(layerId, fIdx) {
+  const x = _vsegLine(layerId, fIdx); if (!x) { toast('Это не линия', 'warn'); return; }
+  const st = (typeof kmlStyleOf === 'function' && kmlStyleOf(x.l)) || {}, c = x.f.geometry.coordinates;
+  const len = c.reduce((t, q, k) => k ? t + map.distance([c[k - 1][1], c[k - 1][0]], [q[1], q[0]]) : 0, 0);
+  const g0 = (+st.pkStart || 0) + (+(x.f.properties || {})._pk0 || 0);
+  showModal('📏 Выполнен участок по пикетам', `<div class="vl-form">
+    <div class="vl-hint">Эта линия: <b>${pkFmt(g0)} — ${pkFmt(g0 + len)}</b> (${_vlN(len / 1000)} км). ПК — 100 м. Можно писать «12+50», «ПК35», «1250 м», «3,5 км».</div>
+    <div class="fgr"><div class="fg"><label>С пикета</label><input id="vp-a" value="${escAttr(pkFmt(g0))}"></div>
+      <div class="fg"><label>По пикет</label><input id="vp-b" placeholder="ПК35"></div></div>
+    <div id="vp-len" class="vl-hint"></div>
+    <div class="fg"><label>Дата выполнения</label><input id="vs-date" type="date" value="${_vlToday()}"></div>
+    <div class="vl-exec" onclick="volExecEdit()">Исполнители: <b>${esc(volExecLabel())}</b> ✏️</div>
+    <div class="fg"><label>Примечание</label><input id="vs-note"></div>
+  </div>`, [{ label: 'Отмена', cls: 'bs', fn: closeModal }, { label: '✅ Участок выполнен', cls: 'bp', fn: () => {
+    let A = pkParse(document.getElementById('vp-a').value), B = pkParse(document.getElementById('vp-b').value);
+    if (A == null || B == null) { toast('Пикеты: например 12+50 и 35', 'warn'); return; }
+    if (A > B) [A, B] = [B, A];
+    const a = Math.max(0, A - g0), b = Math.min(len, B - g0);
+    if (b - a < 0.5) { toast(`Участок вне линии (${pkFmt(g0)} — ${pkFmt(g0 + len)})`, 'warn'); return; }
+    if (A < g0 - 0.5 || B > g0 + len + 0.5) toast('Часть участка за пределами этой линии — отмечено до её конца', 'warn');
+    const o = Object.assign(volExecNow(), { date: document.getElementById('vs-date').value || _vlToday(), note: document.getElementById('vs-note').value.trim() });
+    closeModal();
+    _vsegApply([_vsegAt(c, a), _vsegAt(c, b)], o, layerId, fIdx);
+  } }]);
+  const upd = () => { const A = pkParse(document.getElementById('vp-a').value), B = pkParse(document.getElementById('vp-b').value), el = document.getElementById('vp-len');
+    if (el) el.textContent = A != null && B != null ? `Длина участка: ${_vlN(Math.abs(B - A) / 1000)} км` : ''; };
+  ['vp-a', 'vp-b'].forEach(id => document.getElementById(id).addEventListener('input', upd));
 }

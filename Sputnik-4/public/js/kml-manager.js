@@ -1844,7 +1844,7 @@ function renderLayerGroupsWithSymbols() {
               ...(fIdx>=0?[{i:'✅',l:_isDone?'Снять «выполнено»':'Выполнить',f:()=>kmlToggleDone(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'⚙️',l:_isDone?'Изменить выполнение (дата, факт, люди)…':'Выполнить с параметрами…',f:()=>kmlToggleDone(l.id,fIdx,true)}]:[]),
               ...(fIdx>=0&&_vol?[{i:'🚫',l:_isSkip?'Вернуть в объём':'Исключить из объёма (отменён, перенесён)',f:()=>kmlToggleSkip(l.id,fIdx)}]:[]),
-              ...(fIdx>=0&&f.geometry&&f.geometry.type==='LineString'?[{i:'📏',l:'Выполнен участок линии (от — до)…',f:()=>volSegStart(l.id,fIdx)},{i:'✂',l:'Разрезать линию в точке…',f:()=>volSegStart(l.id,fIdx,true)}]:[]),
+              ...(fIdx>=0&&f.geometry&&f.geometry.type==='LineString'?[{i:'📏',l:'Выполнен участок линии (от — до)…',f:()=>volSegStart(l.id,fIdx)},{i:'📍',l:'Выполнен участок по пикетам (с ПК… по ПК…)…',f:()=>volSegByPk(l.id,fIdx)},{i:'✂',l:'Разрезать линию в точке…',f:()=>volSegStart(l.id,fIdx,true)}]:[]),
               ...(_vol?[{i:'👆',l:'Отмечать щелчками (режим отметки)…',f:()=>volMarkStart(l.id)},{i:'👥',l:'Кто выполняет: '+esc(volExecLabel()).slice(0,40),html:true,f:()=>volExecEdit()}]:[]),
               ...(fIdx>=0?[{i:'✏️',l:'Редактировать объект',f:()=>kmlEditFeature(l.id,fIdx)}]:[]),
               {i:'📍',l:'Координаты и высота',sub:[

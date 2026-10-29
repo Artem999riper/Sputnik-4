@@ -306,6 +306,9 @@ async function getDb() {
   ta("CREATE INDEX IF NOT EXISTS idx_volumes_layer      ON volumes(layer_id)");
   // План вахт (календарь смен): будущий заезд, ещё не состоявшийся
   ta("ALTER TABLE worker_shifts ADD COLUMN planned INTEGER DEFAULT 0");
+  // Документы сотрудника (досье): удостоверения, допуски, медосмотры — со сроком действия
+  ta("CREATE TABLE IF NOT EXISTS worker_docs (id TEXT PRIMARY KEY, worker_id TEXT NOT NULL, title TEXT NOT NULL, number TEXT DEFAULT '', issued TEXT, expires TEXT, notes TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')))");
+  ta("CREATE INDEX IF NOT EXISTS idx_wdocs_worker       ON worker_docs(worker_id)");
 
   // Реестр известных клиентов (для присутствия и настройки прав офлайн-пользователям)
   ta("CREATE TABLE IF NOT EXISTS known_clients (client_id TEXT PRIMARY KEY, name TEXT DEFAULT '', first_seen TEXT DEFAULT (datetime('now')), last_seen TEXT DEFAULT (datetime('now')))");

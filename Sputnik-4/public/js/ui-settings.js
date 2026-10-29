@@ -43,6 +43,7 @@ function _uisApply(k) {
   if (!k || k === 'theme') _uisTheme();
   if (!k || k === 'dimMap') document.documentElement.classList.toggle('dim-map', !!uiSet('dimMap'));
   if (k === 'totals' && typeof TK !== 'undefined' && TK.totalsAll) TK.totalsAll();
+  if (k === 'grid' && typeof mapGridRender === 'function') mapGridRender();
   if (k === 'hoverHL' && typeof _hvClear === 'function') _hvClear();
   if (k === 'declutter' && typeof labelDeclutter === 'function') labelDeclutter();
   if (k === 'liveMeasure' && !uiSet('liveMeasure') && typeof _lm !== 'undefined' && _lm.tip) { map.removeLayer(_lm.tip); _lm.tip = null; }
@@ -83,6 +84,7 @@ async function uiServerApply() {
   const values = {};
   UIS_DEF.forEach(([k]) => { values[k] = uiSet(k); });
   values.theme = uiSet('theme') || 'light';
+  values.grid = uiSet('grid') || 'none';
   try { values.mlbl = +localStorage.getItem('mlbl_size') || 13; } catch (e) { values.mlbl = 13; }
   const msg = lock ? 'Применить ваши настройки ко всем и запретить пользователям их менять?' : 'Применить ваши настройки ко всем? Личные настройки пользователей сбросятся на эти (потом каждый сможет поменять у себя).';
   if (!await confirmDlg(msg, { title: '⚙ Настройки для всех', okLabel: 'Применить ко всем', danger: false })) return;
@@ -109,7 +111,9 @@ function _uisRender() {
       sec = s; html += `<div class="sett-sec">${esc(s)}</div>`;
       if (s === 'Карта') html += `<div class="sett-row"><label>Размер подписей</label>
         <input type="range" id="mlbl-size-slider" min="9" max="22" value="${mlbl}" oninput="applyMlblSize(this.value)" style="width:90px" ${_uisLocked('mlbl') ? 'disabled' : ''}>
-        <span id="mlbl-size-val">${mlbl}</span>px</div>`;
+        <span id="mlbl-size-val">${mlbl}</span>px</div>
+        <div class="sett-row"><label title="Подписанная сетка поверх карты; попадает и в «Снимок карты»">Сетка координат</label>
+        <select onchange="uiSetSave('grid',this.value)" style="width:auto;font-size:11px" ${_uisLocked('grid') ? 'disabled' : ''}>${[['none', 'нет'], ['wgs', 'WGS-84 (°′″)'], ['msk', 'МСК (метры)']].map(([k, t]) => `<option value="${k}" ${(uiSet('grid') || 'none') === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div>`;
     }
     html += `<label class="sett-chk" title="${escAttr(hint)}"><input type="checkbox" ${uiSet(k) ? 'checked' : ''} ${_uisLocked(k) ? 'disabled' : ''} onchange="uiSetSave('${k}',this.checked)"> ${esc(l)}${lk(k)}</label>`;
   }

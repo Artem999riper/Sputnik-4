@@ -79,6 +79,9 @@ function kmlAttrStyleHtml(l) {
     <div style="font-size:11px;font-weight:700;margin:10px 0 6px">〰 Линии</div>
     <label class="kas-chk"><input type="checkbox" id="kas-arrows" ${st.arrows ? 'checked' : ''}> ➤ Стрелки направления вдоль линий <span style="color:var(--tx3);font-weight:400">(профили, трассы, водотоки)</span></label>
     <div style="display:flex;gap:6px;align-items:center;font-size:12px;margin:2px 0 4px 22px">шаг <input id="kas-agap" type="number" min="40" max="400" step="10" value="${st.arrowGap || 90}" style="width:64px"> px</div>
+    <div style="display:flex;gap:6px;align-items:center;font-size:12px;margin:4px 0;flex-wrap:wrap">📍 Пикетаж
+      <select id="kas-pk" style="width:auto">${[[0, 'нет'], [100, 'ПК — каждые 100 м'], [1000, 'каждый км']].map(([v, t]) => `<option value="${v}" ${(+st.pk || 0) === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      начало: <input id="kas-pk0" value="${st.pkStart ? (typeof pkFmt === 'function' ? pkFmt(st.pkStart) : st.pkStart) : 'ПК0'}" style="width:80px" title="Пикет начала линии: ПК0, ПК120+50, 12 км"></div>
     <label class="kas-chk"><input type="checkbox" id="kas-llabels" ${st.lineLabels ? 'checked' : ''}> Подписи вдоль линий — по изгибу <span style="color:var(--tx3);font-weight:400">(река, трасса; текст — поле подписи)</span></label>
     <div style="font-size:11px;font-weight:700;margin:10px 0 6px">🌈 Раскраска по атрибуту</div>
     <div style="display:flex;gap:8px;align-items:center;font-size:12px;flex-wrap:wrap">
@@ -143,11 +146,12 @@ function _kasShuffle() {
 }
 function kmlAttrStyleRead() {
   // ключи, которыми окно не управляет (заметки, связи и т.п.), — сохранить как были
-  const MANAGED = ['labelField', 'labelSize', 'colorBy', 'mode', 'classes', 'colors', 'other', 'arrows', 'arrowGap', 'lineLabels'];
+  const MANAGED = ['labelField', 'labelSize', 'colorBy', 'mode', 'classes', 'colors', 'other', 'arrows', 'arrowGap', 'lineLabels', 'pk', 'pkStart'];
   const cur = (_kas && _kas.layer && kmlStyleOf(_kas.layer)) || {};
   const st = {}; Object.keys(cur).forEach(k => { if (!MANAGED.includes(k) && !k.startsWith('_')) st[k] = cur[k]; });
   if (document.getElementById('kas-arrows')?.checked) { st.arrows = true; const g = parseInt(document.getElementById('kas-agap')?.value); if (g && g !== 90) st.arrowGap = Math.max(40, Math.min(400, g)); }
   if (document.getElementById('kas-llabels')?.checked) st.lineLabels = true;
+  const pk = +document.getElementById('kas-pk')?.value; if (pk > 0) { st.pk = pk; const p0 = typeof pkParse === 'function' ? pkParse(document.getElementById('kas-pk0')?.value) : 0; if (p0) st.pkStart = p0; }
   const lf = document.getElementById('kas-lfield')?.value; if (lf) st.labelField = lf;
   const ls = parseInt(document.getElementById('kas-lsize')?.value); if (ls && ls !== 11) st.labelSize = Math.max(8, Math.min(32, ls));
   const field = document.getElementById('kas-field')?.value;

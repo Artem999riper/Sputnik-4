@@ -12,6 +12,7 @@ function _kdecoR() {
   return _kdecoRenderer || (_kdecoRenderer = L.svg({ pane: 'kmlDecoPane', padding: 0.5 }));
 }
 function kmlDecoOff(id) {
+  kmlPkOff(id);
   const d = KDECO[id]; if (!d) return;
   d.g.off('add', d.onAdd); d.g.off('remove', d.onRemove); map.off('zoomend', d.upd);
   _kdecoClear(d);
@@ -21,6 +22,7 @@ function kmlDecoOff(id) {
 function kmlDecorate(l, g) {
   kmlDecoOff(l.id);
   const st = (typeof kmlStyleOf === 'function' && kmlStyleOf(l)) || {};
+  kmlPkDecorate(l, g, st);
   if (!st.arrows && !st.lineLabels) return;
   const lines = [];
   (typeof _kaFeatures === 'function' ? _kaFeatures(l) : []).forEach(f => {
@@ -90,4 +92,60 @@ function _kdecoText(pl, k, mk) {
   t.setAttribute('class', o.halo ? 'kdeco-halo' : 'kdeco-arrow');
   const tp = t.firstChild; tp.setAttribute('startOffset', o.offset || '0'); tp.setAttribute('text-anchor', o.anchor || 'start');
   if (tp.textContent !== o.text) tp.textContent = o.text;
+}
+
+
+// ═══ Пикетаж: ПК0, ПК1… вдоль линий (стиль слоя → «Пикетаж») ════════════
+// ПК — 100 м. Шаг подписей подбирается по масштабу (не чаще ~80 px); видны
+// только пикеты в окне карты. Начальный пикет задаётся в стиле слоя; куски
+// разрезанной линии помнят своё место на трассе (_pk0), поэтому счёт идёт
+// по всей трассе, а не с нуля у каждого куска.
+const KPK = {};
+const pkFmt = m => { m = Math.max(0, Math.round(m * 100) / 100); const n = Math.floor(m / 100 + 1e-9), r = m - n * 100;
+  return r < 0.05 ? `ПК${n}` : `ПК${n}+${(Math.round(r * 10) / 10).toLocaleString('ru-RU', { minimumIntegerDigits: 2 })}`; };
+// «12+50» → 1250 м; «12» → ПК12 = 1200 м; «1250 м» → 1250; «1,25 км» → 1250
+function pkParse(t) {
+  t = String(t || '').trim().toLowerCase().replace(/^пк\s*/, '').replace(',', '.');
+  let m = t.match(/^(\d+)\s*\+\s*(\d+(?:\.\d+)?)$/); if (m) return +m[1] * 100 + +m[2];
+  m = t.match(/^(\d+(?:\.\d+)?)\s*км$/); if (m) return +m[1] * 1000;
+  m = t.match(/^(\d+(?:\.\d+)?)\s*м$/); if (m) return +m[1];
+  m = t.match(/^(\d+(?:\.\d+)?)$/); if (m) return +m[1] * 100;
+  return null;
+}
+function kmlPkOff(id) { const d = KPK[id]; if (!d) return; d.g.off('add', d.onAdd); d.g.off('remove', d.onRemove); map.off('moveend zoomend', d.upd); try { map.removeLayer(d.grp); } catch (e) {} delete KPK[id]; }
+function kmlPkDecorate(l, g, st) {
+  kmlPkOff(l.id);
+  if (!st || !(+st.pk > 0)) return;
+  const lines = [];
+  (typeof _kaFeatures === 'function' ? _kaFeatures(l) : []).forEach(f => {
+    const gm = f && f.geometry; if (!gm || (f.properties || {})._hidden || gm.type !== 'LineString' || gm.coordinates.length < 2) return;
+    lines.push({ c: gm.coordinates.map(p => L.latLng(p[1], p[0])), pk0: (+st.pkStart || 0) + (+(f.properties || {})._pk0 || 0) });
+  });
+  if (!lines.length) return;
+  lines.forEach(x => { x.cum = [0]; for (let i = 1; i < x.c.length; i++) x.cum.push(x.cum[i - 1] + map.distance(x.c[i - 1], x.c[i])); });
+  const grp = L.layerGroup(), col = l.color || '#1a56db';
+  const upd = () => {
+    grp.clearLayers(); if (!map.hasLayer(g)) return;
+    const b = map.getBounds().pad(0.1), c = map.getCenter();
+    const mPerPx = map.distance(map.containerPointToLatLng([0, map.getSize().y / 2]), map.containerPointToLatLng([100, map.getSize().y / 2])) / 100;
+    const base = +st.pk, D = [1, 2, 5, 10, 20, 50, 100, 200, 500].map(k => k * base).find(d => d / mPerPx >= 80) || base * 1000;
+    let n = 0;
+    for (const x of lines) {
+      const len = x.cum[x.cum.length - 1];
+      for (let sg = Math.ceil(x.pk0 / D) * D; sg <= x.pk0 + len + 1e-6 && n < 600; sg += D) {
+        const sl = sg - x.pk0; let i = 1; while (i < x.cum.length - 1 && x.cum[i] < sl) i++;
+        const seg = x.cum[i] - x.cum[i - 1] || 1, t = Math.max(0, Math.min(1, (sl - x.cum[i - 1]) / seg));
+        const ll = L.latLng(x.c[i - 1].lat + t * (x.c[i].lat - x.c[i - 1].lat), x.c[i - 1].lng + t * (x.c[i].lng - x.c[i - 1].lng));
+        if (!b.contains(ll)) continue;
+        n++;
+        grp.addLayer(L.circleMarker(ll, { radius: 3.5, color: '#fff', weight: 1.5, fillColor: col, fillOpacity: 1, interactive: false })
+          .bindTooltip(pkFmt(sg), { permanent: true, direction: 'right', offset: [5, 0], className: 'pk-lbl' }));
+      }
+    }
+  };
+  const onAdd = () => { grp.addTo(map); upd(); };
+  const onRemove = () => { try { map.removeLayer(grp); } catch (e) {} };
+  g.on('add', onAdd); g.on('remove', onRemove); map.on('moveend zoomend', upd);
+  KPK[l.id] = { grp, g, onAdd, onRemove, upd };
+  if (map.hasLayer(g)) onAdd();
 }
