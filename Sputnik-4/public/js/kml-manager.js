@@ -109,6 +109,14 @@ let _kmlSelectedCat = 'ALL';    // 'ALL' | group_id | 'UNGROUPED'
 let _kmlDisplayMode = 'selected'; // 'selected' | 'all' | 'none'
 let _kmlExpanded    = new Set();  // id слоёв, раскрытых в иерархии
 let _kmlSel         = new Set();  // id слоёв, отмеченных для массового удаления
+let _kmlTab         = 'layers';   // вкладка панели: 'layers' — слои, 'vol' — слои-объёмы (vol-layers.js)
+// слой — объём объекта: показывается во вкладке «📦 Объёмы», а не среди слоёв
+const _kmlIsVol = l => typeof volByLayer === 'function' && !!volByLayer(l.id);
+function kmlSetTab(t) {
+  _kmlTab = t; _kmlSel.clear();
+  document.querySelectorAll('#kml-tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  renderKmlPanel();
+}
 
 // ── Утилиты SVG ────────────────────────────────────────────
 function kmlSvgIcon(symbolKey, color, size) {
@@ -150,6 +158,9 @@ function toggleKmlPanel() {
 
 // ── Главный рендер панели ───────────────────────────────────
 function renderKmlPanel() {
+  const n = document.getElementById('kml-vol-n');
+  if (n) { const c = layers.filter(l => !l.site_id && _kmlIsVol(l)).length; n.textContent = c ? c : ''; }
+  if (_kmlTab === 'vol' && typeof volKmlRenderCats === 'function') { volKmlRenderCats(); volKmlRenderPane(); return; }
   _kmlRenderCats();
   _kmlRenderLayerPane();
 }
@@ -158,7 +169,7 @@ function renderKmlPanel() {
 function _kmlRenderCats() {
   const el = document.getElementById('kml-cats');
   if (!el) return;
-  const allLayers = layers.filter(l => !l.site_id);
+  const allLayers = layers.filter(l => !l.site_id && !_kmlIsVol(l));
   const ungrouped = allLayers.filter(l => !l.group_id || !kmGroups[l.group_id]);
   const totalVis  = allLayers.some(l => l.visible);
   let html = '';
@@ -212,7 +223,7 @@ function _kmlRenderCats() {
 function _kmlRenderLayerPane() {
   const el = document.getElementById('kml-layers-pane');
   if (!el) return;
-  const allLayers = layers.filter(l => !l.site_id);
+  const allLayers = layers.filter(l => !l.site_id && !_kmlIsVol(l));
   let filtered;
   if (_kmlSelectedCat === 'ALL') {
     filtered = allLayers;
@@ -232,29 +243,7 @@ function _kmlRenderLayerPane() {
     return;
   }
 
-  const rows = filtered.map(l => {
-    const lblOn   = !!layerLabels[l.id];
-    const sym     = l.symbol || 'point';
-    const svgPrev = kmlSvgIcon(sym, l.color || '#1a56db', 18);
-    const featCnt = _kmlFeatureCount(l);
-    const isExp   = _kmlExpanded.has(l.id);
-    const arrow   = featCnt > 0
-      ? `<span class="kml-exp-arrow" onclick="event.stopPropagation();_kmlToggleExpand('${l.id}')" title="${isExp ? 'Свернуть' : 'Показать объекты'}">${isExp ? '▼' : '▶'}</span>`
-      : `<span class="kml-exp-arrow empty"></span>`;
-    return `<div class="kml-layer-row" data-lid="${l.id}" oncontextmenu="event.preventDefault();kmlLayerCtx(event,'${l.id}')">
-      <input type="checkbox" class="kml-sel-cb" ${_kmlSel.has(l.id) ? 'checked' : ''} title="Выбрать для удаления"
-        onchange="kmlToggleSel('${l.id}',this.checked)" onclick="event.stopPropagation()" style="cursor:pointer;flex-shrink:0;accent-color:#e02424">
-      ${arrow}
-      <button class="kml-icon-btn ${l.visible ? 'on' : ''}" title="${l.visible ? 'Скрыть слой' : 'Показать слой'}"
-        onclick="event.stopPropagation();kmlToggleVis('${l.id}',${l.visible ? 0 : 1})" style="flex-shrink:0">${l.visible ? '👁' : '🚫'}</button>
-      <div class="kml-sym-preview" onclick="kmlOpenStyleModal('${l.id}')" title="Стиль слоя">${svgPrev}</div>
-      <div class="kml-layer-name" onclick="${featCnt > 0 ? `_kmlToggleExpand('${l.id}')` : ''}" ondblclick="kmlRenameLayer('${l.id}')" title="${esc(l.name)}">${esc(l.name)}${featCnt ? ` <span class="kml-feat-badge">${featCnt}</span>` : ''}</div>
-      <button class="kml-icon-btn ${lblOn ? 'on' : ''}" onclick="toggleLayerLabels('${l.id}')" title="Подписи">🏷</button>
-      <button class="kml-icon-btn" onclick="kmlZoomTo('${l.id}')" title="Приблизить">🔍</button>
-      <button class="kml-icon-btn ${_kmlPlacingLayerId === l.id ? 'on' : ''}" onclick="kmlStartPlacement('${l.id}')" title="Разместить иконку">📌</button>
-      <button class="kml-icon-btn" onclick="kmlLayerCtx(event,'${l.id}')" title="Меню">⋯</button>
-    </div>${isExp ? _kmlFeatureChildRows(l) : ''}`;
-  }).join('');
+  const rows = filtered.map(l => _kmlLayerRowHtml(l)).join('');
 
   // Оставляем в выборе только те слои, что есть в текущем списке
   const filteredIds = new Set(filtered.map(l => l.id));
@@ -283,7 +272,7 @@ function kmlToggleSel(id, on) {
 }
 function kmlSelClear() { _kmlSel.clear(); _kmlRenderLayerPane(); }
 function kmlSelAll() {
-  const allLayers = layers.filter(l => !l.site_id);
+  const allLayers = layers.filter(l => !l.site_id && !_kmlIsVol(l));
   let filtered;
   if (_kmlSelectedCat === 'ALL') filtered = allLayers;
   else if (_kmlSelectedCat === 'UNGROUPED') filtered = allLayers.filter(l => !l.group_id || !kmGroups[l.group_id]);
@@ -343,6 +332,32 @@ async function kmlMergeSelected() {
   } catch(e) { toast('Ошибка объединения', 'err'); }
 }
 
+
+// Строка слоя в панели. o.name — своё имя (html), o.sub — вторая строка, o.btns — доп. кнопки (html)
+function _kmlLayerRowHtml(l, o) {
+  o = o || {};
+    const lblOn   = !!layerLabels[l.id];
+    const sym     = l.symbol || 'point';
+    const svgPrev = kmlSvgIcon(sym, l.color || '#1a56db', 18);
+    const featCnt = _kmlFeatureCount(l);
+    const isExp   = _kmlExpanded.has(l.id);
+    const arrow   = featCnt > 0
+      ? `<span class="kml-exp-arrow" onclick="event.stopPropagation();_kmlToggleExpand('${l.id}')" title="${isExp ? 'Свернуть' : 'Показать объекты'}">${isExp ? '▼' : '▶'}</span>`
+      : `<span class="kml-exp-arrow empty"></span>`;
+    return `<div class="kml-layer-row${o.cls ? ' ' + o.cls : ''}" data-lid="${l.id}" oncontextmenu="event.preventDefault();kmlLayerCtx(event,'${l.id}')">
+      <input type="checkbox" class="kml-sel-cb" ${_kmlSel.has(l.id) ? 'checked' : ''} title="Выбрать для удаления"
+        onchange="kmlToggleSel('${l.id}',this.checked)" onclick="event.stopPropagation()" style="cursor:pointer;flex-shrink:0;accent-color:#e02424">
+      ${arrow}
+      <button class="kml-icon-btn ${l.visible ? 'on' : ''}" title="${l.visible ? 'Скрыть слой' : 'Показать слой'}"
+        onclick="event.stopPropagation();kmlToggleVis('${l.id}',${l.visible ? 0 : 1})" style="flex-shrink:0">${l.visible ? '👁' : '🚫'}</button>
+      <div class="kml-sym-preview" onclick="kmlOpenStyleModal('${l.id}')" title="Стиль слоя">${svgPrev}</div>
+      <div class="kml-layer-name" onclick="${featCnt > 0 ? `_kmlToggleExpand('${l.id}')` : ''}" ondblclick="kmlRenameLayer('${l.id}')" title="${esc(l.name)}">${o.name != null ? o.name : esc(l.name)}${featCnt ? ` <span class="kml-feat-badge">${featCnt}</span>` : ''}</div>
+      <button class="kml-icon-btn ${lblOn ? 'on' : ''}" onclick="toggleLayerLabels('${l.id}')" title="Подписи">🏷</button>
+      <button class="kml-icon-btn" onclick="kmlZoomTo('${l.id}')" title="Приблизить">🔍</button>
+      ${o.noPin ? '' : `<button class="kml-icon-btn ${_kmlPlacingLayerId === l.id ? 'on' : ''}" onclick="kmlStartPlacement('${l.id}')" title="Разместить иконку">📌</button>`}
+      ${o.btns || ''}<button class="kml-icon-btn" onclick="kmlLayerCtx(event,'${l.id}')" title="Меню">⋯</button>
+    </div>${o.sub ? `<div class="kml-row-sub">${o.sub}</div>` : ''}${isExp ? _kmlFeatureChildRows(l) : ''}`;
+}
 // Выбрать категорию в левой панели
 function _kmlSelectCat(cat) {
   _kmlSelectedCat = cat;
@@ -404,7 +419,7 @@ function _kmlFeatureChildRows(l) {
 
 // Массовое переключение видимости для категории (чекбокс в левой панели)
 async function _kmlCatBulkVis(cat, vis) {
-  const allLayers = layers.filter(l => !l.site_id);
+  const allLayers = layers.filter(l => !l.site_id && !_kmlIsVol(l));
   let targets;
   if (cat === 'ALL') {
     targets = allLayers;

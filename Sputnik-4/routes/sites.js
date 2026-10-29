@@ -130,8 +130,12 @@ module.exports = (app, getDb, L) => {
   const _layerBusy = (layerId, selfId) => layerId ? get(db(), 'SELECT id, name FROM volumes WHERE layer_id=? AND id<>?', [layerId, selfId || '']) : null;
   // Все объёмы (кратко) — клиенту, чтобы по слою знать, объём ли он и чего
   app.get('/api/volumes', wrap((req, res) => {
-    res.json(all(db(), `SELECT v.id, v.site_id, v.name, v.category, v.layer_id, v.measure_json, v.unit, v.amount, v.amount2, v.color, s.name AS site_name
-      FROM volumes v LEFT JOIN sites s ON s.id = v.site_id ORDER BY s.name, v.name`));
+    res.json(all(db(), `SELECT v.id, v.site_id, v.name, v.category, v.layer_id, v.measure_json, v.unit, v.amount, v.amount2, v.color, v.plan_start, v.plan_end,
+        s.name AS site_name, COALESCE(f.done, 0) AS done, COALESCE(f.done2, 0) AS done2
+      FROM volumes v LEFT JOIN sites s ON s.id = v.site_id
+      LEFT JOIN (SELECT volume_id, SUM(completed) AS done, SUM(amount2) AS done2 FROM vol_progress
+                 WHERE COALESCE(row_type,'fact')='fact' GROUP BY volume_id) f ON f.volume_id = v.id
+      ORDER BY s.name, v.name`));
   }));
 
   app.post('/api/sites/:id/volumes', wrap((req, res) => {

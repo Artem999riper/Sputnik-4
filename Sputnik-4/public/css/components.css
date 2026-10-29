@@ -389,3 +389,20 @@ body.ui-nocoords #coord-widget{display:none!important}
 .vl-wc{font-size:9px;color:var(--tx3);margin-top:2px}
 .kat-done{cursor:pointer;text-align:center;font-size:13px}
 .kat-done:hover{background:var(--accl)}
+/* панель «Слои карты»: вкладки «Слои / Объёмы» */
+.kml-tabs{display:flex;gap:2px;flex:1;min-width:0}
+.kml-tabs button{border:none;background:none;padding:5px 9px;border-radius:7px;font:inherit;font-size:12px;font-weight:700;color:var(--tx2);cursor:pointer;white-space:nowrap}
+.kml-tabs button:hover{background:var(--s3)}
+.kml-tabs button.on{background:var(--accl);color:var(--acc)}
+.kml-tabs b{font-size:10px;background:var(--acc);color:#fff;border-radius:8px;padding:0 5px;margin-left:2px}
+.kml-tabs b:empty{display:none}
+.kml-row-sub{font-size:10px;color:var(--tx2);padding:0 8px 5px 62px;border-bottom:1px solid var(--bd);margin-top:-3px}
+.vlp-site{display:flex;align-items:center;gap:6px;padding:7px 8px 5px;font-size:12px;font-weight:800;cursor:pointer;background:var(--s2);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:1}
+.vlp-site:hover{color:var(--acc)}
+.vlp-site span{margin-left:auto;font-size:10px;font-weight:600;color:var(--tx3)}
+.vlp-cat{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--sc);padding:5px 8px 3px;border-left:3px solid var(--sc);margin:4px 0 2px;background:color-mix(in srgb,var(--sc) 8%,transparent)}
+.kml-layer-row.vlp-row{border-bottom:none}
+.kml-layer-row.vlp-row .kml-layer-name{white-space:normal;line-height:1.25}
+.vlp-prog{display:flex;align-items:center;gap:6px;margin:1px 0 2px}
+.vlp-prog .pbt{flex:1;height:5px}
+.vlp-prog b{font-size:11px;min-width:32px;text-align:right}

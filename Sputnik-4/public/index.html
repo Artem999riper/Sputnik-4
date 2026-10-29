@@ -608,7 +608,10 @@
 <!-- KML LAYER MANAGER PANEL -->
 <div id="kml-panel">
   <div class="kml-panel-hd">
-    <span style="font-size:13px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">🗂 Слои карты</span>
+    <div id="kml-tabs" class="kml-tabs">
+      <button class="on" data-t="layers" onclick="kmlSetTab('layers')" title="Обычные слои карты">🗂 Слои</button>
+      <button data-t="vol" onclick="kmlSetTab('vol')" title="Слои, которые являются объёмами работ — по объектам и видам работ">📦 Объёмы <b id="kml-vol-n"></b></button>
+    </div>
     <div class="kml-hd-acts">
       <label class="btn bs bxs" style="cursor:pointer" title="Импорт KML/GPX/DXF">
         📂 Импорт

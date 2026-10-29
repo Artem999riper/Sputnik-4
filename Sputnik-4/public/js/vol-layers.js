@@ -10,7 +10,11 @@
 // _note, _skip (исключён из объёма), _uid.
 // ═══════════════════════════════════════════════════════════
 const VL = { all: [] };
-async function volLoad() { try { VL.all = await fetch(`${API}/volumes`).then(r => r.json()); } catch (e) {} return VL.all; }
+async function volLoad() {
+  try { VL.all = await fetch(`${API}/volumes`).then(r => r.json()); } catch (e) {}
+  try { if (typeof kmlPanelOpen !== 'undefined' && kmlPanelOpen) renderKmlPanel(); } catch (e) {}   // слой стал/перестал быть объёмом
+  return VL.all;
+}
 const volByLayer = id => id ? VL.all.find(v => v.layer_id === id) : null;
 function volMeasure(v) {
   let m = {}; try { m = JSON.parse((v && v.measure_json) || '{}') || {}; } catch (e) {}
@@ -266,7 +270,7 @@ async function _vlSave() {
   if (!r.ok) { toast(j.error || 'Ошибка сохранения', 'err'); return; }
   closeModal();
   await volAfterChange(d.site_id, d.layer_id);
-  toast(VL_DRAFT.volId ? 'Объём сохранён' : `📦 Объём «${d.name}» добавлен`, 'ok');
+  toast(VL_DRAFT.volId ? 'Объём сохранён' : `📦 Объём «${d.name}» добавлен${d.src === 'layer' ? ' — его слой теперь в «Слои карты» → вкладка «📦 Объёмы»' : ''}`, 'ok');
 }
 // Загрузить файл слоем и вернуться в окно объёма с этим слоем
 function _vlImport() {
@@ -496,3 +500,73 @@ function openDailyProgressModal() {
 const _vlSavedT = {};
 function _vlLayerSaved(id) { if (!volByLayer(id)) return; clearTimeout(_vlSavedT[id]); _vlSavedT[id] = setTimeout(() => volOnLayersChanged(id), 400); }
 setTimeout(volLoad, 300);
+
+
+// ═══ Вкладка «📦 Объёмы» панели «Слои карты» ═══════════════════════════
+// Слои, которые являются объёмами, живут здесь (а не среди обычных слоёв):
+// слева — объекты, справа — по разделам и видам работ, с выполнением.
+const VLP = { site: 'ALL' };
+const _vlpLayers = () => (layers || []).filter(l => !l.site_id && volByLayer(l.id));
+function _vlpSites() {
+  const by = {};
+  VL.all.filter(v => v.layer_id && (layers || []).some(l => l.id === v.layer_id)).forEach(v => { (by[v.site_id] = by[v.site_id] || { id: v.site_id, name: v.site_name || 'Объект', vols: [] }).vols.push(v); });
+  return Object.values(by).sort((a, b) => String(a.name).localeCompare(String(b.name), 'ru'));
+}
+function volKmlRenderCats() {
+  const el = document.getElementById('kml-cats'); if (!el) return;
+  const ss = _vlpSites(), all = _vlpLayers();
+  if (VLP.site !== 'ALL' && !ss.some(s => s.id === VLP.site)) VLP.site = 'ALL';
+  const row = (id, label, ls, n) => `<div class="kml-cat-row ${VLP.site === id ? 'active' : ''}" onclick="VLP.site='${escAttr(id)}';renderKmlPanel()">
+    <input type="checkbox" ${ls.some(l => l.visible) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="volKmlBulkVis('${escAttr(id)}',this.checked)" style="cursor:pointer;flex-shrink:0">
+    <span class="kml-cat-label" title="${escAttr(label)}">${label}</span><span class="kml-cat-count">${n}</span></div>`;
+  const lsOf = s => s.vols.map(v => (layers || []).find(l => l.id === v.layer_id)).filter(Boolean);
+  el.innerHTML = row('ALL', '📦 Все объекты', all, all.length)
+    + ss.map(s => { const o = (sites || []).find(x => x.id === s.id); return row(s.id, `🏗 ${esc(s.name)}${o ? ` <small style="color:var(--tx3)">${o.completion_percent || 0}%</small>` : ''}`, lsOf(s), s.vols.length); }).join('')
+    + `<div class="kml-cat-actions"><button class="btn bs bxs" onclick="volEditModal(null${VLP.site !== 'ALL' ? `,{draft:{site_id:'${escAttr(VLP.site)}'}}` : ''})">＋ Объём</button></div>
+      <div class="vl-hint" style="padding:6px 8px">Слой попадает сюда, когда он — объём объекта (ПКМ по слою → «📦 Сделать объёмом объекта…»).</div>`;
+}
+function volKmlRenderPane() {
+  const el = document.getElementById('kml-layers-pane'); if (!el) return;
+  const ss = _vlpSites().filter(s => VLP.site === 'ALL' || s.id === VLP.site);
+  if (!ss.length) {
+    el.innerHTML = `<div class="kml-empty"><div style="font-size:28px;margin-bottom:6px">📦</div><div>Нет слоёв-объёмов</div>
+      <div style="font-size:10px;color:var(--tx3);margin-top:4px">Откройте объект → «Объёмы» → «＋ Объём» и выберите слой,<br>или ПКМ по слою → «📦 Сделать объёмом объекта…»</div></div>`;
+    return;
+  }
+  const secs = Object.assign({}, typeof VOL_SECTIONS !== 'undefined' ? VOL_SECTIONS : {});
+  let html = '', shown = 0, vis = 0;
+  ss.forEach(s => {
+    const o = (sites || []).find(x => x.id === s.id);
+    html += `<div class="vlp-site" onclick="selectSite('${escAttr(s.id)}')" title="Открыть объект">🏗 ${esc(s.name)}<span>${o ? `готовность ${o.completion_percent || 0}%` : ''}</span></div>`;
+    const cats = [...new Set(s.vols.map(v => v.category || 'geology'))].sort((a, b) => Object.keys(secs).indexOf(a) - Object.keys(secs).indexOf(b));
+    cats.forEach(c => {
+      const sec = secs[c] || { icon: '•', label: c, color: '#6b7280' };
+      html += `<div class="vlp-cat" style="--sc:${sec.color}">${sec.icon} ${esc(sec.label)}</div>`;
+      s.vols.filter(v => (v.category || 'geology') === c).sort((a, b) => String(a.name).localeCompare(String(b.name), 'ru')).forEach(v => {
+        const l = (layers || []).find(x => x.id === v.layer_id); if (!l) return;
+        shown++; if (l.visible) vis++;
+        const t = { done: +v.done || 0, done2: +v.done2 || 0, pct: v.amount > 0 ? Math.min(100, Math.round((+v.done || 0) / v.amount * 100)) : 0 };
+        html += _kmlLayerRowHtml(l, {
+          name: `<b>${esc(v.name)}</b>`, cls: 'vlp-row', noPin: true,
+          sub: `<div class="vlp-prog"><div class="pbt"><div class="pbf" style="width:${t.pct}%;background:${t.pct >= 100 ? 'var(--grn)' : 'var(--acc)'}"></div></div>
+            <b style="color:${t.pct >= 100 ? 'var(--grn)' : 'var(--acc)'}">${t.pct}%</b></div>${volLine(v, t)}${l.name !== v.name ? ` · <span title="Слой">🗂 ${esc(l.name)}</span>` : ''}`,
+          btns: `<button class="kml-icon-btn" onclick="kmlAttrTable('${escAttr(l.id)}')" title="Таблица: выполнено, дата, факт">📋</button>
+            <button class="kml-icon-btn" onclick="volOpenEdit('${escAttr(v.id)}')" title="Изменить объём">✏️</button>`,
+        });
+      });
+    });
+  });
+  el.innerHTML = `<div style="flex:1">${html}</div><div class="kml-pane-footer" style="display:flex;align-items:center;gap:8px"><span>Показано ${vis} / ${shown}</span>
+    <span style="margin-left:auto;font-size:10px;color:var(--tx3)">выполнение — ПКМ по объекту на карте</span></div>`;
+}
+async function volKmlBulkVis(siteId, on) {
+  const ids = VL.all.filter(v => v.layer_id && (siteId === 'ALL' || v.site_id === siteId)).map(v => v.layer_id);
+  for (const l of (layers || []).filter(x => ids.includes(x.id) && !!x.visible !== on)) { try { await kmlToggleVis(l.id, on ? 1 : 0); } catch (e) {} }
+  renderKmlPanel();
+}
+// изменить объём из панели слоёв: открыть его объект, затем окно объёма
+async function volOpenEdit(volId) {
+  const v = VL.all.find(x => x.id === volId); if (!v) return;
+  if (!(currentType === 'site' && currentObj && currentObj.id === v.site_id)) { try { await selectSite(v.site_id); } catch (e) {} }
+  volEditModal(volId);
+}
