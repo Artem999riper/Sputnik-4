@@ -170,3 +170,28 @@ test('общие настройки интерфейса: админ приме�
   r = (await S.api('GET', '/api/ui-settings')).body;
   assert.deepStrictEqual(r.values, {}); assert.strictEqual(r.version, v0 + 2);
 });
+
+test('проверка базы: битые ссылки находятся и исправляются (с резервной копией)', async () => {
+  ok(await S.api('POST', '/api/pgk/workers', { name: 'Сирота', base_id: 'нет-такой-базы' }), 'сотрудник');
+  let r = (await S.api('GET', '/api/admin/dbcheck?run=1')).body;
+  assert.strictEqual(r.integrity, 'ok');
+  const it = r.issues.find(x => x.key === 'worker_base');
+  assert.ok(it && it.count >= 1 && it.sample.includes('Сирота'), JSON.stringify(r.issues));
+  r = (await S.api('POST', '/api/admin/dbcheck/fix', { keys: ['worker_base'] })).body;
+  assert.ok(r.fixed >= 1 && /^backup_before_dbfix_/.test(r.backup), JSON.stringify(r));
+  assert.ok(!r.check.issues.some(x => x.key === 'worker_base'));
+  const w = (await S.api('GET', '/api/pgk/workers')).body.find(x => x.name === 'Сирота');
+  assert.ok(w && !w.base_id, 'сотрудник остался, ссылка очищена');
+});
+
+test('журнал ошибок: ошибки браузера с именем пользователя, повторы — счётчиком', async () => {
+  const H = { 'X-User-Name': encodeURIComponent('Ошибкин') };
+  ok(await S.api('POST', '/api/client-errors', { message: 'TypeError: x is undefined', stack: 'at foo', url: '/#map' }, H), 'ошибка 1');
+  ok(await S.api('POST', '/api/client-errors', { message: 'TypeError: x is undefined', url: '/#map' }, H), 'ошибка 2');
+  let r = (await S.api('GET', '/api/admin/errors?source=client')).body;
+  const e = r.rows.find(x => x.message === 'TypeError: x is undefined');
+  assert.ok(e && e.user_name === 'Ошибкин' && e.count === 2 && e.stack === 'at foo', JSON.stringify(r.rows));
+  assert.ok(r.last24 >= 1);
+  ok(await S.api('DELETE', '/api/admin/errors'), 'очистить');
+  assert.strictEqual((await S.api('GET', '/api/admin/errors')).body.rows.length, 0);
+});

@@ -11,6 +11,9 @@ function wrap(fn) {
     try { await fn(req, res); }
     catch (e) {
       console.error('[API Error]', req.method, req.path, e.message);
+      // в журнал ошибок для админа (routes/health.js)
+      try { let u = ''; try { u = decodeURIComponent(req.get('X-User-Name') || ''); } catch (_) {}
+        require('./health').logError('server', e.message, { stack: e.stack, url: `${req.method} ${req.originalUrl || req.path}`, user: u }); } catch (_) {}
       if (!res.headersSent) res.status(500).json({ error: 'Внутренняя ошибка сервера' });
     }
   };

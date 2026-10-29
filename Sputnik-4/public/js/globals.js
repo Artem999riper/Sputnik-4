@@ -192,3 +192,21 @@ function applyHiddenTabs(){
     }
   }catch(e){}
 }
+
+// ── Ошибки в браузере → журнал ошибок админа (routes/health.js) ──
+// Одинаковые — не чаще раза в минуту; ошибки загрузки картинок/тайлов не считаем.
+(function () {
+  const sent = new Map();
+  const report = (message, stack) => {
+    message = String(message || 'Ошибка').slice(0, 1000);
+    if (/ResizeObserver loop|Script error\.?$/.test(message)) return;
+    const k = message, t = sent.get(k); if (t && Date.now() - t < 60000) return; sent.set(k, Date.now());
+    try {
+      fetch(`${API}/client-errors`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, stack: String(stack || '').slice(0, 6000), url: location.pathname + location.hash + (document.querySelector('.nt.on') ? ' · вкладка ' + document.querySelector('.nt.on').dataset.v : '') }) }).catch(() => {});
+    } catch (e) {}
+  };
+  window.addEventListener('error', e => { if (e && e.error !== undefined || e.message) report(e.message || (e.error && e.error.message), (e.error && e.error.stack) || `${e.filename || ''}:${e.lineno || ''}:${e.colno || ''}`); });
+  window.addEventListener('unhandledrejection', e => { const r = e && e.reason; report('Промис: ' + ((r && r.message) || r), r && r.stack); });
+  window.reportClientError = report;
+})();

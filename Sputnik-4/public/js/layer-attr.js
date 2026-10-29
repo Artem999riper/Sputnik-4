@@ -76,6 +76,10 @@ function kmlAttrStyleHtml(l) {
       <span>Размер:</span><input id="kas-lsize" type="number" min="8" max="32" step="1" value="${st.labelSize || 11}" style="width:64px"> px
     </div>
     <div style="font-size:10px;color:var(--tx3);margin-top:3px">Включить/выключить подписи — ПКМ по слою → «Показать подписи».</div>
+    <div style="font-size:11px;font-weight:700;margin:10px 0 6px">〰 Линии</div>
+    <label class="kas-chk"><input type="checkbox" id="kas-arrows" ${st.arrows ? 'checked' : ''}> ➤ Стрелки направления вдоль линий <span style="color:var(--tx3);font-weight:400">(профили, трассы, водотоки)</span></label>
+    <div style="display:flex;gap:6px;align-items:center;font-size:12px;margin:2px 0 4px 22px">шаг <input id="kas-agap" type="number" min="40" max="400" step="10" value="${st.arrowGap || 90}" style="width:64px"> px</div>
+    <label class="kas-chk"><input type="checkbox" id="kas-llabels" ${st.lineLabels ? 'checked' : ''}> Подписи вдоль линий — по изгибу <span style="color:var(--tx3);font-weight:400">(река, трасса; текст — поле подписи)</span></label>
     <div style="font-size:11px;font-weight:700;margin:10px 0 6px">🌈 Раскраска по атрибуту</div>
     <div style="display:flex;gap:8px;align-items:center;font-size:12px;flex-wrap:wrap">
       <span>Поле:</span><select id="kas-field" style="flex:1;min-width:140px" onchange="_kasRebuild(true)">${opt('', '— один цвет для всего слоя —', st.colorBy || '')}${fields.map(f => opt(f, f, st.colorBy)).join('')}</select>
@@ -138,7 +142,12 @@ function _kasShuffle() {
   rows.forEach((el, i) => { el.value = KML_PALETTE[(i + off) % KML_PALETTE.length]; });
 }
 function kmlAttrStyleRead() {
-  const st = {};
+  // ключи, которыми окно не управляет (заметки, связи и т.п.), — сохранить как были
+  const MANAGED = ['labelField', 'labelSize', 'colorBy', 'mode', 'classes', 'colors', 'other', 'arrows', 'arrowGap', 'lineLabels'];
+  const cur = (_kas && _kas.layer && kmlStyleOf(_kas.layer)) || {};
+  const st = {}; Object.keys(cur).forEach(k => { if (!MANAGED.includes(k) && !k.startsWith('_')) st[k] = cur[k]; });
+  if (document.getElementById('kas-arrows')?.checked) { st.arrows = true; const g = parseInt(document.getElementById('kas-agap')?.value); if (g && g !== 90) st.arrowGap = Math.max(40, Math.min(400, g)); }
+  if (document.getElementById('kas-llabels')?.checked) st.lineLabels = true;
   const lf = document.getElementById('kas-lfield')?.value; if (lf) st.labelField = lf;
   const ls = parseInt(document.getElementById('kas-lsize')?.value); if (ls && ls !== 11) st.labelSize = Math.max(8, Math.min(32, ls));
   const field = document.getElementById('kas-field')?.value;

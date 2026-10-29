@@ -10,9 +10,11 @@ const os      = require('os');
 // Теперь такие ошибки логируются, а сервер продолжает работать.
 process.on('uncaughtException', (err) => {
   console.error('⚠️  Непойманная ошибка (сервер продолжает работать):', (err && err.stack) || err);
+  try { require('./routes/health').logError('server', 'Непойманная ошибка: ' + ((err && err.message) || err), { stack: err && err.stack }); } catch (e) {}
 });
 process.on('unhandledRejection', (reason) => {
   console.error('⚠️  Необработанный промис (сервер продолжает работать):', (reason && reason.stack) || reason);
+  try { require('./routes/health').logError('server', 'Необработанный промис: ' + ((reason && reason.message) || reason), { stack: reason && reason.stack }); } catch (e) {}
 });
 
 // LAN IPv4 адрес сервера (для построения ссылок, доступных другим машинам).
@@ -216,6 +218,7 @@ getDb().then(database => {
   require('./routes/dem-jobs')(app, getDbInstance, { demProcessor, broadcast: realtime.broadcast });
   require('./routes/editing')(app, { broadcast: realtime.broadcast, presenceEvents: realtime.presenceEvents });
   require('./routes/ui-settings')(app, getDbInstance, { isAdmin: adminApi.isAdmin, broadcast: realtime.broadcast });
+  require('./routes/health')(app, getDbInstance, { isAdmin: adminApi.isAdmin, BACKUP_DIR, broadcast: realtime.broadcast });
   routeMisc (app, getDbInstance, L, {
     upload, demProcessor, BACKUP_DIR, doBackup,
     getBackupSettings, setBackupSettings, performAutoBackup,
@@ -227,6 +230,14 @@ getDb().then(database => {
     // features — по ним страница проверяет, что сервер не устарел
     res.json({ lanUrl: ip ? `http://${ip}:${PORT}` : null, ip, port: PORT,
                features: ['sat-geotiff-1m'] });
+  });
+
+  // Последний обработчик ошибок Express (маршруты без wrap, разбор JSON и т.п.) — в журнал ошибок
+  app.use((err, req, res, next) => {
+    try { let u = ''; try { u = decodeURIComponent(req.get('X-User-Name') || ''); } catch (_) {}
+      require('./routes/health').logError('server', (err && err.message) || String(err), { stack: err && err.stack, url: `${req.method} ${req.originalUrl}`, user: u }); } catch (e) {}
+    if (res.headersSent) return next(err);
+    res.status(err && err.status || 500).json({ error: (err && err.status && err.status < 500) ? err.message : 'Внутренняя ошибка сервера' });
   });
 
   const server = app.listen(PORT, () => {

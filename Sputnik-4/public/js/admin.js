@@ -56,6 +56,8 @@ function _admRender(){
       <button class="btn bs bsm" id="adm-t-tabs"    onclick="_admSwitch('tabs')">🗂 Вкладки</button>
       <button class="btn bs bsm" id="adm-t-settings" onclick="_admSwitch('settings')">⚙️ Настройки</button>
       <button class="btn bs bsm" id="adm-t-update" onclick="_admSwitch('update')">🔄 Обновление</button>
+      <button class="btn bs bsm" id="adm-t-db" onclick="_admSwitch('db')">🩺 Проверка базы</button>
+      <button class="btn bs bsm" id="adm-t-errors" onclick="_admSwitch('errors')">🐞 Ошибки</button>
     </div>
     <div id="adm-body" style="min-height:260px"></div>`,
     [{label:'Закрыть',cls:'bs',fn:()=>{_admStopPoll();closeModal();}}]);
@@ -63,7 +65,7 @@ function _admRender(){
 }
 function _admSwitch(tab){
   _admTab=tab;
-  ['online','rights','tabs','settings','update'].forEach(t=>{
+  ['online','rights','tabs','settings','update','db','errors'].forEach(t=>{
     const b=document.getElementById('adm-t-'+t);
     if(b)b.className='btn '+(t===tab?'bp':'bs')+' bsm';
   });
@@ -72,6 +74,8 @@ function _admSwitch(tab){
   else if(tab==='rights')_admRenderRights();
   else if(tab==='tabs')_admRenderTabs();
   else if(tab==='update')_admRenderUpdate();
+  else if(tab==='db')_admRenderDb();
+  else if(tab==='errors')_admRenderErrors();
   else _admRenderSettings();
 }
 function _admStopPoll(){if(_admPollTimer){clearInterval(_admPollTimer);_admPollTimer=null;}}
@@ -333,3 +337,78 @@ function applyCapsToUI(){
     if(gear)gear.style.display=''; // кнопка видна всем; вход по паролю/loopback
   }catch(e){}
 }
+
+
+// ── 🩺 Проверка базы: целостность SQLite и битые ссылки (routes/health.js) ──
+async function _admRenderDb(run){
+  const b=document.getElementById('adm-body');if(!b)return;
+  b.innerHTML='<div class="empty">⏳ Проверяю…</div>';
+  let r;try{r=await fetch(`${API}/admin/dbcheck${run?'?run=1':''}`).then(x=>x.json());}catch(e){b.innerHTML='<div class="empty">Ошибка сети</div>';return;}
+  if(r.error){b.innerHTML=`<div class="empty">${esc(r.error)}</div>`;return;}
+  const n=(r.issues||[]).reduce((s,x)=>s+x.count,0);
+  b.innerHTML=`<div class="adm-db">
+    <div class="adm-db-hd ${r.integrity==='ok'&&!n?'ok':'bad'}">${r.integrity==='ok'&&!n?'✅ База в порядке':'⚠️ Есть проблемы'}
+      <small>проверено ${r.at?new Date(r.at).toLocaleString('ru-RU'):''}</small>
+      <button class="btn bs bxs" onclick="_admRenderDb(true)">🔄 Проверить сейчас</button></div>
+    <div class="adm-db-row"><b>Целостность файла SQLite</b><span>${r.integrity==='ok'?'✅ в порядке':'❌ '+esc(r.integrity)}</span></div>
+    ${r.integrity!=='ok'?'<div class="vl-hint">Файл базы повреждён: восстановите последнюю резервную копию (💾 Резервные копии) и сообщите разработчику.</div>':''}
+    <div class="adm-db-sub">Битые ссылки ${n?`— ${n}`:''}</div>
+    ${(r.issues||[]).length?(r.issues||[]).map(x=>`<div class="adm-db-row">
+        <div style="flex:1"><b>${esc(x.label)}</b> — <b>${x.count}</b>${x.sample&&x.sample.length?`<div class="vl-hint">${x.sample.map(esc).join(', ')}${x.count>x.sample.length?'…':''}</div>`:''}
+          <div class="vl-hint">${x.fix==='delete'?'Исправить: удалить эти записи (их родителя уже нет)':'Исправить: очистить ссылку (запись останется)'}</div></div>
+        <button class="btn bs bxs" onclick="_admDbFix(['${x.key}'])">🛠 Исправить</button></div>`).join('')
+      +`<button class="btn bp bsm" style="margin-top:8px" onclick="_admDbFix(null)">🛠 Исправить всё (${n})</button>`
+      :'<div class="vl-hint">Битых ссылок нет.</div>'}
+    <div class="vl-hint" style="margin-top:10px">Проверка идёт сама при каждом запуске сервера. Перед исправлением делается резервная копия базы.</div></div>`;
+}
+async function _admDbFix(keys){
+  if(!await confirmDlg(keys?'Исправить эту проблему? Перед этим сохранится резервная копия базы.':'Исправить все найденные проблемы? Перед этим сохранится резервная копия базы.',{title:'🩺 Проверка базы',okLabel:'Исправить',danger:false}))return;
+  const r=await fetch(`${API}/admin/dbcheck/fix`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keys})}).then(x=>x.json()).catch(()=>({error:'Ошибка сети'}));
+  if(r.error){toast(r.error,'err');return;}
+  toast(`🛠 Исправлено записей: ${r.fixed} · копия: ${r.backup}`,'ok');
+  _admRenderDb();
+  try{if(typeof loadAll==='function')loadAll();if(typeof loadPGK==='function')loadPGK();}catch(e){}
+}
+
+// ── 🐞 Журнал ошибок: сервер и браузеры пользователей ──
+const _ADME={source:'',q:''};
+async function _admRenderErrors(){
+  const b=document.getElementById('adm-body');if(!b)return;
+  const qs=new URLSearchParams();if(_ADME.source)qs.set('source',_ADME.source);if(_ADME.q)qs.set('q',_ADME.q);
+  let r;try{r=await fetch(`${API}/admin/errors?${qs}`).then(x=>x.json());}catch(e){b.innerHTML='<div class="empty">Ошибка сети</div>';return;}
+  if(r.error){b.innerHTML=`<div class="empty">${esc(r.error)}</div>`;return;}
+  const rows=r.rows||[];
+  b.innerHTML=`<div class="adm-err">
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <select onchange="_ADME.source=this.value;_admRenderErrors()" style="width:auto"><option value="">Все</option><option value="server" ${_ADME.source==='server'?'selected':''}>🖥 Сервер</option><option value="client" ${_ADME.source==='client'?'selected':''}>🌐 Браузеры</option></select>
+      <input type="search" placeholder="🔍 текст, пользователь, адрес…" value="${escAttr(_ADME.q)}" onchange="_ADME.q=this.value;_admRenderErrors()" style="flex:1;min-width:150px">
+      <span style="font-size:11px;color:var(--tx3)">за сутки: <b>${r.last24}</b></span>
+      <button class="btn bs bxs" onclick="_admRenderErrors()">🔄</button>
+      ${rows.length?'<button class="btn bd bxs" onclick="_admErrClear()">🗑 Очистить</button>':''}
+    </div>
+    ${rows.length?rows.map((e,i)=>`<div class="adm-err-row" onclick="this.classList.toggle('open')">
+      <div class="adm-err-hd"><span>${e.source==='server'?'🖥':'🌐'}</span><b>${esc(e.message)}</b>${e.count>1?`<i>×${e.count}</i>`:''}</div>
+      <div class="adm-err-meta">${new Date(e.last_at||e.at).toLocaleString('ru-RU')}${e.user_name?' · 👤 '+esc(e.user_name):''}${e.url?' · '+esc(e.url):''}</div>
+      ${e.stack?`<pre class="adm-err-st">${esc(e.stack)}</pre>`:''}</div>`).join(''):'<div class="empty">✅ Ошибок нет</div>'}
+  </div>`;
+}
+async function _admErrClear(){
+  if(!await confirmDlg('Очистить журнал ошибок?'))return;
+  await fetch(`${API}/admin/errors`,{method:'DELETE'});_admRenderErrors();
+}
+
+// Админу при запуске: битые ссылки в базе и ошибки за сутки — значок на кнопке 🛡 и сообщение
+async function admHealthBadge(){
+  if(typeof isAdminClient!=='function'||!isAdminClient())return;
+  let db={},er={};
+  try{[db,er]=await Promise.all([fetch(`${API}/admin/dbcheck`).then(r=>r.json()),fetch(`${API}/admin/errors`).then(r=>r.json())]);}catch(e){return;}
+  const issues=(db.issues||[]).reduce((s,x)=>s+x.count,0)+(db.integrity&&db.integrity!=='ok'?1:0), errs=er.last24||0;
+  const btn=document.getElementById('admin-btn');if(!btn)return;
+  let b=btn.querySelector('.adm-badge');
+  if(issues||errs){if(!b){b=document.createElement('span');b.className='adm-badge';btn.appendChild(b);}b.textContent=issues?'!':errs;
+    btn.title=`Администрирование${issues?` · в базе проблем: ${issues}`:''}${errs?` · ошибок за сутки: ${errs}`:''}`;}
+  else if(b)b.remove();
+  if(issues&&!admHealthBadge._told){admHealthBadge._told=true;
+    toast(`🩺 В базе найдены проблемы (${issues}) — 🛡 Администрирование → «Проверка базы»`,'warn');}
+}
+setTimeout(()=>{admHealthBadge();setInterval(admHealthBadge,600000);},7000);

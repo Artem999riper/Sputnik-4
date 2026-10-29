@@ -406,3 +406,25 @@ body.ui-nocoords #coord-widget{display:none!important}
 .vlp-prog{display:flex;align-items:center;gap:6px;margin:1px 0 2px}
 .vlp-prog .pbt{flex:1;height:5px}
 .vlp-prog b{font-size:11px;min-width:32px;text-align:right}
+/* стрелки и подписи вдоль линий (kml-deco.js) */
+.kdeco-halo{paint-order:stroke;stroke:#fff;stroke-width:3.5px;stroke-linejoin:round}
+.kdeco-arrow{paint-order:stroke;stroke:rgba(255,255,255,.85);stroke-width:2px}
+.kas-chk{display:flex;gap:6px;align-items:center;font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--tx);margin:2px 0;cursor:pointer}
+.kas-chk input{width:auto;margin:0}
+/* админ: проверка базы и журнал ошибок */
+#admin-btn{position:relative}
+.adm-badge{position:absolute;top:-5px;right:-6px;min-width:15px;height:15px;border-radius:8px;background:#dc2626;color:#fff;font-size:9px;font-weight:800;line-height:15px;padding:0 3px;text-align:center}
+.adm-db{font-size:12px;max-width:640px}
+.adm-db-hd{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;padding:8px 10px;border-radius:8px;margin-bottom:8px}
+.adm-db-hd.ok{background:var(--grnl);color:var(--grn)}.adm-db-hd.bad{background:var(--orgl);color:var(--org)}
+.adm-db-hd small{font-weight:500;color:var(--tx3);margin-left:auto}
+.adm-db-sub{font-size:11px;font-weight:800;color:var(--tx2);margin:10px 0 4px;text-transform:uppercase;letter-spacing:.4px}
+.adm-db-row{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--bd)}
+.adm-db-row>b{flex:1}
+.adm-err{font-size:12px;max-width:760px}
+.adm-err-row{border:1px solid var(--bd);border-radius:6px;padding:6px 8px;margin-bottom:5px;cursor:pointer;background:var(--s)}
+.adm-err-row:hover{background:var(--s2)}
+.adm-err-hd{display:flex;gap:6px;align-items:baseline}.adm-err-hd b{flex:1;word-break:break-word}.adm-err-hd i{color:var(--red);font-style:normal;font-weight:800}
+.adm-err-meta{font-size:10px;color:var(--tx3);margin-top:2px}
+.adm-err-st{display:none;font-size:10px;white-space:pre-wrap;background:var(--s2);padding:6px;border-radius:4px;margin-top:5px;max-height:220px;overflow:auto}
+.adm-err-row.open .adm-err-st{display:block}
