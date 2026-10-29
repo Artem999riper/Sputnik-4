@@ -127,3 +127,29 @@ test('перенос старых объёмов в слои', async () => {
     assert.ok(JSON.parse((await S2.api('GET', '/api/app-settings/volumes_kml_v1')).body.value ? JSON.stringify((await S2.api('GET', '/api/app-settings/volumes_kml_v1')).body.value) : 'null'));
   } finally { await S2.stop(); }
 });
+
+test('второй показатель: число из текста поля, одинаково на объект, при выполнении', async () => {
+  const sid = await site('Объект-п.м.');
+  const feats = [pt(75, 66, { name: 'А', глуб: '10 м' }), pt(75.001, 66, { name: 'Б', глуб: 'Н=12,5' }), pt(75.002, 66, { name: 'В', глуб: 'нет данных' })];
+  const lid = (await S.api('POST', '/api/layers', { name: 'Текстовые глубины', geojson: fc(feats) })).body.id;
+  const vid = (await S.api('POST', `/api/sites/${sid}/volumes`, { name: 'Бурение', layer_id: lid, measure_json: { main: 'count', unit: 'скв', second: { source: 'field', field: 'глуб', unit: 'п.м.' } } })).body.id;
+  let v = (await siteData(sid)).volumes.find(x => x.id === vid);
+  assert.strictEqual(v.amount2, 22.5);
+  // одинаково на объект: 8 × 3, исключённый не считается
+  ok(await S.api('PUT', `/api/volumes/${vid}`, { measure_json: { main: 'count', unit: 'скв', second: { source: 'fixed', value: 8, unit: 'п.м.' } } }), 'fixed');
+  v = (await siteData(sid)).volumes.find(x => x.id === vid); assert.strictEqual(v.amount2, 24);
+  const g = JSON.parse((await S.api('GET', `/api/layers/${lid}`)).body.geojson);
+  g.features[2].properties._skip = 1;
+  Object.assign(g.features[0].properties, { _done: 1, _done_date: '2026-06-01' });
+  ok(await S.api('PUT', `/api/layers/${lid}`, { name: 'Текстовые глубины', geojson: JSON.stringify(g) }), 'отметка');
+  let d = await siteData(sid); v = d.volumes.find(x => x.id === vid);
+  assert.strictEqual(v.amount2, 16); assert.strictEqual(d.vol_progress.find(p => p.volume_id === vid).amount2, 8);
+  // при выполнении: план — общим числом, факт — только вписанный
+  ok(await S.api('PUT', `/api/volumes/${vid}`, { measure_json: { main: 'count', unit: 'скв', second: { source: 'fact', plan: 100, unit: 'п.м.' } } }), 'fact');
+  d = await siteData(sid); v = d.volumes.find(x => x.id === vid);
+  assert.strictEqual(v.amount2, 100); assert.strictEqual(d.vol_progress.find(p => p.volume_id === vid).amount2, 0);
+  g.features[0].properties._fact2 = 14.5;
+  ok(await S.api('PUT', `/api/layers/${lid}`, { name: 'Текстовые глубины', geojson: JSON.stringify(g) }), 'факт');
+  d = await siteData(sid);
+  assert.strictEqual(d.vol_progress.find(p => p.volume_id === vid).amount2, 14.5);
+});

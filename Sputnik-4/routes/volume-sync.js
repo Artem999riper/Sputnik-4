@@ -56,14 +56,30 @@ function geomCenter(g) {
 const isMeters = u => /^\s*(п\.?\s*м\.?|пог\.?\s*м\.?|м\.?|m|метр\S*)\s*$/i.test(String(u || ''));
 function lenIn(m, unit) { return /км|km/i.test(unit || '') ? m / 1000 : m; }
 function areaIn(m2, unit) { const u = String(unit || ''); return /км/i.test(u) ? m2 / 1e6 : /м²|м2|кв\.?\s*м/i.test(u) ? m2 : m2 / 1e4; }
-const num = v => { if (v == null || v === '') return null; const n = parseFloat(String(v).replace(/\s/g, '').replace(',', '.')); return Number.isFinite(n) ? n : null; };
+// число из значения поля: «10», «10,5», «10 м», «Н=12,5», «глуб. 1 200.0 п.м.» → первое число в тексте
+const num = v => {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const t = String(v).replace(/(\d)[\s\u00a0\u202f](?=\d{3}\b)/g, '$1').match(/-?\d+(?:[.,]\d+)?/);
+  if (!t) return null;
+  const n = parseFloat(t[0].replace(',', '.')); return Number.isFinite(n) ? n : null;
+};
 const r3 = v => Math.round(v * 1000) / 1000;
 
 function parseMeasure(v) {
   let m = {}; try { m = JSON.parse(v.measure_json || '{}') || {}; } catch (e) {}
   if (!m.main) m.main = 'count';
   if (!m.unit) m.unit = m.main === 'length' ? 'км' : m.main === 'area' ? 'га' : (v.unit || 'шт');
-  if (m.second && !m.second.field) m.second = null;
+  // второй показатель: source 'field' — сумма поля; 'fixed' — одинаково на объект (value);
+  // 'fact' — только то, что вписали при выполнении (_fact2), план — общим числом (plan)
+  const s2 = m.second;
+  if (s2) {
+    if (!s2.source) s2.source = 'field';
+    if (s2.source === 'field' && !s2.field) m.second = null;
+    else if (s2.source === 'fixed' && !(num(s2.value) > 0)) m.second = null;
+    else if (s2.source === 'fixed') s2.value = num(s2.value);
+    else if (s2.source === 'fact') s2.plan = num(s2.plan);
+  }
   return m;
 }
 const featsOf = gj => !gj ? [] : gj.type === 'FeatureCollection' ? (gj.features || []) : gj.type === 'Feature' ? [gj] : [];
@@ -73,11 +89,15 @@ function mainOf(f, m) {
   if (m.main === 'area') return areaIn(geomArea(f.geometry), m.unit);
   return 1;
 }
-function secondPlanOf(f, m) { return m.second ? (num((f.properties || {})[m.second.field]) || 0) : 0; }
+function secondPlanOf(f, m) {
+  const s2 = m.second; if (!s2) return 0;
+  if (s2.source === 'fixed') return s2.value;
+  if (s2.source === 'fact') return 0;
+  return num((f.properties || {})[s2.field]) || 0;
+}
 function secondFactOf(f, m) {
   if (!m.second) return null;
-  const p = f.properties || {};
-  const x = num(p._fact2); return x != null ? x : (num(p[m.second.field]) || 0);
+  const x = num((f.properties || {})._fact2); return x != null ? x : secondPlanOf(f, m);
 }
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -120,7 +140,8 @@ function syncVolume(db, vol) {
       JSON.stringify({ type: 'Feature', properties: { name: nm }, geometry: f.geometry }),
       String(p._workers || ''), p._machine || null, p._uid);
   });
-  run(db, 'UPDATE volumes SET amount=?, amount2=?, unit=? WHERE id=?', [r3(plan), m.second ? r3(plan2) : null, m.unit, vol.id]);
+  const p2 = !m.second ? null : m.second.source === 'fact' ? (m.second.plan != null ? r3(m.second.plan) : null) : r3(plan2);
+  run(db, 'UPDATE volumes SET amount=?, amount2=?, unit=? WHERE id=?', [r3(plan), p2, m.unit, vol.id]);
   recalcSite(db, vol.site_id);
   if (changed) {
     const txt = JSON.stringify(gj && gj.type === 'FeatureCollection' ? gj : { type: 'FeatureCollection', features: feats });

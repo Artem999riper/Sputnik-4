@@ -371,7 +371,7 @@ function _collectDxfFeatures(site, sys, selectedIds){
     if(!l) continue;
     const m = typeof volMeasure==='function' ? volMeasure(vol) : {};
     const feats = _kaFeatures(l).filter(f=>f&&f.geometry&&!(f.properties||{})._skip).map(f=>{
-      const p = f.properties||{}, h = m.second ? (p._done && p._fact2!=null ? p._fact2 : p[m.second.field]) : null;
+      const p = f.properties||{}, h = m.second ? (p._done ? volFact2Of(f, m) : volPlan2Of(f, m)) : null;
       const props = {...p, name:(p.name||p.Name||'')+(p._done?' (вып.)':'')};
       if(h!=null && h!=='') props.sem = {type:'borehole', data:{depth:h}};
       return {type:'Feature', geometry:f.geometry, properties:props};

@@ -261,7 +261,7 @@ async function generateHtmlExport(siteId, bbox) {
     const l = v.layer_id && (layers||[]).find(x=>x.id===v.layer_id); if (!l) return;
     const m = typeof volMeasure==='function' ? volMeasure(v) : {};
     const feats = _kaFeatures(l).filter(f=>f&&f.geometry&&!(f.properties||{})._skip).map(f=>{
-      const p = f.properties||{}, h = m.second ? (p._done&&p._fact2!=null?p._fact2:p[m.second.field]) : null;
+      const p = f.properties||{}, h = m.second ? (p._done ? volFact2Of(f, m) : volPlan2Of(f, m)) : null;
       return {type:'Feature', geometry:f.geometry, properties:{color:p._done?'#16a34a':(v.color||l.color), sem:h!=null&&h!==''?{type:'borehole',data:{depth:h}}:{}}};
     });
     feats.forEach(f => collectFromGJ(JSON.stringify(f), v.name, v.color, f.properties.color==='#16a34a'?'выполнено':'', v.category));

@@ -179,8 +179,8 @@ async function exportExcel(siteId){
       const c=f.geometry.type==='Point'?f.geometry.coordinates:null;
       const attrs=Object.keys(p).filter(k=>!k.startsWith('_')&&k!=='name'&&k!=='Name'&&(!m.second||k!==m.second.field)).map(k=>k+': '+p[k]).join('; ');
       fr.push([v.name,p.name||p.Name||('Объект '+(i+1)),f.geometry.type,c?+c[1].toFixed(7):'',c?+c[0].toFixed(7):'',
-        m.second?(p[m.second.field]??''):'',p._skip?'исключён':p._done?'да':'нет',p._done?fmt(p._done_date):'',
-        p._done&&m.second?(p._fact2!=null?p._fact2:(p[m.second.field]??'')):'',
+        m.second?(volPlan2Of(f,m)??''):'',p._skip?'исключён':p._done?'да':'нет',p._done?fmt(p._done_date):'',
+        p._done&&m.second?volFact2Of(f,m):'',
         String(p._workers||'').split(',').filter(Boolean).map(id=>wMap[id]||id).join(', '),p._machine?(mMap[p._machine]||p._machine):'',p._note||'',attrs]);
     });
   });

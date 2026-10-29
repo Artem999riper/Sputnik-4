@@ -230,7 +230,7 @@ function _katRender() {
       <span style="color:var(--tx3);font-size:10px">щелчок — к объекту · двойной щелчок — изменить · ПКМ по заголовку — поле</span>
       <button class="kml-panel-close" onclick="kmlAttrTableClose()" title="Закрыть">✕</button></div>
     <div class="kat-body"><table class="kat-tbl"><thead><tr><th>#</th><th></th>
-      ${vol ? `<th onclick="_katSort('#done')" title="Выполнено (щелчок по ячейке — отметить)">✅${arrow('#done')}</th><th onclick="_katSort('#date')">Дата${arrow('#date')}</th>${vm.second ? `<th onclick="_katSort('#f2')" title="Факт. ${esc(vm.second.field)}; двойной щелчок — изменить">Факт, ${esc(vm.second.unit || '')}${arrow('#f2')}</th>` : ''}` : ''}
+      ${vol ? `<th onclick="_katSort('#done')" title="Выполнено (щелчок по ячейке — отметить)">✅${arrow('#done')}</th><th onclick="_katSort('#date')">Дата${arrow('#date')}</th>${vm.second ? `<th onclick="_katSort('#f2')" title="Факт (${esc(volSecondLabel(vm))}); двойной щелчок — изменить">Факт, ${esc(vm.second.unit || '')}${arrow('#f2')}</th>` : ''}` : ''}
       ${fields.map(k => `<th onclick="_katSort('${escAttr(k)}')" oncontextmenu="event.preventDefault();_katFieldMenu(event,'${escAttr(k)}')" title="${esc(k)}">${esc(k)}${st.colorBy === k ? ' 🌈' : ''}${st.labelField === k ? ' 🏷' : ''}${arrow(k)}</th>`).join('')}
       <th onclick="_katSort('#size')">Площадь / длина${arrow('#size')}</th></tr></thead><tbody>
       ${rows.map(r => {
@@ -239,7 +239,7 @@ function _katRender() {
           <td>${r.i + 1}</td><td>${c ? `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${c};margin-right:3px"></span>` : ''}${ic(r.f.geometry && r.f.geometry.type)}</td>
           ${vol ? `<td class="kat-done" onclick="event.stopPropagation();kmlToggleDone('${escAttr(l.id)}',${r.i})" title="${pr._skip ? 'Исключён из объёма' : pr._done ? 'Снять «выполнено»' : 'Выполнить'}">${pr._done ? '✅' : pr._skip ? '🚫' : '⬜'}</td>
             <td style="color:var(--tx2)" ondblclick="event.stopPropagation();volDoneDialog('${escAttr(l.id)}',[${r.i}])">${pr._done && pr._done_date ? fmt(pr._done_date) : ''}</td>
-            ${vm.second ? `<td ondblclick="event.stopPropagation();volDoneDialog('${escAttr(l.id)}',[${r.i}])">${pr._done ? esc(String(pr._fact2 != null ? pr._fact2 : (pr[vm.second.field] ?? ''))) : ''}</td>` : ''}` : ''}
+            ${vm.second ? `<td ondblclick="event.stopPropagation();volDoneDialog('${escAttr(l.id)}',[${r.i}])">${pr._done ? esc(String(volFact2Of(r.f, vm) ?? '')) : ''}</td>` : ''}` : ''}
           ${fields.map(k => `<td ondblclick="event.stopPropagation();_katEdit(this,${r.i},'${escAttr(k)}')">${esc(pr[k] == null ? '' : String(pr[k]))}</td>`).join('')}
           <td style="color:var(--tx2)">${r.sz.t}</td></tr>`;
       }).join('')}

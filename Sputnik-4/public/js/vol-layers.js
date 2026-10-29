@@ -16,9 +16,35 @@ function volMeasure(v) {
   let m = {}; try { m = JSON.parse((v && v.measure_json) || '{}') || {}; } catch (e) {}
   if (!m.main) m.main = 'count';
   if (!m.unit) m.unit = (v && v.unit) || 'шт';
-  if (m.second && !m.second.field) m.second = null;
+  // второй показатель: source 'field' — сумма поля; 'fixed' — одинаково на объект; 'fact' — вписывают при выполнении
+  const s2 = m.second;
+  if (s2) {
+    if (!s2.source) s2.source = 'field';
+    if ((s2.source === 'field' && !s2.field) || (s2.source === 'fixed' && !(_vlNumLoose(s2.value) > 0))) m.second = null;
+  }
   return m;
 }
+// число из текста поля: «10», «10,5», «10 м», «Н=12,5», «1 200 п.м.» — как на сервере (volume-sync.js num)
+function _vlNumLoose(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const t = String(v).replace(/(\d)[\s\u00a0\u202f](?=\d{3}\b)/g, '$1').match(/-?\d+(?:[.,]\d+)?/);
+  return t ? parseFloat(t[0].replace(',', '.')) : null;
+}
+// план и факт второго показателя для одного объекта слоя
+function volPlan2Of(f, m) {
+  const s2 = m && m.second; if (!s2) return null;
+  if (s2.source === 'fixed') return _vlNumLoose(s2.value);
+  if (s2.source === 'fact') return null;
+  return _vlNumLoose(((f && f.properties) || {})[s2.field]);
+}
+function volFact2Of(f, m) {
+  if (!m || !m.second) return null;
+  const x = _vlNumLoose(((f && f.properties) || {})._fact2);
+  return x != null ? x : (volPlan2Of(f, m) || 0);
+}
+// подпись второго показателя: «глубина», «по 10 на объект», «вписывают при выполнении»
+const volSecondLabel = m => !m || !m.second ? '' : m.second.source === 'fixed' ? `по ${_vlN(m.second.value)} на объект` : m.second.source === 'fact' ? 'факт при выполнении' : m.second.field;
 const _vlN = x => (Math.round((+x || 0) * 1000) / 1000).toLocaleString('ru-RU');
 const _vlToday = () => new Date().toISOString().slice(0, 10);
 const _vlFact = p => (p.row_type || 'fact') !== 'plan' && p.row_type !== 'act';
@@ -33,7 +59,7 @@ function volTotals(v, prog) {
 function volLine(v, t) {
   const m = volMeasure(v);
   let s = `${_vlN(t.done)} / ${_vlN(v.amount)} ${esc(v.unit || m.unit)}`;
-  if (m.second && v.layer_id) s += ` · ${_vlN(t.done2)} / ${_vlN(v.amount2)} ${esc(m.second.unit || '')}`;
+  if (m.second && v.layer_id) s += ` · ${_vlN(t.done2)}${v.amount2 != null ? ` / ${_vlN(v.amount2)}` : ''} ${esc(m.second.unit || '')}`;
   else if (!v.layer_id && t.done2) s += ` · ${_vlN(t.done2)}`;
   return s;
 }
@@ -113,26 +139,31 @@ function _vlLayerInfo(l) {
   const t = { pt: 0, ln: 0, pg: 0 };
   feats.forEach(f => { const g = f.geometry.type; if (/Point/.test(g)) t.pt++; else if (/Line/.test(g)) t.ln++; else if (/Polygon/.test(g)) t.pg++; });
   const main = t.ln > t.pt && t.ln >= t.pg ? 'length' : t.pg > t.pt && t.pg > t.ln ? 'area' : 'count';
-  const fields = l ? kmlFields(l).filter(k => feats.some(f => Number.isFinite(_kaNum((f.properties || {})[k])))) : [];
-  const depth = fields.find(k => /глуб|depth|^h$|^н$|^h_|забой/i.test(k)) || '';
+  const cnt = {};
+  (l ? kmlFields(l) : []).forEach(k => { cnt[k] = feats.filter(f => _vlNumLoose((f.properties || {})[k]) != null).length; });
+  const all = Object.keys(cnt);
+  const fields = all.filter(k => cnt[k] > 0).sort((a, b) => cnt[b] - cnt[a]);
+  const depth = fields.find(k => /глуб|depth|^h$|^н$|^h_|забой|п\.?\s*м/i.test(k)) || '';
   const isBore = l && (/скв|бурен|шурф/i.test(l.name) || l.symbol === 'borehole' || /borehole/.test(l.symbol || ''));
-  return { n: feats.length, t, main, fields, depth, unit: main === 'length' ? 'км' : main === 'area' ? 'га' : isBore ? 'скв' : 'шт' };
+  return { n: feats.length, t, main, fields, all, cnt, depth, feats, unit: main === 'length' ? 'км' : main === 'area' ? 'га' : isBore ? 'скв' : 'шт' };
 }
 const VL_DRAFT = {};
 function volEditModal(volId, opts) {
   opts = opts || {};
   const v = volId ? ((currentObj?.volumes || []).find(x => x.id === volId) || VL.all.find(x => x.id === volId)) : null;
-  const d = Object.assign({ name: '', category: 'geology', src: 'layer', layer_id: '', main: '', unit: '', f2: '', u2: 'п.м.', amount: '', unitM: 'шт', plan_start: '', plan_end: '',
+  const d = Object.assign({ name: '', category: 'geology', src: 'layer', layer_id: '', main: '', unit: '', s2: '', f2: '', v2: '', p2: '', u2: 'п.м.', amount: '', unitM: 'шт', plan_start: '', plan_end: '',
     site_id: (currentType === 'site' && currentObj) ? currentObj.id : '' }, opts.draft || {});
   if (v && !opts.draft) {
     const m = volMeasure(v);
     Object.assign(d, { name: v.name, category: v.category || 'geology', src: v.layer_id ? 'layer' : 'manual', layer_id: v.layer_id || '', main: m.main, unit: m.unit,
-      f2: m.second ? m.second.field : '', u2: m.second ? m.second.unit : 'п.м.', amount: v.amount, unitM: v.unit || 'шт', plan_start: v.plan_start || '', plan_end: v.plan_end || '', site_id: v.site_id });
+      s2: m.second ? m.second.source : 'none', f2: m.second ? m.second.field || '' : '', v2: m.second && m.second.value != null ? m.second.value : '', p2: m.second && m.second.plan != null ? m.second.plan : '',
+      u2: m.second ? m.second.unit : 'п.м.', amount: v.amount, unitM: v.unit || 'шт', plan_start: v.plan_start || '', plan_end: v.plan_end || '', site_id: v.site_id });
   }
   if (opts.layerId) { d.src = 'layer'; d.layer_id = opts.layerId; }
   const l = (layers || []).find(x => x.id === d.layer_id);
   const info = _vlLayerInfo(l);
-  if (l && !d.main) { d.main = info.main; d.unit = info.unit; d.f2 = info.depth; }
+  if (l && !d.main) { d.main = info.main; d.unit = info.unit; d.f2 = info.depth; d.s2 = info.depth ? 'field' : 'none'; }
+  if (!d.s2) d.s2 = d.f2 ? 'field' : 'none';
   if (l && !d.name) d.name = l.name;
   Object.assign(VL_DRAFT, d, { volId: volId || null });
   const busy = id => { const x = VL.all.find(z => z.layer_id === id); return x && x.id !== volId ? x : null; };
@@ -158,15 +189,39 @@ function volEditModal(volId, opts) {
           <option value="length" ${d.main === 'length' ? 'selected' : ''}>длину линий</option>
           <option value="area" ${d.main === 'area' ? 'selected' : ''}>площадь полигонов</option></select></div>
         <div class="fg"><label>Единица</label><input id="vl-unit" list="vl-units" value="${escAttr(d.unit || unitOpts[d.main || 'count'][0])}"><datalist id="vl-units">${(unitOpts[d.main || 'count']).map(u => `<option value="${u}">`).join('')}</datalist></div></div>
-      <div class="fgr"><div class="fg"><label>Второй показатель — сумма поля</label><select id="vl-f2"><option value="">— нет —</option>${info.fields.map(k => `<option ${k === d.f2 ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></div>
-        <div class="fg"><label>Единица</label><input id="vl-u2" list="vl-u2s" value="${escAttr(d.u2 || 'п.м.')}"><datalist id="vl-u2s"><option value="п.м."><option value="м"><option value="м³"><option value="шт"></datalist></div></div>
-      ${!info.fields.length && d.main === 'count' ? '<div class="vl-hint">Чтобы считать погонные метры, добавьте в слой числовое поле «глубина» (таблица атрибутов → ＋ Поле).</div>' : ''}` : ''}`
+      ${_vlSecondHtml(d, info)}` : ''}`
     : `<div class="fgr"><div class="fg"><label>План</label><input id="vl-amount" type="number" step="any" min="0" value="${escAttr(d.amount)}"></div>
         <div class="fg"><label>Единица</label><input id="vl-unitm" list="vl-unitsm" value="${escAttr(d.unitM || 'шт')}"><datalist id="vl-unitsm"><option value="шт"><option value="отчёт"><option value="проба"><option value="п.м."><option value="км"><option value="га"><option value="чел.-дн."></datalist></div></div>`}
     <div class="fgr"><div class="fg"><label>Начало (план)</label><input id="vl-ps" type="date" value="${escAttr(d.plan_start)}"></div>
       <div class="fg"><label>Окончание (план)</label><input id="vl-pe" type="date" value="${escAttr(d.plan_end)}"></div></div>
     <div class="vl-hint">Сроки нужны для СМГ (план по дням) и прогноза окончания.</div>
   </div>`, [{ label: 'Отмена', cls: 'bs', fn: closeModal }, { label: v ? '💾 Сохранить' : '＋ Добавить', cls: 'bp', fn: _vlSave }]);
+}
+// блок «Второй показатель» окна объёма
+function _vlSecondHtml(d, info) {
+  const S = d.s2 || 'none', F = d.f2;
+  const opt = (k, t, sub) => `<label><input type="radio" name="vl-s2" value="${k}" ${S === k ? 'checked' : ''} onchange="_vlRe({s2:'${k}'})"> ${t} <small>${sub}</small></label>`;
+  let body = '';
+  if (S === 'field') {
+    const list = info.all.slice().sort((a, b) => (info.cnt[b] - info.cnt[a]) || a.localeCompare(b, 'ru'));
+    const ex = F ? info.feats.map(f => (f.properties || {})[F]).filter(x => x != null && x !== '').slice(0, 3) : [];
+    const sum = F ? info.feats.reduce((a, f) => a + (_vlNumLoose((f.properties || {})[F]) || 0), 0) : 0;
+    body = `<div class="fg"><label>Поле слоя</label><select id="vl-f2" onchange="_vlRe({f2:this.value})"><option value="">— выберите поле —</option>${list.map(k =>
+        `<option value="${escAttr(k)}" ${k === F ? 'selected' : ''}>${esc(k)} — числа у ${info.cnt[k]} из ${info.n}</option>`).join('')}</select></div>
+      ${F ? `<div class="vl-hint">Например: ${ex.map(x => `«${esc(String(x).slice(0, 24))}»`).join(', ') || '—'} → план всего <b>${_vlN(sum)}</b>${info.cnt[F] < info.n ? ` · без числа: ${info.n - info.cnt[F]} (их план 0)` : ''}</div>` : ''}
+      ${!info.all.length ? '<div class="vl-hint">В слое нет полей — выберите «Одинаково на объект» или «При выполнении».</div>' : ''}`;
+  } else if (S === 'fixed') {
+    body = `<div class="fg"><label>На каждый объект</label><input id="vl-v2" type="number" step="any" min="0" value="${escAttr(d.v2)}" placeholder="10"></div>
+      <div class="vl-hint">План = это число × количество объектов (исключённые не считаются). Фактическое значение можно вписать при выполнении.</div>`;
+  } else if (S === 'fact') {
+    body = `<div class="fg"><label>План всего (необязательно)</label><input id="vl-p2" type="number" step="any" min="0" value="${escAttr(d.p2)}" placeholder="например 3000"></div>
+      <div class="vl-hint">Значение вписывается при выполнении: ПКМ → «⚙️ Выполнить с параметрами» → «Факт». Быстрое «✅ Выполнить» засчитает 0.</div>`;
+  }
+  return `<div class="vl-sub">Второй показатель (например п.м.)</div>
+    <div class="vl-src-pick vl-s2">${opt('none', '— нет —', '')}${opt('field', 'Из поля слоя', 'сумма по полю, число берётся из текста: «10 м» → 10')}
+      ${opt('fixed', 'Одинаково на объект', 'все скважины по 10 м')}${opt('fact', 'При выполнении', 'глубина известна только после бурения')}</div>
+    ${S !== 'none' ? `<div class="fgr"><div style="flex:1">${body}</div>
+      <div class="fg" style="max-width:120px"><label>Единица</label><input id="vl-u2" list="vl-u2s" value="${escAttr(d.u2 || 'п.м.')}"><datalist id="vl-u2s"><option value="п.м."><option value="м"><option value="м³"><option value="шт"></datalist></div></div>` : ''}`;
 }
 function _vlRead() {
   const g = id => document.getElementById(id);
@@ -175,23 +230,35 @@ function _vlRead() {
   if (g('vl-layer')) o.layer_id = g('vl-layer').value;
   if (g('vl-main')) o.main = g('vl-main').value;
   if (g('vl-unit')) o.unit = g('vl-unit').value.trim();
+  if (document.querySelector('input[name=vl-s2]:checked')) o.s2 = document.querySelector('input[name=vl-s2]:checked').value;
   if (g('vl-f2')) o.f2 = g('vl-f2').value;
+  if (g('vl-v2')) o.v2 = g('vl-v2').value;
+  if (g('vl-p2')) o.p2 = g('vl-p2').value;
   if (g('vl-u2')) o.u2 = g('vl-u2').value.trim();
   if (g('vl-amount')) o.amount = g('vl-amount').value;
   if (g('vl-unitm')) o.unitM = g('vl-unitm').value.trim();
   return o;
 }
 function _vlRe(patch) { const d = Object.assign({}, VL_DRAFT, _vlRead(), patch); volEditModal(VL_DRAFT.volId, { draft: d }); }
+function _vlSecondOf(d) {
+  const u = d.u2 || 'п.м.';
+  if (d.s2 === 'field' && d.f2) return { source: 'field', field: d.f2, unit: u };
+  if (d.s2 === 'fixed' && _vlNumLoose(d.v2) > 0) return { source: 'fixed', value: _vlNumLoose(d.v2), unit: u };
+  if (d.s2 === 'fact') return { source: 'fact', plan: _vlNumLoose(d.p2), unit: u };
+  return null;
+}
 async function _vlSave() {
   const d = Object.assign({}, VL_DRAFT, _vlRead());
   if (!d.name) { toast('Укажите название', 'warn'); return; }
   if (!d.site_id) { toast('Выберите объект', 'warn'); return; }
   if (d.src === 'layer' && !d.layer_id) { toast('Выберите слой (или «Без карты»)', 'warn'); return; }
+  if (d.src === 'layer' && d.s2 === 'field' && !d.f2) { toast('Выберите поле для второго показателя', 'warn'); return; }
+  if (d.src === 'layer' && d.s2 === 'fixed' && !(_vlNumLoose(d.v2) > 0)) { toast('Впишите число на каждый объект', 'warn'); return; }
   const body = { name: d.name, category: d.category, plan_start: d.plan_start || null, plan_end: d.plan_end || null, user_name: un() };
   if (d.src === 'layer') {
     const l = (layers || []).find(x => x.id === d.layer_id);
     Object.assign(body, { layer_id: d.layer_id, color: l ? l.color : undefined,
-      measure_json: { main: d.main || 'count', unit: d.unit || 'шт', second: d.f2 ? { field: d.f2, unit: d.u2 || 'п.м.' } : null } });
+      measure_json: { main: d.main || 'count', unit: d.unit || 'шт', second: _vlSecondOf(d) } });
   } else Object.assign(body, { layer_id: null, measure_json: null, amount: parseFloat(String(d.amount).replace(',', '.')) || 0, unit: d.unitM || 'шт', amount2: null });
   const url = VL_DRAFT.volId ? `${API}/volumes/${VL_DRAFT.volId}` : `${API}/sites/${d.site_id}/volumes`;
   const r = await fetch(url, { method: VL_DRAFT.volId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -313,21 +380,21 @@ function volDoneDialog(layerId, idxs, after) {
   const v = volByLayer(first.layerId), m = v ? volMeasure(v) : null;
   const n = targets.reduce((s, t) => s + t.idxs.length, 0);
   const f0 = n === 1 ? _kaFeatures(l0)[first.idxs[0]] : null, p0 = (f0 && f0.properties) || {};
-  const plan2 = m && m.second && f0 ? _kaNum(p0[m.second.field]) : null;
+  const plan2 = m && m.second && f0 ? volPlan2Of(f0, m) : null;
   const machines = (pgkMachinery || []).slice().sort((a, b) => (DRILL_TYPES.includes(b.type) - DRILL_TYPES.includes(a.type)) || String(a.name).localeCompare(String(b.name), 'ru'));
   const nm = f0 ? (p0.name || p0.Name || `Объект ${first.idxs[0] + 1}`) : `${n} объект(ов)`;
   showModal(`✅ Выполнить — ${nm}`, `<div class="vl-form">
     ${v ? `<div class="vl-hint">Объём «${esc(v.name)}»${v.site_name ? ` · ${esc(v.site_name)}` : ''}</div>` : '<div class="vl-hint">Слой не привязан к объёму — отметка сохранится в слое, в объём не попадёт (📦 «Объём объекта…» в меню слоя).</div>'}
     <div class="fg"><label>Дата выполнения</label><input id="vd-date" type="date" value="${escAttr(p0._done_date || _vlToday())}"></div>
-    ${m && m.second ? `<div class="fg"><label>Факт: ${esc(m.second.field)}, ${esc(m.second.unit || '')}${plan2 != null ? ` <span style="color:var(--tx3);text-transform:none">(план ${_vlN(plan2)})</span>` : ''}</label>
-      <input id="vd-f2" type="number" step="any" min="0" value="${escAttr(p0._fact2 != null ? p0._fact2 : '')}" placeholder="${n > 1 ? 'пусто — плановое у каждого' : plan2 != null ? 'пусто — ' + _vlN(plan2) : ''}"></div>` : ''}
+    ${m && m.second ? `<div class="fg"><label>Факт${m.second.source === 'field' ? ': ' + esc(m.second.field) : ''}, ${esc(m.second.unit || '')}${plan2 != null ? ` <span style="color:var(--tx3);text-transform:none">(план ${_vlN(plan2)})</span>` : ''}</label>
+      <input id="vd-f2" type="number" step="any" min="0" value="${escAttr(p0._fact2 != null ? p0._fact2 : '')}" placeholder="${m.second.source === 'fact' ? 'впишите факт' : n > 1 ? 'пусто — плановое у каждого' : plan2 != null ? 'пусто — ' + _vlN(plan2) : ''}"></div>` : ''}
     <div class="fg"><label>Сотрудники</label>${_buildWorkerSelectHtml(p0._workers || '')}</div>
     <div class="fg"><label>Буровая / техника</label><select id="vd-mach"><option value="">— не выбрана —</option>${machines.map(x => `<option value="${escAttr(x.id)}" ${x.id === p0._machine ? 'selected' : ''}>${esc(x.name)}${x.type ? ` (${esc(x.type)})` : ''}</option>`).join('')}</select></div>
     <div class="fg"><label>Примечание</label><input id="vd-note" value="${escAttr(p0._note || '')}"></div>
   </div>`, [{ label: 'Отмена', cls: 'bs', fn: closeModal }, { label: '✅ Выполнено', cls: 'bp', fn: async () => {
     const o = { date: document.getElementById('vd-date').value || _vlToday(), workers: _vpwSelected().ids, machine: document.getElementById('vd-mach').value,
       note: document.getElementById('vd-note').value.trim() };
-    const f2 = document.getElementById('vd-f2'); if (f2 && f2.value !== '') o.fact2 = _kaNum(f2.value);
+    const f2 = document.getElementById('vd-f2'); if (f2 && f2.value !== '') o.fact2 = _vlNumLoose(f2.value);
     closeModal();
     for (const t of targets) {
       const l = (layers || []).find(x => x.id === t.layerId); if (!l) continue;
