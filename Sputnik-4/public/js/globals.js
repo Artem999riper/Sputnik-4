@@ -20,6 +20,8 @@ const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(
 const escAttr=s=>esc(s).replace(/\\/g,'&#92;');
 const v=id=>{const e=document.getElementById(id);return e?e.value:''};
 const un=()=>{const e=document.getElementById('unm');return e?e.value.trim()||'Пользователь':'Пользователь';};
+// Имя для сервера: поле в шапке или сохранённое при входе; пусто — человек ещё не представился
+const myName=()=>{let n='';try{n=((document.getElementById('unm')||{}).value||'').trim()||localStorage.getItem('pgk_username')||'';}catch(e){}return n==='Пользователь'?'':n.trim();};
 const fmt=d=>{if(!d||d==='')return'—';try{const p=d.split('-');return`${p[2]}.${p[1]}.${p[0]}`;}catch{return d;}};
 const fmtDT=dt=>{if(!dt)return'';try{const d=new Date(dt.includes('Z')?dt:dt+'Z');return d.toLocaleString('ru',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}catch{return dt;}};
 
@@ -98,7 +100,7 @@ async function loadMyCaps(){
     if(isApi){
       // Заголовки идентификации на каждый запрос. Имя кодируем (заголовки — latin1).
       opts=opts||{};
-      let uname='';try{uname=encodeURIComponent(un());}catch(e){}
+      let uname='';try{uname=encodeURIComponent(myName());}catch(e){}
       const h=new Headers(opts.headers||{});
       h.set('X-Client-Id',CLIENT_ID);
       if(uname)h.set('X-User-Name',uname);
@@ -108,6 +110,10 @@ async function loadMyCaps(){
     if(isApi){busy++;upd();}
     try{
       const r=await orig(url,opts);
+      // сервер требует представиться — показать окно входа (имя обязательно)
+      if(isApi&&r.status===401){
+        try{const j=await r.clone().json();if(j&&j.needName){const g=document.getElementById('name-gate');if(g&&g.style.display!=='flex'){g.style.display='flex';const i=document.getElementById('name-gate-inp');if(i)i.focus();}return r;}}catch(e){}
+      }
       if(isApi&&!r.ok&&method!=='GET'){
         let msg='';
         try{const j=await r.clone().json();msg=j&&j.error?String(j.error):'';}catch(e){}

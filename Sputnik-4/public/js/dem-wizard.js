@@ -345,7 +345,7 @@ async function _dwExport() {
   if (pw) pw.style.display = 'block';
   const setP = (pct, text) => { if (pt) pt.textContent = text; if (pb) pb.style.width = pct + '%'; };
   const btns = document.querySelectorAll('#mft .btn'); btns.forEach(b => b.disabled = true);
-  const sse = new EventSource(`${location.origin}/api/events`);
+  const sse = new EventSource(`${location.origin}/api/events?aux=1`);
   sse.onmessage = e => { try { const d = JSON.parse(e.data); if (d.type === 'dem_progress' && !d.job) setP(d.pct, d.text); } catch (x) {} };
   try {
     setP(5, '⏳ Запрос к ArcticDEM...');
@@ -460,7 +460,7 @@ async function _djRefreshCount() {
   if (typeof EventSource === 'undefined') return;
   let es = null;
   const connect = () => {
-    try { es = new EventSource(`${location.origin}/api/events`); } catch (e) { return; }
+    try { es = new EventSource(`${location.origin}/api/events?aux=1`); } catch (e) { return; }
     es.onmessage = e => {
       let d; try { d = JSON.parse(e.data); } catch (x) { return; }
       if (d.type === 'dem_progress' && d.job) {

@@ -157,7 +157,7 @@ async function floodRun() {
   const stEl = () => document.getElementById('fl-status');
   if (stEl()) stEl().textContent = '⏳ Расчёт…';
   document.querySelectorAll('#mft .btn').forEach(b => b.disabled = true);
-  const sse = new EventSource(`${location.origin}/api/events`);
+  const sse = new EventSource(`${location.origin}/api/events?aux=1`);
   sse.onmessage = e => { try { const d = JSON.parse(e.data); if ((d.type === 'flood_progress' || d.type === 'dem_progress') && stEl()) stEl().textContent = `⏳ ${d.text} (${d.pct}%)`; } catch (x) {} };
   try {
     const r = await fetch(`${API}/dem/flood`, { method: 'POST', headers: { 'Content-Type': 'application/json' },

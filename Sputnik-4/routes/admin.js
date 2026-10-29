@@ -166,6 +166,18 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
     next();
   });
 
+  // ── Без имени — нельзя: любой запрос к API (кроме служебных) требует X-User-Name.
+  // С самого ПК-сервера (localhost) — можно (там же админ; и автотесты).
+  // + скачивание готового рельефа по ссылке <a href> (браузер не шлёт заголовков; id не угадать)
+  const NO_NAME_OK = /^\/api\/(version|server-info|me\/caps|events|admin\/login|client-errors|ui-settings|dem\/jobs\/[^/]+\/file)(\/|$)/;
+  app.use((req, res, next) => {
+    if (!req.path.startsWith('/api/') || NO_NAME_OK.test(req.path) || isLoopback(req)) return next();
+    let nm = req.get('X-User-Name') || ''; try { nm = decodeURIComponent(nm); } catch (e) {}
+    nm = nm.trim();
+    if (!nm || /^пользователь$/i.test(nm)) return res.status(401).json({ error: 'Представьтесь: введите фамилию и имя (если окна нет — обновите страницу F5)', needName: true });
+    next();
+  });
+
   // ── идентификация клиента: обновляем реестр known_clients ──
   app.use((req, res, next) => {
     const cid = req.get('X-Client-Id');

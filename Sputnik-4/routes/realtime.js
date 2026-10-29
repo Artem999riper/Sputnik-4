@@ -40,7 +40,10 @@ function broadcast(event) {
 // Сводка присутствия: по clientId (склеивает вкладки одного человека)
 function getPresence() {
   const byCid = {};
+  const named = {};   // ip → имена (чтобы подсказать, чья «старая вкладка»)
+  for (const meta of sseClients.values()) if (meta.name && meta.clientId && !meta.aux) (named[meta.ip] = named[meta.ip] || new Set()).add(meta.name);
   for (const meta of sseClients.values()) {
+    if (meta.aux) continue;   // служебный канал (прогресс рельефа/затопления) — не человек
     const cid = meta.clientId || ('anon-' + meta.ip);
     // stale = старая версия страницы (нет clientId → не шлёт идентификацию)
     if (!byCid[cid]) byCid[cid] = { clientId: cid, name: meta.name || '', ip: meta.ip, connectedAt: meta.connectedAt, tabs: 0, stale: !meta.clientId };
@@ -48,6 +51,8 @@ function getPresence() {
     if (meta.connectedAt < byCid[cid].connectedAt) byCid[cid].connectedAt = meta.connectedAt;
     if (!byCid[cid].name && meta.name) byCid[cid].name = meta.name;
   }
+  const lo = ip => ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+  Object.values(byCid).forEach(p => { if (p.stale) { p.guess = named[p.ip] ? [...named[p.ip]].join(', ') : ''; p.local = lo(p.ip); } });
   return Object.values(byCid).sort((a, b) => a.connectedAt - b.connectedAt);
 }
 
@@ -65,6 +70,7 @@ function attachSse(app) {
     const meta = {
       clientId: (req.query.cid || '').toString().slice(0, 64),
       name: nm.slice(0, 120),
+      aux: req.query.aux === '1',
       ip, connectedAt: Date.now(),
     };
     sseClients.set(res, meta);

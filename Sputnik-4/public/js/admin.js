@@ -96,7 +96,7 @@ async function _admRenderOnline(){
     <div id="adm-online-list" style="max-height:300px;overflow-y:auto">
     ${list.length?list.map(p=>{
       const dot=p.stale?'#f59e0b':'#22c55e';
-      const nm=p.stale?'❓ Старая версия — обновить страницу (F5)':(p.name||'(без имени)');
+      const nm=p.stale?(p.local?'❓ Старая вкладка на этом компьютере (сервере) — обновите её (F5)':p.guess?`❓ Старая вкладка — вероятно ${p.guess} (тот же компьютер), F5`:'❓ Старая версия страницы — обновить (F5)'):(p.name||'(без имени)');
       return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--bd);font-size:12px">
       <span style="width:8px;height:8px;border-radius:50%;background:${dot};flex-shrink:0"></span>
       <span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${p.stale?'color:#b45309':''}">${esc(nm)}</span>

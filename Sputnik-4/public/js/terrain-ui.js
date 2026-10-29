@@ -127,7 +127,7 @@ async function terrainRun() {
   _taSave();
   TA.busy = true; if (document.getElementById('ta-st')) document.getElementById('ta-st').textContent = '⏳ Расчёт…';
   document.querySelectorAll('#mft .btn').forEach(b => b.disabled = true);
-  const sse = new EventSource(`${location.origin}/api/events`);
+  const sse = new EventSource(`${location.origin}/api/events?aux=1`);
   sse.onmessage = e => { try { const d = JSON.parse(e.data); const el = document.getElementById('ta-st'); if (el && (d.type === 'flood_progress' || (d.type === 'dem_progress' && !d.job))) el.textContent = `⏳ ${d.text} (${d.pct}%)`; } catch (x) {} };
   try {
     const r = await fetch(`${API}/dem/analysis`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

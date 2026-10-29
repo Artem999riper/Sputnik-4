@@ -313,8 +313,10 @@ function checkNameGate(){
 }
 function submitNameGate(){
   const inp=document.getElementById('name-gate-inp');
-  const val=(inp&&inp.value||'').trim();
-  if(!val){inp&&inp.focus();toast('Введите фамилию и имя','err');return;}
+  const val=(inp&&inp.value||'').trim().replace(/\s+/g,' ');
+  if(val.length<3||/^пользователь$/i.test(val)){inp&&inp.focus();toast('Введите фамилию и имя','err');return;}
+  // без имени сервер данные не отдавал — после входа перезагрузить страницу, чтобы всё загрузилось
+  const _wasBlocked=!localStorage.getItem('pgk_username');
   const role=(document.getElementById('name-gate-role')&&document.getElementById('name-gate-role').value||'').trim();
   const phone=(document.getElementById('name-gate-phone')&&document.getElementById('name-gate-phone').value||'').trim();
   localStorage.setItem('pgk_username',val);
@@ -330,9 +332,12 @@ function submitNameGate(){
         body:JSON.stringify({name:val,role:role||'',phone:phone||'',status:'home'})});
     }
   }).catch(function(){});
+  // имя уже было, но сервер его не принял (окно показано по ответу 401) — перезагрузить с новым именем
+  if(!_wasBlocked||window._appStarted){setTimeout(()=>location.reload(),300);return;}
   initApp();
 }
 async function initApp(){
+  window._appStarted=true;
   switchView('map');
   // Права текущего клиента (для локального оверрайда слоёв и косметики UI)
   try{if(typeof loadMyCaps==='function')await loadMyCaps();}catch(e){}
@@ -370,7 +375,7 @@ function startSseListener(){
   function connect(){
     try{
       // cid+name в query — EventSource не умеет заголовки, а серверу они нужны для присутствия
-      let q='';try{q=`?cid=${encodeURIComponent(CLIENT_ID)}&name=${encodeURIComponent(un())}`;}catch(e){}
+      let q='';try{q=`?cid=${encodeURIComponent(CLIENT_ID)}&name=${encodeURIComponent(myName())}`;}catch(e){}
       _sseSrc=new EventSource(`${API}/events${q}`);
       _sseSrc.onopen=function(){
         // Первое открытие — стартовый loadAll уже выполнен в другом месте.
