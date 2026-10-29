@@ -23,7 +23,7 @@ async function selectSite(id){
 
 // Приблизить карту к объекту: объёмы, факт, базы и KML-слои, привязанные к объекту
 function _zoomToSite(o){
-  if(!o||!window.map)return;
+  if(!o||!mapReady())return;
   let b=null;
   const add=bb=>{if(bb&&bb.isValid())b=b?b.extend(bb):L.latLngBounds(bb.getSouthWest(),bb.getNorthEast());};
   const addGj=s=>{if(!s)return;try{add(L.geoJSON(typeof s==='string'?JSON.parse(s):s).getBounds());}catch(e){}};

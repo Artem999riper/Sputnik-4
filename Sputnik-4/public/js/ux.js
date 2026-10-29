@@ -129,7 +129,7 @@ function _sbApply(w, save) {
   document.documentElement.style.setProperty('--sw', (collapsed ? SB_RAIL : w) + 'px');
   document.body.classList.toggle('sb-collapsed', collapsed);
   if (save) try { localStorage.setItem('sb_width', String(w)); } catch (e) {}
-  if (window.map && map.invalidateSize) { clearTimeout(_sbApply.t); _sbApply.t = setTimeout(() => map.invalidateSize(), 60); }
+  if (mapReady() && map.invalidateSize) { clearTimeout(_sbApply.t); _sbApply.t = setTimeout(() => map.invalidateSize(), 60); }
 }
 function sidebarToggle() {
   if (!document.body.classList.contains('sb-collapsed')) {
@@ -325,7 +325,7 @@ function _lmMove(e) {
   });
 }
 (function () {
-  const go = () => { if (!window.map) return setTimeout(go, 500); map.on('mousemove', _lmMove); map.on('mouseout', () => { if (_lm.tip) { map.removeLayer(_lm.tip); _lm.tip = null; } }); };
+  const go = () => { if (!mapReady()) return setTimeout(go, 500); map.on('mousemove', _lmMove); map.on('mouseout', () => { if (_lm.tip) { map.removeLayer(_lm.tip); _lm.tip = null; } }); };
   setTimeout(go, 600);
 })();
 
@@ -347,7 +347,7 @@ function labelDeclutter() {
 }
 (function () {
   let t = null; const sched = () => { clearTimeout(t); t = setTimeout(labelDeclutter, 120); };
-  const go = () => { if (!window.map) return setTimeout(go, 500); map.on('zoomend moveend layeradd', sched); };
+  const go = () => { if (!mapReady()) return setTimeout(go, 500); map.on('zoomend moveend layeradd', sched); };
   setTimeout(go, 600);
 })();
 

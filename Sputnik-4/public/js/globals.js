@@ -136,6 +136,8 @@ async function loadMyCaps(){
 // STATE
 // ═══════════════════════════════════════════════════════════
 let map, sites=[], bases=[], layers=[];
+// Карта готова? (window.map — это ещё и <div id="map">: браузер так отдаёт элементы с id, поэтому проверяем сам объект Leaflet)
+const mapReady=()=>typeof map!=='undefined'&&!!map&&typeof map.on==='function';
 let currentObj=null, currentType=null, activeSiteId=null;
 let currentTab='overview', filterSt='all';
 let mapMode='view', machinePlaceId=null, machinePlaceBaseId=null;

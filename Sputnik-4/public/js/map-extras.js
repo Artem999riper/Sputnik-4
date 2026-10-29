@@ -9,7 +9,7 @@
 const HV = { layer: null, key: null };
 function _hvShow(f, key) {
   if (HV.key === key) return;
-  _hvClear(); if (!f || !f.geometry || !window.map) return;
+  _hvClear(); if (!f || !f.geometry || !mapReady()) return;
   HV.key = key;
   HV.layer = L.geoJSON(f, { interactive: false, style: { color: '#06b6d4', weight: 5, opacity: 0.95, fillColor: '#06b6d4', fillOpacity: 0.18, dashArray: '' },
     pointToLayer: (_, ll) => L.circleMarker(ll, { radius: 14, color: '#06b6d4', weight: 4, fillOpacity: 0.12, interactive: false }) }).addTo(map);

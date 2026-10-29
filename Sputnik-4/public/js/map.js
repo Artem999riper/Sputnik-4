@@ -574,7 +574,7 @@ function _snapOwnPts(){
 }
 // → {lat,lng,kind:'vertex'|'edge'} или null
 function _snapFind(ll,px){
-  if(!window.map)return null;
+  if(!mapReady())return null;
   const T=map.latLngToContainerPoint(ll);
   let best=null,bd=px;
   const tryV=latlng=>{const p=map.latLngToContainerPoint(latlng);const d=Math.hypot(p.x-T.x,p.y-T.y);if(d<bd){bd=d;best={ll:latlng,kind:'vertex'};}};
@@ -635,9 +635,9 @@ function _snapOnMove(e){
   });
 }
 function _snapInit(){
-  if(!window.map||_snapInit.done)return;_snapInit.done=true;
+  if(!mapReady()||_snapInit.done)return;_snapInit.done=true;
   map.on('mousemove',_snapOnMove);
   map.on('mouseout',_snapHide);
   map.on('click',()=>setTimeout(()=>{if(!_snapModeOn())_snapHide();},0));
 }
-setTimeout(function _snapWait(){if(window.map)_snapInit();else setTimeout(_snapWait,500);},500);
+setTimeout(function _snapWait(){if(mapReady())_snapInit();else setTimeout(_snapWait,500);},500);

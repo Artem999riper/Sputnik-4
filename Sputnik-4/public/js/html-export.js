@@ -119,7 +119,7 @@ function _hexTileCount(bbox, minZ, maxZ) {
 }
 function _hexUpdateTileCount() {
   const el = document.getElementById('hex-tile-info');
-  if (!el || !window.map) return;
+  if (!el || !mapReady()) return;
   const b = map.getBounds();
   const bbox = {minLng: b.getWest(), maxLng: b.getEast(), minLat: b.getSouth(), maxLat: b.getNorth()};
   const maxZ = parseInt(document.getElementById('hex-offline-zoom')?.value || '14');

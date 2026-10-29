@@ -294,7 +294,7 @@ function layerVisibleEffective(l){
   return !!l.visible;
 }
 function _updateKmlLabelScale(){
-  if(!window.map)return;
+  if(!mapReady())return;
   const z=map.getZoom();
   document.querySelectorAll('.leaflet-tooltip.mlbl').forEach(el=>{
     el.style.visibility = z < 9 ? 'hidden' : '';

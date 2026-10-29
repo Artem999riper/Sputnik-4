@@ -83,7 +83,7 @@ function _kselApplyBox(bounds) {
 }
 (function () {
   const go = () => {
-    if (!window.map) return setTimeout(go, 400);
+    if (!mapReady()) return setTimeout(go, 400);
     try { map.boxZoom.disable(); } catch (e) {}     // Shift+рамка — наше выделение, а не приближение
     const el = map.getContainer();
     el.addEventListener('mousedown', e => {

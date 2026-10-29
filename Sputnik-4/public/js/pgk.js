@@ -3957,7 +3957,7 @@ const VOL_SECTIONS={
 // Объёмы: окно объёма, отметка выполнения — vol-layers.js. Рисование объёмов и фактов убрано:
 // объём — это слой KML. _snapToKml — привязка к объектам KML (камералка, правка вершин).
 function _snapToKml(ll,pxRadius){
-  if(!window.map||!lGroups)return{lat:ll.lat,lng:ll.lng,snapped:false,name:''};
+  if(!mapReady()||!lGroups)return{lat:ll.lat,lng:ll.lng,snapped:false,name:''};
   const T=map.latLngToContainerPoint(ll);
   let bestPx=null,bestDist=pxRadius,bestName='';
 

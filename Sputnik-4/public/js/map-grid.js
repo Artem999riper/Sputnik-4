@@ -24,7 +24,7 @@
 // она будет тёмной и незаметной, а не белой полосой (спутник — тёмный фон, схема — светлый)
 (function () {
   const go = () => {
-    if (!window.map || !window._mapBaseLayers) return setTimeout(go, 500);
+    if (!mapReady() || !window._mapBaseLayers) return setTimeout(go, 500);
     const set = () => {
       const base = Object.entries(window._mapBaseLayers).find(([, l]) => map.hasLayer(l));
       const dark = base && /Спутник|Гибрид/i.test(base[0]);
@@ -56,7 +56,7 @@ function _mgMskProj(lng) {
   return null;
 }
 function mapGridRender() {
-  if (!window.map) return;
+  if (!mapReady()) return;
   if (!MGRID.layer) MGRID.layer = L.layerGroup();
   MGRID.layer.clearLayers();
   const kind = typeof uiSet === 'function' ? (uiSet('grid') || 'none') : 'none';
@@ -102,7 +102,7 @@ function mapGridRender() {
 }
 (function () {
   const go = () => {
-    if (!window.map) return setTimeout(go, 400);
+    if (!mapReady()) return setTimeout(go, 400);
     let t = null; map.on('moveend zoomend resize', () => { clearTimeout(t); t = setTimeout(mapGridRender, 80); });
     mapGridRender();
   };
