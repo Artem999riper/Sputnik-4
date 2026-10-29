@@ -428,3 +428,15 @@ body.ui-nocoords #coord-widget{display:none!important}
 .adm-err-meta{font-size:10px;color:var(--tx3);margin-top:2px}
 .adm-err-st{display:none;font-size:10px;white-space:pre-wrap;background:var(--s2);padding:6px;border-radius:4px;margin-top:5px;max-height:220px;overflow:auto}
 .adm-err-row.open .adm-err-st{display:block}
+/* календарь смен: план, нормы */
+.sc-bar.plan{opacity:.45;background-image:none!important;border:2px dashed rgba(0,0,0,.35);box-shadow:none}
+.sc-leg-plan{display:inline-block;width:16px;height:9px;border:2px dashed #94a3b8;border-radius:3px;background:#cbd5e1}
+.sc-norm .sc-day{font-weight:700}
+.sc-norm .sc-day.low{background:#fecaca;color:#991b1b}
+.sc-norm .sc-day.okn{background:#dcfce7;color:#166534}
+.sc-norm .sc-day.fut{opacity:.75}
+html[data-theme=dark] .sc-norm .sc-day.low{background:#5b1d1d;color:#fecaca}
+html[data-theme=dark] .sc-norm .sc-day.okn{background:#123d24;color:#bbf7d0}
+.sc-chk{display:flex;gap:6px;align-items:center;font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--tx);margin:8px 0 0;cursor:pointer}
+.sc-chk input{width:auto;margin:0}
+.sc-row.sc-norm{position:relative;bottom:auto;z-index:2}

@@ -532,7 +532,7 @@ async function openWorkerDetail(wid){
   </div>
   <div id="wdc-shifts" class="wdc-panel" style="display:none">
     ${shifts.length?shifts.map(s=>`<div class="wdc-shift">
-      <div class="wdc-shift-base">${esc(s.base_name||'—')} · <b>${s.days||0} дн.</b></div>
+      <div class="wdc-shift-base">${s.planned?'📅 <i>план</i> · ':''}${esc(s.base_name||'—')} · <b>${s.days||0} дн.</b></div>
       <div class="wdc-shift-meta">${fmt(s.start_date)}${s.end_date?' → '+fmt(s.end_date):' — по сей день'}</div>
       ${s.notes?`<div class="wdc-shift-notes">${esc(s.notes)}</div>`:''}
     </div>`).join(''):'<div class="wdc-empty">Вахт не было</div>'}

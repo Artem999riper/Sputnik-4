@@ -62,7 +62,8 @@ async function loadMyCaps(){
   try{
     const r=await fetch(`${API}/me/caps`);
     if(r.ok){const j=await r.json();myCaps=j.caps||myCaps;iAmAdmin=!!j.isAdmin;iAmLoopback=!!j.loopback;adminPwSet=!!j.pwSet;
-      if(typeof applyCapsToUI==='function')applyCapsToUI();}
+      if(typeof applyCapsToUI==='function')applyCapsToUI();
+      if(iAmAdmin&&typeof admHealthBadge==='function')setTimeout(admHealthBadge,1500);}
   }catch(e){}
 }
 

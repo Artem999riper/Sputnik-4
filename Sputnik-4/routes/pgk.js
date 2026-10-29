@@ -57,9 +57,9 @@ module.exports = (app, getDb, L) => {
     const d = db();
     const workers = all(d, `
       SELECT w.*, b.name as base_name,
-        (SELECT ws.start_date FROM worker_shifts ws WHERE ws.worker_id=w.id
+        (SELECT ws.start_date FROM worker_shifts ws WHERE ws.worker_id=w.id AND COALESCE(ws.planned,0)=0
          ORDER BY COALESCE(ws.start_date,'') DESC LIMIT 1) as last_shift_start,
-        (SELECT ws.end_date FROM worker_shifts ws WHERE ws.worker_id=w.id
+        (SELECT ws.end_date FROM worker_shifts ws WHERE ws.worker_id=w.id AND COALESCE(ws.planned,0)=0
          ORDER BY COALESCE(ws.start_date,'') DESC LIMIT 1) as last_shift_end
       FROM pgk_workers w LEFT JOIN bases b ON w.base_id=b.id ORDER BY w.name`);
 
@@ -88,9 +88,9 @@ module.exports = (app, getDb, L) => {
 
   app.post('/api/pgk/workers/:id/shifts', wrap((req, res) => {
     const id = uuid();
-    const { base_id, start_date, end_date, days, notes } = req.body;
-    run(db(), 'INSERT INTO worker_shifts(id,worker_id,base_id,start_date,end_date,days,notes)VALUES(?,?,?,?,?,?,?)',
-      [id, req.params.id, base_id || null, start_date || null, end_date || null, days || 0, notes || '']);
+    const { base_id, start_date, end_date, days, notes, planned } = req.body;
+    run(db(), 'INSERT INTO worker_shifts(id,worker_id,base_id,start_date,end_date,days,notes,planned)VALUES(?,?,?,?,?,?,?,?)',
+      [id, req.params.id, base_id || null, start_date || null, end_date || null, days || 0, notes || '', planned ? 1 : 0]);
     res.json({ id });
   }));
 
@@ -107,8 +107,8 @@ module.exports = (app, getDb, L) => {
     const o = { ...s, ...req.body };
     if (o.start_date && o.end_date && o.end_date < o.start_date) return res.status(400).json({ error: 'Окончание раньше начала' });
     const days = o.start_date && o.end_date ? Math.round((new Date(o.end_date) - new Date(o.start_date)) / 86400000) + 1 : (o.days || 0);
-    run(db(), 'UPDATE worker_shifts SET base_id=?,start_date=?,end_date=?,days=?,notes=? WHERE id=?',
-      [o.base_id || null, o.start_date || null, o.end_date || null, days, o.notes || '', req.params.id]);
+    run(db(), 'UPDATE worker_shifts SET base_id=?,start_date=?,end_date=?,days=?,notes=?,planned=? WHERE id=?',
+      [o.base_id || null, o.start_date || null, o.end_date || null, days, o.notes || '', o.planned ? 1 : 0, req.params.id]);
     res.json({ ok: true });
   }));
 

@@ -195,3 +195,14 @@ test('журнал ошибок: ошибки браузера с именем �
   ok(await S.api('DELETE', '/api/admin/errors'), 'очистить');
   assert.strictEqual((await S.api('GET', '/api/admin/errors')).body.rows.length, 0);
 });
+
+test('план вахт: плановая вахта не попадает в «последний выезд» сотрудника', async () => {
+  const wid = (await S.api('POST', '/api/pgk/workers', { name: 'Плановик' })).body.id;
+  ok(await S.api('POST', `/api/pgk/workers/${wid}/shifts`, { start_date: '2026-03-01', end_date: '2026-03-20', days: 20 }), 'факт');
+  const pid = (await S.api('POST', `/api/pgk/workers/${wid}/shifts`, { start_date: '2099-01-01', end_date: '2099-01-30', days: 30, planned: 1 })).body.id;
+  let w = (await S.api('GET', '/api/pgk/workers/summary')).body.find(x => x.id === wid);
+  assert.strictEqual(w.last_shift_end, '2026-03-20');
+  ok(await S.api('PUT', `/api/pgk/workers/shifts/${pid}`, { planned: 0 }), 'стал фактом');
+  w = (await S.api('GET', '/api/pgk/workers/summary')).body.find(x => x.id === wid);
+  assert.strictEqual(w.last_shift_end, '2099-01-30');
+});

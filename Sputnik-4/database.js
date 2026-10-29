@@ -304,6 +304,8 @@ async function getDb() {
   ta("ALTER TABLE vol_progress ADD COLUMN amount2 REAL");
   ta("ALTER TABLE vol_progress ADD COLUMN feature_uid TEXT");
   ta("CREATE INDEX IF NOT EXISTS idx_volumes_layer      ON volumes(layer_id)");
+  // План вахт (календарь смен): будущий заезд, ещё не состоявшийся
+  ta("ALTER TABLE worker_shifts ADD COLUMN planned INTEGER DEFAULT 0");
 
   // Реестр известных клиентов (для присутствия и настройки прав офлайн-пользователям)
   ta("CREATE TABLE IF NOT EXISTS known_clients (client_id TEXT PRIMARY KEY, name TEXT DEFAULT '', first_seen TEXT DEFAULT (datetime('now')), last_seen TEXT DEFAULT (datetime('now')))");

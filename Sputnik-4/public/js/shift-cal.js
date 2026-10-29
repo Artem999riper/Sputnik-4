@@ -4,7 +4,11 @@
 // сегодня (штрих справа). Пересекающиеся вахты одного человека — красная рамка.
 // Тянуть полосу — сдвинуть вахту, тянуть край — изменить даты; щелчок —
 // правка/удаление; двойной щелчок по пустому месту — добавить вахту.
-// Снизу — сколько человек на вахте в каждый день.
+// Снизу — сколько человек на вахте в каждый день и строки норм по базам
+// («на Юрхаре нужно 6»): дни, где людей меньше нормы, — красные.
+// План вахт — будущие заезды (бледная полоса с пунктиром): видно, кто когда
+// заедет; в строке нормы на будущие дни учитываются и плановые заезды.
+// «📄 Табель» — Excel: люди по дням, В — вахта, Д — дома, итоги за месяц.
 // ═══════════════════════════════════════════════════════════
 const SC = Object.assign({ months: 1, base: '', q: '', fired: false, from: null, shifts: [], dayW: 26 },
   (() => { try { return JSON.parse(localStorage.getItem('shift_cal') || '{}'); } catch (e) { return {}; } })());
@@ -24,13 +28,14 @@ async function shiftCalLoad() {
   const to = new Date(SC.from.getFullYear(), SC.from.getMonth() + SC.months, 0);
   SC.to = to;
   try { SC.shifts = await fetch(`${API}/pgk/shifts?from=${_scS(SC.from)}&to=${_scS(to)}`).then(r => r.json()); } catch (e) { SC.shifts = []; }
+  try { const j = await fetch(`${API}/app-settings/base_norms`).then(r => r.json()); SC.norms = (j && j.value) || {}; } catch (e) { SC.norms = SC.norms || {}; }
 }
 async function shiftCalRender(pb) {
   pb = pb || _getPGKContainer(); if (!pb) return;
   await shiftCalLoad();
   const from = SC.from, to = SC.to, nd = _scDiff(from, to) + 1, W = SC.dayW, today = _scToday();
   // полосы: завершённые вахты + открытые (worker.start_date → сегодня)
-  const bars = SC.shifts.filter(s => s.start_date).map(s => ({ id: s.id, wid: s.worker_id, base: s.base_id, s: _scD(s.start_date), e: s.end_date ? _scD(s.end_date) : today, open: false, notes: s.notes || '' }));
+  const bars = SC.shifts.filter(s => s.start_date).map(s => ({ id: s.id, wid: s.worker_id, base: s.base_id, s: _scD(s.start_date), e: s.end_date ? _scD(s.end_date) : today, open: false, plan: !!s.planned, notes: s.notes || '' }));
   pgkWorkers.forEach(w => { if (w.start_date && w.status !== 'fired') bars.push({ id: 'open:' + w.id, wid: w.id, base: w.base_id, s: _scD(w.start_date), e: today, open: true }); });
   const q = SC.q.trim().toLowerCase();
   let ws = pgkWorkers.filter(w => (SC.fired || w.status !== 'fired') && (!q || (w.name + ' ' + (w.role || '')).toLowerCase().includes(q)));
@@ -44,7 +49,7 @@ async function shiftCalRender(pb) {
   Object.values(byW).forEach(list => list.forEach(a => { a.over = list.some(b => b !== a && b.s <= a.e && a.s <= b.e); }));
   // сколько человек в день
   const perDay = new Array(nd).fill(0);
-  ws.forEach(w => (byW[w.id] || []).forEach(b => { if (SC.base && b.base !== SC.base) return; for (let d = Math.max(0, _scDiff(from, b.s)); d <= Math.min(nd - 1, _scDiff(from, b.e)); d++) perDay[d]++; }));
+  ws.forEach(w => (byW[w.id] || []).forEach(b => { if (b.plan || (SC.base && b.base !== SC.base)) return; for (let d = Math.max(0, _scDiff(from, b.s)); d <= Math.min(nd - 1, _scDiff(from, b.e)); d++) perDay[d]++; }));
   const days = []; for (let i = 0; i < nd; i++) days.push(_scAdd(from, i));
   const MON = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
   const title = SC.months === 1 ? `${MON[from.getMonth()]} ${from.getFullYear()}` : `${MON[from.getMonth()]} — ${MON[to.getMonth()]} ${to.getFullYear()}`;
@@ -55,15 +60,26 @@ async function shiftCalRender(pb) {
     const bs = (byW[w.id] || []).filter(b => b.e >= from && b.s <= to).map(b => {
       const l = Math.max(0, _scDiff(from, b.s)), r = Math.min(nd - 1, _scDiff(from, b.e)), len = _scDiff(b.s, b.e) + 1;
       const c = _scColor(b.base);
-      return `<div class="sc-bar${b.open ? ' open' : ''}${b.over ? ' over' : ''}${SC.base && b.base !== SC.base ? ' dim' : ''}" data-id="${escAttr(b.id)}" data-wid="${escAttr(w.id)}"
+      return `<div class="sc-bar${b.open ? ' open' : ''}${b.plan ? ' plan' : ''}${b.over ? ' over' : ''}${SC.base && b.base !== SC.base ? ' dim' : ''}" data-id="${escAttr(b.id)}" data-wid="${escAttr(w.id)}"
         style="left:${l * W + 1}px;width:${(r - l + 1) * W - 2}px;background:${c}"
-        title="${escAttr(`${w.name.trim()} — ${baseName(b.base)}\n${fmt(_scS(b.s))} — ${b.open ? 'сейчас' : fmt(_scS(b.e))} (${len} дн.)${b.over ? '\n⚠ пересекается с другой вахтой' : ''}${b.notes ? '\n' + b.notes : ''}`)}">
-        ${b.s >= from ? '<i class="sc-h l"></i>' : ''}<span>${(r - l + 1) * W > 70 ? esc(baseName(b.base)) + ' · ' : ''}${len} дн.</span>${!b.open && b.e <= to ? '<i class="sc-h r"></i>' : ''}</div>`;
+        title="${escAttr(`${b.plan ? 'ПЛАН: ' : ''}${w.name.trim()} — ${baseName(b.base)}\n${fmt(_scS(b.s))} — ${b.open ? 'сейчас' : fmt(_scS(b.e))} (${len} дн.)${b.over ? '\n⚠ пересекается с другой вахтой' : ''}${b.notes ? '\n' + b.notes : ''}`)}">
+        ${b.s >= from ? '<i class="sc-h l"></i>' : ''}<span>${b.plan ? 'план · ' : ''}${(r - l + 1) * W > 70 ? esc(baseName(b.base)) + ' · ' : ''}${len} дн.</span>${!b.open && b.e <= to ? '<i class="sc-h r"></i>' : ''}</div>`;
     }).join('');
     return `<div class="sc-row" data-wid="${escAttr(w.id)}"><div class="sc-name" title="${escAttr(w.role || '')}">${esc(w.name.trim())}<small>${esc(w.role || '')}</small></div>
       <div class="sc-track" style="width:${nd * W}px">${bg}${bs}</div></div>`;
   }).join('');
   const usedBases = [...new Set(bars.filter(b => b.e >= from && b.s <= to).map(b => b.base))];
+  // строки норм: сколько людей на базе в каждый день (будущие дни — с плановыми заездами)
+  const normRows = bases.filter(b => +SC.norms[b.id] > 0 && (!SC.base || SC.base === b.id)).map(b => {
+    const norm = +SC.norms[b.id], cnt = days.map(() => new Set());
+    bars.forEach(x => { if (x.base !== b.id) return;
+      for (let d = Math.max(0, _scDiff(from, x.s)); d <= Math.min(nd - 1, _scDiff(from, x.e)); d++) { if (x.plan && days[d] <= today) continue; cnt[d].add(x.wid); } });
+    // открытая вахта продолжается в будущее (до конца периода) — человек ещё на базе
+    bars.filter(x => x.open && x.base === b.id).forEach(x => { for (let d = Math.max(0, _scDiff(from, today) + 1); d < nd; d++) cnt[d].add(x.wid); });
+    const low = cnt.filter(c => c.size < norm).length;
+    return `<div class="sc-row sc-foot sc-norm"><div class="sc-name" title="Норма: ${norm} чел. Красное — меньше нормы${low ? ` (${low} дн.)` : ''}">${esc(b.name)}<small>норма ${norm}${low ? ` · не хватает ${low} дн.` : ''}</small></div>
+      <div class="sc-track" style="width:${nd * W}px">${cnt.map((c, i) => `<div class="sc-day ${c.size < norm ? 'low' : 'okn'}${days[i] > today ? ' fut' : ''}" style="width:${W}px" title="${fmt(_scS(days[i]))}: ${c.size} из ${norm}">${c.size}</div>`).join('')}</div></div>`;
+  }).join('');
   pb.innerHTML = `<div class="wt-outer" id="sc-root">
     <div class="wt-toolbar" style="flex-wrap:wrap;row-gap:6px">
       <span style="font-size:13px;font-weight:800">📅 Календарь смен</span>
@@ -76,14 +92,18 @@ async function shiftCalRender(pb) {
       <select onchange="SC.base=this.value;_scSave();shiftCalRender()" style="font-size:11px;max-width:170px"><option value="">Все базы</option>${bases.map(b => `<option value="${b.id}" ${SC.base === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
       <input type="search" placeholder="🔍 Сотрудник…" value="${escAttr(SC.q)}" oninput="SC.q=this.value;clearTimeout(SC.t);SC.t=setTimeout(()=>{shiftCalRender().then(()=>{const e=document.querySelector('#sc-root input[type=search]');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}})},250)" style="font-size:11px;padding:3px 8px;min-width:140px">
       <label style="display:flex;gap:4px;align-items:center;font-size:11px;text-transform:none;font-weight:500;margin:0"><input type="checkbox" ${SC.fired ? 'checked' : ''} onchange="SC.fired=this.checked;_scSave();shiftCalRender()" style="width:auto;margin:0"> уволенные</label>
+      <button class="btn bs bsm" onclick="shiftCalNorms()" title="Сколько человек нужно на каждой базе">👥 Нормы баз</button>
+      <button class="btn bs bsm" onclick="shiftCalTabel()" title="Табель в Excel: В — вахта, Д — дома, итоги">📄 Табель</button>
       <span style="margin-left:auto;display:flex;gap:4px;align-items:center;font-size:10px;color:var(--tx3)">масштаб
         <input type="range" min="12" max="48" value="${W}" oninput="SC.dayW=+this.value;_scSave();clearTimeout(SC.t2);SC.t2=setTimeout(shiftCalRender,120)" style="width:80px"></span>
     </div>
     <div class="wt-summary" style="flex-wrap:wrap">${usedBases.map(b => `<span style="display:inline-flex;gap:4px;align-items:center"><i style="width:10px;height:10px;border-radius:3px;background:${_scColor(b)};display:inline-block"></i>${esc(baseName(b))}</span>`).join('')}
+      <span style="display:inline-flex;gap:4px;align-items:center"><i class="sc-leg-plan"></i>план</span>
       <span style="margin-left:auto;color:var(--tx3);font-size:10px">тяните полосу — сдвинуть, край — даты · щелчок — изменить · двойной щелчок по пустому — добавить вахту</span></div>
     <div class="sc-scroll" id="sc-scroll">
       <div class="sc-row sc-head"><div class="sc-name">Сотрудник (${ws.length})</div><div class="sc-track" style="width:${nd * W}px">${head}</div></div>
       ${rowsHtml || '<div style="padding:24px;color:var(--tx3)">Нет сотрудников</div>'}
+      ${normRows}
       <div class="sc-row sc-foot"><div class="sc-name">На вахте, чел.</div><div class="sc-track" style="width:${nd * W}px">${perDay.map((n, i) => `<div class="sc-day${days[i].getDay() === 0 || days[i].getDay() === 6 ? ' we' : ''}${n ? '' : ' zero'}" style="width:${W}px">${n || '·'}</div>`).join('')}</div></div>
     </div></div>`;
   _scBind();
@@ -178,16 +198,18 @@ function _scEdit(id) {
     <div class="fg"><label>Начало</label><input id="sc-s" type="date" value="${s.start_date || ''}"></div>
     <div class="fg"><label>Окончание</label><input id="sc-e" type="date" value="${s.end_date || ''}"></div>
     <div class="fg s2"><label>База</label>${_scBaseSel(s.base_id)}</div>
-    <div class="fg s2"><label>Примечание</label><input id="sc-n" value="${escAttr(s.notes || '')}"></div></div>`,
-    [{ label: '🗑 Удалить', cls: 'bd', fn: async () => {
-        if (!await confirmDlg('Удалить эту вахту из истории?')) return;
+    <div class="fg s2"><label>Примечание</label><input id="sc-n" value="${escAttr(s.notes || '')}"></div></div>
+    <label class="sc-chk"><input type="checkbox" id="sc-plan" ${s.planned ? 'checked' : ''}> 📅 План (ещё не заехал)</label>`,
+    [...(s.planned ? [{ label: '✅ Заехал', cls: 'bp', fn: () => _scArrive(s, f.w) }] : []),
+     { label: '🗑 Удалить', cls: 'bd', fn: async () => {
+        if (!await confirmDlg(s.planned ? 'Удалить плановую вахту?' : 'Удалить эту вахту из истории?')) return;
         closeModal(); await fetch(`${API}/pgk/workers/shifts/${s.id}`, { method: 'DELETE' });
         shiftCalRender();
         TK.undoBar('Вахта удалена', async () => { await fetch(`${API}/pgk/workers/${s.worker_id}/shifts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s) }); shiftCalRender(); });
       } },
      { label: 'Отмена', cls: 'bs', fn: closeModal },
      { label: 'Сохранить', cls: 'bp', fn: async () => {
-        const p = { start_date: document.getElementById('sc-s').value, end_date: document.getElementById('sc-e').value, base_id: document.getElementById('sc-base').value || null, notes: document.getElementById('sc-n').value };
+        const p = { start_date: document.getElementById('sc-s').value, end_date: document.getElementById('sc-e').value, base_id: document.getElementById('sc-base').value || null, notes: document.getElementById('sc-n').value, planned: document.getElementById('sc-plan').checked ? 1 : 0 };
         if (!p.start_date || !p.end_date) return toast('Укажите даты', 'warn');
         closeModal(); try { await _scPutShift(s, p); shiftCalRender(); toast('Сохранено', 'ok'); } catch (e) { toast(e.message, 'err'); }
       } }]);
@@ -200,16 +222,85 @@ function _scNew(wid, day) {
     <div class="fg"><label>Окончание</label><input id="sc-e" type="date" value="${end}"></div>
     <div class="fg s2"><label>База</label>${_scBaseSel(w.base_id || SC.base)}</div>
     <div class="fg s2"><label>Примечание</label><input id="sc-n"></div></div>
-    <div style="font-size:11px;color:var(--tx3);margin-top:6px">Это запись в истории вахт. Текущую вахту открывает статус «В работе» с датой заезда.</div>`,
+    <label class="sc-chk"><input type="checkbox" id="sc-plan" ${_scD(day) > _scToday() ? 'checked' : ''}> 📅 План — будущий заезд (бледная полоса; в историю вахт не идёт)</label>
+    <div style="font-size:11px;color:var(--tx3);margin-top:6px">Без галочки — запись в истории вахт. Текущую вахту открывает статус «В работе» с датой заезда (или «✅ Заехал» у плановой).</div>`,
     [{ label: 'Отмена', cls: 'bs', fn: closeModal }, { label: '＋ Добавить', cls: 'bp', fn: async () => {
       const s = document.getElementById('sc-s').value, e = document.getElementById('sc-e').value;
       if (!s || !e || e < s) return toast('Проверьте даты', 'warn');
       closeModal();
       const r = await fetch(`${API}/pgk/workers/${wid}/shifts`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base_id: document.getElementById('sc-base')?.value || null, start_date: s, end_date: e, days: _scDiff(_scD(s), _scD(e)) + 1, notes: document.getElementById('sc-n')?.value || '' }) }).then(x => x.json()).catch(() => ({}));
+        body: JSON.stringify({ base_id: document.getElementById('sc-base')?.value || null, start_date: s, end_date: e, days: _scDiff(_scD(s), _scD(e)) + 1, notes: document.getElementById('sc-n')?.value || '', planned: document.getElementById('sc-plan')?.checked ? 1 : 0 }) }).then(x => x.json()).catch(() => ({}));
       shiftCalRender();
       if (r.id) TK.undoBar('Вахта добавлена', async () => { await fetch(`${API}/pgk/workers/shifts/${r.id}`, { method: 'DELETE' }); shiftCalRender(); });
     } }]);
+}
+// Плановая вахта → человек заехал: открыть вахту (статус «В работе», дата заезда, база), план убрать
+async function _scArrive(s, w) {
+  if (!w) return;
+  if (w.start_date) { toast(`У ${w.name.trim()} уже открыта вахта с ${fmt(w.start_date)}`, 'warn'); return; }
+  const start = _scD(s.start_date) > _scToday() ? _scS(_scToday()) : s.start_date;
+  const d = document.getElementById('sc-s'); const day = d && d.value && _scD(d.value) <= _scToday() ? d.value : start;
+  closeModal();
+  try {
+    await _scPutWorker(w, { start_date: day, base_id: s.base_id || w.base_id, status: 'working' });
+    await fetch(`${API}/pgk/workers/shifts/${s.id}`, { method: 'DELETE' });
+    await loadPGK(); shiftCalRender();
+    toast(`✅ ${w.name.trim()}: вахта открыта с ${fmt(day)}`, 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+}
+// Нормы по базам: сколько человек нужно на базе (общие для всех, app_settings.base_norms)
+function shiftCalNorms() {
+  const n = SC.norms || {};
+  showModal('👥 Нормы по базам', `<div style="min-width:min(380px,86vw);font-size:12px">
+    <div class="vl-hint" style="margin-bottom:8px">Сколько человек должно быть на базе. В календаре появится строка базы: дни, где людей меньше нормы, — красные (будущие дни считаются с плановыми заездами). Пусто или 0 — без нормы.</div>
+    ${bases.map(b => `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--bd)"><span style="flex:1">🏕 ${esc(b.name)}</span>
+      <input type="number" min="0" step="1" class="sc-norm-in" data-b="${escAttr(b.id)}" value="${+n[b.id] || ''}" placeholder="—" style="width:70px;text-align:right"> чел.</div>`).join('') || '<div class="empty">Нет баз</div>'}
+  </div>`, [{ label: 'Отмена', cls: 'bs', fn: closeModal }, { label: '💾 Сохранить', cls: 'bp', fn: async () => {
+    const v = {}; document.querySelectorAll('.sc-norm-in').forEach(i => { const x = parseInt(i.value); if (x > 0) v[i.dataset.b] = x; });
+    const r = await fetch(`${API}/app-settings/base_norms`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: v }) });
+    if (!r.ok) { toast('Ошибка сохранения', 'err'); return; }
+    closeModal(); SC.norms = v; shiftCalRender(); toast('Нормы сохранены', 'ok');
+  } }]);
+}
+// Табель в Excel: лист на каждый месяц периода. В — на вахте, Д — дома, П — плановая вахта (будущие дни)
+async function shiftCalTabel() {
+  if (typeof XLSX === 'undefined') { toast('Библиотека Excel не загрузилась', 'err'); return; }
+  await shiftCalLoad();
+  const today = _scToday(), wb = XLSX.utils.book_new();
+  const MON = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+  const bars = SC.shifts.filter(s => s.start_date).map(s => ({ wid: s.worker_id, base: s.base_id, s: _scD(s.start_date), e: s.end_date ? _scD(s.end_date) : today, plan: !!s.planned }));
+  pgkWorkers.forEach(w => { if (w.start_date && w.status !== 'fired') bars.push({ wid: w.id, base: w.base_id, s: _scD(w.start_date), e: today, open: true }); });
+  const baseName = id => (bases.find(b => b.id === id) || {}).name || '';
+  for (let m = 0; m < SC.months; m++) {
+    const f = new Date(SC.from.getFullYear(), SC.from.getMonth() + m, 1), l = new Date(f.getFullYear(), f.getMonth() + 1, 0), nd = l.getDate();
+    const inMonth = b => b.e >= f && b.s <= l && (!SC.base || b.base === SC.base);
+    let ws = pgkWorkers.filter(w => bars.some(b => b.wid === w.id && inMonth(b)) || (!SC.base && w.status !== 'fired') || (SC.base && w.base_id === SC.base && w.status !== 'fired'));
+    const q = SC.q.trim().toLowerCase(); if (q) ws = ws.filter(w => (w.name + ' ' + (w.role || '')).toLowerCase().includes(q));
+    ws.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    const head = ['№', 'Ф.И.О.', 'Должность', 'База'], days = [];
+    for (let d = 1; d <= nd; d++) { days.push(new Date(f.getFullYear(), f.getMonth(), d)); head.push(String(d)); }
+    head.push('Вахта, дн.', 'Дома, дн.', 'План, дн.');
+    const rows = ws.map((w, i) => {
+      const mine = bars.filter(b => b.wid === w.id && (!SC.base || b.base === SC.base));
+      let v = 0, h = 0, p = 0; const bs = new Set();
+      const cells = days.map(d => {
+        const act = mine.find(b => !b.plan && b.s <= d && b.e >= d);
+        if (act) { v++; if (act.base) bs.add(baseName(act.base)); return 'В'; }
+        if (d > today) { if (mine.some(b => b.plan && b.s <= d && b.e >= d)) { p++; return 'П'; } return ''; }
+        h++; return 'Д';
+      });
+      return [i + 1, w.name.trim(), w.role || '', [...bs].join(', ') || baseName(w.base_id), ...cells, v, h, p || ''];
+    });
+    const tot = ['', 'Итого на вахте', '', '', ...days.map((d, k) => rows.filter(r => r[4 + k] === 'В').length || ''), rows.reduce((s, r) => s + r[4 + nd], 0), rows.reduce((s, r) => s + r[5 + nd], 0), ''];
+    const aoa = [[`Табель вахт — ${MON[f.getMonth()]} ${f.getFullYear()}${SC.base ? ' — ' + baseName(SC.base) : ''}`], ['В — на вахте, Д — дома, П — плановая вахта'], [], head, ...rows, tot];
+    const sh = XLSX.utils.aoa_to_sheet(aoa);
+    sh['!cols'] = [{ wch: 4 }, { wch: 26 }, { wch: 18 }, { wch: 16 }, ...days.map(() => ({ wch: 3.2 })), { wch: 10 }, { wch: 9 }, { wch: 8 }];
+    sh['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: head.length - 1 } }];
+    sh['!freeze'] = { xSplit: 2, ySplit: 4 };
+    XLSX.utils.book_append_sheet(wb, sh, `${MON[f.getMonth()].slice(0, 3)} ${f.getFullYear()}`);
+  }
+  const fname = `Табель_${_scS(SC.from).slice(0, 7)}${SC.months > 1 ? '_' + SC.months + 'мес' : ''}.xlsx`;
+  XLSX.writeFile(wb, fname); toast(`📄 Табель сохранён: ${fname}`, 'ok');
 }
 // вкладка «Сотрудники»: в режиме календаря рисуем его вместо таблицы; кнопка в панели таблицы
 (function () {

@@ -50,7 +50,7 @@ async function _admLogin(password){
 // Основная панель с вкладками
 function _admRender(){
   showModal('⚙️ Администрирование',`
-    <div style="display:flex;gap:4px;margin-bottom:10px;border-bottom:1.5px solid var(--bd);padding-bottom:8px">
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;border-bottom:1.5px solid var(--bd);padding-bottom:8px">
       <button class="btn bs bsm" id="adm-t-online"  onclick="_admSwitch('online')">👥 Онлайн</button>
       <button class="btn bs bsm" id="adm-t-rights"  onclick="_admSwitch('rights')">🔑 Права</button>
       <button class="btn bs bsm" id="adm-t-tabs"    onclick="_admSwitch('tabs')">🗂 Вкладки</button>
