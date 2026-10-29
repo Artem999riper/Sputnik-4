@@ -482,7 +482,9 @@ html[data-theme=dark] .wd-warn{background:#3f3410;color:#fde68a}
 .wd-doc{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px}
 .wd-exp{font-size:10px;font-weight:800;border:1.5px solid;border-radius:9px;padding:1px 7px;white-space:nowrap}
 .wd-files{display:flex;flex-wrap:wrap;gap:6px;font-size:11px;margin-top:2px}
-/* швы подложки: Leaflet делает каждый тайл отдельным слоем видеокарты (will-change),
-   при масштабе браузера ≠100 % края слоёв округляются по-разному — видна белая сетка */
-.leaflet-fade-anim .leaflet-tile,.leaflet-tile{will-change:auto!important}
-.leaflet-tile-container{will-change:transform}
+/* швы подложки: Leaflet рисует тайлы с mix-blend-mode:plus-lighter — цвета перекрывающихся
+   краёв СКЛАДЫВАЮТСЯ, и при масштабе браузера ≠100 % на стыках светлые линии. Обычное наложение
+   + перекрытие тайлов на 1 px (map-grid.js) — ни щелей, ни светлых линий */
+.leaflet-container img.leaflet-tile{mix-blend-mode:normal!important}
+.adm-err-row,.adm-err-row *{user-select:text}
+.adm-err-hd .btn{margin-left:4px;flex-shrink:0}

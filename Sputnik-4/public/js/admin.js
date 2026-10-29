@@ -377,17 +377,18 @@ async function _admRenderErrors(){
   const qs=new URLSearchParams();if(_ADME.source)qs.set('source',_ADME.source);if(_ADME.q)qs.set('q',_ADME.q);
   let r;try{r=await fetch(`${API}/admin/errors?${qs}`).then(x=>x.json());}catch(e){b.innerHTML='<div class="empty">Ошибка сети</div>';return;}
   if(r.error){b.innerHTML=`<div class="empty">${esc(r.error)}</div>`;return;}
-  const rows=r.rows||[];
+  const rows=r.rows||[];_ADME.rows=rows;
   b.innerHTML=`<div class="adm-err">
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
       <select onchange="_ADME.source=this.value;_admRenderErrors()" style="width:auto"><option value="">Все</option><option value="server" ${_ADME.source==='server'?'selected':''}>🖥 Сервер</option><option value="client" ${_ADME.source==='client'?'selected':''}>🌐 Браузеры</option></select>
       <input type="search" placeholder="🔍 текст, пользователь, адрес…" value="${escAttr(_ADME.q)}" onchange="_ADME.q=this.value;_admRenderErrors()" style="flex:1;min-width:150px">
       <span style="font-size:11px;color:var(--tx3)">за сутки: <b>${r.last24}</b></span>
       <button class="btn bs bxs" onclick="_admRenderErrors()">🔄</button>
-      ${rows.length?'<button class="btn bd bxs" onclick="_admErrClear()">🗑 Очистить</button>':''}
+      ${rows.length?'<button class="btn bs bxs" onclick="_admErrCopy()" title="Скопировать все показанные ошибки текстом">📋 Копировать все</button><button class="btn bd bxs" onclick="_admErrClear()">🗑 Очистить</button>':''}
     </div>
-    ${rows.length?rows.map((e,i)=>`<div class="adm-err-row" onclick="this.classList.toggle('open')">
-      <div class="adm-err-hd"><span>${e.source==='server'?'🖥':'🌐'}</span><b>${esc(e.message)}</b>${e.count>1?`<i>×${e.count}</i>`:''}</div>
+    ${rows.length?rows.map((e,i)=>`<div class="adm-err-row" onclick="if(!String(getSelection()))this.classList.toggle('open')">
+      <div class="adm-err-hd"><span>${e.source==='server'?'🖥':'🌐'}</span><b>${esc(e.message)}</b>${e.count>1?`<i>×${e.count}</i>`:''}
+        <button class="btn bg bxs" onclick="event.stopPropagation();_admErrCopy(${i})" title="Скопировать текст ошибки">📋</button></div>
       <div class="adm-err-meta">${new Date(e.last_at||e.at).toLocaleString('ru-RU')}${e.user_name?' · 👤 '+esc(e.user_name):''}${e.url?' · '+esc(e.url):''}</div>
       ${e.stack?`<pre class="adm-err-st">${esc(e.stack)}</pre>`:''}</div>`).join(''):'<div class="empty">✅ Ошибок нет</div>'}
   </div>`;
@@ -412,3 +413,18 @@ async function admHealthBadge(){
     toast(`🩺 В базе найдены проблемы (${issues}) — 🛡 Администрирование → «Проверка базы»`,'warn');}
 }
 setTimeout(()=>{admHealthBadge();setInterval(admHealthBadge,600000);},7000);
+
+// текст ошибки (или всех показанных) — в буфер обмена, чтобы переслать разработчику
+function _admErrText(e){
+  return [`${e.source==='server'?'Сервер':'Браузер'} · ${new Date(e.last_at||e.at).toLocaleString('ru-RU')}${e.count>1?` · ×${e.count}`:''}${e.user_name?` · ${e.user_name}`:''}`,
+    e.message, e.url?`Где: ${e.url}`:'', e.agent?`Браузер: ${e.agent}`:'', e.stack||''].filter(Boolean).join('\n');
+}
+async function _admErrCopy(i){
+  const list=_ADME.rows||[]; const txt=(i==null?list:[list[i]]).filter(Boolean).map(_admErrText).join('\n\n────────\n\n');
+  if(!txt)return;
+  try{await navigator.clipboard.writeText(txt);toast(i==null?`📋 Скопировано ошибок: ${list.length}`:'📋 Текст ошибки скопирован','ok');}
+  catch(e){ // без https буфер может быть недоступен — показать текст для ручного копирования
+    showModal('📋 Текст ошибки',`<textarea style="width:min(680px,86vw);height:50vh;font-size:11px;font-family:monospace" onfocus="this.select()">${esc(txt)}</textarea>`,[{label:'Закрыть',cls:'bs',fn:()=>{closeModal();openAdminPanel().then(()=>_admSwitch('errors'));}}]);
+    setTimeout(()=>{const t=document.querySelector('#mbd textarea');if(t){t.focus();t.select();}},50);
+  }
+}
