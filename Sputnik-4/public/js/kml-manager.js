@@ -908,7 +908,7 @@ function _ksMenu(cx,cy){
   const items=[
     {i:'⬚',l:`<b>Выделено: ${s.total} объект(ов)</b>`,f:null,html:true},
     {sep:true},
-    {i:'✅',l:'Перевести в выполненные (сегодня)',f:()=>_ksApply('Выполнено',f=>{_vlSetDone(f.properties,{});delete f.properties._skip;}).then(()=>_ksVolRefresh(s))},
+    {i:'✅',l:'Перевести в выполненные (сегодня)',f:()=>_ksApply('Выполнено',f=>{_vlSetDone(f.properties,volExecNow());delete f.properties._skip;}).then(()=>_ksVolRefresh(s))},
     {i:'⚙️',l:'В выполненные с параметрами (дата, люди, буровая)…',f:()=>{const t=(s.entries||[]).filter(en=>!en.isSite).map(en=>({layerId:en.rec.id,idxs:en.idxs.slice()}));_ksCleanup();if(t.length)volDoneDialog(t);}},
     {i:'🎨',l:'Изменить цвет…',f:_ksColorModal},
     {i:'🏷',l:'Переименовать…',f:_ksRenameModal},
@@ -1757,7 +1757,7 @@ function renderLayerGroupsWithSymbols() {
           const lsz = typeof kmlLabelSize === 'function' ? kmlLabelSize(l) : 0;
           // выполнено / исключено — в подсказке (на постоянных подписях — не загромождаем)
           const fp = f.properties || {};
-          const dn = !showLabels && fp._done ? `✅ выполнено ${fp._done_date ? fmt(fp._done_date) : ''}${fp._fact2 != null ? ' · факт ' + fp._fact2 : ''}${fp._done_by ? ' · ' + esc(fp._done_by) : ''}`
+          const dn = !showLabels && fp._done ? `✅ выполнено ${fp._done_date ? fmt(fp._done_date) : ''}${fp._fact2 != null ? ' · факт ' + fp._fact2 : ''}${fp._brigade && typeof volBrigName === 'function' && volBrigName(fp._brigade) ? ' · 👥 ' + esc(volBrigName(fp._brigade)) : ''}${fp._done_by ? ' · ' + esc(fp._done_by) : ''}`
             : !showLabels && fp._skip ? '🚫 исключён из объёма' : '';
           const tip0 = esc(nm) + (cmt ? (nm ? '<br>' : '') + '<span style="color:#65a30d;font-weight:700">✅ ' + esc(cmt) + '</span>' : '')
             + (dn ? (nm || cmt ? '<br>' : '') + `<span style="color:${fp._skip ? '#6b7280' : '#65a30d'};font-weight:700">${dn}</span>` : '');
@@ -1769,6 +1769,13 @@ function renderLayerGroupsWithSymbols() {
           // к ближайшей вершине. Нужно, т.к. Leaflet «съедает» клик карты на самом объекте.
           layer.on('click', function(ev) {
             const exact = layer.getLatLng ? layer.getLatLng() : null; // точечный объект
+            // режим «✅ Отметка выполнения» (vol-layers.js): щелчок — выполнено / снять
+            if (typeof volMarkActive === 'function' && volMarkActive(l.id)) {
+              L.DomEvent.stopPropagation(ev);
+              const fi = gjRaw.features ? gjRaw.features.indexOf(f) : -1;
+              if (fi >= 0) volMarkClick(l.id, fi, ev.originalEvent);
+              return;
+            }
             if (typeof rulerActive !== 'undefined' && rulerActive && typeof _rulerAddPoint === 'function') {
               L.DomEvent.stopPropagation(ev);
               _rulerAddPoint(ev.latlng, exact);
@@ -1820,6 +1827,7 @@ function renderLayerGroupsWithSymbols() {
               ...(fIdx>=0?[{i:'✅',l:_isDone?'Снять «выполнено»':'Выполнить',f:()=>kmlToggleDone(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'⚙️',l:_isDone?'Изменить выполнение (дата, факт, люди)…':'Выполнить с параметрами…',f:()=>kmlToggleDone(l.id,fIdx,true)}]:[]),
               ...(fIdx>=0&&_vol?[{i:'🚫',l:_isSkip?'Вернуть в объём':'Исключить из объёма (отменён, перенесён)',f:()=>kmlToggleSkip(l.id,fIdx)}]:[]),
+              ...(_vol?[{i:'👆',l:'Отмечать щелчками (режим отметки)…',f:()=>volMarkStart(l.id)},{i:'👥',l:'Кто выполняет: '+esc(volExecLabel()).slice(0,40),html:true,f:()=>volExecEdit()}]:[]),
               ...(fIdx>=0?[{i:'✏️',l:'Редактировать объект',f:()=>kmlEditFeature(l.id,fIdx)}]:[]),
               {i:'📍',l:'Координаты и высота',sub:[
                 {i:'🧭',l:f.geometry&&f.geometry.type==='Point'?'Координаты точки во всех системах':'Координаты вершины во всех системах',f:_coordFn},

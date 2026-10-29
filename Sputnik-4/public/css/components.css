@@ -440,3 +440,16 @@ html[data-theme=dark] .sc-norm .sc-day.okn{background:#123d24;color:#bbf7d0}
 .sc-chk{display:flex;gap:6px;align-items:center;font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--tx);margin:8px 0 0;cursor:pointer}
 .sc-chk input{width:auto;margin:0}
 .sc-row.sc-norm{position:relative;bottom:auto;z-index:2}
+/* исполнители и режим отметки (vol-layers.js) */
+.vl-exec{font-size:11px;color:var(--tx2);background:var(--s2);border:1px dashed var(--bd);border-radius:6px;padding:5px 8px;margin:-4px 0 8px;cursor:pointer}
+.vl-exec:hover{border-color:var(--acc);color:var(--acc)}
+#vmk-bar{position:fixed;top:calc(var(--th) + 8px);left:calc(var(--sw) + (100vw - var(--sw)) / 2);transform:translateX(-50%);z-index:1600;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;max-width:calc(100vw - var(--sw) - 30px);background:#15803d;color:#fff;border-radius:12px;padding:7px 12px;box-shadow:var(--shl);font-size:12px}
+#vmk-bar .vmk-v{background:rgba(255,255,255,.18);border-radius:8px;padding:1px 8px}
+#vmk-bar .vmk-ex{background:#fff;color:#14532d;border-radius:8px;padding:2px 8px;cursor:pointer;font-weight:700}
+#vmk-bar label{display:flex;gap:4px;align-items:center;color:#fff;text-transform:none;letter-spacing:0;font-weight:500;margin:0;font-size:12px}
+#vmk-bar input[type=date]{width:auto;font-size:11px;padding:1px 4px}
+#vmk-bar input[type=checkbox]{width:auto;margin:0}
+#vmk-bar .vmk-n{font-weight:800;min-width:20px}
+#vmk-bar button{border:1.5px solid rgba(255,255,255,.7);background:rgba(255,255,255,.15);color:#fff;border-radius:8px;padding:3px 10px;cursor:pointer;font:inherit;font-weight:700}
+#vmk-bar .vmk-hint{flex-basis:100%;text-align:center;font-size:10px;opacity:.85}
+.vmk-on .leaflet-interactive,.vmk-on .leaflet-marker-icon{cursor:pointer!important}

@@ -24,7 +24,7 @@ function _scSave() { try { localStorage.setItem('shift_cal', JSON.stringify({ mo
 
 function shiftCalToggle(on) { window._pgkWCal = on == null ? !window._pgkWCal : on; renderPGK(); }
 async function shiftCalLoad() {
-  if (!SC.from) { const t = _scToday(); SC.from = new Date(t.getFullYear(), t.getMonth(), 1); }
+  if (!SC.from) { const t = _scToday(); SC.from = SC.months === 12 ? new Date(t.getFullYear(), 0, 1) : new Date(t.getFullYear(), t.getMonth(), 1); }   // год — с января
   const to = new Date(SC.from.getFullYear(), SC.from.getMonth() + SC.months, 0);
   SC.to = to;
   try { SC.shifts = await fetch(`${API}/pgk/shifts?from=${_scS(SC.from)}&to=${_scS(to)}`).then(r => r.json()); } catch (e) { SC.shifts = []; }
@@ -88,7 +88,7 @@ async function shiftCalRender(pb) {
       <b style="min-width:150px;text-align:center;font-size:12px">${title}</b>
       <button class="btn bs bsm" onclick="shiftCalNav(1)">▶</button>
       <button class="btn bs bsm" onclick="SC.from=null;shiftCalRender()">Сегодня</button>
-      <select onchange="SC.months=+this.value;_scSave();shiftCalRender()" style="font-size:11px">${[1, 2, 3, 6].map(n => `<option value="${n}" ${SC.months === n ? 'selected' : ''}>${n === 1 ? '1 месяц' : n + ' мес.'}</option>`).join('')}</select>
+      <select onchange="SC.months=+this.value;if(SC.months===12)SC.from=null;_scSave();shiftCalRender()" style="font-size:11px">${[1, 2, 3, 6, 12].map(n => `<option value="${n}" ${SC.months === n ? 'selected' : ''}>${n === 1 ? '1 месяц' : n === 12 ? '12 мес. (год)' : n + ' мес.'}</option>`).join('')}</select>
       <select onchange="SC.base=this.value;_scSave();shiftCalRender()" style="font-size:11px;max-width:170px"><option value="">Все базы</option>${bases.map(b => `<option value="${b.id}" ${SC.base === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
       <input type="search" placeholder="🔍 Сотрудник…" value="${escAttr(SC.q)}" oninput="SC.q=this.value;clearTimeout(SC.t);SC.t=setTimeout(()=>{shiftCalRender().then(()=>{const e=document.querySelector('#sc-root input[type=search]');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}})},250)" style="font-size:11px;padding:3px 8px;min-width:140px">
       <label style="display:flex;gap:4px;align-items:center;font-size:11px;text-transform:none;font-weight:500;margin:0"><input type="checkbox" ${SC.fired ? 'checked' : ''} onchange="SC.fired=this.checked;_scSave();shiftCalRender()" style="width:auto;margin:0"> уволенные</label>

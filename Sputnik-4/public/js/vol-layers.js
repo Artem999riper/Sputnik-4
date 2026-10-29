@@ -90,7 +90,8 @@ function tabVolumes(pb) {
       <div class="pbt"><div class="pbf" style="width:${t.pct}%;background:${t.pct >= 100 ? 'var(--grn)' : 'var(--acc)'}"></div></div>
       <div class="vl-meta">${src}${v.plan_start ? `<span>📅 ${fmt(v.plan_start)}${v.plan_end ? ' — ' + fmt(v.plan_end) : ''}</span>` : ''}</div>
       <div class="vl-btns">
-        ${v.layer_id ? `<button class="btn bp bxs" onclick="volShowLayer('${v.id}')" title="Показать слой и приблизить">🗺 На карте</button>
+        ${v.layer_id ? `<button class="btn bp bxs" onclick="volShowLayer('${v.id}');volMarkStart('${v.layer_id}')" title="Щелчками по объектам на карте отмечать выполнение (с текущими исполнителями)">✅ Отмечать</button>
+          <button class="btn bs bxs" onclick="volShowLayer('${v.id}')" title="Показать слой и приблизить">🗺 На карте</button>
           <button class="btn bs bxs" onclick="volShowLayer('${v.id}',true)" title="Таблица атрибутов: выполнено, дата, факт">📋 Таблица</button>`
         : `<button class="btn bp bxs" onclick="volAddProgress('${v.id}')">＋ Выполнение</button>`}
         <button class="btn bs bxs" onclick="volEditModal('${v.id}')" title="Изменить объём">✏️</button>
@@ -116,6 +117,7 @@ function tabVolumes(pb) {
         <button class="btn bg bsm" onclick="volEditModal()">＋ Объём</button>
         <button class="btn bs bsm" onclick="openDailyProgressModal()" title="Выполнение за день">📆 За день</button>
       </div></div>
+    <div class="vl-exec" onclick="volExecEdit()" title="Кто выполняет: подставляется при отметках на карте">Исполнители: <b>${esc(volExecLabel())}</b> ✏️</div>
     ${vols.length ? secs : `<div class="empty"><div class="empty-i">📋</div>Нет объёмов<div style="font-size:11px;margin-top:6px;color:var(--tx3)">Объём — это слой KML (скважины, профили, площадки) или ручной объём без карты.<br>Выполнение отмечается прямо на объектах слоя: ПКМ → «✅ Выполнить».</div></div>`}`;
 }
 function tabProgress(pb) { tabVolumes(pb); }
@@ -330,7 +332,7 @@ function volOnLayersChanged(layerId) {
 }
 
 // ── Отметка «выполнено» на объектах слоя ────────────────────
-const VL_DONE_KEYS = ['_done', '_done_date', '_done_by', '_fact2', '_workers', '_machine', '_note'];
+const VL_DONE_KEYS = ['_done', '_done_date', '_done_by', '_fact2', '_workers', '_machine', '_brigade', '_note'];
 function _vlClearDone(p) { VL_DONE_KEYS.forEach(k => delete p[k]); if (String(p._color || '').toLowerCase() === KML_DONE_COLOR) delete p._color; if (p.comment === 'Выполнено') delete p.comment; }
 function _vlSetDone(p, o) {
   _vlClearDone(p);
@@ -338,6 +340,7 @@ function _vlSetDone(p, o) {
   if (o.fact2 != null && o.fact2 !== '') p._fact2 = o.fact2;
   if (o.workers) p._workers = o.workers;
   if (o.machine) p._machine = o.machine;
+  if (o.brigade) p._brigade = o.brigade;
   if (o.note) p._note = o.note;
 }
 const kmlIsDone = p => !!(p && (p._done || String(p._color || '').toLowerCase() === KML_DONE_COLOR));
@@ -364,7 +367,7 @@ async function kmlToggleDone(layerId, fIdx, force) {
   const f = feats[fIdx]; if (!f) return;
   const p = f.properties = f.properties || {};
   const was = kmlIsDone(p);
-  if (was) _vlClearDone(p); else { _vlSetDone(p, {}); delete p._skip; }
+  if (was) _vlClearDone(p); else { _vlSetDone(p, volExecNow()); delete p._skip; }
   try { await _vlSaveLayer(l, gj, was ? '↩️ Отметка «выполнено» снята' : '✅ Выполнено'); } catch (e) { toast('Ошибка сохранения', 'err'); }
 }
 async function kmlToggleSkip(layerId, fIdx) {
@@ -378,7 +381,8 @@ async function kmlToggleSkip(layerId, fIdx) {
 }
 // Окно «Выполнить с параметрами» для одного или многих объектов
 // targets: [{layerId, idxs:[…]}] либо (layerId, idxs)
-function volDoneDialog(layerId, idxs, after) {
+async function volDoneDialog(layerId, idxs, after) {
+  await volBrigades();
   const targets = Array.isArray(layerId) ? layerId : [{ layerId, idxs }];
   const first = targets[0], l0 = (layers || []).find(x => x.id === first.layerId); if (!l0) return;
   const v = volByLayer(first.layerId), m = v ? volMeasure(v) : null;
@@ -387,17 +391,23 @@ function volDoneDialog(layerId, idxs, after) {
   const plan2 = m && m.second && f0 ? volPlan2Of(f0, m) : null;
   const machines = (pgkMachinery || []).slice().sort((a, b) => (DRILL_TYPES.includes(b.type) - DRILL_TYPES.includes(a.type)) || String(a.name).localeCompare(String(b.name), 'ru'));
   const nm = f0 ? (p0.name || p0.Name || `Объект ${first.idxs[0] + 1}`) : `${n} объект(ов)`;
+  // исполнители: у выполненного — как отмечено, иначе — текущие по умолчанию (бригада + люди)
+  const def = p0._done ? { brigade: p0._brigade || '', workers: p0._workers || '', machine: p0._machine || '' } : volExecNow();
   showModal(`✅ Выполнить — ${nm}`, `<div class="vl-form">
     ${v ? `<div class="vl-hint">Объём «${esc(v.name)}»${v.site_name ? ` · ${esc(v.site_name)}` : ''}</div>` : '<div class="vl-hint">Слой не привязан к объёму — отметка сохранится в слое, в объём не попадёт (📦 «Объём объекта…» в меню слоя).</div>'}
     <div class="fg"><label>Дата выполнения</label><input id="vd-date" type="date" value="${escAttr(p0._done_date || _vlToday())}"></div>
     ${m && m.second ? `<div class="fg"><label>Факт${m.second.source === 'field' ? ': ' + esc(m.second.field) : ''}, ${esc(m.second.unit || '')}${plan2 != null ? ` <span style="color:var(--tx3);text-transform:none">(план ${_vlN(plan2)})</span>` : ''}</label>
       <input id="vd-f2" type="number" step="any" min="0" value="${escAttr(p0._fact2 != null ? p0._fact2 : '')}" placeholder="${m.second.source === 'fact' ? 'впишите факт' : n > 1 ? 'пусто — плановое у каждого' : plan2 != null ? 'пусто — ' + _vlN(plan2) : ''}"></div>` : ''}
-    <div class="fg"><label>Сотрудники</label>${_buildWorkerSelectHtml(p0._workers || '')}</div>
-    <div class="fg"><label>Буровая / техника</label><select id="vd-mach"><option value="">— не выбрана —</option>${machines.map(x => `<option value="${escAttr(x.id)}" ${x.id === p0._machine ? 'selected' : ''}>${esc(x.name)}${x.type ? ` (${esc(x.type)})` : ''}</option>`).join('')}</select></div>
+    <div class="fg"><label>Бригада</label><select id="vd-brig" onchange="_vdBrigade(this.value)"><option value="">— без бригады (отдельные люди) —</option>${VEX.list.map(b => `<option value="${escAttr(b.id)}" ${b.id === def.brigade ? 'selected' : ''}>${esc(b.name)} — ${volBrigadeWorkers(b).length} чел.${b.machine_name ? ' · ' + esc(b.machine_name) : ''}</option>`).join('')}</select>
+      <div class="vl-hint">Объём засчитывается всем в бригаде, кроме водителя. Людей можно добавить или убрать галочками.</div></div>
+    <div class="fg"><label>Исполнители</label>${_buildWorkerSelectHtml(def.workers || '')}</div>
+    <div class="fg"><label>Буровая / техника</label><select id="vd-mach"><option value="">— не выбрана —</option>${machines.map(x => `<option value="${escAttr(x.id)}" ${x.id === def.machine ? 'selected' : ''}>${esc(x.name)}${x.type ? ` (${esc(x.type)})` : ''}</option>`).join('')}</select></div>
     <div class="fg"><label>Примечание</label><input id="vd-note" value="${escAttr(p0._note || '')}"></div>
+    <label class="sc-chk"><input type="checkbox" id="vd-remember" checked> запомнить исполнителей для следующих отметок</label>
   </div>`, [{ label: 'Отмена', cls: 'bs', fn: closeModal }, { label: '✅ Выполнено', cls: 'bp', fn: async () => {
     const o = { date: document.getElementById('vd-date').value || _vlToday(), workers: _vpwSelected().ids, machine: document.getElementById('vd-mach').value,
-      note: document.getElementById('vd-note').value.trim() };
+      brigade: document.getElementById('vd-brig').value, note: document.getElementById('vd-note').value.trim() };
+    if (document.getElementById('vd-remember').checked) volExecRemember(o);
     const f2 = document.getElementById('vd-f2'); if (f2 && f2.value !== '') o.fact2 = _vlNumLoose(f2.value);
     closeModal();
     for (const t of targets) {
@@ -550,7 +560,8 @@ function volKmlRenderPane() {
           name: `<b>${esc(v.name)}</b>`, cls: 'vlp-row', noPin: true,
           sub: `<div class="vlp-prog"><div class="pbt"><div class="pbf" style="width:${t.pct}%;background:${t.pct >= 100 ? 'var(--grn)' : 'var(--acc)'}"></div></div>
             <b style="color:${t.pct >= 100 ? 'var(--grn)' : 'var(--acc)'}">${t.pct}%</b></div>${volLine(v, t)}${l.name !== v.name ? ` · <span title="Слой">🗂 ${esc(l.name)}</span>` : ''}`,
-          btns: `<button class="kml-icon-btn" onclick="kmlAttrTable('${escAttr(l.id)}')" title="Таблица: выполнено, дата, факт">📋</button>
+          btns: `<button class="kml-icon-btn" onclick="volMarkStart('${escAttr(l.id)}')" title="Отмечать выполнение щелчками на карте">✅</button>
+            <button class="kml-icon-btn" onclick="kmlAttrTable('${escAttr(l.id)}')" title="Таблица: выполнено, дата, факт">📋</button>
             <button class="kml-icon-btn" onclick="volOpenEdit('${escAttr(v.id)}')" title="Изменить объём">✏️</button>`,
         });
       });
@@ -570,3 +581,115 @@ async function volOpenEdit(volId) {
   if (!(currentType === 'site' && currentObj && currentObj.id === v.site_id)) { try { await selectSite(v.site_id); } catch (e) {} }
   volEditModal(volId);
 }
+
+
+// ═══ Исполнители: бригада и/или отдельные люди ═════════════════════════
+// Бригада (вкладка «Бригады»): объём засчитывается всем её членам, кроме
+// водителя (водитель — у машины бригады). Можно добавить отдельных людей.
+// «Текущие исполнители» запоминаются (у каждого пользователя свои) и
+// подставляются в быстрое «✅ Выполнить», выделение областью и режим отметки.
+const VEX = Object.assign({ brigade: '', extra: [], machine: '', list: [], loaded: 0 },
+  (() => { try { const o = JSON.parse(localStorage.getItem('vl_exec') || '{}'); return { brigade: o.brigade || '', extra: o.extra || [], machine: o.machine || '' }; } catch (e) { return {}; } })());
+async function volBrigades(force) {
+  if (!force && VEX.loaded && Date.now() - VEX.loaded < 60000) return VEX.list;
+  try { VEX.list = await fetch(`${API}/pgk/brigades`).then(r => r.json()); VEX.loaded = Date.now(); } catch (e) {}
+  return VEX.list;
+}
+const volBrigade = id => (VEX.list || []).find(b => b.id === id);
+// члены бригады без водителя её машины
+function volBrigadeWorkers(b) {
+  if (!b) return [];
+  const drv = b.machine_driver_id || ((pgkMachinery || []).find(m => m.id === b.machine_id) || {}).driver_id;
+  return (b.member_ids || []).filter(id => id && id !== drv);
+}
+// текущие исполнители → {workers:'id,id', machine, brigade}
+function volExecNow() {
+  const b = volBrigade(VEX.brigade);
+  const ids = [...new Set([...(b ? volBrigadeWorkers(b) : []), ...(VEX.extra || [])])];
+  return { workers: ids.join(','), machine: VEX.machine || (b && b.machine_id) || '', brigade: b ? b.id : '' };
+}
+function volExecLabel() {
+  const b = volBrigade(VEX.brigade), ex = (VEX.extra || []).map(id => ((pgkWorkers || []).find(w => w.id === id) || {}).name).filter(Boolean);
+  const parts = []; if (b) parts.push(`👥 ${b.name} (${volBrigadeWorkers(b).length} чел.)`);
+  if (ex.length) parts.push((b ? '+ ' : '👤 ') + (ex.length > 2 ? `${ex.slice(0, 2).join(', ')} и ещё ${ex.length - 2}` : ex.join(', ')));
+  return parts.join(' ') || '— не выбраны —';
+}
+function _vexSave() { try { localStorage.setItem('vl_exec', JSON.stringify({ brigade: VEX.brigade, extra: VEX.extra, machine: VEX.machine })); } catch (e) {} if (VMK.on) _vmkBar(); }
+// запомнить исполнителей из окна: бригада + те, кто сверх бригады
+function volExecRemember(o) {
+  const b = volBrigade(o.brigade), bw = new Set(b ? volBrigadeWorkers(b) : []);
+  VEX.brigade = b ? b.id : '';
+  VEX.extra = String(o.workers || '').split(',').filter(id => id && !bw.has(id));
+  VEX.machine = o.machine && (!b || o.machine !== b.machine_id) ? o.machine : '';
+  _vexSave();
+}
+// в окне: выбрали бригаду — отметить её людей (кроме водителя) и машину
+function _vdBrigade(id) {
+  const b = volBrigade(id), ids = new Set(b ? volBrigadeWorkers(b) : []);
+  document.querySelectorAll('#f-vpworkers .vpw-cb').forEach(c => { if (b) c.checked = ids.has(c.value); });
+  if (b && b.machine_id) { const m = document.getElementById('vd-mach'); if (m) m.value = b.machine_id; }
+  _vpwUpdateCount();
+}
+// окно «Кто выполняет»: бригада, люди, техника — для быстрых отметок
+async function volExecEdit() {
+  await volBrigades(true);
+  const cur = volExecNow();
+  showModal('👥 Кто выполняет', `<div class="vl-form">
+    <div class="vl-hint">Эти исполнители подставляются в «✅ Выполнить», выделение областью и режим отметки на карте.</div>
+    <div class="fg"><label>Бригада</label><select id="vd-brig" onchange="_vdBrigade(this.value)"><option value="">— без бригады —</option>${VEX.list.map(b => `<option value="${escAttr(b.id)}" ${b.id === VEX.brigade ? 'selected' : ''}>${esc(b.name)} — ${volBrigadeWorkers(b).length} чел.${b.machine_name ? ' · ' + esc(b.machine_name) : ''}</option>`).join('')}</select>
+      ${!VEX.list.length ? '<div class="vl-hint">Бригад пока нет — создайте на вкладке «Бригады» (машина, состав).</div>' : ''}</div>
+    <div class="fg"><label>Исполнители</label>${_buildWorkerSelectHtml(cur.workers)}</div>
+    <div class="fg"><label>Техника</label><select id="vd-mach"><option value="">— не выбрана —</option>${(pgkMachinery || []).map(x => `<option value="${escAttr(x.id)}" ${x.id === cur.machine ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+  </div>`, [{ label: '✕ Сбросить', cls: 'bs', fn: () => { VEX.brigade = ''; VEX.extra = []; VEX.machine = ''; _vexSave(); closeModal(); toast('Исполнители сброшены', 'ok'); } },
+    { label: 'Отмена', cls: 'bs', fn: closeModal },
+    { label: '💾 Готово', cls: 'bp', fn: () => { volExecRemember({ brigade: document.getElementById('vd-brig').value, workers: _vpwSelected().ids, machine: document.getElementById('vd-mach').value }); closeModal(); toast('Исполнители: ' + volExecLabel(), 'ok'); } }]);
+}
+const volBrigName = id => (volBrigade(id) || {}).name || '';
+
+// ═══ Режим «✅ Отметка выполнения» на карте ═════════════════════════════
+// Щелчок по объекту слоя-объёма — выполнено / снять (с текущими исполнителями
+// и датой), Shift+щелчок или «спрашивать» — окно с параметрами. Esc — выход.
+const VMK = { on: false, layer: null, ask: false, date: '', n: 0 };
+const volMarkActive = layerId => VMK.on && !!volByLayer(layerId) && (!VMK.layer || VMK.layer === layerId);
+async function volMarkStart(layerId) {
+  await volBrigades();
+  VMK.on = true; VMK.layer = layerId || null; VMK.n = 0;
+  if (typeof switchView === 'function' && document.querySelector('.nt.on')?.dataset.v !== 'map') switchView('map');
+  if (layerId) { const l = (layers || []).find(x => x.id === layerId); if (l && !l.visible) await kmlToggleVis(l.id, 1); }
+  try { closeModal(); } catch (e) {}
+  _vmkBar();
+  document.addEventListener('keydown', _vmkKey, true);
+  map.getContainer().classList.add('vmk-on');
+}
+function volMarkStop() {
+  VMK.on = false; document.getElementById('vmk-bar')?.remove();
+  document.removeEventListener('keydown', _vmkKey, true);
+  map.getContainer().classList.remove('vmk-on');
+  if (VMK.n) toast(`✅ Отмечено за сеанс: ${VMK.n}`, 'ok');
+}
+function _vmkKey(e) { if (e.key === 'Escape' && !document.getElementById('mov')?.classList.contains('open')) { e.stopImmediatePropagation(); volMarkStop(); } }
+function _vmkBar() {
+  let b = document.getElementById('vmk-bar');
+  if (!b) { b = document.createElement('div'); b.id = 'vmk-bar'; document.body.appendChild(b); }
+  const v = VMK.layer ? volByLayer(VMK.layer) : null;
+  b.innerHTML = `<b>✅ Отметка выполнения</b>${v ? `<span class="vmk-v">${esc(v.name)}</span>` : '<span class="vmk-v">все объёмы</span>'}
+    <span class="vmk-ex" onclick="volExecEdit()" title="Изменить бригаду / людей">${esc(volExecLabel())} ✏️</span>
+    <label title="Дата выполнения">📅 <input type="date" value="${escAttr(VMK.date || _vlToday())}" onchange="VMK.date=this.value===_vlToday()?'':this.value"></label>
+    <label title="Каждый щелчок — окно (факт. глубина и т.п.)"><input type="checkbox" ${VMK.ask ? 'checked' : ''} onchange="VMK.ask=this.checked"> спрашивать факт</label>
+    <span class="vmk-n">${VMK.n ? '+' + VMK.n : ''}</span>
+    <button onclick="volMarkStop()" title="Esc">✕ Готово</button>
+    <div class="vmk-hint">щелчок по объекту — выполнено / снять · Shift+щелчок — с параметрами · Esc — выход</div>`;
+}
+async function volMarkClick(layerId, fIdx, oe) {
+  if (VMK.ask || (oe && oe.shiftKey)) { await volDoneDialog(layerId, [fIdx], () => { VMK.n++; _vmkBar(); }); return; }
+  const l = (layers || []).find(x => x.id === layerId); if (!l) return;
+  let gj; try { gj = JSON.parse(l.geojson); } catch (e) { return; }
+  const feats = gj.type === 'FeatureCollection' ? gj.features : [gj];
+  const f = feats[fIdx]; if (!f) return;
+  const p = f.properties = f.properties || {};
+  const was = kmlIsDone(p);
+  if (was) _vlClearDone(p); else { _vlSetDone(p, Object.assign(volExecNow(), { date: VMK.date || _vlToday() })); delete p._skip; }
+  VMK.n += was ? -1 : 1; if (VMK.n < 0) VMK.n = 0; _vmkBar();
+  try { await _vlSaveLayer(l, gj, was ? '↩️ Снято' : '✅ ' + (p.name || p.Name || 'Выполнено')); } catch (e) { toast('Ошибка сохранения', 'err'); }
+}
+setTimeout(() => volBrigades(), 1500);

@@ -277,6 +277,7 @@ function pgkPageWorkers(pb){
       ${sel(gbyOpts,"window._pgkWGroupBy=this.value;renderPGK()")}
       ${anyFilter?`<button class="btn bs bsm" style="font-size:10px" onclick="window._pgkWFStatus='';window._pgkWFBase='';window._pgkWFRole='';window._pgkWSearchVal='';renderPGK()">✕ Сбросить фильтры</button>`:''}
       <div style="margin-left:auto;display:flex;gap:4px;flex-shrink:0">
+        <button class="btn bs bsm" onclick="pgkWorkersReset()" title="Очистить список: оставить только ФИО и должность, все «Дома»">🧹</button>
         <button class="btn bs bsm" onclick="pgkImportWorkers()" title="Импорт из Excel">📥</button>
         <button class="btn bs bsm" onclick="_workersExportMenu(event)" title="Экспорт в Excel">📤</button>
         <button class="btn bp bsm" onclick="pgkAddWorker()">＋ Добавить</button>
@@ -4164,3 +4165,26 @@ let smgSiteId=null, smgYear=new Date().getFullYear(), smgMonth=new Date().getMon
 let smgSiteData=null; // кэш данных выбранного объекта
 const SMG_MONTHS=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
 
+
+
+// ── Очистить список сотрудников: остаются ФИО и должность, статус «Дома» ──
+// (вахты, плановые вахты, база, техника, дата заезда, примечания — сбрасываются; перед этим — копия базы)
+function pgkWorkersReset(){
+  if(typeof isAdminClient==='function'&&!isAdminClient()){toast('Очистить список может только администратор','warn');return;}
+  const n=pgkWorkers.length, onShift=pgkWorkers.filter(w=>w.start_date).length;
+  showModal('🧹 Очистить список сотрудников',`<div style="max-width:440px;font-size:12px;line-height:1.5">
+    <p>Останутся только <b>ФИО и должность</b> (${n} чел.), у всех статус <b>«Дома»</b>.</p>
+    <p>Будут сброшены: <b>все вахты</b> (история и план), дата заезда${onShift?` (сейчас на вахте: ${onShift})`:''}, дней отдыха, база / объект, закреплённая техника, примечания.</p>
+    <p style="color:var(--tx3)">Выполненные объёмы и отметки в слоях не удаляются. Перед очисткой сохраняется резервная копия базы.</p>
+    <label style="display:flex;gap:6px;align-items:center;text-transform:none;font-weight:500;margin:8px 0"><input type="checkbox" id="wr-fired" style="width:auto;margin:0"> уволенных тоже вернуть в «Дома»</label>
+    <div class="fg" style="margin:0"><label>Для подтверждения впишите ОЧИСТИТЬ</label><input id="wr-ok" autocomplete="off"></div>
+  </div>`,[{label:'Отмена',cls:'bs',fn:closeModal},{label:'🧹 Очистить',cls:'bd',fn:async()=>{
+    if((document.getElementById('wr-ok').value||'').trim().toUpperCase()!=='ОЧИСТИТЬ'){toast('Впишите ОЧИСТИТЬ','warn');return;}
+    const fired=document.getElementById('wr-fired').checked;
+    closeModal();
+    const r=await fetch(`${API}/admin/workers-reset`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fired})}).then(x=>x.json()).catch(()=>({error:'Ошибка сети'}));
+    if(r.error){toast(r.error,'err');return;}
+    await loadPGK();try{if(typeof loadAll==='function')await loadAll();}catch(e){}
+    toast(`🧹 Список очищен: ${r.workers} чел., удалено вахт: ${r.shifts}. Копия базы: ${r.backup}`,'ok');
+  }}]);
+}

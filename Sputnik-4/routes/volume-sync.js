@@ -126,6 +126,7 @@ function syncVolume(db, vol) {
   let changed = false, plan = 0, plan2 = 0;
   const ins = db.prepare(`INSERT INTO vol_progress(id,volume_id,site_id,work_date,completed,amount2,notes,geojson,worker_ids,machine_id,row_type,source,feature_uid)
     VALUES(?,?,?,?,?,?,?,?,?,?,'fact','kml',?)`);
+  const brig = {}; try { all(db, 'SELECT id, name FROM pgk_brigades').forEach(b => { brig[b.id] = b.name; }); } catch (e) {}
   feats.forEach((f, i) => {
     if (!f || !f.geometry) return;
     const p = f.properties = f.properties || {};
@@ -136,7 +137,7 @@ function syncVolume(db, vol) {
     if (!p._done) return;
     const nm = p.name || p.Name || `Объект ${i + 1}`;
     ins.run(`kml:${vol.id}:${p._uid}`, vol.id, vol.site_id, String(p._done_date || today()).slice(0, 10), r3(mv),
-      m.second ? r3(secondFactOf(f, m)) : null, (p._note ? `${nm}: ${p._note}` : nm),
+      m.second ? r3(secondFactOf(f, m)) : null, nm + (p._brigade && brig[p._brigade] ? ` · ${brig[p._brigade]}` : '') + (p._note ? `: ${p._note}` : ''),
       JSON.stringify({ type: 'Feature', properties: { name: nm }, geometry: f.geometry }),
       String(p._workers || ''), p._machine || null, p._uid);
   });

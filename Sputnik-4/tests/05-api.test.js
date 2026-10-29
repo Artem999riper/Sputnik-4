@@ -206,3 +206,14 @@ test('план вахт: плановая вахта не попадает в «
   w = (await S.api('GET', '/api/pgk/workers/summary')).body.find(x => x.id === wid);
   assert.strictEqual(w.last_shift_end, '2099-01-30');
 });
+
+test('очистить список сотрудников: остаются ФИО и должность, все «Дома», вахт нет', async () => {
+  const bid = (await S.api('POST', '/api/bases', { name: 'База-сброс', lat: 66, lng: 75 })).body.id;
+  const a = (await S.api('POST', '/api/pgk/workers', { name: 'Сбросов', role: 'Бурильщик', base_id: bid, start_date: '2026-10-01', notes: 'заметка' })).body.id;
+  ok(await S.api('POST', `/api/pgk/workers/${a}/shifts`, { start_date: '2026-09-01', end_date: '2026-09-10', days: 10 }), 'вахта');
+  const r = (await S.api('POST', '/api/admin/workers-reset', {})).body;
+  assert.ok(r.ok && /^backup_before_workers_reset_/.test(r.backup), JSON.stringify(r));
+  const w = (await S.api('GET', '/api/pgk/workers')).body.find(x => x.id === a);
+  assert.deepStrictEqual([w.name, w.role, w.status, w.base_id, w.start_date, w.notes], ['Сбросов', 'Бурильщик', 'home', null, null, '']);
+  assert.strictEqual((await S.api('GET', `/api/pgk/workers/${a}/shifts`)).body.length, 0);
+});

@@ -154,6 +154,26 @@ module.exports = (app, getDb, { isAdmin, BACKUP_DIR, broadcast }) => {
     res.json({ fixed, backup, check: r });
   }));
 
+  // ── Сотрудники: очистить список — остаются ФИО и должность, статус «Дома» ──
+  // Удаляются все вахты (и плановые), снимаются база, техника, дата заезда, примечания.
+  // Перед этим — резервная копия базы.
+  app.post('/api/admin/workers-reset', wrap(async (req, res) => {
+    if (!admin(req, res)) return;
+    const keepFired = !(req.body && req.body.fired);   // по умолчанию уволенные остаются уволенными
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const backup = `backup_before_workers_reset_${ts}.db`;
+    try { await getDb().backup(path.join(BACKUP_DIR, backup)); }
+    catch (e) { return res.status(500).json({ error: 'Не удалось сделать резервную копию — очистка отменена: ' + e.message }); }
+    const d = db(); let n = 0, sh = 0;
+    d.transaction(() => {
+      sh = d.prepare('DELETE FROM worker_shifts').run().changes;
+      n = d.prepare(`UPDATE pgk_workers SET start_date=NULL, base_id=NULL, machine_id=NULL, notes='',
+        status=CASE WHEN ? AND status='fired' THEN 'fired' ELSE 'home' END`).run(keepFired ? 1 : 0).changes;
+    })();
+    broadcast({ type: 'change', path: '/api/pgk/workers' });
+    res.json({ ok: true, workers: n, shifts: sh, backup });
+  }));
+
   // проверка при запуске (через 5 с, чтобы не задерживать старт)
   setTimeout(() => {
     try {
