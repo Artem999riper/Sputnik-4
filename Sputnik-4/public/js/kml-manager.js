@@ -751,7 +751,7 @@ const KML_DONE_COLOR='#7ed321'; // ярко-зелёный (салатовый) 
 let _ksActive=false,_ksPts=[],_ksTmp=null,_ksSel=null;
 // Выделение произвольным полигоном: клики — вершины, ПКМ — меню (выделить/отмена)
 function startKmlSelectMode(){
-  _ksCleanup();
+  _ksCleanup(true);
   _ksActive=true;_ksPts=[];
   map.getContainer().style.cursor='crosshair';
   const bnr=document.getElementById('bnr');
@@ -787,7 +787,9 @@ function _ksCancel(){
   _ksCleanup();
   toast('Выделение отменено','ok');
 }
-function _ksCleanup(){
+function _ksCleanup(keepSel){
+  // после действия над выделенным — снять выделение (kml-select.js)
+  if(!keepSel&&typeof kselCount==='function'&&kselCount())setTimeout(kselClear,0);
   map.off('click',_ksClick);
   _ksActive=false;_ksPts=[];_ksSel=null;
   if(_ksTmp){try{map.removeLayer(_ksTmp);}catch(e){}_ksTmp=null;}
@@ -807,6 +809,12 @@ function _ksFinish(cx,cy){
     _ksCleanup();
     toast('В области нет объектов KML','err');
     return;
+  }
+  // добавить в постоянное выделение (подсветка, панель «Выделено») и открыть меню
+  if(typeof kselToggle==='function'){
+    if(_ksTmp){try{map.removeLayer(_ksTmp);}catch(e){}_ksTmp=null;}
+    sel.entries.forEach(en=>en.idxs.forEach(i=>kselToggle(en.gid,i,true)));kselRender();
+    setTimeout(()=>kselMenu(null,cx,cy),20);return;
   }
   _ksSel=sel;
   // отложенно: чтобы клик по пункту меню не закрыл новое меню
@@ -1769,6 +1777,13 @@ function renderLayerGroupsWithSymbols() {
           // к ближайшей вершине. Нужно, т.к. Leaflet «съедает» клик карты на самом объекте.
           layer.on('click', function(ev) {
             const exact = layer.getLatLng ? layer.getLatLng() : null; // точечный объект
+            // Shift+щелчок — выделить / снять выделение объекта (kml-select.js)
+            if (ev.originalEvent && ev.originalEvent.shiftKey && typeof kselClickFeature === 'function' && !(typeof volMarkActive === 'function' && volMarkActive(l.id))) {
+              L.DomEvent.stopPropagation(ev);
+              const fi = gjRaw.features ? gjRaw.features.indexOf(f) : -1;
+              if (fi >= 0) kselClickFeature(l.id, fi);
+              return;
+            }
             // режим «✅ Отметка выполнения» (vol-layers.js): щелчок — выполнено / снять
             if (typeof volMarkActive === 'function' && volMarkActive(l.id)) {
               L.DomEvent.stopPropagation(ev);
@@ -1805,6 +1820,8 @@ function renderLayerGroupsWithSymbols() {
               }
             } catch(e) {}
             const fIdx = gjRaw.features ? gjRaw.features.indexOf(f) : -1;
+            // ПКМ по выделенному объекту — действия над всем выделением
+            if (fIdx >= 0 && typeof kselHas === 'function' && kselHas(l.id, fIdx) && kselCount() > 1) { kselMenu(null, cx, cy); return; }
             const _isDone=typeof kmlIsDone==='function'?kmlIsDone(f.properties):!!(f.properties&&f.properties._done);
             const _vol=typeof volByLayer==='function'?volByLayer(l.id):null, _isSkip=!!(f.properties&&f.properties._skip);
             const _coordFn=()=>{

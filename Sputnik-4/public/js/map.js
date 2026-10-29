@@ -53,6 +53,8 @@ function onMapRClick(e){
   if(typeof _kdActive!=='undefined'&&_kdActive){_kdRClick(e);return;}
   if(typeof _ksActive!=='undefined'&&_ksActive){_ksRClick(e);return;}
   if(typeof _kgeActive!=='undefined'&&_kgeActive){_kgeRClick(e);return;}
+  // есть выделение (Shift+рамка / Shift+щелчок) — меню действий над ним
+  if(typeof kselCount==='function'&&kselCount()){kselMenu(null,e.originalEvent.clientX,e.originalEvent.clientY);return;}
   if(rulerActive){
     showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
       {i:'↩️',l:'Отменить последнюю точку',f:rulerUndoLast},
@@ -65,7 +67,7 @@ function onMapRClick(e){
   const hasRuler=rulerPts.length>=2;
   showCtx(e.originalEvent.clientX,e.originalEvent.clientY,[
     {i:'🔎',l:'Найти на карте',f:openMapSearch},
-    {i:'⬚',l:'Выделить объекты (область)',f:startKmlSelectMode},
+    {i:'⬚',l:'Выделить объекты (область) · или Shift+рамка',f:startKmlSelectMode},
     {sep:true},
     {i:'📌',l:'Поставить метку',f:()=>openPlaceMarkerModal(e.latlng)},
     {i:'〰️',l:'Нарисовать линию',f:()=>startKmlDraw('line')},
