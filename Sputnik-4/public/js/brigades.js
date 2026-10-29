@@ -16,6 +16,7 @@ async function loadBrigades() {
       fetch(`${API}/sites`)
     ]);
     if (brR.ok) pgkBrigades = await brR.json(); else pgkBrigades = [];
+    try { window._brStats = await fetch(`${API}/pgk/brigades/stats`).then(r => r.ok ? r.json() : {}); } catch (e) { window._brStats = {}; }
     if (wR.ok)  window.pgkWorkers   = await wR.json();
     if (mR.ok)  window.pgkMachinery = await mR.json();
     if (bR.ok)  window.bases        = await bR.json();
@@ -51,50 +52,7 @@ function renderBrigades() {
   const pb = document.getElementById('brigades-page');
   if (!pb) return;
 
-  const cards = pgkBrigades.map(br => {
-    const bid = escAttr(br.id);
-    const mach = br.machine_name
-      ? `<span style="font-size:12px;color:var(--tx2)">🚛 ${esc(br.machine_name)}${br.machine_plate ? ' · <b>' + esc(br.machine_plate) + '</b>' : ''}${br.driver_name ? ' · 👤 ' + esc(br.driver_name) : ''}</span>`
-      : `<span style="font-size:12px;color:var(--tx3)">— машина не назначена</span>`;
-
-    const empty = (txt) => `<span style="color:var(--tx3);font-size:11px">— ${txt}</span>`;
-
-    const members = (br.members || []).length
-      ? `<div class="br-items">${br.members.map(m =>
-          `<div class="br-row"><span class="br-row-info">👤 <b>${esc(m.name)}</b>${m.role ? `<span style="color:var(--tx3)"> · ${esc(m.role)}</span>` : ''}</span><span class="br-row-badge" style="color:${m.start_date ? '#15803d' : 'var(--tx3)'}">${m.start_date ? `📅 ${m.days} дн.` : '🏠 дома'}</span></div>`
-        ).join('')}</div>`
-      : empty('нет членов');
-
-    const basesHtml = (br.base_names || []).length
-      ? `<div class="br-items">${br.base_names.map(n =>
-          `<div class="br-row"><span class="br-row-info">🏕 ${esc(n)}</span></div>`).join('')}</div>`
-      : empty('нет баз');
-
-    const sitesHtml = (br.site_names || []).length
-      ? `<div class="br-items">${br.site_names.map(n =>
-          `<div class="br-row"><span class="br-row-info">📍 ${esc(n)}</span></div>`).join('')}</div>`
-      : empty('нет объектов');
-
-    const notes = br.notes ? `<div style="font-size:11px;color:var(--tx3);margin-top:6px;border-top:1px solid var(--bd);padding-top:6px">${esc(br.notes)}</div>` : '';
-
-    return `<div class="br-card">
-      <div class="br-card-header">
-        <span class="br-card-name">${esc(br.name)}</span>
-        <div class="br-card-actions">
-          <button class="btn bs bsm" onclick="openBrigadeModal('${bid}')" title="Редактировать">✏️</button>
-          <button class="btn bs bsm" onclick="deleteBrigade('${bid}')" title="Удалить" style="color:var(--err)">🗑</button>
-        </div>
-      </div>
-      <div style="margin:4px 0 6px">${mach}</div>
-      <div class="br-section-label">👷 Члены бригады (${(br.members||[]).length})</div>
-      ${members}
-      <div class="br-section-label">🏕 Базы (${(br.base_names||[]).length})</div>
-      ${basesHtml}
-      <div class="br-section-label">📍 Объекты (${(br.site_names||[]).length})</div>
-      ${sitesHtml}
-      ${notes}
-    </div>`;
-  }).join('');
+  const cards = pgkBrigades.map(_brCardHtml).join('');
 
   const isTbl = window._brView === 'table';
   pb.innerHTML = `<div class="br-outer"${isTbl ? ' style="display:flex;flex-direction:column;height:100%"' : ''}>
@@ -112,6 +70,77 @@ function renderBrigades() {
     ${isTbl && pgkBrigades.length ? _brTableHtml() : pgkBrigades.length ? `<div class="br-grid">${cards}</div>` : `<div style="text-align:center;padding:60px 0;color:var(--tx3);font-size:14px">Бригад пока нет.<br><button class="btn bp" style="margin-top:16px" onclick="openBrigadeModal()">＋ Создать первую</button></div>`}
   </div>`;
   if (isTbl) TK.initSelect('br-tbody', 'brigades');
+}
+
+// ── Карточка бригады ─────────────────────────────────────────
+// Шапка: имя, состояние (на вахте / частично / дома), счётчики. Машина с водителем
+// (водителю объём не засчитывается). Люди — «аватарки» со статусом и днями вахты.
+// Выработка за сегодня / 7 / 30 дней / всего. Базы и объекты — щелчок открывает на карте.
+// Предупреждения: уволенный в составе, человек в нескольких бригадах, на другой базе, нет машины.
+const _BR_ST = { working: ['на вахте', '#16a34a'], idle: ['простой', '#d97706'], sick: ['больничный', '#dc2626'], home: ['дома', '#64748b'], fired: ['уволен', '#9ca3af'] };
+const _brEff = w => !w ? 'home' : w.status === 'fired' ? 'fired' : w.start_date ? 'working' : (w.status || 'home');
+const _brIni = n => String(n || '?').trim().split(/\s+/).slice(0, 2).map(x => x[0] || '').join('').toUpperCase();
+const _brN = x => (Math.round((+x || 0) * 10) / 10).toLocaleString('ru-RU');
+const _brSum = o => { const e = Object.entries(o || {}).filter(([, v]) => v); return e.length ? e.map(([u, v]) => `<div><b>${_brN(v)}</b> ${esc(u)}</div>`).join('') : '<span class="brc-mute">—</span>'; };
+function _brCardHtml(br) {
+  const bid = escAttr(br.id), W = window.pgkWorkers || [], M = window.pgkMachinery || [];
+  const mach = M.find(m => m.id === br.machine_id), drvId = br.machine_driver_id || (mach && mach.driver_id);
+  const drv = drvId ? W.find(w => w.id === drvId) : null;
+  const ppl = (br.member_ids || []).map(id => W.find(w => w.id === id) || { id, name: '(удалён)', status: 'fired' });
+  const crew = ppl.filter(w => w.id !== drvId);
+  const st = ppl.map(_brEff), onShift = st.filter(x => x === 'working').length, home = st.filter(x => x === 'home').length;
+  const state = !ppl.length ? ['пустая', '#9ca3af'] : onShift === ppl.length ? ['на вахте', '#16a34a'] : onShift ? ['частично на вахте', '#d97706'] : ['дома', '#64748b'];
+  // предупреждения
+  const warn = [];
+  if (!br.machine_id) warn.push('нет машины');
+  const fired = ppl.filter(w => _brEff(w) === 'fired'); if (fired.length) warn.push(`уволен: ${fired.map(w => esc(w.name)).join(', ')}`);
+  const other = crew.filter(w => pgkBrigades.some(b => b.id !== br.id && (b.member_ids || []).includes(w.id))); if (other.length) warn.push(`ещё в другой бригаде: ${other.map(w => esc(w.name)).join(', ')}`);
+  const bset = new Set(br.base_ids || []), away = bset.size ? ppl.filter(w => w.base_id && !bset.has(w.base_id)) : [];
+  if (away.length) warn.push(`на другой базе: ${away.map(w => esc(w.name)).join(', ')}`);
+  if (drvId && !ppl.some(w => w.id === drvId) && drv) warn.push(`водитель ${esc(drv.name)} не в составе`);
+  const S = (window._brStats || {})[br.id] || {};
+  const person = (w, isDrv) => { const e = _brEff(w), [lbl, col] = _BR_ST[e] || _BR_ST.home;
+    const days = w.start_date ? Math.max(0, Math.floor((Date.now() - new Date(w.start_date)) / 864e5)) : null;
+    const base = w.base_id ? ((window.bases || []).find(b => b.id === w.base_id) || {}).name : '';
+    return `<div class="brc-p${e === 'fired' ? ' off' : ''}" onclick="event.stopPropagation();if(typeof openWorkerDetail==='function')openWorkerDetail('${escAttr(w.id)}')" title="${escAttr(`${w.name}${w.role ? ' — ' + w.role : ''}\n${lbl}${days != null ? ', ' + days + ' дн.' : ''}${base ? '\n🏕 ' + base : ''}${isDrv ? '\nВодитель — объём не засчитывается' : ''}`)}">
+      <i class="brc-av" style="--c:${col}">${esc(_brIni(w.name))}${isDrv ? '<em>🚗</em>' : ''}</i>
+      <span class="brc-pn"><b>${esc(w.name)}</b><small>${esc(w.role || '')}${isDrv ? (/водит/i.test(w.role || '') ? ' · не в зачёт' : (w.role ? ' · ' : '') + 'водитель, не в зачёт') : ''}</small></span>
+      <span class="brc-ps" style="color:${col}">${days != null ? days + ' дн.' : lbl}</span></div>`; };
+  const machHtml = mach || br.machine_name ? `<div class="brc-mach">
+      <span class="brc-mi">🚛</span><div style="flex:1;min-width:0"><b>${esc(br.machine_name || mach.name)}</b>${br.machine_plate || (mach && mach.plate_number) ? ` <span class="brc-plate">${esc(br.machine_plate || mach.plate_number)}</span>` : ''}
+        <small>${esc(br.machine_type || (mach && mach.type) || '')}${mach && mach.status ? ` · <span style="color:${mach.status === 'working' ? '#16a34a' : mach.status === 'broken' ? '#dc2626' : '#d97706'}">${mach.status === 'working' ? 'в работе' : mach.status === 'broken' ? 'сломана' : 'простой'}</span>` : ''}</small></div>
+      ${drv ? `<span class="brc-drv" title="Водитель — объём не засчитывается">🚗 ${esc(drv.name)}</span>` : '<span class="brc-mute">без водителя</span>'}</div>`
+    : `<div class="brc-mach brc-mute">🚛 машина не назначена</div>`;
+  const chips = (ids, names, kind) => (ids || []).map((id, i) => `<span class="brc-chip" onclick="event.stopPropagation();switchView('map');${kind === 'base' ? 'selectBase' : 'selectSite'}('${escAttr(id)}')" title="Открыть на карте">${kind === 'base' ? '🏕' : '📍'} ${esc(names[i] || id)}</span>`).join('');
+  return `<div class="br-card brc" oncontextmenu="event.preventDefault();if(typeof brCtxMenu==='function')brCtxMenu(event,'${bid}')">
+    <div class="brc-hd">
+      <div class="brc-logo" style="--c:${state[1]}">👥</div>
+      <div style="flex:1;min-width:0"><div class="br-card-name">${esc(br.name)}</div>
+        <div class="brc-state" style="color:${state[1]}">● ${state[0]}</div>
+        <div class="brc-cnt"><span title="Всего в составе">👷 ${ppl.length}</span>${crew.length !== ppl.length ? `<span title="Засчитывается объём (без водителя)">✔ в зачёт ${crew.length}</span>` : ''}${onShift ? `<span class="on">на вахте ${onShift}</span>` : ''}${home ? `<span>дома ${home}</span>` : ''}</div></div>
+      <div class="br-card-actions">
+        <button class="btn bs bsm" onclick="brUseForMarks('${bid}')" title="Отмечать выполнение объёмов этой бригадой">✅</button>
+        <button class="btn bs bsm" onclick="openBrigadeModal('${bid}')" title="Редактировать">✏️</button>
+        <button class="btn bs bsm" onclick="deleteBrigade('${bid}')" title="Удалить" style="color:var(--err)">🗑</button>
+      </div></div>
+    ${machHtml}
+    <div class="brc-ppl">${crew.map(w => person(w, false)).join('') || '<div class="brc-mute" style="padding:4px 2px">— нет людей в составе</div>'}${drv && ppl.some(w => w.id === drvId) ? person(drv, true) : ''}</div>
+    <div class="brc-stats">
+      <div><small>сегодня</small>${_brSum(S.today)}</div><div><small>7 дней</small>${_brSum(S.d7)}</div>
+      <div><small>30 дней</small>${_brSum(S.d30)}</div><div><small>всего</small>${_brSum(S.all)}</div>
+    </div>
+    ${S.last ? `<div class="brc-last">последнее выполнение: <b>${fmt(S.last)}</b>${Object.keys(S.sites || {}).length ? ' · ' + Object.keys(S.sites).slice(0, 3).map(esc).join(', ') : ''}</div>` : '<div class="brc-last brc-mute">выполнения пока нет</div>'}
+    ${(br.base_ids || []).length || (br.site_ids || []).length ? `<div class="brc-chips">${chips(br.base_ids, br.base_names || [], 'base')}${chips(br.site_ids, br.site_names || [], 'site')}</div>` : ''}
+    ${warn.length ? `<div class="brc-warn">⚠ ${warn.join(' · ')}</div>` : ''}
+    ${br.notes ? `<div class="brc-notes">${esc(br.notes)}</div>` : ''}
+  </div>`;
+}
+// «✅» на карточке: эта бригада — исполнитель для отметок объёмов
+async function brUseForMarks(id) {
+  if (typeof VEX === 'undefined') return;
+  await volBrigades(true);
+  VEX.brigade = id; VEX.extra = []; VEX.machine = ''; _vexSave();
+  toast(`✅ Отметки объёмов теперь от: ${volExecLabel()} — «Объёмы» → «✅ Отмечать» или ПКМ по скважине`, 'ok');
 }
 
 function brFilterCheckList(input, listSel) {

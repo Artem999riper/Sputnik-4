@@ -476,6 +476,38 @@ module.exports = (app, getDb, L) => {
     res.json(rows);
   }));
 
+  // Выработка бригад: строки выполнения, где есть кто-то из бригады (кроме водителя машины).
+  // По каждой бригаде — суммы за 7 / 30 дней и всего по единицам (скв, п.м., км…), дата последнего выполнения.
+  app.get('/api/pgk/brigades/stats', wrap((req, res) => {
+    const d = db();
+    const brs = all(d, `SELECT b.id, m.driver_id FROM pgk_brigades b LEFT JOIN pgk_machinery m ON m.id=b.machine_id`);
+    const mem = {}; all(d, 'SELECT brigade_id, worker_id FROM pgk_brigade_members').forEach(r => { (mem[r.brigade_id] = mem[r.brigade_id] || []).push(r.worker_id); });
+    const rows = all(d, `SELECT vp.work_date, vp.completed, vp.amount2, vp.worker_ids, v.unit, v.measure_json, v.name AS vol, s.name AS site
+      FROM vol_progress vp JOIN volumes v ON v.id=vp.volume_id LEFT JOIN sites s ON s.id=vp.site_id
+      WHERE COALESCE(vp.row_type,'fact')='fact' AND COALESCE(vp.worker_ids,'')<>''`);
+    const day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+    const d7 = day(7), d30 = day(30), today = day(0);
+    const out = {};
+    for (const b of brs) {
+      const ids = new Set((mem[b.id] || []).filter(x => x !== b.driver_id));
+      const st = { last: null, today: {}, d7: {}, d30: {}, all: {}, sites: {} };
+      if (ids.size) for (const r of rows) {
+        const ws = String(r.worker_ids).split(',').map(x => x.trim());
+        if (!ws.some(x => ids.has(x))) continue;
+        let u2 = ''; try { const m = JSON.parse(r.measure_json || '{}'); u2 = (m.second && m.second.unit) || ''; } catch (e) {}
+        const add = (bucket) => {
+          const k = r.unit || 'шт'; bucket[k] = (bucket[k] || 0) + (+r.completed || 0);
+          if (u2 && r.amount2 != null) bucket[u2] = (bucket[u2] || 0) + (+r.amount2 || 0);
+        };
+        add(st.all); if (r.work_date >= d30) add(st.d30); if (r.work_date >= d7) add(st.d7); if (r.work_date >= today) add(st.today);
+        if (!st.last || r.work_date > st.last) st.last = r.work_date;
+        if (r.site) st.sites[r.site] = (st.sites[r.site] || 0) + 1;
+      }
+      out[b.id] = st;
+    }
+    res.json(out);
+  }));
+
   app.post('/api/pgk/brigades', wrap((req, res) => {
     const err = required(['name'], req.body);
     if (err) return res.status(400).json({ error: err });
