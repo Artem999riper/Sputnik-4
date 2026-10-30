@@ -217,6 +217,7 @@ async function fetchNotifs(){
   if(!me||me==='Пользователь')return;
   try{
     const data=await fetch(`${API}/notifications?user=${encodeURIComponent(me)}`).then(r=>r.json());
+    if(!Array.isArray(data))return;   // ошибка / «нужно имя» — список не трогаем
     const prev=_notifs.map(n=>n.id);
     _notifs=data;
     // Show toast for brand-new notifications (not seen in previous poll)
@@ -257,6 +258,7 @@ function showNotifToast(n){
 
 function renderNotifBadge(){
   const me=un();
+  if(!Array.isArray(_notifs))_notifs=[];
   const cargoCnt=_notifs.filter(n=>!n.is_read&&(n.ref_type==='cargo'||n.type==='cargo_assigned')).length;
   const taskCnt=_notifs.filter(n=>!n.is_read&&n.ref_type!=='cargo'&&n.type!=='cargo_assigned').length;
   const cnt=_notifs.filter(n=>!n.is_read).length;
