@@ -109,9 +109,13 @@ let _kmlSelectedCat = 'ALL';    // 'ALL' | group_id | 'UNGROUPED'
 let _kmlDisplayMode = 'selected'; // 'selected' | 'all' | 'none'
 let _kmlExpanded    = new Set();  // id слоёв, раскрытых в иерархии
 let _kmlSel         = new Set();  // id слоёв, отмеченных для массового удаления
-let _kmlTab         = 'layers';   // вкладка панели: 'layers' — слои, 'vol' — слои-объёмы (vol-layers.js)
+let _kmlTab         = 'layers';   // вкладка панели: 'layers' — слои, 'vol' — слои-объёмы (vol-layers.js), 'notes' — заметки (map-notes.js)
 // слой — объём объекта: показывается во вкладке «📦 Объёмы», а не среди слоёв
 const _kmlIsVol = l => typeof volByLayer === 'function' && !!volByLayer(l.id);
+// слой заметок (map-notes.js) — во вкладке «✏️ Заметки»
+const _kmlIsNote = l => { const st = typeof kmlStyleOf === 'function' ? kmlStyleOf(l) : null; return !!(st && st.notes); };
+// обычный слой: не объекта, не объём и не заметки
+const _kmlIsPlain = l => !l.site_id && !_kmlIsVol(l) && !_kmlIsNote(l);
 function kmlSetTab(t) {
   _kmlTab = t; _kmlSel.clear();
   document.querySelectorAll('#kml-tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
@@ -160,6 +164,9 @@ function toggleKmlPanel() {
 function renderKmlPanel() {
   const n = document.getElementById('kml-vol-n');
   if (n) { const c = layers.filter(l => !l.site_id && _kmlIsVol(l)).length; n.textContent = c ? c : ''; }
+  const nn = document.getElementById('kml-notes-n');
+  if (nn) { const c = layers.filter(l => !l.site_id && _kmlIsNote(l) && !_kmlIsVol(l)).length; nn.textContent = c ? c : ''; }
+  if (_kmlTab === 'notes' && typeof mnKmlRenderCats === 'function') { mnKmlRenderCats(); mnKmlRenderPane(); return; }
   if (_kmlTab === 'vol' && typeof volKmlRenderCats === 'function') { volKmlRenderCats(); volKmlRenderPane(); return; }
   _kmlRenderCats();
   _kmlRenderLayerPane();
@@ -169,7 +176,7 @@ function renderKmlPanel() {
 function _kmlRenderCats() {
   const el = document.getElementById('kml-cats');
   if (!el) return;
-  const allLayers = layers.filter(l => !l.site_id && !_kmlIsVol(l));
+  const allLayers = layers.filter(_kmlIsPlain);
   const ungrouped = allLayers.filter(l => !l.group_id || !kmGroups[l.group_id]);
   const totalVis  = allLayers.some(l => l.visible);
   let html = '';
@@ -221,9 +228,10 @@ function _kmlRenderCats() {
 
 // Рендер правой колонки (список слоёв выбранной категории)
 function _kmlRenderLayerPane() {
+  if (_kmlTab !== 'layers') { renderKmlPanel(); return; }   // раскрытие объектов и т.п. во вкладках «Объёмы»/«Заметки»
   const el = document.getElementById('kml-layers-pane');
   if (!el) return;
-  const allLayers = layers.filter(l => !l.site_id && !_kmlIsVol(l));
+  const allLayers = layers.filter(_kmlIsPlain);
   let filtered;
   if (_kmlSelectedCat === 'ALL') {
     filtered = allLayers;
@@ -272,7 +280,7 @@ function kmlToggleSel(id, on) {
 }
 function kmlSelClear() { _kmlSel.clear(); _kmlRenderLayerPane(); }
 function kmlSelAll() {
-  const allLayers = layers.filter(l => !l.site_id && !_kmlIsVol(l));
+  const allLayers = layers.filter(_kmlIsPlain);
   let filtered;
   if (_kmlSelectedCat === 'ALL') filtered = allLayers;
   else if (_kmlSelectedCat === 'UNGROUPED') filtered = allLayers.filter(l => !l.group_id || !kmGroups[l.group_id]);
@@ -419,7 +427,7 @@ function _kmlFeatureChildRows(l) {
 
 // Массовое переключение видимости для категории (чекбокс в левой панели)
 async function _kmlCatBulkVis(cat, vis) {
-  const allLayers = layers.filter(l => !l.site_id && !_kmlIsVol(l));
+  const allLayers = layers.filter(_kmlIsPlain);
   let targets;
   if (cat === 'ALL') {
     targets = allLayers;
@@ -620,6 +628,7 @@ function kmlLayerCtx(ev, id) {
     {i:'📊',l:'Таблица атрибутов',f:()=>kmlAttrTable(id)},
     {i:'📦',l:(typeof volByLayer==='function'&&volByLayer(id))?'Объём объекта…':'Сделать объёмом объекта…',f:()=>volBindLayer(id)},
     {i:'🧰',l:'ГИС-операции (буфер, обрезка…)',f:()=>gisToolsOpen(id)},
+    _kmlIsNote(l)?{i:'🗂',l:'Перенести в обычные слои',f:()=>mapNotesSetLayerKind(id,false)}:{i:'✏️',l:'Перенести в заметки',f:()=>mapNotesSetLayerKind(id,true)},
     {i:'✏️',l:'Переименовать',f:()=>kmlRenameLayer(id)},
     {i:'🔍',l:'Приблизить к слою',f:()=>kmlZoomTo(id)},
     {i:l.visible?'🚫':'👁',l:l.visible?'Скрыть':'Показать',f:()=>kmlToggleVis(id,l.visible?0:1)},

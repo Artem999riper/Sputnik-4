@@ -488,3 +488,6 @@ html[data-theme=dark] .wd-warn{background:#3f3410;color:#fde68a}
 .leaflet-container img.leaflet-tile{mix-blend-mode:normal!important}
 .adm-err-row,.adm-err-row *{user-select:text}
 .adm-err-hd .btn{margin-left:4px;flex-shrink:0}
+
+/* вкладка «Заметки»: слой, в который сейчас рисуются заметки */
+.kml-layer-row.mn-cur{background:color-mix(in srgb,var(--acc) 9%,transparent);box-shadow:inset 3px 0 0 var(--acc)}
