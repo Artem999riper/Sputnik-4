@@ -552,7 +552,8 @@ function volKmlRenderPane() {
   let html = '', shown = 0, vis = 0;
   ss.forEach(s => {
     const o = (sites || []).find(x => x.id === s.id);
-    html += `<div class="vlp-site" onclick="selectSite('${escAttr(s.id)}')" title="Открыть объект">🏗 ${esc(s.name)}<span>${o ? `готовность ${o.completion_percent || 0}%` : ''}</span></div>`;
+    const geo = s.vols.some(v => v.category === 'geology');
+    html += `<div class="vlp-site" onclick="selectSite('${escAttr(s.id)}')" title="Открыть объект">🏗 ${esc(s.name)}<span>${geo ? `<a href="#" class="fsem-rep" onclick="event.preventDefault();event.stopPropagation();featSemSiteReport('${escAttr(s.id)}')" title="Ведомость выработок по всем объёмам геологии объекта">📑 ведомость</a> ` : ''}${o ? `готовность ${o.completion_percent || 0}%` : ''}</span></div>`;
     const cats = [...new Set(s.vols.map(v => v.category || 'geology'))].sort((a, b) => Object.keys(secs).indexOf(a) - Object.keys(secs).indexOf(b));
     cats.forEach(c => {
       const sec = secs[c] || { icon: '•', label: c, color: '#6b7280' };
@@ -564,9 +565,10 @@ function volKmlRenderPane() {
         html += _kmlLayerRowHtml(l, {
           name: `<b>${esc(v.name)}</b>`, cls: 'vlp-row', noPin: true,
           sub: `<div class="vlp-prog"><div class="pbt"><div class="pbf" style="width:${t.pct}%;background:${t.pct >= 100 ? 'var(--grn)' : 'var(--acc)'}"></div></div>
-            <b style="color:${t.pct >= 100 ? 'var(--grn)' : 'var(--acc)'}">${t.pct}%</b></div>${volLine(v, t)}${l.name !== v.name ? ` · <span title="Слой">🗂 ${esc(l.name)}</span>` : ''}`,
+            <b style="color:${t.pct >= 100 ? 'var(--grn)' : 'var(--acc)'}">${t.pct}%</b></div>${volLine(v, t)}${l.name !== v.name ? ` · <span title="Слой">🗂 ${esc(l.name)}</span>` : ''}${typeof featSemBadges === 'function' ? featSemBadges(l, v) : ''}`,
           btns: `<button class="kml-icon-btn" onclick="volMarkStart('${escAttr(l.id)}')" title="Отмечать выполнение щелчками на карте">✅</button>
             <button class="kml-icon-btn" onclick="kmlAttrTable('${escAttr(l.id)}')" title="Таблица: выполнено, дата, факт">📋</button>
+            ${v.category === 'geology' || (l.geojson || '').indexOf('"тип"') >= 0 ? `<button class="kml-icon-btn" onclick="featSemReport(['${escAttr(l.id)}'],'${escAttr(v.name + (v.site_name ? ' — ' + v.site_name : ''))}')" title="Ведомость выработок в Excel">📑</button>` : ''}
             <button class="kml-icon-btn" onclick="volOpenEdit('${escAttr(v.id)}')" title="Изменить объём">✏️</button>`,
         });
       });

@@ -627,6 +627,7 @@ function kmlLayerCtx(ev, id) {
     {i:'🎨',l:'Стиль / условный знак',f:()=>kmlOpenStyleModal(id)},
     {i:'📊',l:'Таблица атрибутов',f:()=>kmlAttrTable(id)},
     {i:'📋',l:'Каталог координат…',f:()=>coordCatalogLayer(id)},
+    ...(typeof volByLayer==='function'&&volByLayer(id)&&typeof featSemReport==='function'?[{i:'📑',l:'Ведомость выработок (Excel)',f:()=>{const v=volByLayer(id);featSemReport([id],v.name+(v.site_name?' — '+v.site_name:''));}}]:[]),
     {i:'📦',l:(typeof volByLayer==='function'&&volByLayer(id))?'Объём объекта…':'Сделать объёмом объекта…',f:()=>volBindLayer(id)},
     {i:'🧰',l:'ГИС-операции (буфер, обрезка…)',f:()=>gisToolsOpen(id)},
     _kmlIsNote(l)?{i:'🗂',l:'Перенести в обычные слои',f:()=>mapNotesSetLayerKind(id,false)}:{i:'✏️',l:'Перенести в заметки',f:()=>mapNotesSetLayerKind(id,true)},
