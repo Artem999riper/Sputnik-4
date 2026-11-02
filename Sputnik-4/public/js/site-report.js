@@ -109,7 +109,7 @@ async function _srCollect(siteId, from, to) {
 // Точки объёмов (вершины + сгущённые линии) → в метрах → «острова» (клетки сетки с шагом G,
 // соседние клетки — один остров) → каждый остров режется вдоль своей главной оси на листы
 // одного размера (17 × 10,6 см в выбранном масштабе). Возвращает {scale, sheets:[{minLng,…}], capped}
-const SR_PRINT_W = 0.17, SR_ASPECT = 1000 / 1600, SR_MAX_SHEETS = 16;
+const SR_PRINT_W = 0.17, SR_ASPECT = 1000 / 1600, SR_MAX_SHEETS = 24;
 function _srVolGeoms(o) {
   const out = [];
   (o.volumes || []).forEach(v => {
@@ -129,7 +129,7 @@ function _srSheets(o, scaleSel) {
   const step = Math.max(20, len / 20000), P = [];
   gs.forEach(x => {
     const g = x.f.geometry, lines = /LineString|Polygon/.test(g.type) ? (g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' || g.type === 'Polygon' ? g.coordinates : g.coordinates.flat()) : null;
-    if (!lines) { _pfPtsAny(g).forEach(c => P.push(M(c))); return; }
+    if (!lines) { _pfPtsAny(g).forEach(c => { const m = M(c); m.f = 1; P.push(m); }); return; }
     lines.forEach(ln => ln.forEach((c, i) => {
       const a = M(c); P.push(a); if (!i) return;
       const b = M(ln[i - 1]), d = Math.hypot(a[0] - b[0], a[1] - b[1]), n = Math.floor(d / step);
@@ -185,10 +185,23 @@ function _srSheets(o, scaleSel) {
   let sheets;
   if (+scaleSel) sheets = make(+scaleSel, P);
   else {
-    // авто: места, разнесённые больше чем на 3 км, — отдельно; у каждого свой масштаб —
-    // самый крупный, при котором оно занимает не больше 3 участков
+    // авто: места, разнесённые больше чем на 3 км, — отдельно; у каждого свой масштаб
+    // плотность: медиана расстояний до ближайшего соседа среди точечных объектов — на бумаге ≥ 6 мм,
+    // чтобы подписи читались; первый (самый крупный) масштаб, где место целиком на одном листе
+    // или (не крупнее плотности) занимает не больше 10 листов
     sheets = [];
-    islands(P, 3000).forEach(ip => { let r = null; for (const sc of SC) { r = make(sc, ip); if (r.length <= 3) break; } sheets.push(...r); });
+    islands(P, 3000).forEach(ip => {
+      const fp = ip.filter(p => p.f).slice(0, 1500);
+      let dens = 0;
+      if (fp.length >= 5) {
+        const nn = fp.map(a => { let m = Infinity; for (const b of fp) if (b !== a) { const d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (d > 0.5 && d < m) m = d; } return m; }).filter(isFinite).sort((a, b) => a - b);
+        if (nn.length) dens = nn[Math.floor(nn.length / 2)] / 0.006;
+      }
+      const floor = SC.filter(sc => sc <= dens).pop() || 0;
+      let r = null;
+      for (const sc of SC) { r = make(sc, ip); if (r.length === 1 || (sc >= floor && r.length <= 10)) break; }
+      sheets.push(...r);
+    });
   }
   // порядок: с запада на восток (а в одной полосе — с севера на юг)
   sheets.sort((a, b) => Math.abs(a.x - b.x) > Math.max(a.Sw, b.Sw) * 0.5 ? a.x - b.x : b.y - a.y);
@@ -271,6 +284,15 @@ async function _srMapImage(o, sat, opt) {
     await Promise.all(jobs);
   } catch (e) {}
   // объекты
+  // размер точек по густоте: при плотном ряде большие точки с белой обводкой сливаются в полосу
+  const ptXY = []; feats.forEach(x => { if (/Point/.test(x.f.geometry.type)) _pfPtsAny(x.f.geometry).forEach(c => { const q = P(c[0], c[1]); if (q[0] > -20 && q[0] < W + 20 && q[1] > -20 && q[1] < H + 20) ptXY.push(q); }); });
+  let ptK = opt.labels ? 0.75 : 1;
+  if (ptXY.length > 20) {
+    const smp = ptXY.length > 600 ? ptXY.filter((_, i) => i % Math.ceil(ptXY.length / 600) === 0) : ptXY;
+    const nn = smp.map(a => { let m = Infinity; for (const b of ptXY) if (b !== a) { const d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (d > 0.3 && d < m) m = d; } return m; }).filter(isFinite).sort((a, b) => a - b);
+    const med = nn.length ? nn[Math.floor(nn.length / 2)] : 99;
+    ptK = Math.max(0.35, Math.min(ptK, med / 24));
+  }
   const drawGeom = (geom, color, kind) => {
     const t = geom.type, c = geom.coordinates;
     g.strokeStyle = color; g.fillStyle = color; g.lineWidth = kind === 'fact' ? 7 : 5;
@@ -280,18 +302,29 @@ async function _srMapImage(o, sat, opt) {
     } else if (/LineString/.test(t)) {
       (t === 'LineString' ? [c] : c).forEach(l => { g.beginPath(); path(l); g.stroke(); });
     } else if (/Point/.test(t)) {
-      (t === 'Point' ? [c] : c).forEach(p => { const [x, y] = P(p[0], p[1]); g.beginPath(); g.arc(x, y, kind === 'fact' ? 11 : 10, 0, 7); g.fill(); g.lineWidth = 3; g.strokeStyle = '#fff'; g.stroke(); });
+      (t === 'Point' ? [c] : c).forEach(p => { const [x, y] = P(p[0], p[1]); g.beginPath(); g.arc(x, y, (kind === 'fact' ? 11 : 10) * ptK, 0, 7); g.fill(); g.lineWidth = Math.max(1, 3 * ptK); g.strokeStyle = '#fff'; g.stroke(); });
     } else if (t === 'GeometryCollection') (geom.geometries || []).forEach(x => drawGeom(x, color, kind));
   };
   ['kml', 'vol', 'fact'].forEach(k => feats.filter(x => x.kind === k).forEach(x => drawGeom(x.f.geometry, x.color, k)));
-  // подписи объектов объёмов на участке (если их не слишком много)
+  // подписи объектов объёмов на участке: без наложений — подпись ставится справа/слева,
+  // сверху/снизу от точки, где не задевает уже поставленные, точки и служебные плашки
   if (opt.labels) {
     const vis = feats.filter(x => x.kind !== 'kml' && x.f.properties && (x.f.properties.name || x.f.properties.Name)).map(x => { const c = _pfPtsAny(x.f.geometry)[0]; return c && { t: String(x.f.properties.name || x.f.properties.Name), xy: P(c[0], c[1]) }; })
-      .filter(x => x && x.xy[0] > -20 && x.xy[0] < W + 20 && x.xy[1] > -20 && x.xy[1] < H + 20);
-    if (vis.length <= 120) {
-      g.font = 'bold 24px sans-serif'; g.lineJoin = 'round';
-      vis.forEach(x => { g.lineWidth = 6; g.strokeStyle = 'rgba(255,255,255,.95)'; g.strokeText(x.t, x.xy[0] + 14, x.xy[1] - 10); g.fillStyle = '#111'; g.fillText(x.t, x.xy[0] + 14, x.xy[1] - 10); });
-    }
+      .filter(x => x && x.xy[0] > 0 && x.xy[0] < W && x.xy[1] > 0 && x.xy[1] < H);
+    const busy = [[0, H - 100, 560, H], [W - 100, 0, W, 124]];          // масштаб и «С»
+    vis.forEach(x => { const r = 10 * ptK + 2; busy.push([x.xy[0] - r, x.xy[1] - r, x.xy[0] + r, x.xy[1] + r]); });
+    const hit = r => busy.some(b => r[0] < b[2] && r[2] > b[0] && r[1] < b[3] && r[3] > b[1]);
+    g.font = 'bold 26px sans-serif'; g.lineJoin = 'round';
+    let shown = 0;
+    vis.forEach(x => {
+      const w = g.measureText(x.t).width, h = 27, [px, py] = x.xy;
+      const o2 = 10 * ptK + 6, cand = [[px + o2, py - o2 - h], [px + o2, py + o2], [px - o2 - w, py - o2 - h], [px - o2 - w, py + o2], [px + o2, py - h / 2], [px - o2 - w, py - h / 2], [px - w / 2, py - o2 - h], [px - w / 2, py + o2]];
+      const pos = cand.map(([lx, ly]) => [lx - 3, ly - 2, lx + w + 3, ly + h + 2]).find(r => r[0] >= 0 && r[2] <= W && r[1] >= 0 && r[3] <= H && !hit(r));
+      if (!pos) return;
+      busy.push(pos); shown++;
+      g.lineWidth = 5; g.strokeStyle = 'rgba(255,255,255,.95)'; g.strokeText(x.t, pos[0] + 3, pos[1] + 23); g.fillStyle = '#111'; g.fillText(x.t, pos[0] + 3, pos[1] + 23);
+    });
+    opt.labStat = { shown, total: vis.length };
   }
   // рамки участков на обзорной карте с номерами
   (opt.frames || []).forEach((b, i) => {
@@ -347,7 +380,8 @@ async function _srChart(cfg, w = 1100, h = 460) {
 async function _srCharts(d, from, to) {
   const out = [];
   const vols = d.vols.filter(v => v.plan > 0);
-  if (vols.length) out.push({ title: 'Выполнение по видам работ, % от плана', url: await _srChart({ type: 'bar',
+  // ничего не выполнено — пустую диаграмму в отчёт не ставим
+  if (vols.length && vols.some(v => v.pct > 0)) out.push({ title: 'Выполнение по видам работ, % от плана', ratio: Math.max(260, 80 + vols.length * 56) / 1100, url: await _srChart({ type: 'bar',
     data: { labels: vols.map(v => v.name.length > 38 ? v.name.slice(0, 36) + '…' : v.name), datasets: [{ label: '% выполнения', data: vols.map(v => Math.min(100, +(v.pct || 0).toFixed(1))), backgroundColor: vols.map(v => v.pct >= 100 ? '#16a34a' : '#2563eb') }] },
     options: { indexAxis: 'y', scales: { x: { min: 0, max: 100, ticks: { font: { size: 22 } } }, y: { ticks: { font: { size: 22 } } } }, plugins: { legend: { display: false } } } }, 1100, Math.max(260, 80 + vols.length * 56)) });
   // нарастающий итог: средний % по видам работ на каждую дату
@@ -358,7 +392,7 @@ async function _srCharts(d, from, to) {
       d.fact.filter(p => p.work_date === dt && acc[p.volume_id] != null).forEach(p => { acc[p.volume_id] += +p.completed || 0; });
       return +(vols.reduce((s, v) => s + Math.min(100, acc[v.id] / v.plan * 100), 0) / vols.length).toFixed(1);
     });
-    out.push({ title: 'Ход работ нарастающим итогом, % (среднее по видам работ)', url: await _srChart({ type: 'line',
+    out.push({ title: 'Ход работ нарастающим итогом, % (среднее по видам работ)', ratio: 460 / 1100, url: await _srChart({ type: 'line',
       data: { labels: dates.map(_srD), datasets: [{ label: 'Выполнено, %', data: series, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.15)', fill: true, tension: 0.2, pointRadius: dates.length > 60 ? 0 : 6, borderWidth: 4 }] },
       options: { scales: { y: { min: 0, max: 100, ticks: { font: { size: 22 } } }, x: { ticks: { font: { size: 20 }, maxTicksLimit: 10 } } } } }) });
   }
@@ -366,71 +400,97 @@ async function _srCharts(d, from, to) {
 }
 
 // ── Сборка HTML отчёта ─────────────────────────────────────
+// Вёрстка под Word и печать: разделы с номерами, картинки — фиксированной ширины 17 см
+// (атрибуты width/height — Word иначе берёт исходный размер), рисунок с подписью —
+// в одной ячейке таблицы, чтобы не разрывался страницей; участки — по два на страницу.
+const SR_IMG_W = 642;   // 17 см при 96 точках на дюйм
 function _srHtml(d, opt, imgs) {
-  const o = d.o, img = k => imgs[k] ? `<img src="${imgs[k].src}" style="width:100%;max-width:17cm" alt="">` : '';
+  const o = d.o;
+  let fig = 0, sec = 0;
+  const figure = (src, cap, ratio, title) => { fig++; const h = Math.round(SR_IMG_W * (ratio || SR_ASPECT));
+    return `<table class="fig"><tr><td>${title ? `<p class="ft">${title}</p>` : ''}<img src="${src}" width="${SR_IMG_W}" height="${h}" style="width:17cm;height:${(17 * (ratio || SR_ASPECT)).toFixed(2)}cm" alt=""><p class="cap">Рисунок ${fig}${cap ? ' — ' + cap : ''}</p></td></tr></table>`; };
+  const H2 = t => `<h2>${++sec}. ${t}</h2>`;
   const row = (k, v) => v ? `<tr><td class="k">${k}</td><td>${v}</td></tr>` : '';
   const per = `${opt.from ? _srD(opt.from) : 'начала работ'} — ${_srD(opt.to)}`;
   const st = ({ active: 'В работе', paused: 'Приостановлен', done: 'Завершён' })[o.status] || o.status || '';
-  let h = `<h1>Отчёт о ходе работ</h1>
-    <p class="sub">${esc(o.name)} · за период ${per}</p>
-    <table class="kv">${row('Объект', esc(o.name))}${row('Заказчик', esc(o.client || ''))}${row('Договор', esc(o.contract_number || ''))}
+  const catName = c => (typeof VOL_SECTIONS !== 'undefined' && VOL_SECTIONS[c] && VOL_SECTIONS[c].label) || _srCat[c] || 'Прочее';
+  let h = `<table class="hdr"><tr><td class="org">ПурГеоКом</td><td class="dt">${new Date().toLocaleDateString('ru-RU')}</td></tr></table>
+    <h1>Отчёт о ходе работ</h1>
+    <p class="sub">${esc(o.name)}<br>за период ${per}</p>`;
+  h += H2('Общие сведения') + `<table class="kv">${row('Объект', esc(o.name))}${row('Заказчик', esc(o.client || ''))}${row('Договор', esc(o.contract_number || ''))}
       ${row('Адрес / район', esc(o.address || ''))}${row('Сроки по договору', o.start_date || o.end_date ? `${_srD(o.start_date)} — ${_srD(o.end_date)}` : '')}
       ${row('Ожидаемое окончание', o.estimated_end ? _srD(o.estimated_end) : '')}${row('Статус', esc(st))}
       ${row('Готовность объекта', o.completion_percent != null ? `<b>${_srN(o.completion_percent, 0)} %</b>` : '')}
       ${(() => { if (typeof siteForecast !== 'function') return ''; const f = siteForecast(o, opt.to); if (!f.finish || f.allDone) return '';
         return row('Прогноз окончания (по темпу)', `${_srD(f.finish)}${f.lateDays != null ? (f.lateDays > 0 ? ` — <b>позже срока на ${f.lateDays} дн.</b>` : ` — в срок, запас ${-f.lateDays} дн.`) : ''}`); })()}</table>`;
   if (opt.note) h += `<p class="note">${esc(opt.note).replace(/\n/g, '<br>')}</p>`;
-  const legend = 'Объёмы работ — цветом видов работ, выполненное — зелёным, базы — фиолетовым.';
-  if (opt.map && imgs.map) h += `<h2>Карта объекта</h2>${img('map')}<p class="cap">${legend}${imgs.sheets.length ? ' Оранжевыми рамками с номерами — участки, показанные ниже крупнее.' : ''}</p>`;
-  if (opt.map && imgs.sheets.length) {
-    if (!imgs.map) h += `<h2>Карта объекта</h2><p class="cap">${legend}</p>`;
-    imgs.sheets.forEach((x, i) => { h += `<h3>Участок ${i + 1}${imgs.sheets.length > 1 ? ` из ${imgs.sheets.length}` : ''} · масштаб 1 : ${x.scale.toLocaleString('ru-RU')}</h3><img src="${x.src}" style="width:100%;max-width:17cm" alt="">${x.cap ? `<p class="cap">${x.cap}</p>` : ''}`; });
-  }
   if (opt.vol && d.vols.length) {
-    h += `<h2>Объёмы работ</h2><table class="t"><tr><th>№</th><th>Вид работ</th><th>Ед.</th><th>План</th><th>За период</th><th>Всего выполнено</th><th>%</th><th>Осталось</th></tr>`;
+    h += H2('Объёмы работ') + `<table class="t"><tr><th style="width:5%">№</th><th>Вид работ</th><th style="width:8%">Ед.</th><th style="width:11%">План</th><th style="width:11%">За период</th><th style="width:12%">Всего</th><th style="width:7%">%</th><th style="width:11%">Осталось</th></tr>`;
     let cat = null, i = 0;
-    d.vols.forEach(v => {
-      if (v.category !== cat) { cat = v.category; h += `<tr class="cat"><td colspan="8">${esc(_srCat[cat] || cat || 'Прочее')}</td></tr>`; }
-      h += `<tr><td>${++i}</td><td>${esc(v.name)}${v.m2 ? `<div class="cap">${esc(v.m2.unit || '')}: ${_srN(v.total2)} из ${_srN(+v.amount2 || 0)}</div>` : ''}</td><td>${esc(v.unit || '')}</td><td class="n">${_srN(v.plan)}</td><td class="n">${_srN(v.period)}</td><td class="n"><b>${_srN(v.total)}</b></td><td class="n">${v.pct == null ? '—' : _srN(v.pct, 1)}</td><td class="n">${v.left == null ? '—' : _srN(v.left)}</td></tr>`;
+    d.vols.slice().sort((a, b) => String(a.category).localeCompare(String(b.category))).forEach(v => {
+      if (v.category !== cat) { cat = v.category; h += `<tr class="cat"><td colspan="8">${esc(catName(cat))}</td></tr>`; }
+      h += `<tr><td class="c">${++i}</td><td>${esc(v.name)}</td><td class="c">${esc(v.unit || '')}</td><td class="n">${_srN(v.plan)}</td><td class="n">${_srN(v.period)}</td><td class="n"><b>${_srN(v.total)}</b></td><td class="n">${v.pct == null ? '—' : _srN(v.pct, 1)}</td><td class="n">${v.left == null ? '—' : _srN(v.left)}</td></tr>`;
+      if (v.m2) h += `<tr class="sub2"><td></td><td>в т. ч. ${esc(v.m2.unit || '')}</td><td class="c">${esc(v.m2.unit || '')}</td><td class="n">${_srN(+v.amount2 || 0)}</td><td class="n"></td><td class="n">${_srN(v.total2)}</td><td class="n">${+v.amount2 ? _srN(v.total2 / v.amount2 * 100, 1) : '—'}</td><td class="n">${+v.amount2 ? _srN(Math.max(0, v.amount2 - v.total2)) : '—'}</td></tr>`;
     });
     h += '</table>';
   }
-  if (opt.chart && imgs.charts.length) imgs.charts.forEach((c, i) => { h += `<h2>${esc(c.title)}</h2>${img('chart' + i)}`; });
+  const legend = 'объёмы работ — цветом видов работ, выполненное — зелёным, базы — фиолетовым';
+  if (opt.map && (imgs.map || imgs.sheets.length)) {
+    h += `<h2 class="pb">${++sec}. Карта объекта</h2>`;
+    if (imgs.map) h += figure(imgs.map.src, `обзорная карта объекта; ${legend}${imgs.sheets.length ? '; оранжевыми рамками с номерами — участки, показанные ниже крупнее' : ''}`);
+    else h += `<p class="cap">Условные обозначения: ${legend}.</p>`;
+    imgs.sheets.forEach((x, i) => {
+      const lab = x.lab && x.lab.total && x.lab.shown < x.lab.total ? `; подписаны ${x.lab.shown} из ${x.lab.total} — остальные мешали бы друг другу` : '';
+      // по два участка на страницу: новая страница перед каждым нечётным (кроме первого, если нет обзорной)
+      h += `${i % 2 === 0 && (i > 0 || imgs.map) ? '<br class="pg" style="page-break-before:always" clear="all">' : ''}` +
+        figure(x.src, `${x.cap || 'объёмы работ'}${lab}`, null, `Участок ${i + 1}${imgs.sheets.length > 1 ? ` из ${imgs.sheets.length}` : ''} · масштаб 1 : ${x.scale.toLocaleString('ru-RU')}`);
+    });
+  }
+  if (opt.chart && imgs.charts.length) {
+    h += `<h2 class="pb">${++sec}. Диаграммы</h2>`;
+    imgs.charts.forEach((c, i) => { h += figure(imgs['chart' + i].src, esc(c.title), c.ratio); });
+  }
   if (opt.log) {
     const L = d.log.slice(0, 200), vname = id => (d.vols.find(v => v.id === id) || {}).name || '';
     const wname = ids => String(ids || '').split(',').map(x => x.trim()).filter(Boolean).map(id => ((typeof pgkWorkers !== 'undefined' ? pgkWorkers : []).find(w => w.id === id) || {}).name || '').filter(Boolean).join(', ');
-    h += `<h2>Журнал работ за период</h2>` + (L.length ? `<table class="t"><tr><th>Дата</th><th>Вид работ</th><th>Выполнено</th><th>Исполнители</th><th>Акт</th><th>Примечание</th></tr>
+    h += H2('Журнал работ за период') + (L.length ? `<table class="t"><tr><th style="width:12%">Дата</th><th>Вид работ</th><th style="width:16%">Выполнено</th><th>Исполнители</th><th style="width:9%">Акт</th><th>Примечание</th></tr>
       ${L.map(p => { const v = d.vols.find(x => x.id === p.volume_id) || {}; return `<tr><td>${_srD(p.work_date)}</td><td>${esc(vname(p.volume_id))}</td><td class="n">${_srN(p.completed)} ${esc(v.unit || '')}${p.amount2 != null && v.m2 ? ` · ${_srN(p.amount2)} ${esc(v.m2.unit || '')}` : ''}</td><td>${esc(wname(p.worker_ids))}</td><td>${esc(p.act_number || '')}</td><td>${esc(p.notes || '')}</td></tr>`; }).join('')}</table>
       ${d.log.length > L.length ? `<p class="cap">Показаны последние ${L.length} записей из ${d.log.length}.</p>` : ''}` : '<p>За период записей нет.</p>');
     const dt = (o.log || []).filter(x => x.action === 'Простой из-за погоды');
-    if (dt.length) h += `<h3>Простои из-за погоды</h3><table class="t"><tr><th>Запись</th><th>Кто отметил</th></tr>${dt.map(x => `<tr><td>${esc(x.details || '')}</td><td>${esc(x.user_name || '')}</td></tr>`).join('')}</table>`;
+    if (dt.length) h += `<h3>Простои из-за погоды</h3><table class="t"><tr><th>Запись</th><th style="width:30%">Кто отметил</th></tr>${dt.map(x => `<tr><td>${esc(x.details || '')}</td><td>${esc(x.user_name || '')}</td></tr>`).join('')}</table>`;
   }
-  if (opt.team && (o.bases || []).length) {
-    h += `<h2>Персонал и техника</h2>`;
-    (o.bases || []).forEach(b => {
-      const W = (b.workers || []).filter(w => w.status !== 'fired'), M = b.machinery || [];
-      h += `<h3>🏕 ${esc(b.name)}</h3><table class="t"><tr><th style="width:50%">Персонал (${W.length})</th><th>Техника (${M.length})</th></tr><tr><td>${W.map(w => `${esc(w.name)}${w.role ? ' — ' + esc(w.role) : ''}`).join('<br>') || '—'}</td><td>${M.map(m => `${esc(m.name)}${m.plate_number ? ' ' + esc(m.plate_number) : ''}${m.type ? ' (' + esc(m.type) + ')' : ''}`).join('<br>') || '—'}</td></tr></table>`;
-    });
+  // персонал и техника — только базы, где кто-то есть
+  const bases = (o.bases || []).map(b => ({ b, W: (b.workers || []).filter(w => w.status !== 'fired'), M: b.machinery || [] })).filter(x => x.W.length || x.M.length);
+  if (opt.team && bases.length) {
+    h += H2('Персонал и техника') + `<table class="t"><tr><th style="width:22%">База</th><th>Персонал</th><th>Техника</th></tr>${bases.map(({ b, W, M }) => `<tr><td><b>${esc(b.name)}</b><br><span class="cap">${W.length} чел. · ${M.length} ед.</span></td>
+      <td>${W.map(w => `${esc(w.name)}${w.role ? ' — ' + esc(w.role) : ''}`).join('<br>') || '—'}</td><td>${M.map(m => `${esc(m.name)}${m.plate_number ? ' ' + esc(m.plate_number) : ''}${m.type ? ' (' + esc(m.type) + ')' : ''}`).join('<br>') || '—'}</td></tr>`).join('')}</table>`;
   }
   if (opt.tasks && (o.tasks || []).length) {
-    h += `<h2>Задачи и замечания</h2><table class="t"><tr><th>Задача</th><th>Ответственный</th><th>Срок</th><th>Статус</th></tr>${o.tasks.map(t => `<tr><td>${esc(t.title)}</td><td>${esc(t.responsible || '')}</td><td>${_srD(t.due_date)}</td><td>${t.status === 'done' ? 'Выполнена' : 'В работе'}</td></tr>`).join('')}</table>`;
+    h += H2('Задачи и замечания') + `<table class="t"><tr><th>Задача</th><th style="width:22%">Ответственный</th><th style="width:13%">Срок</th><th style="width:14%">Статус</th></tr>${o.tasks.map(t => `<tr><td>${esc(t.title)}</td><td>${esc(t.responsible || '')}</td><td>${_srD(t.due_date)}</td><td>${t.status === 'done' ? 'Выполнена' : 'В работе'}</td></tr>`).join('')}</table>`;
   }
   if (opt.photo && imgs.photos.length) {
-    h += `<h2>Фотоматериалы</h2><table class="ph">`;
-    for (let i = 0; i < imgs.photos.length; i += 2) h += `<tr>${[0, 1].map(k => { const p = imgs.photos[i + k]; return p ? `<td><img src="${p.src}" style="width:8cm" alt=""><br><span class="cap">${esc(p.cap || '')}</span></td>` : '<td></td>'; }).join('')}</tr>`;
+    h += `<h2 class="pb">${++sec}. Фотоматериалы</h2><table class="ph">`;
+    for (let i = 0; i < imgs.photos.length; i += 2) h += `<tr>${[0, 1].map(k => { const p = imgs.photos[i + k]; if (!p) return '<td></td>'; fig++; return `<td><img src="${p.src}" width="302" style="width:8cm" alt=""><p class="cap">Фото ${fig}${p.cap ? ' — ' + esc(p.cap) : ''}</p></td>`; }).join('')}</tr>`;
     h += '</table>';
   }
   h += `<p class="foot">Составил: ${esc(typeof un === 'function' ? un() : '')} · ${new Date().toLocaleDateString('ru-RU')} · ПурГеоКом «Спутник»</p>`;
   return h;
 }
 const _SR_CSS = `body{font-family:'Times New Roman',serif;font-size:12pt;color:#000}
-  h1{font-size:18pt;margin:0 0 2pt} h2{font-size:14pt;margin:16pt 0 6pt;border-bottom:1px solid #999;padding-bottom:2pt} h3{font-size:12pt;margin:10pt 0 4pt}
-  .sub{color:#444;margin:0 0 10pt} .note{border-left:3px solid #2563eb;padding:4pt 8pt;background:#f1f5ff}
-  table.kv td{padding:2pt 8pt 2pt 0;vertical-align:top} table.kv td.k{color:#555;white-space:nowrap}
+  table.hdr{width:100%;border-bottom:2px solid #1e3a8a;margin-bottom:14pt} table.hdr td{padding:0 0 3pt} .org{font-weight:bold;color:#1e3a8a;font-size:13pt} .dt{text-align:right;color:#555;font-size:10pt}
+  h1{font-size:20pt;margin:0 0 4pt;text-align:center} .sub{text-align:center;color:#333;margin:0 0 14pt;font-size:13pt}
+  h2{font-size:14pt;margin:16pt 0 6pt;border-bottom:1px solid #999;padding-bottom:2pt;page-break-after:avoid} h2.pb{page-break-before:always}
+  h3{font-size:12pt;margin:10pt 0 4pt;page-break-after:avoid}
+  .note{border-left:3px solid #1e3a8a;padding:4pt 8pt;background:#f1f5ff}
+  table.kv{border-collapse:collapse} table.kv td{padding:2pt 12pt 2pt 0;vertical-align:top} table.kv td.k{color:#555;white-space:nowrap}
   table.t{border-collapse:collapse;width:100%;font-size:10.5pt} table.t th,table.t td{border:1px solid #888;padding:3pt 5pt;vertical-align:top}
-  table.t th{background:#e5e7eb} table.t td.n{text-align:right;white-space:nowrap} table.t tr.cat td{background:#f3f4f6;font-weight:bold}
-  table.ph td{padding:4pt;text-align:center;vertical-align:top} .cap{font-size:9.5pt;color:#555} .foot{margin-top:20pt;font-size:9.5pt;color:#666}
-  img{page-break-inside:avoid} h2{page-break-after:avoid}`;
+  table.t th{background:#e5e7eb;font-weight:bold;text-align:center} table.t td.n{text-align:right;white-space:nowrap} table.t td.c{text-align:center}
+  table.t tr.cat td{background:#f3f4f6;font-weight:bold} table.t tr.sub2 td{color:#444;font-size:9.5pt;border-top:none}
+  table.fig{width:100%;border-collapse:collapse;margin:6pt 0 10pt;page-break-inside:avoid} table.fig td{padding:0;text-align:center} table.fig tr{page-break-inside:avoid}
+  .ft{font-weight:bold;text-align:left;margin:0 0 3pt}
+  table.ph{width:100%} table.ph td{padding:4pt;text-align:center;vertical-align:top;width:50%;page-break-inside:avoid}
+  .cap{font-size:9.5pt;color:#444;margin:3pt 0 0} .foot{margin-top:20pt;font-size:9.5pt;color:#666;border-top:1px solid #ccc;padding-top:4pt}
+  img{page-break-inside:avoid}`;
 
 async function _srRun(fmt) {
   const st = t => { const e = document.getElementById('sr-status'); if (e) e.textContent = t; };
@@ -450,8 +510,8 @@ async function _srRun(fmt) {
       if (opt.mapmode !== 'only' || !sh.sheets.length) { st('⏳ Карта…'); const u = await _srMapImage(d.o, opt.sat, { frames: sh.sheets }); if (u) imgs.map = { src: u }; }
       for (let i = 0; i < sh.sheets.length; i++) {
         st(`⏳ Участок ${i + 1} из ${sh.sheets.length}…`);
-        const u = await _srMapImage(d.o, opt.sat, { box: sh.sheets[i], labels: true });
-        if (u) imgs.sheets.push({ src: u, cap: _srSheetCaption(d.o, sh.sheets[i]), scale: sh.sheets[i].scale });
+        const mo = { box: sh.sheets[i], labels: true }, u = await _srMapImage(d.o, opt.sat, mo);
+        if (u) imgs.sheets.push({ src: u, cap: _srSheetCaption(d.o, sh.sheets[i]), scale: sh.sheets[i].scale, lab: mo.labStat });
       }
     }
     if (opt.chart) { st('⏳ Диаграммы…'); imgs.charts = await _srCharts(d, opt.from, opt.to); imgs.charts.forEach((c, i) => { imgs['chart' + i] = { src: c.url }; }); }
