@@ -25,6 +25,13 @@ async function openSiteReport(siteId) {
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 12px">
       ${ck('map', '🗺 Карта объекта', true)}${ck('sat', '🛰 Карта на спутнике (иначе схема)', true)}
+      <div style="grid-column:span 2;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding:2px 0 4px 20px">
+        <div class="fg" style="margin:0;flex:1;min-width:190px"><label>Как показать карту</label><select id="sr-mapmode" onchange="_srSheetsHint()">
+          ${[['parts', 'Обзорная + участки с объёмами крупно'], ['only', 'Только участки с объёмами'], ['one', 'Одна общая карта']].map(([v, l]) => `<option value="${v}" ${(last.mapmode || 'parts') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div class="fg" style="margin:0;width:150px"><label>Масштаб участков</label><select id="sr-scale" onchange="_srSheetsHint()">
+          ${[['auto', 'авто'], [5000, '1 : 5 000'], [10000, '1 : 10 000'], [25000, '1 : 25 000'], [50000, '1 : 50 000'], [100000, '1 : 100 000']].map(([v, l]) => `<option value="${v}" ${String(last.scale || 'auto') === String(v) ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div id="sr-sheets" style="font-size:11px;color:var(--tx2);width:100%"></div>
+      </div>
       ${ck('vol', '📦 Объёмы: план / факт', true)}${ck('chart', '📊 Диаграммы', true)}
       ${ck('log', '📒 Журнал работ за период', true)}${ck('team', '👷 Персонал и техника', true)}
       ${ck('tasks', '✅ Задачи и замечания', false)}${ck('photo', '📷 Фото', true)}
@@ -39,6 +46,20 @@ async function openSiteReport(siteId) {
     { label: '🖨 PDF', cls: 'bs', fn: () => _srRun('pdf') },
     { label: '📄 Word', cls: 'bp', fn: () => _srRun('doc') },
   ]);
+  document.getElementById('sr-site').addEventListener('change', _srSheetsHint);
+  _srSheetsHint();
+}
+// подсказка «будет N участков» (по объёмам выбранного объекта)
+async function _srSheetsHint() {
+  const el = document.getElementById('sr-sheets'), md = document.getElementById('sr-mapmode'); if (!el || !md) return;
+  document.getElementById('sr-scale').disabled = md.value === 'one';
+  if (md.value === 'one') { el.textContent = 'Весь объект одной картинкой.'; return; }
+  try {
+    const o = await fetch(`${API}/sites/${document.getElementById('sr-site').value}`).then(r => r.json());
+    const sh = _srSheets(o, document.getElementById('sr-scale').value);
+    el.innerHTML = !sh.sheets.length ? '⚠ У объекта нет объёмов на карте — будет одна общая карта.'
+      : `Участков: <b>${sh.sheets.length}</b>, масштаб <b>${sh.scales.map(x => '1 : ' + x.toLocaleString('ru-RU')).join(', ')}</b> (при ширине картинки 17 см) — только там, где есть объёмы; пустые места между ними не попадут.${sh.scales.length > 1 ? ' В «авто» у каждого места свой масштаб.' : ''}${sh.capped ? ' ⚠ Участков слишком много — показаны первые ' + sh.sheets.length + ', выберите масштаб мельче.' : ''}`;
+  } catch (e) { el.textContent = ''; }
 }
 function _srAddPhotos(inp) {
   const files = [...inp.files].slice(0, 30);
@@ -84,9 +105,110 @@ async function _srCollect(siteId, from, to) {
   return { o, vols, fact, log, photos };
 }
 
+// ── Участки карты: только там, где есть объёмы ─────────────
+// Точки объёмов (вершины + сгущённые линии) → в метрах → «острова» (клетки сетки с шагом G,
+// соседние клетки — один остров) → каждый остров режется вдоль своей главной оси на листы
+// одного размера (17 × 10,6 см в выбранном масштабе). Возвращает {scale, sheets:[{minLng,…}], capped}
+const SR_PRINT_W = 0.17, SR_ASPECT = 1000 / 1600, SR_MAX_SHEETS = 16;
+function _srVolGeoms(o) {
+  const out = [];
+  (o.volumes || []).forEach(v => {
+    const l = v.layer_id && (layers || []).find(x => x.id === v.layer_id); if (!l) return;
+    try { (JSON.parse(l.geojson).features || []).forEach(f => { const p = (f && f.properties) || {}; if (f && f.geometry && !p._skip && !p._hidden) out.push({ f, v }); }); } catch (e) {}
+  });
+  return out;
+}
+function _srSheets(o, scaleSel) {
+  const gs = _srVolGeoms(o);
+  const all = []; gs.forEach(x => all.push(..._pfPtsAny(x.f.geometry)));
+  if (!all.length) return { scale: 0, sheets: [] };
+  const lat0 = all.reduce((s, c) => s + c[1], 0) / all.length, kx = 111320 * Math.cos(lat0 * Math.PI / 180), ky = 110540;
+  const M = c => [c[0] * kx, c[1] * ky], G2L = (x, y) => [x / kx, y / ky];
+  // точки в метрах; линии сгущены (шаг ≥ 20 м, не больше ~20 000 точек)
+  let len = 0; gs.forEach(x => { const g = x.f.geometry; if (/Line|Polygon/.test(g.type)) { const pp = _pfPtsAny(g); for (let i = 1; i < pp.length; i++) { const a = M(pp[i]), b = M(pp[i - 1]); len += Math.hypot(a[0] - b[0], a[1] - b[1]); } } });
+  const step = Math.max(20, len / 20000), P = [];
+  gs.forEach(x => {
+    const g = x.f.geometry, lines = /LineString|Polygon/.test(g.type) ? (g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' || g.type === 'Polygon' ? g.coordinates : g.coordinates.flat()) : null;
+    if (!lines) { _pfPtsAny(g).forEach(c => P.push(M(c))); return; }
+    lines.forEach(ln => ln.forEach((c, i) => {
+      const a = M(c); P.push(a); if (!i) return;
+      const b = M(ln[i - 1]), d = Math.hypot(a[0] - b[0], a[1] - b[1]), n = Math.floor(d / step);
+      for (let k = 1; k < n; k++) P.push([b[0] + (a[0] - b[0]) * k / n, b[1] + (a[1] - b[1]) * k / n]);
+    }));
+  });
+  // острова: занятые клетки сетки с шагом gap, соседи по 8 направлениям — вместе
+  const islands = (pts, gap) => {
+    const cell = new Map(), key = (i, j) => i + ':' + j;
+    pts.forEach(p => { const k = key(Math.floor(p[0] / gap), Math.floor(p[1] / gap)); (cell.get(k) || cell.set(k, []).get(k)).push(p); });
+    const seen = new Set(), out = [];
+    for (const k0 of cell.keys()) {
+      if (seen.has(k0)) continue;
+      const st = [k0], ip = []; seen.add(k0);
+      while (st.length) {
+        const k = st.pop(); ip.push(...cell.get(k)); const [i, j] = k.split(':').map(Number);
+        for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) { const n = key(i + di, j + dj); if (cell.has(n) && !seen.has(n)) { seen.add(n); st.push(n); } }
+      }
+      out.push(ip);
+    }
+    return out;
+  };
+  // точки → листы одного масштаба: каждый остров режется вдоль главной оси, пока рамка помещается в лист
+  const make = (scale, pts) => {
+    const Sw = SR_PRINT_W * scale, Sh = Sw * SR_ASPECT, out = [];
+    islands(pts, Sw * 0.35).forEach(ip => {
+      const cx = ip.reduce((s, p) => s + p[0], 0) / ip.length, cy = ip.reduce((s, p) => s + p[1], 0) / ip.length;
+      let sxx = 0, syy = 0, sxy = 0; ip.forEach(p => { const dx = p[0] - cx, dy = p[1] - cy; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; });
+      const ang = 0.5 * Math.atan2(2 * sxy, sxx - syy), ux = Math.cos(ang), uy = Math.sin(ang);
+      const T = p => p[0] * ux + p[1] * uy;
+      const sorted = ip.slice().sort((a, b) => T(a) - T(b)), t0 = T(sorted[0]), t1 = T(sorted[sorted.length - 1]);
+      // поля по краям листа (≈12–15 %): подписи и масштабная линейка не закрывают объекты
+      const fits = b => b[2] - b[0] <= Sw * 0.76 && b[3] - b[1] <= Sh * 0.7;
+      // делим вдоль главной оси на n равных отрезков — наименьшее n, при котором каждый влезает в лист
+      let done = false;
+      for (let n = 1; n <= 12 && !done; n++) {
+        const boxes = Array.from({ length: n }, () => null);
+        sorted.forEach(p => { const k = Math.min(n - 1, Math.floor((T(p) - t0) / ((t1 - t0) || 1) * n)), b = boxes[k];
+          boxes[k] = b ? [Math.min(b[0], p[0]), Math.min(b[1], p[1]), Math.max(b[2], p[0]), Math.max(b[3], p[1])] : [p[0], p[1], p[0], p[1]]; });
+        const bs = boxes.filter(Boolean);
+        if (bs.every(fits)) { bs.forEach(b => out.push({ x: (b[0] + b[2]) / 2, y: (b[1] + b[3]) / 2, Sw, Sh, scale })); done = true; }
+      }
+      // широкое во все стороны (площадь больше листа) — сеткой, только клетки, где что-то есть
+      if (!done) {
+        const cw = Sw * 0.76, ch = Sh * 0.7, occ = new Set();
+        ip.forEach(p => occ.add(Math.floor(p[0] / cw) + ':' + Math.floor(p[1] / ch)));
+        occ.forEach(k => { const [i, j] = k.split(':').map(Number); out.push({ x: (i + 0.5) * cw, y: (j + 0.5) * ch, Sw, Sh, scale }); });
+      }
+    });
+    return out;
+  };
+  const SC = [2000, 5000, 10000, 25000, 50000, 100000, 200000, 500000];
+  let sheets;
+  if (+scaleSel) sheets = make(+scaleSel, P);
+  else {
+    // авто: места, разнесённые больше чем на 3 км, — отдельно; у каждого свой масштаб —
+    // самый крупный, при котором оно занимает не больше 3 участков
+    sheets = [];
+    islands(P, 3000).forEach(ip => { let r = null; for (const sc of SC) { r = make(sc, ip); if (r.length <= 3) break; } sheets.push(...r); });
+  }
+  // порядок: с запада на восток (а в одной полосе — с севера на юг)
+  sheets.sort((a, b) => Math.abs(a.x - b.x) > Math.max(a.Sw, b.Sw) * 0.5 ? a.x - b.x : b.y - a.y);
+  const capped = sheets.length > SR_MAX_SHEETS;
+  sheets = sheets.slice(0, SR_MAX_SHEETS).map(c => { const [w, sLat] = G2L(c.x - c.Sw / 2, c.y - c.Sh / 2), [e, nLat] = G2L(c.x + c.Sw / 2, c.y + c.Sh / 2); return { minLng: w, minLat: sLat, maxLng: e, maxLat: nLat, scale: c.scale }; });
+  const scs = [...new Set(sheets.map(x => x.scale))].sort((a, b) => a - b);
+  return { scale: scs[0] || 0, scales: scs, sheets, capped };
+}
+// что из объёмов попало на участок: «Бурение: 12, выполнено 8»
+function _srSheetCaption(o, b) {
+  const by = new Map(), inB = c => c[0] >= b.minLng && c[0] <= b.maxLng && c[1] >= b.minLat && c[1] <= b.maxLat;
+  _srVolGeoms(o).forEach(x => { if (!_pfPtsAny(x.f.geometry).some(inB)) return; const r = by.get(x.v) || by.set(x.v, { n: 0, d: 0 }).get(x.v); r.n++; if (x.f.properties && x.f.properties._done) r.d++; });
+  return [...by].map(([v, r]) => `${esc(v.name)}: ${r.n}${r.d ? `, выполнено ${r.d}` : ''}`).join(' · ');
+}
+
 const _pfPtsAny = g => { const o = []; const w = c => { if (typeof c[0] === 'number') o.push(c); else c.forEach(w); }; if (g && g.coordinates) w(g.coordinates); return o; };
 // ── Карта: подложка с сервера + объёмы и базы, рисуем сами ─
-async function _srMapImage(o, sat) {
+// opt: {box — рамка участка (иначе весь объект), frames — рамки участков для обзорной, labels — подписи объектов}
+async function _srMapImage(o, sat, opt) {
+  opt = opt || {};
   const feats = [];
   // объёмы — слои KML: выполненные объекты зелёным, остальные цветом объёма, исключённые — не рисуем
   const volLayerIds = new Set();
@@ -111,15 +233,22 @@ async function _srMapImage(o, sat) {
   const walk = c => { if (typeof c[0] === 'number') pts.push(c); else c.forEach(walk); };
   feats.forEach(x => walk(x.f.geometry.coordinates || []));
   bases.forEach(b => pts.push([b.lng, b.lat]));
-  if (!pts.length) return null;
-  let minLng = Math.min(...pts.map(p => p[0])), maxLng = Math.max(...pts.map(p => p[0])), minLat = Math.min(...pts.map(p => p[1])), maxLat = Math.max(...pts.map(p => p[1]));
-  const padX = Math.max((maxLng - minLng) * 0.08, 0.002), padY = Math.max((maxLat - minLat) * 0.08, 0.001);
-  minLng -= padX; maxLng += padX; minLat -= padY; maxLat += padY;
+  if (!pts.length && !opt.box) return null;
+  let minLng, maxLng, minLat, maxLat;
+  if (opt.box) ({ minLng, maxLng, minLat, maxLat } = opt.box);
+  else {
+    (opt.frames || []).forEach(b => { pts.push([b.minLng, b.minLat], [b.maxLng, b.maxLat]); });
+    minLng = Math.min(...pts.map(p => p[0])); maxLng = Math.max(...pts.map(p => p[0])); minLat = Math.min(...pts.map(p => p[1])); maxLat = Math.max(...pts.map(p => p[1]));
+    const padX = Math.max((maxLng - minLng) * (opt.frames && opt.frames.length ? 0.12 : 0.08), 0.002), padY = Math.max((maxLat - minLat) * (opt.frames && opt.frames.length ? 0.14 : 0.08), 0.001);
+    minLng -= padX; maxLng += padX; minLat -= padY; maxLat += padY;
+  }
   const W = 1600, H = 1000;
   const wx = (lng, z) => (lng + 180) / 360 * 256 * 2 ** z;
   const wy = (lat, z) => { const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256 * 2 ** z; };
-  let z = 18;
-  while (z > 3 && (wx(maxLng, z) - wx(minLng, z) > W || wy(minLat, z) - wy(maxLat, z) > H)) z--;
+  // дробный масштаб: рамка ровно вписывается в картинку; тайлы — ближайшего уровня, растянутые
+  const fit = Math.min(W / (wx(maxLng, 0) - wx(minLng, 0)), H / (wy(minLat, 0) - wy(maxLat, 0)));
+  const z = Math.max(2, Math.min(19, Math.log2(fit) - (opt.box ? 0 : 0.0001)));
+  const zt = Math.max(2, Math.min(18, Math.round(z))), ts = 256 * 2 ** (z - zt);
   const cx = (wx(minLng, z) + wx(maxLng, z)) / 2, cy = (wy(minLat, z) + wy(maxLat, z)) / 2;
   const x0 = cx - W / 2, y0 = cy - H / 2;
   const P = (lng, lat) => [wx(lng, z) - x0, wy(lat, z) - y0];
@@ -128,15 +257,16 @@ async function _srMapImage(o, sat) {
   g.fillStyle = sat ? '#3f4a3c' : '#eef2f0'; g.fillRect(0, 0, W, H);
   // подложка — тайлы через сервер (без ограничений CORS у холста)
   try {
-    const tl = [Math.floor(x0 / 256), Math.floor(y0 / 256)], br = [Math.floor((x0 + W) / 256), Math.floor((y0 + H) / 256)];
+    const tl = [Math.floor(x0 / ts), Math.floor(y0 / ts)], br = [Math.floor((x0 + W) / ts), Math.floor((y0 + H) / ts)];
     const inv = (px, py) => ({ lng: px / (256 * 2 ** z) * 360 - 180, lat: Math.atan(Math.sinh(Math.PI * (1 - 2 * py / (256 * 2 ** z)))) * 180 / Math.PI });
     const a = inv(x0, y0 + H), b = inv(x0 + W, y0);
     const r = await fetch(`${API}/export-tiles`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bbox: { minLng: a.lng, minLat: a.lat, maxLng: b.lng, maxLat: b.lat }, minZoom: z, maxZoom: z, source: sat ? 'sat' : 'map' }) }).then(r => r.json());
+      body: JSON.stringify({ bbox: { minLng: a.lng, minLat: a.lat, maxLng: b.lng, maxLat: b.lat }, minZoom: zt, maxZoom: zt, source: sat ? 'sat' : 'map' }) }).then(r => r.json());
     const jobs = [];
     for (let tx = tl[0]; tx <= br[0]; tx++) for (let ty = tl[1]; ty <= br[1]; ty++) {
-      const b64 = r && r.tiles && r.tiles[`${z}/${tx}/${ty}`]; if (!b64) continue;
-      jobs.push(new Promise(ok => { const im = new Image(); im.onload = () => { g.drawImage(im, tx * 256 - x0, ty * 256 - y0); ok(); }; im.onerror = ok; im.src = (b64.startsWith('/9j') ? 'data:image/jpeg;base64,' : 'data:image/png;base64,') + b64; }));
+      const b64 = r && r.tiles && r.tiles[`${zt}/${tx}/${ty}`]; if (!b64) continue;
+      // +0,5 px — без щелей между растянутыми тайлами
+      jobs.push(new Promise(ok => { const im = new Image(); im.onload = () => { g.drawImage(im, tx * ts - x0, ty * ts - y0, ts + 0.5, ts + 0.5); ok(); }; im.onerror = ok; im.src = (b64.startsWith('/9j') ? 'data:image/jpeg;base64,' : 'data:image/png;base64,') + b64; }));
     }
     await Promise.all(jobs);
   } catch (e) {}
@@ -154,6 +284,25 @@ async function _srMapImage(o, sat) {
     } else if (t === 'GeometryCollection') (geom.geometries || []).forEach(x => drawGeom(x, color, kind));
   };
   ['kml', 'vol', 'fact'].forEach(k => feats.filter(x => x.kind === k).forEach(x => drawGeom(x.f.geometry, x.color, k)));
+  // подписи объектов объёмов на участке (если их не слишком много)
+  if (opt.labels) {
+    const vis = feats.filter(x => x.kind !== 'kml' && x.f.properties && (x.f.properties.name || x.f.properties.Name)).map(x => { const c = _pfPtsAny(x.f.geometry)[0]; return c && { t: String(x.f.properties.name || x.f.properties.Name), xy: P(c[0], c[1]) }; })
+      .filter(x => x && x.xy[0] > -20 && x.xy[0] < W + 20 && x.xy[1] > -20 && x.xy[1] < H + 20);
+    if (vis.length <= 120) {
+      g.font = 'bold 24px sans-serif'; g.lineJoin = 'round';
+      vis.forEach(x => { g.lineWidth = 6; g.strokeStyle = 'rgba(255,255,255,.95)'; g.strokeText(x.t, x.xy[0] + 14, x.xy[1] - 10); g.fillStyle = '#111'; g.fillText(x.t, x.xy[0] + 14, x.xy[1] - 10); });
+    }
+  }
+  // рамки участков на обзорной карте с номерами
+  (opt.frames || []).forEach((b, i) => {
+    let [ax, ay] = P(b.minLng, b.maxLat), [bx, by] = P(b.maxLng, b.minLat);
+    // крупный участок на обзорной крошечный — рамка не меньше 44 px
+    if (bx - ax < 44) { const c = (ax + bx) / 2; ax = c - 22; bx = c + 22; }
+    if (by - ay < 44) { const c = (ay + by) / 2; ay = c - 22; by = c + 22; }
+    g.lineWidth = 4; g.strokeStyle = '#f59e0b'; g.setLineDash([14, 8]); g.strokeRect(ax, ay, bx - ax, by - ay); g.setLineDash([]);
+    const t = String(i + 1); g.font = 'bold 34px sans-serif';
+    const tw = g.measureText(t).width + 18; g.fillStyle = '#f59e0b'; g.fillRect(ax, ay, tw, 44); g.fillStyle = '#fff'; g.fillText(t, ax + 9, ay + 34);
+  });
   // заметки: стрелки/выноски линиями, текст — крупно с белой обводкой
   const inBox = c => c[0] >= minLng && c[0] <= maxLng && c[1] >= minLat && c[1] <= maxLat;
   notes.filter(f => _pfPtsAny(f.geometry).some(inBox)).forEach(f => {
@@ -231,7 +380,12 @@ function _srHtml(d, opt, imgs) {
       ${(() => { if (typeof siteForecast !== 'function') return ''; const f = siteForecast(o, opt.to); if (!f.finish || f.allDone) return '';
         return row('Прогноз окончания (по темпу)', `${_srD(f.finish)}${f.lateDays != null ? (f.lateDays > 0 ? ` — <b>позже срока на ${f.lateDays} дн.</b>` : ` — в срок, запас ${-f.lateDays} дн.`) : ''}`); })()}</table>`;
   if (opt.note) h += `<p class="note">${esc(opt.note).replace(/\n/g, '<br>')}</p>`;
-  if (opt.map && imgs.map) h += `<h2>Карта объекта</h2>${img('map')}<p class="cap">Объёмы работ — цветом видов работ, выполненное — зелёным, базы — фиолетовым.</p>`;
+  const legend = 'Объёмы работ — цветом видов работ, выполненное — зелёным, базы — фиолетовым.';
+  if (opt.map && imgs.map) h += `<h2>Карта объекта</h2>${img('map')}<p class="cap">${legend}${imgs.sheets.length ? ' Оранжевыми рамками с номерами — участки, показанные ниже крупнее.' : ''}</p>`;
+  if (opt.map && imgs.sheets.length) {
+    if (!imgs.map) h += `<h2>Карта объекта</h2><p class="cap">${legend}</p>`;
+    imgs.sheets.forEach((x, i) => { h += `<h3>Участок ${i + 1}${imgs.sheets.length > 1 ? ` из ${imgs.sheets.length}` : ''} · масштаб 1 : ${x.scale.toLocaleString('ru-RU')}</h3><img src="${x.src}" style="width:100%;max-width:17cm" alt="">${x.cap ? `<p class="cap">${x.cap}</p>` : ''}`; });
+  }
   if (opt.vol && d.vols.length) {
     h += `<h2>Объёмы работ</h2><table class="t"><tr><th>№</th><th>Вид работ</th><th>Ед.</th><th>План</th><th>За период</th><th>Всего выполнено</th><th>%</th><th>Осталось</th></tr>`;
     let cat = null, i = 0;
@@ -283,13 +437,23 @@ async function _srRun(fmt) {
   const siteId = document.getElementById('sr-site').value;
   const opt = { from: document.getElementById('sr-from').value, to: document.getElementById('sr-to').value || new Date().toISOString().slice(0, 10), note: document.getElementById('sr-note').value.trim() };
   ['map', 'sat', 'vol', 'chart', 'log', 'team', 'tasks', 'photo'].forEach(k => { opt[k] = !!document.getElementById('sr-' + k)?.checked; });
+  opt.mapmode = document.getElementById('sr-mapmode').value; opt.scale = document.getElementById('sr-scale').value;
   try { const { from, to, ...keep } = opt; localStorage.setItem('srep_opts', JSON.stringify(keep)); } catch (e) {}
   document.querySelectorAll('#mft .btn').forEach(b => b.disabled = true);
   try {
     st('⏳ Собираю данные…');
     const d = await _srCollect(siteId, opt.from, opt.to);
     const imgs = { charts: [], photos: [] };
-    if (opt.map) { st('⏳ Карта…'); const u = await _srMapImage(d.o, opt.sat); if (u) imgs.map = { src: u }; }
+    imgs.sheets = [];
+    if (opt.map) {
+      const sh = opt.mapmode === 'one' ? { sheets: [] } : _srSheets(d.o, opt.scale);
+      if (opt.mapmode !== 'only' || !sh.sheets.length) { st('⏳ Карта…'); const u = await _srMapImage(d.o, opt.sat, { frames: sh.sheets }); if (u) imgs.map = { src: u }; }
+      for (let i = 0; i < sh.sheets.length; i++) {
+        st(`⏳ Участок ${i + 1} из ${sh.sheets.length}…`);
+        const u = await _srMapImage(d.o, opt.sat, { box: sh.sheets[i], labels: true });
+        if (u) imgs.sheets.push({ src: u, cap: _srSheetCaption(d.o, sh.sheets[i]), scale: sh.sheets[i].scale });
+      }
+    }
     if (opt.chart) { st('⏳ Диаграммы…'); imgs.charts = await _srCharts(d, opt.from, opt.to); imgs.charts.forEach((c, i) => { imgs['chart' + i] = { src: c.url }; }); }
     if (opt.photo) {
       st('⏳ Фото…');

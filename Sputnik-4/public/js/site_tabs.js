@@ -7,7 +7,7 @@ function tabSiteOv(pb){
   if(dl!==null&&dl<0)al+=`<div class="al-c">🚨 Просрочено на ${Math.abs(dl)} дн.</div>`;
   else if(dl!==null&&dl<8)al+=`<div class="al-w">⚠️ До сдачи ${dl} дн.</div>`;
   if(brk.length)al+=`<div class="al-c">🔴 Сломано: ${brk.map(m=>esc(m.name)).join(', ')}</div>`;
-  pb.innerHTML=`${al}<div class="ic full ac" style="margin-bottom:8px">
+  pb.innerHTML=`${al}<div style="display:flex;justify-content:flex-end;margin-bottom:6px"><button class="btn bp bsm" onclick="openSiteReport('${escAttr(s.id)}')" title="Отчёт о ходе работ: Word или PDF">📄 Отчёт для заказчика</button></div><div class="ic full ac" style="margin-bottom:8px">
     <div class="icl">Готовность</div>
     <div style="display:flex;align-items:flex-end;gap:9px">
       <div class="icvb">${s.completion_percent}%</div>
