@@ -62,9 +62,15 @@ test('ситуация в DXF: слои шаблона, блоки знаков,
   assert.ok(has('Контур леса') && has('Контур болота') && has('Озеро'), 'кириллические слои в cp1251');
   assert.ok(has('оз. Круглое') && has('р. Тестовая'), 'подписи названий');
   assert.ok(/\$DWGCODEPAGE\r\n  3\r\nANSI_1251/.test(txt), 'кодовая страница');
-  assert.ok(/SECTION\r\n  2\r\nBLOCKS/.test(txt), 'раздел блоков');
+  assert.ok(/\$ACADVER\r\n  1\r\nAC1015/.test(txt), 'DXF 2000 — AutoCAD принимает кириллические имена слоёв');
+  assert.ok(/BLOCK_RECORD\r\n  5\r\n[0-9A-F]+\r\n330\r\n[0-9A-F]+\r\n100\r\nAcDbSymbolTableRecord\r\n100\r\nAcDbBlockTableRecord\r\n  2\r\nLes/.test(txt), 'блок знака леса');
+  // handle уникальны, владельцы существуют
+  const L = buf.toString('latin1').split('\r\n'), H = [], O = [];
+  for (let i = 0; i + 1 < L.length; i += 2) { if (L[i].trim() === '5') H.push(L[i + 1]); if (L[i].trim() === '330') O.push(L[i + 1]); }
+  const hs = new Set(H); assert.strictEqual(hs.size, H.length, 'handle без повторов');
+  assert.ok(O.every(o => o === '0' || hs.has(o)), 'владельцы существуют');
   assert.ok(has('Горизонтали утолщенные') && has('Горизонтали основные'), 'горизонтали на слоях шаблона');
-  assert.ok(!/GORIZONTALI\r\n 62\r\n/.test(txt.split('ENTITIES')[1]), 'цвет горизонталей — по слою');
+  assert.ok(!/  8\r\nGORIZONTALI\r\n/.test(txt.split('ENTITIES')[1]), 'горизонтали перенесены со старого слоя');
   assert.ok(/\r\n  0\r\nEOF\r\n$/.test(txt), 'конец файла');
   // всё внутри рамки: координаты вершин не выходят за неё дальше 1 м
   const proj4 = require('proj4'), T = proj4('EPSG:4326', PROJ);

@@ -1195,7 +1195,7 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
       `Высоты: ${geoid ? 'БСВ-77 (поправка геоида EGM применена)' : useGeoid ? '⚠ ЭЛЛИПСОИДАЛЬНЫЕ WGS-84 — перевод в БСВ-77 не удался (нет файлов геоида на сервере)' : 'эллипсоидальные WGS-84'}\r\n` +
       `Горизонтали: шаг ${interval}м${interval!==reqInterval?` (запрошено ${reqInterval} м — на этом шаге горизонталей нет, участок плоский)`:''}, источник ArcticDEM ${usedRes}\r\n` +
       `Точки: ${gridStep>0?`сетка ${gridStep}x${gridStep}м`:'без точек (отключены)'}\r\n` +
-      `\r\nСлои DXF (R12):\r\n` +
+      `\r\nСлои DXF (${situation&&situation.on&&!/НЕ ДОБАВЛЕНА/.test(sitNote)?'формат DXF 2000 — кириллические слои шаблона':'R12'}):\r\n` +
       `  GORIZONTALI  — синий (5), 3D LINE, Z=высота\r\n` +
       `  PODPISI      — жёлтый (2), TEXT, каждая 2-я горизонталь\r\n` +
       `  TOCHKI_VYSOT — зелёный (3), POINT+TEXT, сетка ${gridStep}м\r\n` +

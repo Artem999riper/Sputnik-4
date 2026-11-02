@@ -322,6 +322,11 @@ function _ltNorm(p) {
 }
 function _blockDef(o, name, prims) {
   _gp(o, 0, 'BLOCK'); _gp(o, 8, '0'); _gp(o, 2, name); _gp(o, 70, 0); _gp(o, 10, 0); _gp(o, 20, 0); _gp(o, 30, 0); _gp(o, 3, name);
+  _blockBody(o, prims);
+  _gp(o, 0, 'ENDBLK'); _gp(o, 8, '0');
+}
+// содержимое блока (пары R12): полилинии, окружности, залитые кружки, заливки
+function _blockBody(o, prims) {
   const col = c => c == null ? 256 : c;  // без цвета — «по слою»: блок на слое 0 берёт цвет слоя вставки
   prims.forEach(p => {
     if (p.t === 'pl') {
@@ -346,7 +351,6 @@ function _blockDef(o, name, prims) {
       }
     }
   });
-  _gp(o, 0, 'ENDBLK'); _gp(o, 8, '0');
 }
 function _blockBox(prims) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -464,67 +468,54 @@ function toCp1251(s) {
 }
 
 // ── Дописать ситуацию в готовый DXF горизонталей ───────────
-// opts: {interval, contoursToTemplate} — горизонтали на слои шаблона «Горизонтали основные/утолщенные»
+// Файл переписывается в DXF 2000 (dxf2000.js): в R12 AutoCAD не принимает
+// кириллические имена слоёв с пробелами. Горизонтали, подписи и точки высот
+// переносятся как есть; opts.contoursToTemplate — горизонтали на слои шаблона
+// «Горизонтали основные / утолщенные» (каждая 5-я), цвет — по слою.
 function mergeIntoDxf(file, sit, opts = {}) {
-  const raw = fs.readFileSync(file, 'latin1').split(/\r?\n/);
-  if (raw.length && raw[raw.length - 1] === '') raw.pop();
+  const { Dxf2000 } = require('./dxf2000');
+  // исходник от dem_export.py — ASCII; уже обработанный файл — cp1251 (по $DWGCODEPAGE)
+  const bytes = fs.readFileSync(file), cp1251 = /ANSI_1251/.test(bytes.subarray(0, 4000).toString('latin1'));
+  const raw = (cp1251 ? new TextDecoder('windows-1251').decode(bytes) : bytes.toString('latin1')).split(/\r?\n/);
   const P = []; for (let i = 0; i + 1 < raw.length; i += 2) P.push([raw[i].trim(), raw[i + 1]]);
-  const iv = +opts.interval || 1, thickEvery = iv < 1 - 1e-9 ? 5 : 5;
-  const out = [];
+  const D = new Dxf2000();
+  const iv = +opts.interval || 1;
+  // слои исходного файла (GORIZONTALI, PODPISI, TOCHKI_VYSOT) и его объекты
+  const src = [], ent = []; let sec = null, inLayer = false, cur = null;
+  for (let i = 0; i < P.length; i++) {
+    const [c, v] = P[i];
+    if (c === '0' && v === 'SECTION') { sec = P[i + 1] && P[i + 1][1]; continue; }
+    if (c === '0' && v === 'ENDSEC') { sec = null; continue; }
+    if (sec === 'TABLES') {
+      if (c === '0') { inLayer = v === 'LAYER'; if (inLayer) { cur = { c: 7 }; src.push(cur); } continue; }
+      if (inLayer && cur) { if (c === '2') cur.n = v; if (c === '62') cur.c = +v; }
+    } else if (sec === 'ENTITIES') ent.push(P[i]);
+  }
+  // типы линий и слои шаблона
   const used = new Set(sit ? sit.usedLayers : []);
   if (opts.contoursToTemplate) ['Горизонтали основные', 'Горизонтали утолщенные'].forEach(n => used.add(n));
-  const lts = new Set(); used.forEach(n => { const L = TPL.layers[n]; if (L && TPL.ltypes[L.lt] && _ltNorm(TPL.ltypes[L.lt].p)) lts.add(L.lt); });
-  let i = 0, sec = null, tab = null;
-  while (i < P.length) {
-    const [c, v] = P[i];
-    if (c === '0' && v === 'SECTION') { sec = P[i + 1] && P[i + 1][1]; }
-    // заголовок: кодовая страница и масштаб типов линий
-    if (sec === 'HEADER' && c === '9' && v === '$ACADVER') {
-      out.push(P[i], P[i + 1]); i += 2;
-      out.push(['9', '$DWGCODEPAGE'], ['3', 'ANSI_1251'], ['9', '$LTSCALE'], ['40', String(sit ? sit.scale / 1000 : 1)], ['9', '$PSLTSCALE'], ['70', '0']);
-      continue;
-    }
-    if (c === '0' && v === 'TABLE') tab = P[i + 1] && P[i + 1][1];
-    if (sec === 'TABLES' && c === '0' && v === 'ENDTAB') {
-      if (tab === 'LTYPE') lts.forEach(n => { const t = TPL.ltypes[n], p = _ltNorm(t.p); out.push(['0', 'LTYPE'], ['2', n], ['70', '0'], ['3', t.d || n], ['72', '65'], ['73', String(p.length)], ['40', String(p.reduce((s, x) => s + Math.abs(x), 0).toFixed(3))], ...p.map(x => ['49', String(x)])); });
-      if (tab === 'LAYER') used.forEach(n => { const L = TPL.layers[n] || { c: 7, lt: 'Continuous' }; out.push(['0', 'LAYER'], ['2', n], ['70', '0'], ['62', String(L.c || 7)], ['6', lts.has(L.lt) ? L.lt : 'CONTINUOUS']); });
-      if (tab === 'STYLE' && sit) out.push(['0', 'STYLE'], ['2', 'SIT'], ['70', '0'], ['40', '0'], ['41', '1'], ['50', '0'], ['71', '0'], ['42', '2.5'], ['3', 'arial.ttf'], ['4', '']);
-      tab = null;
-    }
-    // счётчики записей в таблицах — после вставки пересчитает AutoCAD; ставим заведомо достаточные
-    if (sec === 'TABLES' && c === '70' && P[i - 1] && P[i - 1][0] === '2' && P[i - 2] && P[i - 2][1] === 'TABLE') {
-      const nm = P[i - 1][1], add = nm === 'LTYPE' ? lts.size : nm === 'LAYER' ? used.size : nm === 'STYLE' && sit ? 1 : 0;
-      out.push(['70', String((+v || 0) + add)]); i++; continue;
-    }
-    // после таблиц — раздел блоков
-    if (sec === 'TABLES' && c === '0' && v === 'ENDSEC') {
-      out.push(P[i]); i++; sec = null;
-      if (sit && sit.usedBlocks.size) { const b = []; sit.usedBlocks.forEach(n => _blockDef(b, n, TPL.blocks[n])); out.push(['0', 'SECTION'], ['2', 'BLOCKS']); for (let q = 0; q < b.length; q += 2) out.push([b[q].trim(), b[q + 1]]); out.push(['0', 'ENDSEC']); }
-      continue;
-    }
-    // горизонтали → слои шаблона (утолщённая — каждая 5-я), цвет — по слою
-    if (opts.contoursToTemplate && sec === 'ENTITIES' && c === '8' && v === 'GORIZONTALI') {
-      let z = null; for (let q = i + 1; q < Math.min(P.length, i + 12); q++) { if (P[q][0] === '30') { z = +P[q][1]; break; } if (P[q][0] === '0') break; }
-      const kk = z == null ? 1 : Math.round(z / iv);
-      out.push(['8', kk % thickEvery === 0 ? 'Горизонтали утолщенные' : 'Горизонтали основные']); i++;
-      if (P[i] && P[i][0] === '62') i++;
-      continue;
-    }
-    if (sec === 'ENTITIES' && c === '0' && v === 'ENDSEC') {
-      if (sit) for (let q = 0; q < sit.ent.length; q += 2) out.push([sit.ent[q].trim(), sit.ent[q + 1]]);
-      out.push(P[i]); i++; sec = null; continue;
-    }
-    if (c === '0' && v === 'ENDSEC') sec = null;
-    out.push(P[i]); i++;
-  }
-  // запись: исходные строки — latin1 (ASCII), наши — cp1251
-  const chunks = []; let buf = '';
-  out.forEach(([c, v]) => { buf += String(c).padStart(3) + '\r\n' + v + '\r\n'; if (buf.length > 1 << 20) { chunks.push(toCp1251(buf)); buf = ''; } });
-  chunks.push(toCp1251(buf));
-  fs.writeFileSync(file, Buffer.concat(chunks));
+  used.forEach(n => { const L = TPL.layers[n]; if (L && TPL.ltypes[L.lt]) { const p = _ltNorm(TPL.ltypes[L.lt].p); if (p) D.addLtype(L.lt, TPL.ltypes[L.lt].d || L.lt, p); } });
+  src.forEach(l => {
+    if (!l.n || l.n === '0') return;
+    const T = TPL.layers[l.n];        // слой шаблона (например, файл уже с ситуацией) — с его типом линии
+    if (T && TPL.ltypes[T.lt]) { const p = _ltNorm(TPL.ltypes[T.lt].p); if (p) D.addLtype(T.lt, TPL.ltypes[T.lt].d || T.lt, p); }
+    D.addLayer(l.n, Math.abs(l.c) || 7, T ? T.lt : 'Continuous');
+  });
+  used.forEach(n => { const L = TPL.layers[n] || { c: 7, lt: 'Continuous' }; D.addLayer(n, L.c || 7, L.lt); });
+  D.addStyle('SIT', 'arial.ttf', 2.5);           // подписи ситуации (кириллица — TrueType)
+  if (sit) sit.usedBlocks.forEach(n => { const b = []; _blockBody(b, TPL.blocks[n]); const pr = []; for (let q = 0; q < b.length; q += 2) pr.push([b[q].trim(), b[q + 1]]); D.addBlock(n, pr); });
+  D.addEntities(ent, opts.contoursToTemplate ? e => {
+    if (e.t !== 'LINE' || (e.c.find(p => p[0] === '8') || [])[1] !== 'GORIZONTALI') return null;
+    const z = +((e.c.find(p => p[0] === '30') || [])[1]);
+    const k = Number.isFinite(z) ? Math.round(z / iv) : 1;
+    return { layer: k % 5 === 0 ? 'Горизонтали утолщенные' : 'Горизонтали основные', dropColor: true };
+  } : null);
+  if (sit) { const pr = []; for (let q = 0; q < sit.ent.length; q += 2) pr.push([sit.ent[q].trim(), sit.ent[q + 1]]); D.addEntities(pr); }
+  const lts0 = P.findIndex(p => p[0] === '9' && p[1] === '$LTSCALE');
+  D.write(file, { '$LTSCALE': sit ? sit.scale / 1000 : lts0 >= 0 ? +P[lts0 + 1][1] || 1 : 1 });
 }
 
 // Классы для окна выгрузки: [{key, name, group}]
 function classList() { return { groups: SIT_GROUPS, classes: Object.entries(SIT).map(([k, c]) => ({ k, n: c.n, g: c.g, a: !!c.a, c: c.c, layer: c.layer, block: c.block || null })) }; }
 
-module.exports = { fetchOSM, osmToGeoJSON, classify, buildSituation, mergeIntoDxf, classList, SIT, SIT_GROUPS, TPL, toCp1251, clipPolyline, fillPoints };
+module.exports = { _blockBody, fetchOSM, osmToGeoJSON, classify, buildSituation, mergeIntoDxf, classList, SIT, SIT_GROUPS, TPL, toCp1251, clipPolyline, fillPoints };
