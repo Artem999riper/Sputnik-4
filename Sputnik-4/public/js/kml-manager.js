@@ -928,6 +928,7 @@ function _ksMenu(cx,cy){
     {sep:true},
     {i:'✅',l:'Перевести в выполненные (сегодня)',f:()=>_ksApply('Выполнено',f=>{_vlSetDone(f.properties,volExecNow());delete f.properties._skip;}).then(()=>_ksVolRefresh(s))},
     {i:'⚙️',l:'В выполненные с параметрами (дата, люди, буровая)…',f:()=>{const t=(s.entries||[]).filter(en=>!en.isSite).map(en=>({layerId:en.rec.id,idxs:en.idxs.slice()}));_ksCleanup();if(t.length)volDoneDialog(t);}},
+    ...((s.entries||[]).some(en=>!en.isSite&&typeof volByLayer==='function'&&volByLayer(en.rec.id))?[{i:'🏷',l:'Характеристики всем выделенным…',f:()=>{const t=(s.entries||[]).filter(en=>!en.isSite&&volByLayer(en.rec.id)).map(en=>({layerId:en.rec.id,idxs:en.idxs.slice()}));_ksCleanup();if(t.length)featSemDialog(t);}}]:[]),
     {i:'🎨',l:'Изменить цвет…',f:_ksColorModal},
     {i:'🏷',l:'Переименовать…',f:_ksRenameModal},
     {i:'↩️',l:'Снять «выполнено»',f:()=>_ksApply('Отметка снята',f=>_vlClearDone(f.properties)).then(()=>_ksVolRefresh(s))},
@@ -1778,8 +1779,10 @@ function renderLayerGroupsWithSymbols() {
           const fp = f.properties || {};
           const dn = !showLabels && fp._done ? `✅ выполнено ${fp._done_date ? fmt(fp._done_date) : ''}${fp._fact2 != null ? ' · факт ' + fp._fact2 : ''}${fp._brigade && typeof volBrigName === 'function' && volBrigName(fp._brigade) ? ' · 👥 ' + esc(volBrigName(fp._brigade)) : ''}${fp._done_by ? ' · ' + esc(fp._done_by) : ''}`
             : !showLabels && fp._skip ? '🚫 исключён из объёма' : '';
+          const sm = !showLabels && typeof featSemLine === 'function' ? featSemLine(fp) : '';
           const tip0 = esc(nm) + (cmt ? (nm ? '<br>' : '') + '<span style="color:#65a30d;font-weight:700">✅ ' + esc(cmt) + '</span>' : '')
-            + (dn ? (nm || cmt ? '<br>' : '') + `<span style="color:${fp._skip ? '#6b7280' : '#65a30d'};font-weight:700">${dn}</span>` : '');
+            + (dn ? (nm || cmt ? '<br>' : '') + `<span style="color:${fp._skip ? '#6b7280' : '#65a30d'};font-weight:700">${dn}</span>` : '')
+            + (sm ? (nm || cmt || dn ? '<br>' : '') + `<span style="color:#0891b2;font-weight:700">${sm}</span>` : '');
           const tip = tip0 && lsz ? `<span style="font-size:${lsz}px">${tip0}</span>` : tip0;
           if (tip && !(f.properties && f.properties._note)) layer.bindTooltip(tip, {permanent:showLabels, className:'mlbl', direction:'top'});
 
@@ -1854,6 +1857,7 @@ function renderLayerGroupsWithSymbols() {
               }},
               ...(fIdx>=0?[{i:'✅',l:_isDone?'Снять «выполнено»':'Выполнить',f:()=>kmlToggleDone(l.id,fIdx)}]:[]),
               ...(fIdx>=0?[{i:'⚙️',l:_isDone?'Изменить выполнение (дата, факт, люди)…':'Выполнить с параметрами…',f:()=>kmlToggleDone(l.id,fIdx,true)}]:[]),
+              ...(fIdx>=0&&_vol&&typeof featSemDialog==='function'?[{i:'🏷',l:'Характеристики (тип, глубина, УГВ, разрез)…',f:()=>featSemDialog(l.id,fIdx)}]:[]),
               ...(fIdx>=0&&_vol?[{i:'🚫',l:_isSkip?'Вернуть в объём':'Исключить из объёма (отменён, перенесён)',f:()=>kmlToggleSkip(l.id,fIdx)}]:[]),
               ...(fIdx>=0&&f.geometry&&f.geometry.type==='LineString'?[{i:'📏',l:'Выполнен участок линии (от — до)…',f:()=>volSegStart(l.id,fIdx)},{i:'📍',l:'Выполнен участок по пикетам (с ПК… по ПК…)…',f:()=>volSegByPk(l.id,fIdx)},{i:'✂',l:'Разрезать линию в точке…',f:()=>volSegStart(l.id,fIdx,true)}]:[]),
               ...(_vol?[{i:'👆',l:'Отмечать щелчками (режим отметки)…',f:()=>volMarkStart(l.id)},{i:'👥',l:'Кто выполняет: '+esc(volExecLabel()).slice(0,40),html:true,f:()=>volExecEdit()}]:[]),

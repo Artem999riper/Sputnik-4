@@ -404,6 +404,7 @@ async function volDoneDialog(layerId, idxs, after) {
     <div class="fg"><label>Буровая / техника</label><select id="vd-mach"><option value="">— не выбрана —</option>${machines.map(x => `<option value="${escAttr(x.id)}" ${x.id === def.machine ? 'selected' : ''}>${esc(x.name)}${x.type ? ` (${esc(x.type)})` : ''}</option>`).join('')}</select></div>
     <div class="fg"><label>Примечание</label><input id="vd-note" value="${escAttr(p0._note || '')}"></div>
     <label class="sc-chk"><input type="checkbox" id="vd-remember" checked> запомнить исполнителей для следующих отметок</label>
+    ${typeof featSemDialog === 'function' ? `<label class="sc-chk"><input type="checkbox" id="vd-sem" ${v && v.category === 'geology' && n === 1 ? 'checked' : ''}> 🏷 затем заполнить характеристики (глубина, УГВ, разрез…)</label>` : ''}
   </div>`, [{ label: 'Отмена', cls: 'bs', fn: closeModal },
     ...(f0 && f0.geometry && f0.geometry.type === 'LineString' && !p0._done ? [{ label: '📏 Только участок…', cls: 'bs', fn: () => { closeModal(); volSegStart(first.layerId, first.idxs[0]); } }] : []),
     { label: '✅ Выполнено', cls: 'bp', fn: async () => {
@@ -411,6 +412,7 @@ async function volDoneDialog(layerId, idxs, after) {
       brigade: document.getElementById('vd-brig').value, note: document.getElementById('vd-note').value.trim() };
     if (document.getElementById('vd-remember').checked) volExecRemember(o);
     const f2 = document.getElementById('vd-f2'); if (f2 && f2.value !== '') o.fact2 = _vlNumLoose(f2.value);
+    const sem = document.getElementById('vd-sem')?.checked;
     closeModal();
     for (const t of targets) {
       const l = (layers || []).find(x => x.id === t.layerId); if (!l) continue;
@@ -419,6 +421,7 @@ async function volDoneDialog(layerId, idxs, after) {
       t.idxs.forEach(i => { const f = feats[i]; if (!f) return; f.properties = f.properties || {}; _vlSetDone(f.properties, o); delete f.properties._skip; });
       try { await _vlSaveLayer(l, gj, `✅ Выполнено: ${t.idxs.length}`); } catch (e) { toast('Ошибка сохранения', 'err'); }
     }
+    if (sem) featSemDialog(targets);
     if (typeof after === 'function') after();
   } }]);
 }
