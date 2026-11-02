@@ -626,6 +626,7 @@ function kmlLayerCtx(ev, id) {
     {i:_kmlExpanded.has(id)?'▼':'▶',l:_kmlExpanded.has(id)?'Свернуть объекты':'Показать объекты',f:()=>{if(!_kmlExpanded.has(id))_kmlExpanded.add(id);_kmlRenderLayerPane();}},
     {i:'🎨',l:'Стиль / условный знак',f:()=>kmlOpenStyleModal(id)},
     {i:'📊',l:'Таблица атрибутов',f:()=>kmlAttrTable(id)},
+    {i:'📋',l:'Каталог координат…',f:()=>coordCatalogLayer(id)},
     {i:'📦',l:(typeof volByLayer==='function'&&volByLayer(id))?'Объём объекта…':'Сделать объёмом объекта…',f:()=>volBindLayer(id)},
     {i:'🧰',l:'ГИС-операции (буфер, обрезка…)',f:()=>gisToolsOpen(id)},
     _kmlIsNote(l)?{i:'🗂',l:'Перенести в обычные слои',f:()=>mapNotesSetLayerKind(id,false)}:{i:'✏️',l:'Перенести в заметки',f:()=>mapNotesSetLayerKind(id,true)},
@@ -950,6 +951,7 @@ function _ksMenu(cx,cy){
   })});
   items.push({sep:true});
   items.push({i:'📤',l:`Экспорт выделенного (${s.total})…`,f:()=>{kmlExportSelection();_ksCleanup();}});
+  items.push({i:'📋',l:`Каталог координат (${s.total})…`,f:()=>{const ks=s;_ksCleanup();coordCatalogSelection(ks);}});
   items.push({i:'🗑',l:'Удалить объекты',cls:'dan',f:_ksDelete});
   items.push({i:'✕',l:'Отмена',f:()=>{_ksCleanup();}});
   showCtx(cx,cy,items);

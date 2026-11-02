@@ -491,3 +491,18 @@ html[data-theme=dark] .wd-warn{background:#3f3410;color:#fde68a}
 
 /* вкладка «Заметки»: слой, в который сейчас рисуются заметки */
 .kml-layer-row.mn-cur{background:color-mix(in srgb,var(--acc) 9%,transparent);box-shadow:inset 3px 0 0 var(--acc)}
+
+/* каталог координат */
+.ccat-t{width:100%;border-collapse:collapse;font-size:11px}
+.ccat-t th{position:sticky;top:0;background:var(--s2);text-align:left;padding:4px 6px;border-bottom:1px solid var(--bd);font-weight:700}
+.ccat-t td{padding:3px 6px;border-bottom:1px solid var(--bd)}
+.ccat-t td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* хронология выполнения */
+#kchr-bar{position:fixed;bottom:64px;left:calc(var(--sw) + (100vw - var(--sw)) / 2);transform:translateX(-50%);z-index:1540;display:flex;gap:6px;align-items:center;background:#0f766e;color:#fff;border-radius:12px;padding:6px 10px;box-shadow:var(--shl);font-size:12px;flex-wrap:wrap;justify-content:center;max-width:min(980px,calc(100vw - var(--sw) - 24px))}
+#kchr-bar button{border:1.5px solid rgba(255,255,255,.7);background:rgba(255,255,255,.16);color:#fff;border-radius:8px;padding:2px 9px;cursor:pointer;font:inherit;font-weight:700}
+#kchr-bar input[type=range]{width:220px;accent-color:#fbbf24}
+#kchr-bar input[type=date],#kchr-bar select{font-size:11px;padding:1px 3px;border-radius:6px;border:none}
+#kchr-bar .kchr-t{font-weight:800}
+#kchr-bar .kchr-st{min-width:200px}
+#kchr-bar small{width:100%;text-align:center;opacity:.9;font-size:10px}
+#kchr-bar small i{display:inline-block;width:10px;height:10px;border-radius:3px;margin:0 3px 0 8px;vertical-align:-1px}
