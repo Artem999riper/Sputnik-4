@@ -935,7 +935,7 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
 // ── Главная функция ────────────────────────────────────────
 async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
                             interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,
-                            satelliteOnly,cacheOnly,satZoom,satMPP,satSourceUrl,satSourceSubdomains,onProgress}) {
+                            satelliteOnly,cacheOnly,satZoom,satMPP,satSourceUrl,satSourceSubdomains,situation,onProgress}) {
   gridStep = (gridStep !== undefined && gridStep !== null && gridStep !== '') ? parseInt(gridStep) : 20;
   if (isNaN(gridStep)) gridStep = 20;
   const jMin = parseFloat(jitterMin)||0;
@@ -1133,6 +1133,29 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
     }
     log.push(`DXF size: ${fs.statSync(outDxf).size} bytes`);
 
+    // 7б. Ситуация (OSM / слой «Ситуация» с карты) — дописывается в тот же DXF
+    let sitNote='';
+    if (situation && situation.on) {
+      onProgress&&onProgress(80,'Ситуация: контуры и условные знаки...');
+      try {
+        const SITU=require('./situation');
+        let feats=Array.isArray(situation.features)?situation.features:null;
+        if (!feats) { onProgress&&onProgress(80,'Ситуация: загрузка из OpenStreetMap...'); feats=(await SITU.fetchOSM(bbox)).features; }
+        const sit=SITU.buildSituation(feats,{proj4,epsg,bbox,clip,scale:situation.scale,groups:situation.groups});
+        SITU.mergeIntoDxf(outDxf,sit,{interval,contoursToTemplate:situation.tplContours!==false});
+        const st=sit.stats, nObj=Object.keys(st).filter(k=>k[0]!=='_').reduce((a,k)=>a+st[k],0);
+        sitNote=`\r\nСИТУАЦИЯ (масштаб плана 1:${sit.scale}): объектов ${nObj}, условных знаков ${st._symbols}${st._thin>1?` (знаки разрежены ×${st._thin} — их было бы слишком много)`:''}.\r\n`+
+          `  Слои и блоки — по шаблону ПурГеоКом (Osnova). Для полного оформления типов линий (знаки на линиях)\r\n`+
+          `  вставьте DXF в чертёж на основе Osnova (Вставка → Блок или Ctrl+C / Ctrl+V): слои и типы линий возьмутся из шаблона.\r\n`+
+          `  Источник: ${Array.isArray(situation.features)?'слой «Ситуация» с карты (с вашими правками)':'OpenStreetMap'} — точность 5–20 м, для ориентира, не съёмка.\r\n`;
+        log.push(`Situation: ${nObj} objects, ${st._symbols} symbols`);
+      } catch(e) {
+        log.push('Situation WARN: '+e.message.slice(0,120));
+        sitNote=`\r\n⚠ СИТУАЦИЯ НЕ ДОБАВЛЕНА: ${e.message}\r\n`;
+        onProgress&&onProgress(82,'⚠ Ситуация не добавлена: '+e.message.slice(0,80));
+      }
+    }
+
     // 8. Спутник
     let satFiles=[];
     let satSections=[];
@@ -1176,7 +1199,8 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
       `  GORIZONTALI  — синий (5), 3D LINE, Z=высота\r\n` +
       `  PODPISI      — жёлтый (2), TEXT, каждая 2-я горизонталь\r\n` +
       `  TOCHKI_VYSOT — зелёный (3), POINT+TEXT, сетка ${gridStep}м\r\n` +
-      satScaleInfo
+      (situation&&situation.on&&situation.tplContours!==false&&!/НЕ ДОБАВЛЕНА/.test(sitNote)?`  (горизонтали перенесены на слои шаблона «Горизонтали основные» / «Горизонтали утолщенные»)\r\n`:'') +
+      sitNote + satScaleInfo
     );
 
     const zipFile=path.join(tmpDir,'arcticdem_export.zip');
@@ -1194,7 +1218,7 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
       }
     });
 
-    return {file:zipFile,tmpDir,log,mime:'application/zip',interval,requestedInterval:reqInterval,geoid};
+    return {file:zipFile,tmpDir,log,mime:'application/zip',interval,requestedInterval:reqInterval,geoid,situationWarn:/НЕ ДОБАВЛЕНА/.test(sitNote)?sitNote.trim():''};
 
   } catch(err) {
     try{fs.rmSync(tmpDir,{recursive:true});}catch(e){}

@@ -22,6 +22,7 @@ function demParams(b) {
     jitterMin: parseFloat(b.jitterMin) || 0, jitterMax: parseFloat(b.jitterMax) || 0,
     exportSatellite: b.exportSatellite !== false, satelliteOnly: !!b.satelliteOnly,
     satZoom: parseInt(b.satZoom) || 0, satMPP: parseFloat(b.satMPP) || 0,
+    situation: b.situation || null,
     satSourceUrl: b.satSourceUrl || null, satSourceSubdomains: b.satSourceSubdomains || [],
   };
 }

@@ -87,7 +87,8 @@ function openDEMPanel(step) {
           <div style="display:flex;gap:8px;align-items:center;margin-top:6px;font-size:12px">от <input id="dem-jitter-min" type="number" min="0" step="0.1" value="${DW.jMin}" style="width:80px" onchange="DW.jMin=+this.value||0;_dwSave()">
             до <input id="dem-jitter-max" type="number" min="0" step="0.1" value="${DW.jMax}" style="width:80px" onchange="DW.jMax=+this.value||0;_dwSave()"> м
             <span style="color:var(--tx3);font-size:10px">0 / 0 — строгая сетка</span></div></details></div>
-        <div class="fg s2" style="font-size:11px;color:var(--tx3)">Высоты — в Балтийской системе (БСВ-77, по геоиду EGM2008).</div>` : ''}
+        <div class="fg s2" style="font-size:11px;color:var(--tx3)">Высоты — в Балтийской системе (БСВ-77, по геоиду EGM2008).</div>
+        ${typeof sitWizardHtml === 'function' ? sitWizardHtml() : ''}` : ''}
       </div>
       ${isAdminClient() ? _dwAdminHtml() : ''}`;
   } else if (DW.step === 4) {
@@ -304,6 +305,7 @@ function _dwSummaryHtml() {
     ${row('Выгрузить', ({ both: 'рельеф + подложка', relief: 'только рельеф', sat: 'только подложка', cache: 'только кэш ArcticDEM' })[DW.what])}
     ${DW.what !== 'cache' ? row('Система координат', esc(projName) + (DW.zone ? `, зона ${DW.zone}` : ', зона — авто')) : ''}
     ${_dwHasRelief() ? row('Рельеф', `горизонтали через ${DW.interval} м, ${DW.grid ? 'отметки через ' + DW.grid + ' м' : 'без отметок'}, высоты БСВ-77`) : ''}
+    ${_dwHasRelief() && DW.sit && typeof sitSummary === 'function' ? row('Ситуация', sitSummary()) : ''}
     ${_dwHasSat() ? row('Подложка', `${(DEM_SAT_SOURCES.find(s => s.id === DW.satSource) || {}).label || ''}, ${DW.satZoom ? 'z' + DW.satZoom : 'детализация авто'}, ${DW.satMPP ? DW.satMPP + ' м/пиксель' : 'пиксель как в снимке'}`) : ''}
   </table>${km2 > 100 ? '<div class="dw-info">⚠️ Большая область — выгрузка может занять несколько минут.</div>' : ''}`;
 }
@@ -327,7 +329,8 @@ function _dwParams() {
   const so = DEM_SAT_SOURCES.find(s => s.id === DW.satSource) || DEM_SAT_SOURCES[0];
   return { interval: DW.interval, gridStep: DW.grid, jitterMin: DW.jMin, jitterMax: DW.jMax, useGeoid: true,
     exportSatellite: _dwHasSat(), satelliteOnly: DW.what === 'sat', cacheOnly: DW.what === 'cache',
-    satZoom: DW.satZoom || 0, satMPP: DW.satMPP || 0, satSourceUrl: so.url, satSourceSubdomains: so.subdomains };
+    satZoom: DW.satZoom || 0, satMPP: DW.satMPP || 0, satSourceUrl: so.url, satSourceSubdomains: so.subdomains,
+    situation: _dwHasRelief() && typeof sitParams === 'function' ? sitParams() : null };
 }
 async function _dwExport() {
   if (!_dwAreaReady()) { toast('Сначала выберите область', 'err'); return; }
@@ -362,6 +365,7 @@ async function _dwExport() {
     a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     setP(100, '✅ Файл готов'); toast('✅ Выгружено: ' + a.download, 'ok');
     const ivUsed = res.headers.get('X-Dem-Interval'), ivReq = res.headers.get('X-Dem-Interval-Requested');
+    if (res.headers.get('X-Dem-Situation')) toast('⚠️ ' + decodeURIComponent(res.headers.get('X-Dem-Situation')), 'err');
     if (res.headers.get('X-Dem-Geoid') === '0') toast('⚠️ Высоты НЕ переведены в БСВ-77 — на сервере нет файлов геоида (см. readme.txt). Администратору: «Рельеф» → «Служебное»', 'err');
     if (ivUsed && ivReq && +ivUsed !== +ivReq) { setP(100, `✅ Файл готов · шаг горизонталей ${ivUsed} м вместо ${ivReq} м`); toast(`⚠️ На шаге ${ivReq} м горизонталей нет (участок плоский) — выгружено с шагом ${ivUsed} м`, 'warn'); }
     btns.forEach(b => b.disabled = false);

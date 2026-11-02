@@ -1417,9 +1417,21 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     }
   });
 
+  // ── Ситуация для выгрузки рельефа (situation.js): OSM по рамке → GeoJSON с классами ──
+  app.get('/api/situation/classes', (req, res) => res.json(require('../situation').classList()));
+  app.post('/api/situation/osm', async (req, res) => {
+    const b = (req.body || {}).bbox;
+    if (!b || !(b.maxLat > b.minLat) || !(b.maxLng > b.minLng)) return res.status(400).json({ error: 'Не указана область (bbox)' });
+    try {
+      const gj = await require('../situation').fetchOSM(b);
+      const by = {}; gj.features.forEach(f => { const k = f.properties._sit; by[k] = (by[k] || 0) + 1; });
+      res.json({ ...gj, stats: by });
+    } catch (e) { res.status(502).json({ error: e.message }); }
+  });
+
   app.post('/api/dem/export', async (req, res) => {
     if (!demProcessor) return res.status(503).json({ error: 'DEM процессор не доступен' });
-    const { bbox, clip, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite, satelliteOnly, cacheOnly, satZoom, satMPP, satSourceUrl, satSourceSubdomains } = req.body;
+    const { bbox, clip, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite, satelliteOnly, cacheOnly, satZoom, satMPP, satSourceUrl, satSourceSubdomains, situation } = req.body;
     if (!bbox || !bbox.minLat) return res.status(400).json({ error: 'Не указана область (bbox)' });
     let tmpDir = null;
     try {
@@ -1438,6 +1450,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
         satMPP: parseFloat(satMPP) || 0,
         satSourceUrl: satSourceUrl || null,
         satSourceSubdomains: satSourceSubdomains || [],
+        situation: situation || null,
         onProgress: (pct, text) => {
           console.log(`[DEM] ${pct}% - ${text}`);
           broadcast({ type: 'dem_progress', pct, text });
@@ -1457,6 +1470,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
       res.setHeader('Content-Disposition', `attachment; filename="${path.basename(result.file)}"`);
       if (result.interval != null) { res.setHeader('X-Dem-Interval', String(result.interval)); res.setHeader('X-Dem-Interval-Requested', String(result.requestedInterval)); }
       if (result.geoid != null) res.setHeader('X-Dem-Geoid', result.geoid ? '1' : '0');
+      if (result.situationWarn) res.setHeader('X-Dem-Situation', encodeURIComponent(result.situationWarn.slice(0, 300)));
       run(db(), `INSERT INTO app_settings(key,value) VALUES('dem_export_count',1)
         ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT)`, []);
       const stream = fs.createReadStream(result.file);
