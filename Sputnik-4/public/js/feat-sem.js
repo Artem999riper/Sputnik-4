@@ -192,11 +192,11 @@ const FSEM_SYM = { pit: { sym: 'pit', color: '#92400e' }, ggs: { sym: 'triangle_
         if (!p._done && !p._skip && (!p._color || p._color === l.color)) q._color = FSEM_SYM[k].color;
       }
       const icon = o.call(this, l, q);
-      // недобур / перебур — красное кольцо с «!»
+      // недобур / перебур — красный «!» у значка
       const dv = l && p && p._done ? featSemDev(l, p) : null;
       if (dv && icon.options && icon.options.html) {
         const sz = (icon.options.iconSize || [28, 28])[0];
-        icon.options.html = `<div style="position:relative">${icon.options.html}<div title="${dv.d < 0 ? 'Недобур' : 'Перебур'} ${Math.abs(dv.d).toFixed(0)}%" style="position:absolute;inset:-4px;border:2.5px solid #dc2626;border-radius:50%;width:${sz}px;height:${sz}px;box-sizing:content-box"></div><b style="position:absolute;right:-8px;top:-8px;background:#dc2626;color:#fff;border-radius:50%;width:14px;height:14px;font-size:10px;line-height:14px;text-align:center">!</b></div>`;
+        icon.options.html = `<div style="position:relative" title="${dv.d < 0 ? 'Недобур' : 'Перебур'} ${Math.abs(dv.d).toFixed(0)}%">${icon.options.html}<b style="position:absolute;right:-8px;top:-8px;background:#dc2626;color:#fff;border-radius:50%;width:14px;height:14px;font-size:10px;line-height:14px;text-align:center">!</b></div>`;
       }
       return icon;
     };
@@ -232,6 +232,8 @@ function featSemCheck(l, v) {
 function featSemBadges(l, v) {
   const c = featSemCheck(l, v), id = escAttr(l.id), b = [];
   if (c.miss.length) b.push(`<a href="#" class="fsem-warn" onclick="event.preventDefault();event.stopPropagation();featSemSelect('${id}','miss')" title="Выполнены, но характеристики не заполнены — выделить на карте">🏷 без характеристик: ${c.miss.length}</a>`);
+  const m = v ? volMeasure(v) : null;
+  if (m && m.second && !c.under.length && !c.over.length) b.push(`<a href="#" class="fsem-warn ok" onclick="event.preventDefault();event.stopPropagation();featSemDevList('${id}')" title="Факт в пределах ±${featSemTol()}% от плана — открыть список и допуск">✓ недобура / перебура нет</a>`);
   if (c.under.length || c.over.length) b.push(`<a href="#" class="fsem-warn red" onclick="event.preventDefault();event.stopPropagation();featSemDevList('${id}')" title="Факт отличается от плана больше чем на ${featSemTol()}%">⚠ ${c.under.length ? `недобур ${c.under.length}` : ''}${c.under.length && c.over.length ? ' · ' : ''}${c.over.length ? `перебур ${c.over.length}` : ''}</a>`);
   return b.length ? `<div class="fsem-badges">${b.join('')}</div>` : '';
 }
@@ -305,8 +307,8 @@ function featSemReport(layerIds, title) {
 // все слои-объёмы объекта, где есть выработки (геология или заданный тип)
 function featSemSiteReport(siteId) {
   const vs = (VL.all || []).filter(v => v.site_id === siteId && v.layer_id && (layers || []).some(l => l.id === v.layer_id));
-  const ids = vs.filter(v => v.category === 'geology' || ((layers || []).find(l => l.id === v.layer_id).geojson || '').indexOf('"тип"') >= 0).map(v => v.layer_id);
-  if (!ids.length) { toast('У объекта нет объёмов геологии', 'warn'); return; }
+  const ids = vs.sort((a, b) => (b.category === 'geology') - (a.category === 'geology')).map(v => v.layer_id);
+  if (!ids.length) { toast('У объекта нет объёмов на слоях', 'warn'); return; }
   const s = (sites || []).find(x => x.id === siteId);
   featSemReport(ids, s ? s.name : '');
 }

@@ -517,3 +517,5 @@ html[data-theme=dark] .wd-warn{background:#3f3410;color:#fde68a}
 .fsem-warn.red{color:#dc2626}
 .fsem-warn:hover{text-decoration:underline}
 .fsem-rep{color:var(--acc);font-weight:700;text-decoration:none;margin-right:6px}
+.fsem-warn.ok{color:var(--tx3);font-weight:600}
+.vl-card .fsem-badges{margin:3px 0 2px}

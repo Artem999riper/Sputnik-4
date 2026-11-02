@@ -88,11 +88,13 @@ function tabVolumes(pb) {
       </div>
       <div class="vl-line">${volLine(v, t)}</div>
       <div class="pbt"><div class="pbf" style="width:${t.pct}%;background:${t.pct >= 100 ? 'var(--grn)' : 'var(--acc)'}"></div></div>
+      ${layer && typeof featSemBadges === 'function' ? featSemBadges(layer, v) : ''}
       <div class="vl-meta">${src}${v.plan_start ? `<span>📅 ${fmt(v.plan_start)}${v.plan_end ? ' — ' + fmt(v.plan_end) : ''}</span>` : ''}</div>
       <div class="vl-btns">
         ${v.layer_id ? `<button class="btn bp bxs" onclick="volShowLayer('${v.id}');volMarkStart('${v.layer_id}')" title="Щелчками по объектам на карте отмечать выполнение (с текущими исполнителями)">✅ Отмечать</button>
           <button class="btn bs bxs" onclick="volShowLayer('${v.id}')" title="Показать слой и приблизить">🗺 На карте</button>
-          <button class="btn bs bxs" onclick="volShowLayer('${v.id}',true)" title="Таблица атрибутов: выполнено, дата, факт">📋 Таблица</button>`
+          <button class="btn bs bxs" onclick="volShowLayer('${v.id}',true)" title="Таблица атрибутов: выполнено, дата, факт">📋 Таблица</button>
+          ${layer && typeof featSemReport === 'function' ? `<button class="btn bs bxs" onclick="featSemReport(['${escAttr(layer.id)}'],'${escAttr(v.name + ' — ' + (o.name || ''))}')" title="Ведомость выработок в Excel: координаты, глубина план/факт, УГВ, ММГ, разрез…">📑 Ведомость</button>` : ''}`
         : `<button class="btn bp bxs" onclick="volAddProgress('${v.id}')">＋ Выполнение</button>`}
         <button class="btn bs bxs" onclick="volEditModal('${v.id}')" title="Изменить объём">✏️</button>
         <button class="btn bd bxs" onclick="volDelete('${v.id}')" title="Удалить объём (слой останется)">🗑</button>
@@ -116,6 +118,7 @@ function tabVolumes(pb) {
       <div style="display:flex;gap:4px;flex-wrap:wrap">
         <button class="btn bg bsm" onclick="volEditModal()">＋ Объём</button>
         <button class="btn bs bsm" onclick="openDailyProgressModal()" title="Выполнение за день">📆 За день</button>
+        ${vols.some(v => v.layer_id) && typeof featSemSiteReport === 'function' ? `<button class="btn bs bsm" onclick="featSemSiteReport('${escAttr(o.id)}')" title="Ведомость выработок по всем объёмам объекта (Excel)">📑 Ведомость</button>` : ''}
       </div></div>
     <div class="vl-exec" onclick="volExecEdit()" title="Кто выполняет: подставляется при отметках на карте">Исполнители: <b>${esc(volExecLabel())}</b> ✏️</div>
     ${vols.length ? secs : `<div class="empty"><div class="empty-i">📋</div>Нет объёмов<div style="font-size:11px;margin-top:6px;color:var(--tx3)">Объём — это слой KML (скважины, профили, площадки) или ручной объём без карты.<br>Выполнение отмечается прямо на объектах слоя: ПКМ → «✅ Выполнить».</div></div>`}`;
@@ -552,8 +555,7 @@ function volKmlRenderPane() {
   let html = '', shown = 0, vis = 0;
   ss.forEach(s => {
     const o = (sites || []).find(x => x.id === s.id);
-    const geo = s.vols.some(v => v.category === 'geology');
-    html += `<div class="vlp-site" onclick="selectSite('${escAttr(s.id)}')" title="Открыть объект">🏗 ${esc(s.name)}<span>${geo ? `<a href="#" class="fsem-rep" onclick="event.preventDefault();event.stopPropagation();featSemSiteReport('${escAttr(s.id)}')" title="Ведомость выработок по всем объёмам геологии объекта">📑 ведомость</a> ` : ''}${o ? `готовность ${o.completion_percent || 0}%` : ''}</span></div>`;
+    html += `<div class="vlp-site" onclick="selectSite('${escAttr(s.id)}')" title="Открыть объект">🏗 ${esc(s.name)}<span><a href="#" class="fsem-rep" onclick="event.preventDefault();event.stopPropagation();featSemSiteReport('${escAttr(s.id)}')" title="Ведомость выработок по всем объёмам объекта (Excel)">📑 ведомость</a> ${o ? `готовность ${o.completion_percent || 0}%` : ''}</span></div>`;
     const cats = [...new Set(s.vols.map(v => v.category || 'geology'))].sort((a, b) => Object.keys(secs).indexOf(a) - Object.keys(secs).indexOf(b));
     cats.forEach(c => {
       const sec = secs[c] || { icon: '•', label: c, color: '#6b7280' };
@@ -568,7 +570,7 @@ function volKmlRenderPane() {
             <b style="color:${t.pct >= 100 ? 'var(--grn)' : 'var(--acc)'}">${t.pct}%</b></div>${volLine(v, t)}${l.name !== v.name ? ` · <span title="Слой">🗂 ${esc(l.name)}</span>` : ''}${typeof featSemBadges === 'function' ? featSemBadges(l, v) : ''}`,
           btns: `<button class="kml-icon-btn" onclick="volMarkStart('${escAttr(l.id)}')" title="Отмечать выполнение щелчками на карте">✅</button>
             <button class="kml-icon-btn" onclick="kmlAttrTable('${escAttr(l.id)}')" title="Таблица: выполнено, дата, факт">📋</button>
-            ${v.category === 'geology' || (l.geojson || '').indexOf('"тип"') >= 0 ? `<button class="kml-icon-btn" onclick="featSemReport(['${escAttr(l.id)}'],'${escAttr(v.name + (v.site_name ? ' — ' + v.site_name : ''))}')" title="Ведомость выработок в Excel">📑</button>` : ''}
+            <button class="kml-icon-btn" onclick="featSemReport(['${escAttr(l.id)}'],'${escAttr(v.name + (v.site_name ? ' — ' + v.site_name : ''))}')" title="Ведомость выработок в Excel">📑</button>
             <button class="kml-icon-btn" onclick="volOpenEdit('${escAttr(v.id)}')" title="Изменить объём">✏️</button>`,
         });
       });

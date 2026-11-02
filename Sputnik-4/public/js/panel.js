@@ -85,6 +85,8 @@ function renderSiteStatsOverlay(site){
     const t=volTotals(v,site.vol_progress), m=volMeasure(v), plan=parseFloat(v.amount)||0;
     const sec=(typeof VOL_SECTIONS!=='undefined'&&VOL_SECTIONS[v.category])||{icon:'•'};
     const two=m.second&&v.layer_id;
+    const lay=v.layer_id&&(layers||[]).find(l=>l.id===v.layer_id);
+    const badges=lay&&typeof featSemBadges==='function'?featSemBadges(lay,v):'';
     return `<tr>
       <td style="padding:1px 6px 1px 0;white-space:nowrap">${sec.icon} ${esc(v.name||'')}</td>
       <td style="padding:1px 4px;text-align:right;font-weight:600">${fmtN(t.done)}${two?`<div style="font-weight:400;color:#888;font-size:10px">${fmtN(t.done2)}</div>`:''}</td>
@@ -93,7 +95,7 @@ function renderSiteStatsOverlay(site){
       <td style="padding:1px 4px;color:#666">${esc(v.unit||'')}${two?`<div style="font-size:10px">${esc(m.second.unit||'')}</div>`:''}</td>
       <td style="padding:1px 0 1px 6px;text-align:right;color:#888">${plan>0?fmtN(Math.max(0,plan-t.done)):'-'}</td>
       <td style="padding:1px 0 1px 4px;color:#888;font-size:11px">${plan>0?t.pct+'%':''}</td>
-    </tr>`;
+    </tr>${badges?`<tr><td colspan="7" style="padding:0 0 3px 18px">${badges}</td></tr>`:''}`;
   }).join('');
   const collapsed=window._ssoCollapsed;
   el.innerHTML=
@@ -111,6 +113,7 @@ function renderSiteStatsOverlay(site){
          </tr></thead>
          <tbody>${rows}</tbody>
        </table>
+       ${vols.some(v=>v.layer_id)&&typeof featSemSiteReport==='function'?`<div style="margin-top:6px;text-align:right"><button class="btn bs bxs" onclick="event.stopPropagation();featSemSiteReport('${escAttr(site.id)}')" title="Ведомость выработок по всем объёмам объекта (Excel)">📑 Ведомость выработок</button></div>`:''}
      </div>`;
   el.style.display='block';
   setTimeout(_ssoReposition, 240);
