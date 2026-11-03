@@ -15,6 +15,22 @@ async function _sitClasses() {
   try { const j = await fetch(`${API}/situation/classes`).then(r => r.json()); SITW.classes = j.classes; SITW.groups = j.groups; } catch (e) {}
 }
 const _sitLayer = () => DW.sitLayerId && (layers || []).find(l => l.id === DW.sitLayerId);
+// слои ситуации: помечены style_json.situation (или созданы раньше — по названию «Ситуация…»)
+const _sitLayers = () => (layers || []).filter(l => !l.site_id && ((typeof kmlStyleOf === 'function' && (kmlStyleOf(l) || {}).situation) || /^Ситуация/.test(l.name || '') || l.id === DW.sitLayerId));
+const _sitDefName = () => `Ситуация ${new Date().toLocaleDateString('ru-RU')}`;
+// новый слой ситуации с названием из поля (повтор названия — с номером)
+async function _sitCreateLayer(features) {
+  let name = String(DW.sitNewName || '').trim() || _sitDefName();
+  const taken = new Set((layers || []).map(l => l.name));
+  if (taken.has(name)) { let k = 2; while (taken.has(`${name} (${k})`)) k++; name = `${name} (${k})`; }
+  const rr = await fetch(`${API}/layers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color: '#16a34a', geojson: JSON.stringify({ type: 'FeatureCollection', features }) }) }).then(x => x.json());
+  layers = await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers);
+  const l = (layers || []).find(x => x.id === rr.id);
+  if (l && typeof kmlSaveStyle === 'function') await kmlSaveStyle(l, Object.assign({}, kmlStyleOf(l) || {}, { situation: true }));
+  DW.sitLayerId = rr.id; DW.sitNewName = ''; _dwSave();
+  return l;
+}
+function _sitPickLayer(v) { if (v === '__new') { DW.sitLayerId = ''; if (!DW.sitNewName) DW.sitNewName = _sitDefName(); } else DW.sitLayerId = v; _dwSave(); _sitRe(); }
 function sitWizardHtml() {
   if (!SITW.groups) { _sitClasses().then(() => { if (DW.step === 3 && document.getElementById('sit-box')) document.getElementById('sit-box').outerHTML = sitWizardHtml(); }); }
   const G = SITW.groups || {}, on = new Set(DW.sitGroups || Object.keys(G)), l = _sitLayer();
@@ -27,6 +43,12 @@ function sitWizardHtml() {
         <span class="sit-hint">размер знаков и шаг заполнения — по масштабу</span></div>
       <div class="sit-groups">${Object.entries(G).map(([k, t]) => `<label><input type="checkbox" ${on.has(k) ? 'checked' : ''} onchange="_sitGroup('${k}',this.checked)"> ${esc(t)}</label>`).join('') || '<span class="sit-hint">⏳ список…</span>'}</div>
       <label class="sit-chk"><input type="checkbox" ${DW.sitTpl ? 'checked' : ''} onchange="DW.sitTpl=this.checked;_dwSave()"> горизонтали — на слои шаблона «Горизонтали основные / утолщенные» (каждая 5-я)</label>
+      <div class="sit-row">
+        <label>Слой <select onchange="_sitPickLayer(this.value)" title="В какой слой KML класть ситуацию (и из какого брать при выгрузке)">
+          ${_sitLayers().map(x => `<option value="${escAttr(x.id)}" ${l && l.id === x.id ? 'selected' : ''}>🗂 ${esc(x.name)}</option>`).join('')}
+          <option value="__new" ${l ? '' : 'selected'}>＋ Новый слой…</option></select></label>
+        ${l ? '' : `<input type="text" placeholder="Название нового слоя" value="${escAttr(DW.sitNewName || _sitDefName())}" oninput="DW.sitNewName=this.value;_dwSave()" style="flex:1;min-width:160px">`}
+      </div>
       <div class="sit-row">
         <button class="btn bs bsm" type="button" onclick="sitPreview()" ${SITW.busy ? 'disabled' : ''}>${SITW.busy ? '⏳ Загрузка из OSM…' : l ? '🔄 Загрузить заново' : '👁 Загрузить и показать на карте'}</button>
         <button class="btn bs bsm" type="button" onclick="sitFromImagery()" ${SITW.busy ? 'disabled' : ''} title="Оконтурить по выбранной подложке там, где ещё пусто: вода, лес, болото…">🛰 Дополнить по подложке</button>
@@ -61,7 +83,6 @@ async function sitPreview() {
     // на карте — цвет класса; видимое поле «класс» можно менять в таблице атрибутов
     j.features.forEach(f => { const c = C[f.properties._sit]; if (c) { f.properties['класс'] = c.n; f.properties._color = c.c; } });
     const old = _sitLayer();
-    const name = `Ситуация (OSM) ${new Date().toLocaleDateString('ru-RU')}`;
     const gj = JSON.stringify({ type: 'FeatureCollection', features: j.features });
     if (old) {
       // контуры «по снимку» при перезагрузке OSM сохраняются
@@ -70,9 +91,7 @@ async function sitPreview() {
       await _kmlSaveGeojson(old, G);
       if (typeof kmlInvalidateLayerCache === 'function') kmlInvalidateLayerCache(old.id);
     } else {
-      const rr = await fetch(`${API}/layers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color: '#16a34a', geojson: gj }) }).then(x => x.json());
-      layers = await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers);
-      DW.sitLayerId = rr.id; _dwSave();
+      await _sitCreateLayer(JSON.parse(gj).features);
     }
     try { renderLayerGroups(); if (kmlPanelOpen) renderKmlPanel(); } catch (e) {}
     const st = Object.entries(j.stats || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${(C[k] || {}).n || k}: ${n}`).join(', ');
@@ -81,7 +100,7 @@ async function sitPreview() {
     const s = document.getElementById('sit-status'); if (s && st) s.innerHTML += `<br>${esc(st)}`;
   } catch (e) { SITW.busy = false; _sitRe(); toast('❌ Ситуация: ' + e.message, 'err'); }
 }
-function sitDropLayer() { DW.sitLayerId = ''; _dwSave(); _sitRe(); toast('Слой не будет использован (сам слой остался на карте — удалить можно в «Слоях»)', 'ok'); }
+function sitDropLayer() { DW.sitLayerId = ''; DW.sitNewName = _sitDefName(); _dwSave(); _sitRe(); toast('Слой не будет использован — при выгрузке OSM скачается заново, следующая загрузка — в новый слой (старый остался на карте)', 'ok'); }
 // параметры для сервера: features — из слоя на карте (если есть), иначе сервер скачает OSM
 function sitParams() {
   if (!DW.sit) return null;
@@ -132,9 +151,7 @@ async function sitFromImagery() {
     const gj = { type: 'FeatureCollection', features: old.concat(add) };
     if (l) { await _kmlSaveGeojson(l, gj); if (typeof kmlInvalidateLayerCache === 'function') kmlInvalidateLayerCache(l.id); }
     else {
-      const rr = await fetch(`${API}/layers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: `Ситуация ${new Date().toLocaleDateString('ru-RU')}`, color: '#16a34a', geojson: JSON.stringify(gj) }) }).then(x => x.json());
-      layers = await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers);
-      DW.sitLayerId = rr.id; _dwSave();
+      await _sitCreateLayer(gj.features);
     }
     try { renderLayerGroups(); if (kmlPanelOpen) renderKmlPanel(); } catch (e) {}
     const by = {}; add.forEach(f => { const n = (C[f.properties._sit] || {}).n || f.properties._sit; by[n] = (by[n] || 0) + 1; });
