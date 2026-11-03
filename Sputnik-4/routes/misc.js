@@ -1560,15 +1560,19 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
       return res.json({ error: 'too_many_tiles', count: list.length, max: MAX });
 
     const isSat = source === 'sat';
+    // топокарты ГГЦ / Генштаба — тайлы nakarte.me, схема TMS (ось Y снизу вверх)
+    const NK = { ggc250: 'ggc250', ggc500: 'ggc500', ggc1000: 'ggc1000', ggc2000: 'ggc2000', gsh250: 'topo250', gsh500: 'topo500', gsh1000: 'topo1000' };
+    const nk = NK[source];
     const tiles = {};
     const BATCH = 8;
     for (let i = 0; i < list.length; i += BATCH) {
       await Promise.all(list.slice(i, i + BATCH).map(async ({ z, x, y }) => {
-        const url = isSat
+        const url = nk ? `https://${'abc'[(x + y) % 3]}.tiles.nakarte.me/${nk}/${z}/${x}/${(1 << z) - 1 - y}`
+          : isSat
           ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`
           : `https://a.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`;
         try {
-          const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+          const r = await fetch(url, { signal: AbortSignal.timeout(nk ? 20000 : 10000), headers: nk ? { 'User-Agent': 'PurGeoKom-Sputnik/2' } : undefined });
           if (!r.ok) return;
           const buf = await r.arrayBuffer();
           tiles[`${z}/${x}/${y}`] = Buffer.from(buf).toString('base64');

@@ -9,9 +9,9 @@
 // границам пикселей, упрощение (Дуглас–Пекер) и сглаживание углов.
 // Точность — примерная (±1–3 пикселя снимка, тени, облака, сезон) — для ориентира.
 // ═══════════════════════════════════════════════════════════
-const SATC = { WATER: 1, FOREST: 2, MEADOW: 3, BARE: 4, BOG: 5 };
-const SATC_SIT = { 1: 'lake', 2: 'forest', 3: 'meadow', 4: 'bare', 5: 'bog' };
-const SATC_NAME = { 1: 'вода', 2: 'лес', 3: 'луг', 4: 'открытый грунт', 5: 'болото' };
+const SATC = { WATER: 1, FOREST: 2, MEADOW: 3, BARE: 4, BOG: 5, SAND: 6 };
+const SATC_SIT = { 1: 'lake', 2: 'forest', 3: 'meadow', 4: 'bare', 5: 'bog', 6: 'sand' };
+const SATC_NAME = { 1: 'вода', 2: 'лес', 3: 'луг', 4: 'открытый грунт', 5: 'болото', 6: 'песок' };
 
 // Оцу: порог, лучше всего делящий гистограмму на две группы
 function _satOtsu(hist, lo, hi) {
@@ -88,9 +88,9 @@ function satClassify(rgba, w, h, mpp, opts = {}) {
   for (let pass = 0; pass < 2; pass++) {
     const cp = lab.slice();
     for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
-      const c = new Uint8Array(6);
+      const c = new Uint8Array(8);
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) c[cp[(y + dy) * W + x + dx]]++;
-      let b = cp[y * W + x], bn = c[b]; for (let q = 0; q < 6; q++) if (c[q] > bn + 1) { b = q; bn = c[q]; }
+      let b = cp[y * W + x], bn = c[b]; for (let q = 0; q < 8; q++) if (c[q] > bn + 1) { b = q; bn = c[q]; }
       lab[y * W + x] = b;
     }
   }
@@ -117,6 +117,83 @@ function _satAbsorbSmall(lab, W, H, minPx) {
       if (n < (minPx[c] || 0)) { let b = -1, bn = 0; for (let q = 0; q < 8; q++) if (q !== c && nb[q] > bn) { bn = nb[q]; b = q; } if (b >= 0) comp.forEach(p => { lab[p] = b; }); }
     }
   }
+}
+
+// ═══ Топокарта (ГГЦ, Генштаб): классы по цвету заливок ═══════════════
+// лес — зелёная заливка, вода — голубая, болото — синяя горизонтальная штриховка
+// (по густоте штриховки вокруг точки), пески — розовые с точками. Тонкие линии
+// (горизонтали, подписи, границы, дороги) — «пусто» и заливаются соседним классом.
+// rpx — радиус окна густоты штриховки в пикселях (≈ 3–4 мм карты)
+function topoClassify(rgba, w, h, opts = {}) {
+  const N = w * h, base = new Uint8Array(N), hatch = new Uint8Array(N), valid = new Uint8Array(N);
+  let nWhite = 0;
+  for (let j = 0; j < N; j++) {
+    const i = j * 4, r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+    if (rgba[i + 3] < 128) continue; valid[j] = 1;
+    if (b > 225 && g > 195 && r < 200 && b - r > 45 && b - g < 45) base[j] = SATC.WATER;               // голубая заливка
+    else if (g > 200 && g - r > 30 && g - b > 25 && r < 205) base[j] = SATC.FOREST;                   // зелёная заливка
+    else if (r > 200 && r - g >= 7 && r - b >= 7 && Math.abs(g - b) < 14) base[j] = SATC.SAND;        // розоватый фон и коричневые точки — пески
+    else if (r > 232 && g > 232 && b > 232) { base[j] = 9; nWhite++; }                                 // белый — открытое
+    else if (b > 120 && b - (r + g) / 2 > 38 && r < 190) hatch[j] = 1;                                // синяя штриховка / линии (и размытая JPEG-ом)
+    else if (r > 150 && r - b > 30 && r - g > 15) base[j] = SATC.SAND;                                 // коричневые точки песка
+    // прочее (коричневые горизонтали, чёрный текст) — 0: заполнится соседями
+  }
+  // песок и вода — только сплошные участки: сглаженные края коричневых горизонталей и синих
+  // русел на белом выглядят розовыми/голубыми — одиночные полоски отбрасываем
+  { const sf = new Float32Array(N), wq = new Float32Array(N);
+    for (let j = 0; j < N; j++) { sf[j] = base[j] === SATC.SAND ? 1 : 0; wq[j] = base[j] === SATC.WATER ? 1 : 0; }
+    const sd = _satBox(sf, w, h, 3), wd = _satBox(wq, w, h, 2);
+    for (let j = 0; j < N; j++) { if (base[j] === SATC.SAND && sd[j] < 0.35) base[j] = 0; if (base[j] === SATC.WATER && wd[j] < 0.5) base[j] = 0; } }
+  // штрих болота — тонкая горизонтальная чёрточка (по высоте 1–2 пикселя, по длине ≥ 3);
+  // реки и ручьи — толще или наклонные: синие пиксели с высотой ≥ 3 — не штриховка
+  { const hs = hatch.slice();
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const j = y * w + x; if (!hs[j]) continue;
+      let v = 1; for (let d = 1; d <= 3 && y - d >= 0 && hs[j - d * w]; d++) v++; for (let d = 1; d <= 3 && y + d < h && hs[j + d * w]; d++) v++;
+      let hr = 1; for (let d = 1; d <= 3 && x - d >= 0 && hs[j - d]; d++) hr++; for (let d = 1; d <= 3 && x + d < w && hs[j + d]; d++) hr++;
+      if (v >= 3 || hr < 3) hatch[j] = 0;
+    } }
+  // синие линии у воды (берег, обводка озёр, русла) — не штриховка болота
+  const wf = new Float32Array(N); for (let j = 0; j < N; j++) wf[j] = base[j] === SATC.WATER ? 1 : 0;
+  const nearW = _satBox(wf, w, h, 3);
+  const hf = new Float32Array(N); for (let j = 0; j < N; j++) hf[j] = hatch[j] && nearW[j] < 0.02 ? 1 : 0;
+  // густота штриховки: малое окно — сами пятна штрихов, большое — сплошь заштрихованные участки
+  const R = Math.max(4, Math.round(opts.rpx || 22)), r1 = Math.max(2, Math.round(R / 3));
+  const D = _satBox(hf, w, h, R), D1 = _satBox(hf, w, h, r1);
+  const tH = opts.hatchT || 0.07;
+  // заливаем «пустое» (линии, подписи, штриховку) соседними классами — несколько проходов расширения
+  const lab = new Uint8Array(N);
+  for (let j = 0; j < N; j++) lab[j] = base[j];
+  for (let pass = 0; pass < 6; pass++) {
+    let changed = 0; const cp = lab.slice();
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const j = y * w + x; if (cp[j] || !valid[j]) continue;
+      const cnt = new Uint16Array(10); let best = 0, bn = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const yy = y + dy, xx = x + dx; if (yy < 0 || xx < 0 || yy >= h || xx >= w) continue; const v = cp[yy * w + xx]; if (v) { cnt[v]++; if (cnt[v] > bn) { bn = cnt[v]; best = v; } } }
+      if (best) { lab[j] = best; changed++; }
+    }
+    if (!changed) break;
+  }
+  // открытое со штриховкой вокруг — болото; без — не выводится (0)
+  let nW = 0, nF = 0, nB = 0, nS = 0;
+  for (let j = 0; j < N; j++) {
+    if (lab[j] === 9 || (!lab[j] && valid[j])) lab[j] = (D1[j] > 0.1 || D[j] > tH) ? SATC.BOG : 0;
+    const c = lab[j]; if (c === 1) nW++; else if (c === 2) nF++; else if (c === 5) nB++; else if (c === 6) nS++;
+  }
+  // сглаживание и мелочь
+  for (let pass = 0; pass < 2; pass++) {
+    const cp = lab.slice();
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      const c = new Uint8Array(8);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) c[cp[(y + dy) * w + x + dx]]++;
+      let b = cp[y * w + x], bn = c[b]; for (let q = 0; q < 8; q++) if (c[q] > bn + 1) { b = q; bn = c[q]; }
+      lab[y * w + x] = b;
+    }
+  }
+  const m = opts.mpp || 4, px2 = v => Math.max(4, v / (m * m));
+  _satAbsorbSmall(lab, w, h, { 0: px2(2500), 1: px2(opts.minWaterM2 || 300), 2: px2(opts.minForestM2 || 2500), 5: px2(opts.minBogM2 || 5000), 6: px2(1500) });
+  const nv = valid.reduce((s, v) => s + v, 0) || 1;
+  return { lab, W: w, H: h, k: 1, mpp: m, info: { mode: 'topo', R, share: { water: nW / nv, forest: nF / nv, bog: nB / nv, sand: nS / nv } } };
 }
 
 // Контуры класса cls: границы по рёбрам пикселей → кольца (внешние против часовой
@@ -182,18 +259,36 @@ function _satChaikin(r) {
 
 // ── Снимок области → GeoJSON (WGS-84) ──────────────────────
 // bbox {minLng…}; opts: {classes:[1..5], bogOpen, onProgress}
+// источники контуров: спутник или топокарта (родной уровень тайлов — подробнее не бывает)
+const SAT_SOURCES = {
+  sat: { n: 'Спутник Esri', nz: 17 },
+  ggc250: { n: 'ГГЦ 1:25 000', nz: 15, topo: 1 }, ggc500: { n: 'ГГЦ 1:50 000', nz: 14, topo: 1 }, ggc1000: { n: 'ГГЦ 1:100 000', nz: 13, topo: 1 }, ggc2000: { n: 'ГГЦ 1:200 000', nz: 12, topo: 1 },
+  gsh250: { n: 'Генштаб 1:25 000', nz: 15, topo: 1 }, gsh500: { n: 'Генштаб 1:50 000', nz: 14, topo: 1 }, gsh1000: { n: 'Генштаб 1:100 000', nz: 13, topo: 1 },
+};
+// «авто»: самая подробная топокарта, у которой есть хотя бы 60 % тайлов области
+const SAT_AUTO_ORDER = ['ggc250', 'ggc500', 'gsh500', 'ggc1000', 'gsh1000', 'ggc2000'];
 async function satRecognize(bbox, opts = {}) {
   const prog = opts.onProgress || (() => {});
+  if (opts.source === 'auto') {
+    for (const src of SAT_AUTO_ORDER) {
+      prog(`Ищу топокарту: ${SAT_SOURCES[src].n}…`);
+      try { const r = await satRecognize(bbox, Object.assign({}, opts, { source: src, minCover: 0.6 })); if (r) return r; } catch (e) { if (!/покрыт/.test(e.message)) throw e; }
+    }
+    throw new Error('на эту область нет топокарт ГГЦ / Генштаба');
+  }
+  const S = SAT_SOURCES[opts.source || 'sat'] || SAT_SOURCES.sat;
   const lat0 = (bbox.minLat + bbox.maxLat) / 2;
   const tx = (lng, z) => (lng + 180) / 360 * 2 ** z, ty = (lat, z) => { const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z; };
   // уровень снимка: подробнее ~1 м/пикс, но не больше 324 тайлов (≈ 4600×4600 пикселей)
-  let z = 17;
-  for (; z > 10; z--) { const n = (Math.floor(tx(bbox.maxLng, z)) - Math.floor(tx(bbox.minLng, z)) + 1) * (Math.floor(ty(bbox.minLat, z)) - Math.floor(ty(bbox.maxLat, z)) + 1); if (n <= 324) break; }
+  let z = S.nz;
+  for (; z > 8; z--) { const n = (Math.floor(tx(bbox.maxLng, z)) - Math.floor(tx(bbox.minLng, z)) + 1) * (Math.floor(ty(bbox.minLat, z)) - Math.floor(ty(bbox.maxLat, z)) + 1); if (n <= 324) break; }
   const mpp = 156543.034 * Math.cos(lat0 * Math.PI / 180) / 2 ** z;
-  prog(`Снимок z${z} (~${mpp.toFixed(1)} м/пикс)…`);
-  const r = await fetch(`${API}/export-tiles`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bbox, minZoom: z, maxZoom: z, source: 'sat' }) }).then(x => x.json());
-  if (!r || !r.tiles || !Object.keys(r.tiles).length) throw new Error(r && r.error === 'too_many_tiles' ? 'слишком большая область' : 'снимок не загрузился (нет интернета на сервере?)');
+  prog(`${S.n}: z${z} (~${mpp.toFixed(1)} м/пикс)…`);
+  const r = await fetch(`${API}/export-tiles`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bbox, minZoom: z, maxZoom: z, source: opts.source || 'sat' }) }).then(x => x.json());
   const x0 = Math.floor(tx(bbox.minLng, z)), y0 = Math.floor(ty(bbox.maxLat, z)), x1 = Math.floor(tx(bbox.maxLng, z)), y1 = Math.floor(ty(bbox.minLat, z));
+  const nGot = r && r.tiles ? Object.keys(r.tiles).length : 0, nAll = (x1 - x0 + 1) * (y1 - y0 + 1);
+  if (!nGot) throw new Error(r && r.error === 'too_many_tiles' ? 'слишком большая область' : S.topo ? `${S.n}: область не покрыта картой (или нет интернета на сервере)` : 'снимок не загрузился (нет интернета на сервере?)');
+  if (opts.minCover && nGot / nAll < opts.minCover) throw new Error(`${S.n}: покрыто только ${Math.round(nGot / nAll * 100)} % области`);
   // мозаика ровно по рамке
   const px0 = tx(bbox.minLng, z) * 256, py0 = ty(bbox.maxLat, z) * 256, pw = Math.ceil(tx(bbox.maxLng, z) * 256 - px0), ph = Math.ceil(ty(bbox.minLat, z) * 256 - py0);
   const cv = document.createElement('canvas'); cv.width = pw; cv.height = ph;
@@ -207,18 +302,27 @@ async function satRecognize(bbox, opts = {}) {
   prog('Распознавание…');
   await new Promise(r2 => setTimeout(r2, 20));
   const res = satImageToFeatures(g.getImageData(0, 0, pw, ph).data, pw, ph, mpp,
-    (px, py) => { const X = (px0 + px) / 256 / 2 ** z, Y = (py0 + py) / 256 / 2 ** z; return [+(X * 360 - 180).toFixed(7), +(Math.atan(Math.sinh(Math.PI * (1 - 2 * Y))) * 180 / Math.PI).toFixed(7)]; }, opts);
-  res.zoom = z; res.mpp = mpp;
+    (px, py) => { const X = (px0 + px) / 256 / 2 ** z, Y = (py0 + py) / 256 / 2 ** z; return [+(X * 360 - 180).toFixed(7), +(Math.atan(Math.sinh(Math.PI * (1 - 2 * Y))) * 180 / Math.PI).toFixed(7)]; },
+    Object.assign({}, opts, S.topo ? { topo: true, rpx: 22 * 2 ** (z - S.nz), baseName: S.n } : { baseName: S.n }));
+  res.zoom = z; res.mpp = mpp; res.source = S.n; res.cover = nGot / nAll;
   return res;
 }
 // изображение → признаки; toLL(px, py) — пиксель исходного снимка → [lng, lat]
 function satImageToFeatures(rgba, w, h, mpp, toLL, opts = {}) {
-  const C = satClassify(rgba, w, h, mpp, opts);
-  const want = opts.classes || [1, 2, 3, 4, 5], feats = [];
+  const C = opts.topo ? topoClassify(rgba, w, h, Object.assign({ mpp }, opts)) : satClassify(rgba, w, h, mpp, opts);
+  // классы: для топокарты луга нет, «открытый грунт» → пески
+  const asked = opts.classes || [1, 2, 3, 4, 5];
+  const want = opts.topo ? [1, 2, 5].filter(c => asked.includes(c)).concat(asked.includes(4) ? [6] : []) : asked, feats = [];
   want.forEach(cls => {
     satVectorize(C.lab, C.W, C.H, cls).forEach(p => {
       const ll = r => { const o = r.map(([x, y]) => toLL(x * C.k, y * C.k)); o.push(o[0]); return o; };
-      feats.push({ type: 'Feature', properties: { _sit: SATC_SIT[cls], _src: 'снимок', name: '' }, geometry: { type: 'Polygon', coordinates: [ll(p.outer), ...p.holes.map(ll)] } });
+      // вода: узкое вытянутое (русла, протоки) — река, остальное — озеро (по «округлости» 4πS/P²)
+      let sit = SATC_SIT[cls];
+      if (cls === SATC.WATER) {
+        const o = p.outer; let A = 0, P = 0; for (let i = 0, j = o.length - 1; i < o.length; j = i++) { A += (o[j][0] - o[i][0]) * (o[j][1] + o[i][1]); P += Math.hypot(o[j][0] - o[i][0], o[j][1] - o[i][1]); }
+        if (P > 30 && 4 * Math.PI * Math.abs(A / 2) / (P * P) < 0.18) sit = 'river_area';
+      }
+      feats.push({ type: 'Feature', properties: { _sit: sit, _src: 'снимок', _base: opts.baseName || '', name: '' }, geometry: { type: 'Polygon', coordinates: [ll(p.outer), ...p.holes.map(ll)] } });
     });
   });
   return { features: feats, info: C.info, lab: C.lab, W: C.W, H: C.H, k: C.k };

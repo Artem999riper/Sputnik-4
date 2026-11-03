@@ -29,13 +29,16 @@ function sitWizardHtml() {
       <label class="sit-chk"><input type="checkbox" ${DW.sitTpl ? 'checked' : ''} onchange="DW.sitTpl=this.checked;_dwSave()"> горизонтали — на слои шаблона «Горизонтали основные / утолщенные» (каждая 5-я)</label>
       <div class="sit-row">
         <button class="btn bs bsm" type="button" onclick="sitPreview()" ${SITW.busy ? 'disabled' : ''}>${SITW.busy ? '⏳ Загрузка из OSM…' : l ? '🔄 Загрузить заново' : '👁 Загрузить и показать на карте'}</button>
-        <button class="btn bs bsm" type="button" onclick="sitFromImagery()" ${SITW.busy ? 'disabled' : ''} title="Оконтурить по спутниковому снимку там, где в OSM пусто: вода, лес, луг, болото, открытый грунт">🛰 Дополнить по снимку</button>
+        <button class="btn bs bsm" type="button" onclick="sitFromImagery()" ${SITW.busy ? 'disabled' : ''} title="Оконтурить по выбранной подложке там, где ещё пусто: вода, лес, болото…">🛰 Дополнить по подложке</button>
+        <select title="С какой подложки брать контуры" onchange="DW.sitSrc=this.value;_dwSave();_sitRe()">${[['sat', '🛰 спутник Esri'], ['auto', '📜 топокарта — авто (подробная из доступных)'], ['ggc250', '📜 ГГЦ 1:25 000'], ['ggc500', '📜 ГГЦ 1:50 000'], ['ggc1000', '📜 ГГЦ 1:100 000'], ['ggc2000', '📜 ГГЦ 1:200 000'], ['gsh250', '📜 Генштаб 1:25 000'], ['gsh500', '📜 Генштаб 1:50 000'], ['gsh1000', '📜 Генштаб 1:100 000']].map(([v, t]) => `<option value="${v}" ${(DW.sitSrc || 'sat') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
                 ${l ? `<button class="btn bs bsm" type="button" onclick="kmlZoomTo('${escAttr(l.id)}')">🔍 Показать</button><button class="btn bs bsm" type="button" onclick="kmlAttrTable('${escAttr(l.id)}')">📋 Таблица</button><button class="btn bs bsm" type="button" onclick="sitDropLayer()" title="Не использовать слой — при выгрузке скачать OSM заново">✕</button>` : ''}
       </div>
       <div class="sit-hint" id="sit-status">${l ? `✅ Слой «${esc(l.name)}» — ${n} объектов: при выгрузке возьмётся он, со всеми вашими правками (удалённое не попадёт, дорисованное — попадёт; класс объекта — поле «класс» в таблице).`
         : 'Можно сразу выгружать — ситуация скачается на сервере. Или сначала загрузите на карту, проверьте и поправьте.'}</div>
       <div class="sit-groups" title="Что распознавать по снимку">${[[1, 'вода'], [2, 'лес'], [3, 'луг'], [5, 'болото (всё открытое, не лес и не вода)'], [4, 'открытый грунт']].map(([c, t]) => `<label><input type="checkbox" ${(DW.sitImg || [1, 2, 3, 4, 5]).includes(c) ? 'checked' : ''} onchange="_sitImgCls(${c},this.checked)"> 🛰 ${t}</label>`).join('')}</div>
-      <div class="sit-hint">«🛰 Дополнить по снимку» — оконтуривание по подложке Esri по цвету и фактуре: примерно (±2–5 м, тени, облака, сезон снимка), только там, где OSM пусто. Ручьи и дороги по снимку не распознаются.</div>
+      <div class="sit-hint">${(DW.sitSrc || 'sat') === 'sat' ? '«🛰 Дополнить по подложке» — по снимку Esri по цвету и фактуре: примерно (±2–5 м, тени, облака, сезон снимка). Ручьи и дороги по снимку не распознаются.'
+        : '«🛰 Дополнить по подложке» — по топокарте: лес — зелёная заливка, вода — голубая, болото — синяя штриховка, пески — розовые с точками; точность — как у карты (1:50 000 ≈ 10–25 м), состояние на год съёмки карты. Луга на топокарте нет.'}
+        Добавляется только там, где ещё пусто (OSM и уже добавленное главнее). Контуры с разных подложек накапливаются — например, одна карта покрывает часть области, другая — остальное.</div>
       <div class="sit-hint">Точность OpenStreetMap — 5–20 м, для ориентира. Где ничего не нарисовано (глухая тайга, тундра), ситуации не будет.</div>` : ''}
   </div></div>`;
 }
@@ -94,7 +97,7 @@ function sitSummary() {
 }
 
 function _sitImgCls(c, on) { const s = new Set(DW.sitImg || [1, 2, 3, 4, 5]); if (on) s.add(c); else s.delete(c); DW.sitImg = [...s]; _dwSave(); }
-const _SIT_IMG_GROUP = { lake: 'water', forest: 'veg', meadow: 'veg', bog: 'wet', bare: 'soil' };
+const _SIT_IMG_GROUP = { lake: 'water', river_area: 'water', forest: 'veg', meadow: 'veg', bog: 'wet', bare: 'soil', sand: 'soil' };
 // По снимку: распознать, отбросить то, что уже есть в слое (OSM) той же группы, дописать в слой «Ситуация»
 async function sitFromImagery() {
   const b = typeof _dwBbox === 'function' ? _dwBbox() : null;
@@ -104,10 +107,13 @@ async function sitFromImagery() {
   SITW.busy = true; _sitRe();
   const st = t => { const e = document.getElementById('sit-status'); if (e) e.textContent = '⏳ ' + t; };
   try {
-    const res = await satRecognize(b, { classes: DW.sitImg || [1, 2, 3, 4, 5], onProgress: st });
+    const res = await satRecognize(b, { classes: DW.sitImg || [1, 2, 3, 4, 5], source: DW.sitSrc || 'sat', onProgress: st });
     const C = Object.fromEntries((SITW.classes || []).map(c => [c.k, c]));
     let l = _sitLayer(), old = [];
     if (l) { try { old = JSON.parse(l.geojson).features || []; } catch (e) {} }
+    // прежний результат с этой же подложки заменяется, с других — остаётся
+    const same = f => (f.properties || {})._src === 'снимок' && ((f.properties || {})._base || 'Спутник Esri') === res.source;
+    old = old.filter(f => !same(f));
     // уже нарисованное (OSM и правки) той же группы — главнее снимка
     const grpOf = f => { const k = f.properties._sit; return _SIT_IMG_GROUP[k] || (C[k] && C[k].g); };
     const polys = old.filter(f => f.geometry && /Polygon/.test(f.geometry.type)).map(f => ({ g: grpOf(f), rings: f.geometry.type === 'Polygon' ? [f.geometry.coordinates[0]] : f.geometry.coordinates.map(p => p[0]) }));
@@ -123,7 +129,7 @@ async function sitFromImagery() {
       return !hit;
     });
     add.forEach(f => { const c = C[f.properties._sit]; if (c) { f.properties['класс'] = c.n; f.properties._color = c.c; } });
-    const gj = { type: 'FeatureCollection', features: old.filter(f => (f.properties || {})._src !== 'снимок').concat(add) };
+    const gj = { type: 'FeatureCollection', features: old.concat(add) };
     if (l) { await _kmlSaveGeojson(l, gj); if (typeof kmlInvalidateLayerCache === 'function') kmlInvalidateLayerCache(l.id); }
     else {
       const rr = await fetch(`${API}/layers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: `Ситуация ${new Date().toLocaleDateString('ru-RU')}`, color: '#16a34a', geojson: JSON.stringify(gj) }) }).then(x => x.json());
@@ -134,7 +140,7 @@ async function sitFromImagery() {
     const by = {}; add.forEach(f => { const n = (C[f.properties._sit] || {}).n || f.properties._sit; by[n] = (by[n] || 0) + 1; });
     SITW.busy = false; _sitRe();
     const s = document.getElementById('sit-status');
-    if (s) s.innerHTML += `<br>🛰 По снимку (z${res.zoom}, ~${res.mpp.toFixed(1)} м/пикс): ${Object.entries(by).map(([k, n]) => `${esc(k)}: ${n}`).join(', ') || 'ничего'}${dropped ? `; уже было в OSM — пропущено ${dropped}` : ''}. Прежний результат по снимку заменён.`;
-    toast(`🛰 По снимку добавлено контуров: ${add.length}`, 'ok');
+    if (s) s.innerHTML += `<br>🛰 ${esc(res.source)} (z${res.zoom}, ~${res.mpp.toFixed(1)} м/пикс${res.cover < 0.98 ? `, покрыто ${Math.round(res.cover * 100)} %` : ''}): ${Object.entries(by).map(([k, n]) => `${esc(k)}: ${n}`).join(', ') || 'ничего'}${dropped ? `; уже было в OSM — пропущено ${dropped}` : ''}. Прежний результат с этой подложки заменён.`;
+    toast(`🛰 ${res.source}: добавлено контуров ${add.length}`, 'ok');
   } catch (e) { SITW.busy = false; _sitRe(); toast('❌ Снимок: ' + e.message, 'err'); }
 }

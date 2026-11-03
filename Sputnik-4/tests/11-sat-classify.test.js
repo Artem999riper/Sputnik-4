@@ -31,3 +31,20 @@ test('контуры: внешнее кольцо и дырки по рёбра�
   const p = ctx.V(lab, W, H, 1, 0.1);
   assert.strictEqual(p.length, 1); assert.strictEqual(p[0].holes.length, 2);
 });
+
+test('топокарта: лес — зелёная заливка, вода — голубая, болото — штриховка, линии не мешают', () => {
+  const w = 300, h = 200, px = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let c = [252, 252, 252];
+    if (x < 100) c = [166, 226, 168];                                  // лес
+    if ((x - 160) ** 2 + (y - 100) ** 2 < 30 * 30) c = [166, 228, 250]; // озеро
+    if (x >= 210 && y > 30 && y < 170 && y % 6 === 0 && x % 14 < 10) c = [40, 60, 210];   // штриховка болота
+    if (y === 150 && x < 200) c = [180, 120, 60];                       // горизонталь поперёк
+    const i = (y * w + x) * 4; px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; px[i + 3] = 255;
+  }
+  const r = ctx.F(px, w, h, 4, (x, y) => [x, y], { topo: true, rpx: 22 });
+  const by = {}; r.features.forEach(f => { by[f.properties._sit] = (by[f.properties._sit] || 0) + 1; });
+  assert.ok(by.forest >= 1 && by.lake >= 1 && by.bog >= 1, JSON.stringify(by));
+  const bog = r.features.find(f => f.properties._sit === 'bog'), bx = bog.geometry.coordinates[0].map(p => p[0]);
+  assert.ok(Math.min(...bx) > 190, 'болото — там, где штриховка');
+});
