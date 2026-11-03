@@ -42,6 +42,7 @@ const SIT = {
   grass:      { g: 'veg', a: 1, layer: 'Контур', block: 'Gazon', mm: 10, c: '#bef264', n: 'Травяная растительность' },
   moss:       { g: 'veg', a: 1, layer: 'Контур', block: 'Moh', mm: 10, c: '#a16207', n: 'Мох, тундра' },
   sand:       { g: 'soil', a: 1, layer: 'Контур', block: 'Pesok', mm: 4, c: '#eab308', n: 'Песок' },
+  bare:       { g: 'soil', a: 1, layer: 'Контур', c: '#d6d3d1', n: 'Открытый грунт (отсыпки, площадки)' },
   rock:       { g: 'soil', a: 1, layer: 'Контур', block: 'Valun', mm: 8, c: '#78716c', n: 'Камни, скалы' },
   farmland:   { g: 'other', a: 1, layer: 'Контур пашни', c: '#ca8a04', n: 'Пашня' },
   cemetery:   { g: 'other', a: 1, layer: 'Контур', block: 'Kladbische', mm: 8, c: '#57534e', n: 'Кладбище' },
