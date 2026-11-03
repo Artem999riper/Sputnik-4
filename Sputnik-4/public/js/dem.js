@@ -33,6 +33,10 @@ const DEM_SAT_SOURCES = [
   { id:'topo',       label:'OpenTopoMap (тopo + горизонтали)',
     url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
     subdomains:['a','b','c'] },
+  // топокарты ГГЦ и Генштаба (тайлы nakarte.me, схема TMS — {-y}); подробнее maxZoom тайлов нет
+  ...[['ggc250','GGC 250 m — ГГЦ 1:25 000',15],['ggc500','GGC 500 m — ГГЦ 1:50 000',14],['ggc1000','GGC 1 km — ГГЦ 1:100 000',13],['ggc2000','GGC 2 km — ГГЦ 1:200 000',12],
+      ['topo250','Topo 250 m — Генштаб 1:25 000',15],['topo500','Topo 500 m — Генштаб 1:50 000',14],['topo1000','Topo 1 km — Генштаб 1:100 000',13],['topo001m','Topo 10 km — Генштаб 1:1 000 000',10]]
+    .map(([p,label,mz])=>({ id:'nk_'+p, label:'📜 '+label, url:`https://{s}.tiles.nakarte.me/${p}/{z}/{x}/{-y}`, subdomains:['a','b','c'], maxZoom:mz })),
 ];
 
 // ── Проекции ───────────────────────────────────────────────
@@ -937,7 +941,7 @@ async function demExport() {
         cacheOnly,
         satZoom,
         satSourceUrl: satSourceObj.url,
-        satSourceSubdomains: satSourceObj.subdomains,
+        satSourceSubdomains: satSourceObj.subdomains, satMaxZoom: satSourceObj.maxZoom || 0,
       }),
     });
 
@@ -1227,7 +1231,7 @@ function _demCommonParams() {
     satelliteOnly,
     satZoom: parseInt(document.getElementById('dem-sat-zoom')?.value ?? '0') || 0,
     satMPP: document.getElementById('dem-sat-1m')?.checked ? 1 : 0,
-    satSourceUrl: so.url, satSourceSubdomains: so.subdomains,
+    satSourceUrl: so.url, satSourceSubdomains: so.subdomains, satMaxZoom: so.maxZoom || 0,
   };
 }
 function _demPolysOfLayer(l) {

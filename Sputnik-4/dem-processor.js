@@ -504,7 +504,8 @@ function fetchTile(z,x,y,urlTemplate,subdomains) {
   let url;
   if (urlTemplate) {
     const s=(subdomains&&subdomains.length)?subdomains[Math.floor(Math.random()*subdomains.length)]:'';
-    url=urlTemplate.replace('{z}',z).replace('{x}',x).replace('{y}',y).replace('{s}',s).replace('{r}','');
+    // {-y} — схема TMS (номер ряда снизу вверх): топокарты nakarte.me
+    url=urlTemplate.replace('{z}',z).replace('{x}',x).replace('{-y}',(1<<z)-1-y).replace('{y}',y).replace('{s}',s).replace('{r}','');
   } else {
     url=`https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
   }
@@ -524,7 +525,7 @@ function fetchTile(z,x,y,urlTemplate,subdomains) {
   });
 }
 
-async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, satSourceUrl, satSourceSubdomains, satMPP) {
+async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, satSourceUrl, satSourceSubdomains, satMPP, satMaxZoom) {
   const {minLat,maxLat,minLng,maxLng} = bbox;
 
   // Вычисляем размер области в км для решения о зуме
@@ -548,11 +549,13 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
     return { tx, ty, w: tx * 256, h: ty * 256 };
   };
   let zoom;
+  // у топокарт тайлы есть только до своего уровня (GGC 500 m — z14): выше не просим
+  const zTop = satMaxZoom > 0 ? Math.min(19, satMaxZoom) : 19;
   if (satZoom && satZoom > 0) {
-    zoom = Math.min(Math.max(satZoom, 5), 19);           // ручной — как есть
+    zoom = Math.min(Math.max(satZoom, 5), zTop);         // ручной — как есть (не выше родного)
   } else {
     zoom = 5;
-    for (let z = 17; z >= 5; z--) { const d = _satDims(z); if (d.w <= AUTO_MAX_PX && d.h <= AUTO_MAX_PX) { zoom = z; break; } }
+    for (let z = Math.min(17, zTop); z >= 5; z--) { const d = _satDims(z); if (d.w <= AUTO_MAX_PX && d.h <= AUTO_MAX_PX) { zoom = z; break; } }
   }
   // Предохранитель по числу тайлов: если на выбранном зуме их слишком много —
   // понижаем зум, пока не уложимся (иначе загрузка/сборка займёт слишком долго).
@@ -935,7 +938,7 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
 // ── Главная функция ────────────────────────────────────────
 async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
                             interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,
-                            satelliteOnly,cacheOnly,satZoom,satMPP,satSourceUrl,satSourceSubdomains,situation,onProgress}) {
+                            satelliteOnly,cacheOnly,satZoom,satMPP,satSourceUrl,satSourceSubdomains,satMaxZoom,situation,onProgress}) {
   gridStep = (gridStep !== undefined && gridStep !== null && gridStep !== '') ? parseInt(gridStep) : 20;
   if (isNaN(gridStep)) gridStep = 20;
   const jMin = parseFloat(jitterMin)||0;
@@ -952,7 +955,7 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
     // ── Режим «только спутник»: пропускаем весь DEM-пайплайн ──────────────
     if (satelliteOnly) {
       onProgress&&onProgress(10,'Загрузка спутника...');
-      const satRes = await buildSatellite(bbox,tmpDir,proj4,epsg,null,satZoom,satSourceUrl,satSourceSubdomains,satMPP);
+      const satRes = await buildSatellite(bbox,tmpDir,proj4,epsg,null,satZoom,satSourceUrl,satSourceSubdomains,satMPP,satMaxZoom);
       const satFiles=[];
       for (const sec of satRes) {
         if (sec.tif && fs.existsSync(sec.tif)) satFiles.push(sec.tif);
@@ -1162,7 +1165,7 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
     if (exportSatellite){
       onProgress&&onProgress(85,'Загрузка спутника...');
       try{
-        satSections=await buildSatellite(bbox,tmpDir,proj4,epsg,reprojTif,satZoom,satSourceUrl,satSourceSubdomains,satMPP);
+        satSections=await buildSatellite(bbox,tmpDir,proj4,epsg,reprojTif,satZoom,satSourceUrl,satSourceSubdomains,satMPP,satMaxZoom);
         for (const sec of satSections) {
           if (sec.tif && fs.existsSync(sec.tif)) satFiles.push(sec.tif);
           if (sec.tfw && fs.existsSync(sec.tfw)) satFiles.push(sec.tfw);

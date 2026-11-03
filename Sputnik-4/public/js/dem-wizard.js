@@ -92,15 +92,20 @@ function openDEMPanel(step) {
       </div>
       ${isAdminClient() ? _dwAdminHtml() : ''}`;
   } else if (DW.step === 4) {
-    const zs = [14, 15, 16, 17, 18, 19];
+    const so4 = DEM_SAT_SOURCES.find(s => s.id === DW.satSource) || {};
+    // у топокарт уровни — только до родного (GGC 500 m — z14)
+    const zs = so4.maxZoom ? [so4.maxZoom - 3, so4.maxZoom - 2, so4.maxZoom - 1, so4.maxZoom].filter(z => z >= 8) : [14, 15, 16, 17, 18, 19];
+    if (so4.maxZoom && DW.satZoom > so4.maxZoom) DW.satZoom = 0;
     body = `<div class="dw-h">Спутниковая подложка</div>
       <div class="fgr">
-        <div class="fg s2"><label>Источник снимков</label><select id="dem-sat-source" onchange="DW.satSource=this.value;_dwSave()" style="width:100%">${DEM_SAT_SOURCES.map(s => `<option value="${s.id}" ${DW.satSource === s.id ? 'selected' : ''}>${s.label}</option>`).join('')}</select></div>
+        <div class="fg s2"><label>Источник снимков</label><select id="dem-sat-source" onchange="DW.satSource=this.value;_dwSave();openDEMPanel(4)" style="width:100%">${DEM_SAT_SOURCES.map(s => `<option value="${s.id}" ${DW.satSource === s.id ? 'selected' : ''}>${s.label}</option>`).join('')}</select></div>
         <div class="fg s2"><label>Детализация снимка</label><select id="dem-sat-zoom" onchange="DW.satZoom=+this.value;_dwSave();openDEMPanel(4)" style="width:100%">
           <option value="0" ${!DW.satZoom ? 'selected' : ''}>Авто — подобрать под размер области</option>
           ${zs.map(z => `<option value="${z}" ${DW.satZoom === z ? 'selected' : ''}>z${z} — ~${_dwRes(z).toFixed(_dwRes(z) < 1 ? 2 : 1)} м/пиксель${z === 17 ? ' (подробно)' : z >= 18 ? ' (максимум, есть не везде)' : ''}</option>`).join('')}
         </select></div>
         <div class="fg s2"><label>Размер пикселя готовой подложки</label><select id="dem-sat-mpp" onchange="DW.satMPP=+this.value;_dwSave();openDEMPanel(4)" style="width:100%">
+          <option value="5" ${DW.satMPP === 5 ? 'selected' : ''}>5 м — для топокарт 1:100 000 и мельче (масштаб вставки ×5)</option>
+          <option value="2" ${DW.satMPP === 2 ? 'selected' : ''}>2 м — для топокарт 1:25 000 – 1:50 000 (масштаб вставки ×2)</option>
           <option value="1" ${DW.satMPP === 1 ? 'selected' : ''}>1 м — для МенуГЕО/AutoCAD: масштаб при вставке сразу верный</option>
           <option value="0.5" ${DW.satMPP === 0.5 ? 'selected' : ''}>0,5 м — детальнее (в МенуГЕО масштаб вставки ×0,5)</option>
           <option value="0.25" ${DW.satMPP === 0.25 ? 'selected' : ''}>0,25 м — очень детально (масштаб ×0,25)</option>
@@ -285,13 +290,16 @@ function _dwKmlPickStop(reopen) {
 // ── Подсказки и сводка ─────────────────────────────────────
 function _dwSatNote() {
   const b = _dwBbox(); if (!b) return '';
-  const est = _demSatEstimate(b), z = DW.satZoom || est.zoom, src = _dwRes(z);
+  const so0 = DEM_SAT_SOURCES.find(s => s.id === DW.satSource) || {};
+  const est = _demSatEstimate(b), z = DW.satZoom || (so0.maxZoom ? Math.min(est.zoom, so0.maxZoom) : est.zoom), src = _dwRes(z);
   const wM = (b.maxLng - b.minLng) * 111320 * Math.cos((b.minLat + b.maxLat) / 2 * Math.PI / 180), hM = (b.maxLat - b.minLat) * 111320;
   const mpp = DW.satMPP || src, px = Math.round(wM / mpp) * Math.round(hM / mpp);
   const parts = Math.ceil(wM / mpp / 16000) * Math.ceil(hM / mpp / 16000);
   const msg = [`Снимок z${z}: ~${src.toFixed(2)} м/пиксель${DW.satZoom ? '' : ' (Авто)'} → подложка ${mpp === src ? 'как в снимке' : mpp + ' м/пиксель'}, ≈ ${Math.round(wM / mpp)} × ${Math.round(hM / mpp)} пикселей${parts > 1 ? `, <b>${parts} частей</b>` : ''}.`];
   if (DW.satMPP && src < DW.satMPP * 0.9) msg.push(`⚠️ Снимок детальнее (${src.toFixed(2)} м), чем пиксель подложки (${DW.satMPP} м) — часть деталей потеряется, картинка будет мягче. Для чёткости выберите размер пикселя ${src < 0.4 ? '0,25' : '0,5'} м.`);
-  if (DW.satMPP && src > DW.satMPP * 1.5) msg.push(`ℹ️ Снимок грубее пикселя подложки — поднимите детализацию до z${Math.min(19, z + Math.ceil(Math.log2(src / DW.satMPP)))} для резкости.`);
+  const so = DEM_SAT_SOURCES.find(s => s.id === DW.satSource) || {};
+  if (so.maxZoom) msg.push(`📜 Топокарта: подробнее z${so.maxZoom} (~${_dwRes(so.maxZoom).toFixed(1)} м/пиксель) тайлов нет — при мелком пикселе подложки карта растягивается; разумно «Как в снимке» или 2–5 м. Где карта не покрывает область — пусто.`);
+  else if (DW.satMPP && src > DW.satMPP * 1.5) msg.push(`ℹ️ Снимок грубее пикселя подложки — поднимите детализацию до z${Math.min(19, z + Math.ceil(Math.log2(src / DW.satMPP)))} для резкости.`);
   if (px > 400e6) msg.push('⚠️ Очень большая подложка — выгрузка займёт много времени.');
   return msg.join('<br>');
 }
@@ -329,7 +337,7 @@ function _dwParams() {
   const so = DEM_SAT_SOURCES.find(s => s.id === DW.satSource) || DEM_SAT_SOURCES[0];
   return { interval: DW.interval, gridStep: DW.grid, jitterMin: DW.jMin, jitterMax: DW.jMax, useGeoid: true,
     exportSatellite: _dwHasSat(), satelliteOnly: DW.what === 'sat', cacheOnly: DW.what === 'cache',
-    satZoom: DW.satZoom || 0, satMPP: DW.satMPP || 0, satSourceUrl: so.url, satSourceSubdomains: so.subdomains,
+    satZoom: DW.satZoom || 0, satMPP: DW.satMPP || 0, satSourceUrl: so.url, satSourceSubdomains: so.subdomains, satMaxZoom: so.maxZoom || 0,
     situation: _dwHasRelief() && typeof sitParams === 'function' ? sitParams() : null };
 }
 async function _dwExport() {
