@@ -15,8 +15,15 @@ function initMap(){
   const carto=L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap contributors © CARTO',maxZoom:21,maxNativeZoom:19,subdomains:['a','b','c','d']});
   const rosreestr=L.tileLayer('https://fsgs.cgkipd.ru/eeko/tile/56/{z}/{x}/{y}.png',{attribution:'© Росреестр / ЦГКИПД',maxZoom:18,maxNativeZoom:18});
   rosreestr.on('tileerror',function(e){e.tile.style.display='none';});
+  // Топокарты ГГЦ и Генштаба — тайлы сервиса nakarte.me (схема TMS: ось Y снизу вверх);
+  // выше своего масштаба тайлы растягиваются (maxNativeZoom)
+  const nk=(path,nz)=>{const l=L.tileLayer(`https://{s}.tiles.nakarte.me/${path}/{z}/{x}/{y}`,{attribution:'Топокарты © ГГЦ / ГШ, тайлы nakarte.me',tms:true,maxZoom:21,maxNativeZoom:nz,subdomains:['a','b','c']});l.on('tileerror',function(e){e.tile.style.display='none';});return l;};
+  const ggc250=nk('ggc250',15),ggc500=nk('ggc500',14),ggc1k=nk('ggc1000',13),ggc2k=nk('ggc2000',12);
+  const gsh250=nk('topo250',15),gsh500=nk('topo500',14),gsh1k=nk('topo1000',13),gsh10k=nk('topo001m',10);
   sat.addTo(map);
-  window._mapBaseLayers={'🗺 Карта':osm,'🛰 Спутник':sat,'🛰 Спутник Google':gsat,'🗺 Гибрид Google':ghyb,'🗺 Росреестр':rosreestr,'🗺 Улицы ESRI':esriStreet,'🗻 Топо ESRI':esriTopo,'🗻 Топо':topo,'🌍 Светлая':carto};
+  window._mapBaseLayers={'🗺 Карта':osm,'🛰 Спутник':sat,'🛰 Спутник Google':gsat,'🗺 Гибрид Google':ghyb,'🗺 Росреестр':rosreestr,'🗺 Улицы ESRI':esriStreet,'🗻 Топо ESRI':esriTopo,'🗻 Топо':topo,'🌍 Светлая':carto,
+    '📜 ГГЦ 1:25 000 (250 м)':ggc250,'📜 ГГЦ 1:50 000 (500 м)':ggc500,'📜 ГГЦ 1:100 000 (1 км)':ggc1k,'📜 ГГЦ 1:200 000 (2 км)':ggc2k,
+    '📜 Генштаб 1:25 000 (250 м)':gsh250,'📜 Генштаб 1:50 000 (500 м)':gsh500,'📜 Генштаб 1:100 000 (1 км)':gsh1k,'📜 Генштаб 1:1 000 000 (10 км)':gsh10k};
   window._mapLayerCtrl=L.control.layers(window._mapBaseLayers,{},{position:'topright'}).addTo(map);
   L.control.zoom({position:'bottomright'}).addTo(map);
   // Pane для точечных объёмов — поверх vpLayers и KML
