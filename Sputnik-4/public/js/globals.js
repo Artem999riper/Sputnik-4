@@ -125,6 +125,12 @@ async function loadMyCaps(){
         lastNetToast=Date.now();
         try{toast('⚠️ Нет связи с сервером','err');}catch(_){}
       }
+      // в журнал ошибок — какой запрос не дошёл и какого размера (большой слой сервер может оборвать)
+      if(isApi&&e&&e.name==='TypeError'){
+        const kb=opts&&typeof opts.body==='string'?Math.round(opts.body.length/1024):0;
+        const ne=new TypeError(`Нет связи с сервером: ${method} ${String(url).replace(/^https?:\/\/[^/]+/,'').slice(0,80)}${kb?`, ${kb>2048?(kb/1024).toFixed(1)+' МБ':kb+' КБ'}`:''} (${e.message})`);
+        ne.stack=e.stack;throw ne;
+      }
       throw e;
     }finally{
       if(isApi){busy--;upd();}

@@ -62,7 +62,7 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 // Глобальный лимит — 8 MB для обычных JSON запросов.
 // Для KML/GeoJSON слоёв отдельный лимит 50 MB (применяется до глобального).
-app.use('/api/layers', express.json({ limit: '50mb' }));
+app.use('/api/layers', express.json({ limit: '200mb' }));   // слои ситуации по снимку бывают десятки МБ
 app.use('/api/sites', express.json({ limit: '50mb' }));
 app.use('/api/dem', express.json({ limit: '50mb' }));   // выгрузка с ситуацией: объекты слоя «Ситуация»
 app.use(express.json({ limit: '8mb' }));

@@ -1382,9 +1382,15 @@ function kmlEditFeature(layerId, fIdx, mode) {
 
       // Сохраняем весь слой обратно
       const newGeojson = JSON.stringify(gj);
-      await fetch(`${API}/layers/${layerId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({name:l.name,color:l.color,visible:l.visible?1:0,
-          symbol:l.symbol||'',group_id:l.group_id||'',line_dash:l.line_dash||'solid',geojson:newGeojson})});
+      // не дошло (нет связи, сервер перезапускался) — окно не закрываем, правка не теряется
+      let ok = false;
+      try {
+        const r = await fetch(`${API}/layers/${layerId}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({name:l.name,color:l.color,visible:l.visible?1:0,
+            symbol:l.symbol||'',group_id:l.group_id||'',line_dash:l.line_dash||'solid',geojson:newGeojson})});
+        ok = r.ok;
+      } catch (e) {}
+      if (!ok) { toast('❌ Не сохранено — нет связи с сервером. Окно не закрыто: нажмите «Сохранить» ещё раз', 'err'); return; }
       l.geojson = newGeojson;
       renderLayerGroups();
       toast('Сохранено','ok');
