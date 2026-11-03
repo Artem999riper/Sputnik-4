@@ -22,8 +22,8 @@ function initMap(){
   const gsh250=nk('topo250',15),gsh500=nk('topo500',14),gsh1k=nk('topo1000',13),gsh10k=nk('topo001m',10);
   sat.addTo(map);
   window._mapBaseLayers={'🗺 Карта':osm,'🛰 Спутник':sat,'🛰 Спутник Google':gsat,'🗺 Гибрид Google':ghyb,'🗺 Росреестр':rosreestr,'🗺 Улицы ESRI':esriStreet,'🗻 Топо ESRI':esriTopo,'🗻 Топо':topo,'🌍 Светлая':carto,
-    '📜 ГГЦ 1:25 000 (250 м)':ggc250,'📜 ГГЦ 1:50 000 (500 м)':ggc500,'📜 ГГЦ 1:100 000 (1 км)':ggc1k,'📜 ГГЦ 1:200 000 (2 км)':ggc2k,
-    '📜 Генштаб 1:25 000 (250 м)':gsh250,'📜 Генштаб 1:50 000 (500 м)':gsh500,'📜 Генштаб 1:100 000 (1 км)':gsh1k,'📜 Генштаб 1:1 000 000 (10 км)':gsh10k};
+    '📜 GGC 250 m — ГГЦ 1:25 000':ggc250,'📜 GGC 500 m — ГГЦ 1:50 000':ggc500,'📜 GGC 1 km — ГГЦ 1:100 000':ggc1k,'📜 GGC 2 km — ГГЦ 1:200 000':ggc2k,
+    '📜 Topo 250 m — Генштаб 1:25 000':gsh250,'📜 Topo 500 m — Генштаб 1:50 000':gsh500,'📜 Topo 1 km — Генштаб 1:100 000':gsh1k,'📜 Topo 10 km — Генштаб 1:1 000 000':gsh10k};
   window._mapLayerCtrl=L.control.layers(window._mapBaseLayers,{},{position:'topright'}).addTo(map);
   L.control.zoom({position:'bottomright'}).addTo(map);
   // Pane для точечных объёмов — поверх vpLayers и KML
