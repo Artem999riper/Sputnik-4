@@ -1568,6 +1568,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     for (let i = 0; i < list.length; i += BATCH) {
       await Promise.all(list.slice(i, i + BATCH).map(async ({ z, x, y }) => {
         const url = nk ? `https://${'abc'[(x + y) % 3]}.tiles.nakarte.me/${nk}/${z}/${x}/${(1 << z) - 1 - y}`
+          : source === 'gsat' ? `https://mt${(x + y) % 4}.google.com/vt/lyrs=s&x=${x}&y=${y}&z=${z}`
           : isSat
           ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`
           : `https://a.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`;

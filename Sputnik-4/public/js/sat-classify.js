@@ -262,6 +262,7 @@ function _satChaikin(r) {
 // источники контуров: спутник или топокарта (родной уровень тайлов — подробнее не бывает)
 const SAT_SOURCES = {
   sat: { n: 'Спутник Esri', nz: 17 },
+  gsat: { n: 'Спутник Google', nz: 18 },
   ggc250: { n: 'GGC 250 m (1:25 000)', nz: 15, topo: 1 }, ggc500: { n: 'GGC 500 m (1:50 000)', nz: 14, topo: 1 }, ggc1000: { n: 'GGC 1 km (1:100 000)', nz: 13, topo: 1 }, ggc2000: { n: 'GGC 2 km (1:200 000)', nz: 12, topo: 1 },
   gsh250: { n: 'Topo 250 m (Генштаб 1:25 000)', nz: 15, topo: 1 }, gsh500: { n: 'Topo 500 m (Генштаб 1:50 000)', nz: 14, topo: 1 }, gsh1000: { n: 'Topo 1 km (Генштаб 1:100 000)', nz: 13, topo: 1 },
 };
