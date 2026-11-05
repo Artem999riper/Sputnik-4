@@ -57,6 +57,7 @@ function _admRender(){
       <button class="btn bs bsm" id="adm-t-settings" onclick="_admSwitch('settings')">⚙️ Настройки</button>
       <button class="btn bs bsm" id="adm-t-update" onclick="_admSwitch('update')">🔄 Обновление</button>
       <button class="btn bs bsm" id="adm-t-db" onclick="_admSwitch('db')">🩺 Проверка базы</button>
+      <button class="btn bs bsm" id="adm-t-dbinfo" onclick="_admSwitch('dbinfo')">🗄 Состав базы</button>
       <button class="btn bs bsm" id="adm-t-errors" onclick="_admSwitch('errors')">🐞 Ошибки</button>
     </div>
     <div id="adm-body" style="min-height:260px"></div>`,
@@ -65,7 +66,7 @@ function _admRender(){
 }
 function _admSwitch(tab){
   _admTab=tab;
-  ['online','rights','tabs','settings','update','db','errors'].forEach(t=>{
+  ['online','rights','tabs','settings','update','db','dbinfo','errors'].forEach(t=>{
     const b=document.getElementById('adm-t-'+t);
     if(b)b.className='btn '+(t===tab?'bp':'bs')+' bsm';
   });
@@ -75,6 +76,7 @@ function _admSwitch(tab){
   else if(tab==='tabs')_admRenderTabs();
   else if(tab==='update')_admRenderUpdate();
   else if(tab==='db')_admRenderDb();
+  else if(tab==='dbinfo')_admRenderDbInfo();
   else if(tab==='errors')_admRenderErrors();
   else _admRenderSettings();
 }
@@ -427,4 +429,54 @@ async function _admErrCopy(i){
     showModal('📋 Текст ошибки',`<textarea style="width:min(680px,86vw);height:50vh;font-size:11px;font-family:monospace" onfocus="this.select()">${esc(txt)}</textarea>`,[{label:'Закрыть',cls:'bs',fn:()=>{closeModal();openAdminPanel().then(()=>_admSwitch('errors'));}}]);
     setTimeout(()=>{const t=document.querySelector('#mbd textarea');if(t){t.focus();t.select();}},50);
   }
+}
+
+
+// ── 🗄 Состав базы: таблицы по разделам, записи, место, папки, крупные слои (routes/dbinfo.js) ──
+const _admMB = b => b == null ? '—' : b >= 1048576 ? (b / 1048576).toFixed(b >= 104857600 ? 0 : 1) + ' МБ' : b >= 1024 ? Math.round(b / 1024) + ' КБ' : b + ' Б';
+let _admDbiOpen = new Set(), _admDbiData = null;
+async function _admRenderDbInfo() {
+  const b = document.getElementById('adm-body'); if (!b) return;
+  b.innerHTML = '<div class="empty">⏳ Собираю…</div>';
+  let r; try { r = await fetch(`${API}/admin/dbinfo`).then(x => x.json()); } catch (e) { b.innerHTML = '<div class="empty">Ошибка сети</div>'; return; }
+  if (r.error) { b.innerHTML = `<div class="empty">${esc(r.error)}</div>`; return; }
+  _admDbiData = r;
+  const totalRows = r.tables.reduce((s, t) => s + t.rows, 0), maxB = Math.max(1, ...r.tables.map(t => t.bytes || 0));
+  const dt = v => { if (!v) return ''; const d = new Date(String(v).length <= 10 ? v + 'T12:00:00' : v); return isNaN(d) ? esc(String(v).slice(0, 16)) : d.toLocaleDateString('ru-RU'); };
+  const tblRow = t => `<div class="dbi-row" onclick="_admDbiToggle('${escAttr(t.name)}')">
+      <div class="dbi-nm"><b>${esc(t.desc || t.name)}</b><small>${esc(t.name)}${t.last ? ' · изменено ' + dt(t.last) : ''}</small></div>
+      <div class="dbi-n">${t.rows.toLocaleString('ru-RU')}<small>записей</small></div>
+      <div class="dbi-b"><span>${t.bytes != null ? _admMB(t.bytes) : ''}</span>${t.bytes != null ? `<i style="width:${Math.max(2, Math.round(t.bytes / maxB * 100))}%"></i>` : ''}</div>
+    </div><div class="dbi-more" id="dbi-${escAttr(t.name)}">${_admDbiOpen.has(t.name) ? '⏳' : ''}</div>`;
+  const secs = r.sections.map(sec => {
+    const ts = r.tables.filter(t => t.section === sec); if (!ts.length) return '';
+    const n = ts.reduce((s, t) => s + t.rows, 0), bb = ts.reduce((s, t) => s + (t.bytes || 0), 0);
+    // с записями — по месту (больше сверху), пустые — одной строкой
+    const full = ts.filter(t => t.rows).sort((a, c) => (c.bytes || 0) - (a.bytes || 0) || c.rows - a.rows), zero = ts.filter(t => !t.rows);
+    return `<div class="dbi-sec">${esc(sec)}<span>${n.toLocaleString('ru-RU')} записей${r.sizesExact ? ' · ' + _admMB(bb) : ''}</span></div>${full.map(tblRow).join('')}`
+      + (zero.length ? `<div class="dbi-zero">Пока пусто: ${zero.map(t => `<span title="${escAttr(t.name)}" onclick="_admDbiToggle('${escAttr(t.name)}')">${esc(t.desc || t.name)}</span>`).join(' · ')}</div>${zero.map(t => `<div class="dbi-more" id="dbi-${escAttr(t.name)}"></div>`).join('')}` : '');
+  }).join('');
+  b.innerHTML = `<div class="dbi">
+    <div class="dbi-cards">
+      <div class="dbi-card"><b>${_admMB(r.file.bytes + r.file.wal)}</b><span>файл базы survey.db${r.file.wal ? ` (в т. ч. журнал WAL ${_admMB(r.file.wal)})` : ''}</span></div>
+      <div class="dbi-card"><b>${r.tables.length}</b><span>таблиц, ${totalRows.toLocaleString('ru-RU')} записей</span></div>
+      ${r.folders.map(f => `<div class="dbi-card"><b>${f.exists ? _admMB(f.bytes) : '—'}</b><span>${esc(f.name)}${f.exists ? `, файлов ${f.files.toLocaleString('ru-RU')}` : ' — нет папки'}</span></div>`).join('')}
+    </div>
+    <div class="vl-hint" style="margin:6px 0">Всё, кроме фото, резервных копий и выгрузок, хранится в одном файле <b>survey.db</b> (${esc(r.file.path)}). Щелчок по таблице — её поля и последние записи. Только просмотр, ничего не меняется.</div>
+    ${r.layers.length ? `<div class="dbi-sec">Крупнейшие слои карты<span>геометрия хранится в базе</span></div>
+      ${r.layers.map(l => `<div class="dbi-row nohover"><div class="dbi-nm"><b>${esc(l.name)}</b><small>${esc(l.kind)}</small></div><div class="dbi-n"></div><div class="dbi-b"><span>${_admMB(l.bytes)}</span><i style="width:${Math.max(2, Math.round(l.bytes / Math.max(1, r.layers[0].bytes) * 100))}%"></i></div></div>`).join('')}` : ''}
+    ${secs}
+    ${r.sizesExact ? '' : '<div class="vl-hint">Размер по таблицам недоступен в этой сборке SQLite — показано число записей.</div>'}
+  </div>`;
+  _admDbiOpen.forEach(n => _admDbiLoad(n));
+}
+function _admDbiToggle(n) { if (_admDbiOpen.has(n)) { _admDbiOpen.delete(n); const e = document.getElementById('dbi-' + n); if (e) e.innerHTML = ''; } else { _admDbiOpen.add(n); _admDbiLoad(n); } }
+async function _admDbiLoad(n) {
+  const e = document.getElementById('dbi-' + n); if (!e) return;
+  e.innerHTML = '<div class="vl-hint">⏳</div>';
+  let r; try { r = await fetch(`${API}/admin/dbinfo/${encodeURIComponent(n)}`).then(x => x.json()); } catch (x) { e.innerHTML = '<div class="vl-hint">Ошибка сети</div>'; return; }
+  if (r.error) { e.innerHTML = `<div class="vl-hint">${esc(r.error)}</div>`; return; }
+  const cell = v => v == null ? '<span style="color:var(--tx3)">—</span>' : esc(String(v));
+  e.innerHTML = `<div class="dbi-cols"><b>Поля (${r.cols.length}):</b> ${r.cols.map(c => `<code>${esc(c.name)}</code>${c.pk ? '🔑' : ''}<small>${esc(c.type.toLowerCase())}</small>`).join(' ')}</div>
+    ${r.rows.length ? `<div class="dbi-tbl"><table><tr>${r.cols.map(c => `<th>${esc(c.name)}</th>`).join('')}</tr>${r.rows.map(x => `<tr>${r.cols.map(c => `<td>${cell(x[c.name])}</td>`).join('')}</tr>`).join('')}</table></div><div class="vl-hint">Последние ${r.rows.length} записи (длинные значения обрезаны).</div>` : '<div class="vl-hint">Записей нет.</div>'}`;
 }
