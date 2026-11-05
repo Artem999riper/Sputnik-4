@@ -307,13 +307,19 @@ def mode_watershed(p):
     c0 = int((x - G.gt[0]) / G.gt[1]); r0 = int((y - G.gt[3]) / G.gt[5])
     if not (0 <= r0 < G.rows and 0 <= c0 < G.cols):
         raise SystemExit('ERROR: точка вне области расчёта')
-    # притягиваем к ячейке с наибольшим водосбором в радиусе ~50 м (точка «на тальвеге»)
-    rad = max(1, int(50 / G.res)); best = None
-    for r in range(max(0, r0 - rad), min(G.rows, r0 + rad + 1)):
-        for c in range(max(0, c0 - rad), min(G.cols, c0 + rad + 1)):
-            i = r * G.cols + c
-            if best is None or acc[i] > acc[best]:
-                best = i
+    # притягиваем к ячейке с наибольшим водосбором в радиусе snap_m (точка «на тальвеге»):
+    # щелчок чуть в стороне от ручья иначе даёт водосбор одного склона. snap_m = 0 — без притягивания
+    snap_m = float(p.get('snap_m', 50) or 0)
+    best = r0 * G.cols + c0
+    if snap_m > 0:
+        rad = max(1, int(round(snap_m / G.res)))
+        for r in range(max(0, r0 - rad), min(G.rows, r0 + rad + 1)):
+            for c in range(max(0, c0 - rad), min(G.cols, c0 + rad + 1)):
+                if ((r - r0) ** 2 + (c - c0) ** 2) * G.res ** 2 > snap_m ** 2:
+                    continue
+                i = r * G.cols + c
+                if acc[i] > acc[best]:
+                    best = i
     up = bytearray(len(down)); up[best] = 1
     for i in order:
         d = down[i]
@@ -325,6 +331,7 @@ def mode_watershed(p):
     br, bc = divmod(best, G.cols)
     return {'polygon': {'type': 'FeatureCollection', 'features': polys}, 'outlet': G.to_wgs(*G.xy(br, bc)),
             'stats': {'res': G.res, 'area_km2': round(area / 1e6, 4), 'outlet_h': round(float(G.dem[br, bc]), 2),
+                      'snap_m': snap_m, 'shift_m': round(float(np.hypot(*(np.array(G.xy(br, bc)) - np.array([x, y])))), 1),
                       'max_h': round(float(G.dem[mask].max()), 2) if mask.any() else None}}
 
 

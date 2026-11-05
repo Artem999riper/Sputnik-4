@@ -1,20 +1,20 @@
 // ═══════════════════════════════════════════════════════════
 // terrain-ui.js — «🧭 Анализ рельефа» (сервер: terrain_analysis.py):
-//   уклоны (с контурами крутых участков), экспозиция склонов, линии стока
+//   уклоны (с контурами крутых участков), линии стока
 //   (тальвеги), водосбор точки, сравнение со своей съёмкой (разница, объёмы).
 // Область — как в «Затоплении» (прямоугольник, полигон, контур из слоя).
 // ═══════════════════════════════════════════════════════════
-const TA = Object.assign({ mode: 'slope', steep: 10, thr: '', layer: '', hfield: '' },
+const TA = Object.assign({ mode: 'slope', steep: 10, thr: '', layer: '', hfield: '', snap: 50 },
   (() => { try { return JSON.parse(localStorage.getItem('terrain_opts') || '{}'); } catch (e) { return {}; } })(),
   { res: null, busy: false, ov: null, vec: null, area: '', name: '', point: null });
-function _taSave() { try { const { mode, steep, thr, layer, hfield } = TA; localStorage.setItem('terrain_opts', JSON.stringify({ mode, steep, thr, layer, hfield })); } catch (e) {} }
+function _taSave() { try { const { mode, steep, thr, layer, hfield, snap } = TA; localStorage.setItem('terrain_opts', JSON.stringify({ mode, steep, thr, layer, hfield, snap })); } catch (e) {} }
 const TA_MODES = [
   ['slope', '📐', 'Уклоны', 'крутизна склонов по классам, контуры крутых участков'],
-  ['aspect', '🧭', 'Экспозиция', 'куда «смотрят» склоны: С, В, Ю, З…'],
   ['flow', '💧', 'Линии стока', 'куда стекает вода (тальвеги), площадь водосбора'],
-  ['watershed', '🏞', 'Водосбор точки', 'что стекает в выбранное место (труба, створ)'],
+  ['watershed', '🏞', 'Водосбор точки', 'щёлкните место на карте — что стекает в него (труба, створ)'],
   ['compare', '⚖️', 'Сравнить со съёмкой', 'точки нивелировки/тахеометра против ArcticDEM'],
 ];
+if (TA.mode === 'aspect') TA.mode = 'slope';   // экспозиция убрана
 function openTerrainPanel() {
   const b = _demBbox, r = TA.res;
   const card = (on, fn, ic, t, sub) => `<div class="dw-card${on ? ' on' : ''}" onclick="${fn}"><div class="dw-ic">${ic}</div><div><b>${t}</b><div class="dw-sub">${sub}</div></div></div>`;
@@ -26,8 +26,11 @@ function openTerrainPanel() {
   if (TA.mode === 'slope') opts = `<label style="display:flex;gap:6px;align-items:center;font-size:12px;text-transform:none;font-weight:500;margin:0">Контуры крутых участков: уклон от <input id="ta-steep" type="number" min="1" max="60" step="1" value="${TA.steep}" style="width:64px"> °</label>`;
   if (TA.mode === 'flow') opts = `<label style="display:flex;gap:6px;align-items:center;font-size:12px;text-transform:none;font-weight:500;margin:0">Показывать сток с водосбором от <input id="ta-thr" type="text" inputmode="decimal" placeholder="авто" value="${esc(String(TA.thr || ''))}" style="width:70px"> км²</label>
       <div style="font-size:10px;color:var(--tx3)">Меньше число — больше мелких ручьёв. «Авто» — 1% площади области.</div>`;
-  if (TA.mode === 'watershed') opts = `<div style="display:flex;gap:6px;align-items:center;font-size:12px"><button class="btn ${TA.point ? 'bs' : 'bp'} bsm" onclick="_taPickPoint()">📍 ${TA.point ? 'Другая точка' : 'Указать точку на карте'}</button>
-      <span style="color:var(--tx3)">${TA.point ? TA.point.map(v => v.toFixed(5)).reverse().join(', ') : 'место, для которого нужен водосбор (точка притянется к тальвегу)'}</span></div>`;
+  if (TA.mode === 'watershed') opts = `<div style="display:flex;gap:6px;align-items:center;font-size:12px;flex-wrap:wrap"><button class="btn ${TA.point ? 'bs' : 'bp'} bsm" onclick="_taPickPoint()">📍 ${TA.point ? 'Другая точка' : 'Указать точку на карте'}</button>
+      <span style="color:var(--tx3)">${TA.point ? TA.point.map(v => v.toFixed(5)).reverse().join(', ') : 'щёлкните на карте место, для которого нужен водосбор'}</span></div>
+      <label style="display:flex;gap:6px;align-items:center;font-size:12px;text-transform:none;font-weight:500;margin:0">Притянуть точку к руслу (тальвегу) в радиусе
+        <select onchange="TA.snap=+this.value;_taSave()">${[[0, 'не притягивать'], [20, '20 м'], [50, '50 м'], [100, '100 м']].map(([v, t]) => `<option value="${v}" ${+TA.snap === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <div style="font-size:10px;color:var(--tx3)">Зачем: если щёлкнуть чуть в стороне от ручья, водосбор получится крошечный (только склон). Притягивание ищет рядом ячейку рельефа с наибольшим стоком. Без притягивания — ровно куда щёлкнули (с точностью до сетки рельефа).</div>`;
   if (TA.mode === 'compare') opts = ptLayers.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px">
       <div class="fg" style="margin:0;flex:1;min-width:160px"><label>Слой с точками съёмки</label><select id="ta-layer" onchange="TA.layer=this.value;_taSave();openTerrainPanel()">${ptLayers.map(l => `<option value="${escAttr(l.id)}" ${l === lay ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></div>
       <div class="fg" style="margin:0;flex:1;min-width:140px"><label>Высота (БСВ-77)</label><select id="ta-h"><option value="">координата Z</option>${fields.map(f => `<option ${f === TA.hfield ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select></div></div>
@@ -40,9 +43,8 @@ function openTerrainPanel() {
       <span style="flex:1">${esc(c.label)}</span><span style="color:var(--tx3)">${c.pct != null ? c.pct + '%' : ''}${c.area_ha != null ? ' · ' + c.area_ha.toLocaleString('ru-RU') + ' га' : ''}</span></div>`).join('');
     const n = (v, d = 2) => v == null ? '—' : (+v).toLocaleString('ru-RU', { maximumFractionDigits: d });
     const info = { slope: `Средний уклон <b>${n(st.mean, 1)}°</b>, наибольший ${n(st.max, 1)}°. Контуров круче ${n(st.steep, 0)}°: <b>${(r.zones || {}).features ? r.zones.features.length : 0}</b>.`,
-      aspect: 'Экспозиция склонов (на карте — цветом).',
       flow: `Линий стока: <b>${st.count}</b> (водосбор от ${n(st.threshold_km2, 3)} км²), площадь области ${n(st.area_km2, 2)} км². Толще — больше водосбор.`,
-      watershed: `Водосбор: <b>${n(st.area_km2, 3)} км²</b> (${n(st.area_km2 * 100, 1)} га), отметка в створе ${n(st.outlet_h)} м, наивысшая точка ${n(st.max_h)} м.`,
+      watershed: `Водосбор: <b>${n(st.area_km2, 3)} км²</b> (${n(st.area_km2 * 100, 1)} га), отметка в створе ${n(st.outlet_h)} м, наивысшая точка ${n(st.max_h)} м.${st.shift_m != null ? `<br>Створ ${st.shift_m > (st.res || 0) ? `притянут к руслу на <b>${n(st.shift_m, 0)} м</b> от указанной точки (на карте — пунктир)` : 'там, где указали'}.` : ''}`,
       compare: `Точек: <b>${st.n}</b>. Разница «съёмка − ArcticDEM»: средняя <b>${n(st.mean)} м</b>, медиана ${n(st.median)}, СКО ${n(st.std)}, RMS ${n(st.rms)}, от ${n(st.min)} до ${n(st.max)} м.
         ${st.area_ha ? `<br>В контуре точек (${n(st.area_ha, 2)} га): съёмка выше ArcticDEM — <b>${n(st.fill, 0)} м³</b>, ниже — <b>${n(-st.cut, 0)} м³</b>.` : ''}
         ${r.overlay ? `<br>Картограмма: красный — съёмка выше, синий — ниже (шкала ±${n(r.overlay.limit)} м).` : ''}` }[TA.res.mode] || '';
@@ -61,7 +63,7 @@ function openTerrainPanel() {
     </div>
     <div class="dw-info">${b ? `✅ ${TA.name ? '«' + esc(TA.name) + '»' : _demClip ? 'Полигон' : 'Прямоугольник'} ≈ ${km2.toFixed(km2 < 1 ? 3 : 1)} км²` : '<span style="color:var(--tx3)">Область ещё не выбрана</span>'}</div>
     <div class="dw-h" style="margin-top:14px">2. Что посчитать</div>
-    <div class="dw-grid">${TA_MODES.map(([k, ic, t, sub]) => card(TA.mode === k, `TA.mode='${k}';_taSave();_taClear();openTerrainPanel()`, ic, t, sub)).join('')}</div>
+    <div class="dw-grid">${TA_MODES.map(([k, ic, t, sub]) => card(TA.mode === k, k === 'watershed' ? `TA.mode='watershed';_taSave();_taClear();TA.point=null;_demBbox?_taPickPoint():openTerrainPanel()` : `TA.mode='${k}';_taSave();_taClear();openTerrainPanel()`, ic, t, sub)).join('')}</div>
     <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">${opts}</div>
     <div id="ta-st" style="font-size:11px;color:var(--acc);font-weight:700;margin-top:8px;min-height:14px">${TA.busy ? '⏳ Расчёт…' : ''}</div>
     ${res}</div>`, [
@@ -107,16 +109,17 @@ function _taPickPoint() {
   if (t) t.textContent = '🏞 Щёлкните место (створ, трубу), для которого нужен водосбор · Esc — отмена';
   if (bnr) { bnr.className = 'show draw'; bnr.style.display = 'flex'; }
   map.getContainer().style.cursor = 'crosshair';
-  _taPickFn = e => { map.off('click', _taPickFn); _taPickFn = null; map.getContainer().style.cursor = ''; if (bnr) { bnr.className = ''; bnr.style.display = 'none'; }
-    TA.point = [e.latlng.lng, e.latlng.lat]; terrainRun(); };
-  map.on('click', _taPickFn);
+  const done = () => { map.off('click', _taPickFn); _taPickFn = null; document.removeEventListener('keydown', esc, true); map.getContainer().style.cursor = ''; if (bnr) { bnr.className = ''; bnr.style.display = 'none'; } };
+  const esc = ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); done(); openTerrainPanel(); } };
+  _taPickFn = e => { done(); TA.point = [e.latlng.lng, e.latlng.lat]; terrainRun(); };
+  map.on('click', _taPickFn); document.addEventListener('keydown', esc, true);
 }
 async function terrainRun() {
   if (!_demBbox) { toast('Сначала выберите область', 'err'); return; }
   const body = { mode: TA.mode, bbox: _demBbox, clip: _demClip || null };
   const steep = document.getElementById('ta-steep'); if (steep) { TA.steep = +steep.value || 10; body.steep = TA.steep; }
   const thr = document.getElementById('ta-thr'); if (thr) { TA.thr = thr.value.replace(',', '.'); body.threshold_km2 = parseFloat(TA.thr) || 0; }
-  if (TA.mode === 'watershed') { if (!TA.point) { _taPickPoint(); return; } body.point = TA.point; }
+  if (TA.mode === 'watershed') { if (!TA.point) { _taPickPoint(); return; } body.point = TA.point; body.snap_m = +TA.snap || 0; }
   if (TA.mode === 'compare') {
     const l = (layers || []).find(x => x.id === (document.getElementById('ta-layer') || {}).value) || (layers || []).find(x => x.id === TA.layer);
     TA.hfield = (document.getElementById('ta-h') || {}).value || ''; TA.layer = l ? l.id : '';
@@ -166,11 +169,18 @@ function _taDraw() {
       ly.bindTooltip(r.points ? `${esc(p.name || '')}<br>съёмка ${p.h} м · ArcticDEM ${p.dem ?? '—'} м<br><b>разница ${p.dz == null ? '—' : (p.dz > 0 ? '+' : '') + p.dz + ' м'}</b>`
         : r.lines ? `Сток · водосбор ${p.catchment_km2} км²` : r.polygon ? `Водосбор ${(r.stats.area_km2 || 0).toLocaleString('ru-RU')} км²` : `${esc(p.name || '')} · ${p.area_ha} га`, { sticky: true }); },
   }).addTo(map);
-  if (r.outlet) L.circleMarker([r.outlet[1], r.outlet[0]], { radius: 8, color: '#fff', weight: 2, fillColor: '#0369a1', fillOpacity: 1 }).bindTooltip('створ').addTo(TA.vec);
+  if (r.outlet) {
+    const sh = r.stats && r.stats.shift_m;
+    if (TA.point && sh > ((r.stats && r.stats.res) || 0)) {
+      L.polyline([[TA.point[1], TA.point[0]], [r.outlet[1], r.outlet[0]]], { color: '#0369a1', weight: 2, dashArray: '4 4' }).addTo(TA.vec);
+      L.circleMarker([TA.point[1], TA.point[0]], { radius: 5, color: '#0369a1', weight: 2, fillColor: '#fff', fillOpacity: 1 }).bindTooltip('указанная точка').addTo(TA.vec);
+    }
+    L.circleMarker([r.outlet[1], r.outlet[0]], { radius: 8, color: '#fff', weight: 2, fillColor: '#0369a1', fillOpacity: 1 }).bindTooltip(sh > ((r.stats && r.stats.res) || 0) ? `створ — притянут к руслу на ${Math.round(sh)} м` : 'створ').addTo(TA.vec);
+  }
 }
 function _taName() {
   const r = TA.res, n = r.stats || {};
-  return { slope: `Уклоны ≥ ${n.steep}°`, aspect: 'Экспозиция', flow: 'Линии стока', watershed: `Водосбор ${(n.area_km2 || 0).toLocaleString('ru-RU')} км²`, compare: 'Съёмка − ArcticDEM' }[r.mode] || 'Анализ рельефа';
+  return { slope: `Уклоны ≥ ${n.steep}°`, flow: 'Линии стока', watershed: `Водосбор ${(n.area_km2 || 0).toLocaleString('ru-RU')} км²`, compare: 'Съёмка − ArcticDEM' }[r.mode] || 'Анализ рельефа';
 }
 async function _taSaveLayer() {
   const feats = _taVec(TA.res); if (!feats.length) return;
