@@ -97,7 +97,9 @@ function mnKmlRenderCats() {
 }
 function mnKmlRenderPane() {
   const el = document.getElementById('kml-layers-pane'); if (!el) return;
-  const ls = mnLayers(), cur = _mnCur();
+  const ls = mnLayers().filter(l => typeof kmlMatch !== 'function' || kmlMatch(l.name)), cur = _mnCur();
+  if (typeof _kmlSearchCount === 'function') _kmlSearchCount(ls.length);
+  if (!ls.length && typeof _kmlQ !== 'undefined' && _kmlQ) { el.innerHTML = `<div class="kml-empty"><div style="font-size:24px;margin-bottom:6px">🔍</div><div>Слоёв заметок с «${esc(_kmlQ)}» нет</div></div>`; return; }
   if (!ls.length) {
     el.innerHTML = `<div class="kml-empty"><div style="font-size:28px;margin-bottom:6px">✏️</div><div>Заметок пока нет</div>
       <div style="font-size:10px;color:var(--tx3);margin-top:4px">«✏️ Рисовать заметки» слева или «🧰 Инструменты ▾ → Заметки» внизу карты</div></div>`;

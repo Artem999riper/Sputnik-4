@@ -116,6 +116,11 @@ const _kmlIsVol = l => typeof volByLayer === 'function' && !!volByLayer(l.id);
 const _kmlIsNote = l => { const st = typeof kmlStyleOf === 'function' ? kmlStyleOf(l) : null; return !!(st && st.notes); };
 // обычный слой: не объекта, не объём и не заметки
 const _kmlIsPlain = l => !l.site_id && !_kmlIsVol(l) && !_kmlIsNote(l);
+// поиск слоя по имени (во всех вкладках панели); при поиске — по всем группам
+let _kmlQ = '';
+const kmlMatch = (...names) => !_kmlQ || names.some(n => String(n || '').toLowerCase().includes(_kmlQ));
+function kmlLayerSearch(v) { _kmlQ = String(v || '').trim().toLowerCase(); renderKmlPanel(); }
+function _kmlSearchCount(n) { const e = document.getElementById('kml-search-n'); if (e) e.textContent = _kmlQ ? `найдено: ${n}` : ''; }
 function kmlSetTab(t) {
   _kmlTab = t; _kmlSel.clear();
   document.querySelectorAll('#kml-tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
@@ -240,9 +245,12 @@ function _kmlRenderLayerPane() {
   } else {
     filtered = allLayers.filter(l => l.group_id === _kmlSelectedCat);
   }
+  if (_kmlQ) filtered = allLayers.filter(l => kmlMatch(l.name));   // поиск — по всем группам
+  _kmlSearchCount(filtered.length);
 
   if (!filtered.length) {
     const isEmpty = !allLayers.length;
+    if (_kmlQ) { el.innerHTML = `<div class="kml-empty"><div style="font-size:24px;margin-bottom:6px">🔍</div><div>Слоёв с «${esc(_kmlQ)}» в названии нет</div></div>`; return; }
     el.innerHTML = `<div class="kml-empty">
       ${isEmpty
         ? '<div style="font-size:28px;margin-bottom:6px">🗺</div><div>Нет слоёв</div><div style="font-size:10px;color:var(--tx3);margin-top:4px">Импортируйте KML, GPX, DXF, SHP, MapInfo или CSV/Excel</div>'

@@ -559,3 +559,9 @@ html[data-theme=dark] .wd-warn{background:#3f3410;color:#fde68a}
 .dbi-tbl table{border-collapse:collapse;font-size:10.5px}.dbi-tbl th,.dbi-tbl td{border-bottom:1px solid var(--bd);padding:3px 6px;text-align:left;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
 .dbi-tbl th{position:sticky;top:0;background:var(--s2)}
 @media (max-width:600px){.dbi-row{grid-template-columns:1fr 64px 90px}}
+
+/* поиск в панели слоёв */
+.kml-search{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--bd)}
+.kml-search input{flex:1;font-size:12px;padding:5px 9px;border:1.5px solid var(--bd);border-radius:8px;background:var(--s2);color:var(--tx)}
+.kml-search input:focus{outline:none;border-color:var(--acc)}
+.kml-search span{font-size:10.5px;color:var(--tx3);white-space:nowrap}

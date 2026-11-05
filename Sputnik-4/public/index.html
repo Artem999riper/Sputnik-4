@@ -627,6 +627,7 @@
       <button class="kml-panel-close" onclick="toggleKmlPanel()" title="Закрыть">✕</button>
     </div>
   </div>
+  <div class="kml-search"><input id="kml-search" type="search" placeholder="🔍 Поиск слоя по имени" autocomplete="off" oninput="kmlLayerSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';kmlLayerSearch('')}"><span id="kml-search-n"></span></div>
   <div class="kml-main">
     <div class="kml-cats" id="kml-cats"></div>
     <div class="kml-vsplit" id="kml-vsplit"></div>

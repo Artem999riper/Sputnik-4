@@ -89,6 +89,7 @@ const HELP = [
       { sel: '#tool-kml', view: 'map', title: 'Открыть слои', text: 'Кнопка «🗂 Слои» на нижней панели карты.' },
       { sel: '#kml-panel label[title^="Импорт"]', act: _openKml, title: 'Импорт', text: 'KML, GPX, DXF, SHP (.shp+.dbf+.prj или .zip), MapInfo TAB, CSV/TXT/Excel. Для файлов в метрах программа спросит систему координат.' },
       { sel: 'button[onclick="openLayerExportDialog()"]', act: _openKml, title: 'Экспорт', text: 'Выгрузка слоёв в DXF, KML, MapInfo (MIF/MID) в выбранной системе координат.' },
+      { sel: '#kml-search', act: _openKml, title: 'Поиск', text: 'Поиск слоя по имени — во всех группах; во вкладке «Объёмы» — по названию объёма, слоя или объекта, в «Заметках» — по названию слоя. Esc — очистить.' },
       { sel: '#kml-cats', act: _openKml, title: 'Группы', text: 'Группы слоёв — для порядка. Слои перетаскиваются между группами.' },
       { sel: '#kml-layers-pane', act: _openKml, title: 'Слои и объекты', text: 'Видимость, стиль, подписи, список объектов слоя. ПКМ по слою — меню действий.' },
     ], html: `

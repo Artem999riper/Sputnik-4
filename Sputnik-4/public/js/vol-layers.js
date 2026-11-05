@@ -553,14 +553,18 @@ function volKmlRenderPane() {
   }
   const secs = Object.assign({}, typeof VOL_SECTIONS !== 'undefined' ? VOL_SECTIONS : {});
   let html = '', shown = 0, vis = 0;
+  // поиск: объём, его слой или объект
+  const vm = (s, v) => { const l = (layers || []).find(x => x.id === v.layer_id); return kmlMatch(v.name, l && l.name, s.name); };
   ss.forEach(s => {
+    if (_kmlQ && !s.vols.some(v => vm(s, v))) return;
     const o = (sites || []).find(x => x.id === s.id);
     html += `<div class="vlp-site" onclick="selectSite('${escAttr(s.id)}')" title="Открыть объект">🏗 ${esc(s.name)}<span><a href="#" class="fsem-rep" onclick="event.preventDefault();event.stopPropagation();featSemSiteReport('${escAttr(s.id)}')" title="Ведомость выработок по всем объёмам объекта (Excel)">📑 ведомость</a> ${o ? `готовность ${o.completion_percent || 0}%` : ''}</span></div>`;
     const cats = [...new Set(s.vols.map(v => v.category || 'geology'))].sort((a, b) => Object.keys(secs).indexOf(a) - Object.keys(secs).indexOf(b));
     cats.forEach(c => {
+      if (_kmlQ && !s.vols.some(v => (v.category || 'geology') === c && vm(s, v))) return;
       const sec = secs[c] || { icon: '•', label: c, color: '#6b7280' };
       html += `<div class="vlp-cat" style="--sc:${sec.color}">${sec.icon} ${esc(sec.label)}</div>`;
-      s.vols.filter(v => (v.category || 'geology') === c).sort((a, b) => String(a.name).localeCompare(String(b.name), 'ru')).forEach(v => {
+      s.vols.filter(v => (v.category || 'geology') === c && vm(s, v)).sort((a, b) => String(a.name).localeCompare(String(b.name), 'ru')).forEach(v => {
         const l = (layers || []).find(x => x.id === v.layer_id); if (!l) return;
         shown++; if (l.visible) vis++;
         const t = { done: +v.done || 0, done2: +v.done2 || 0, pct: v.amount > 0 ? Math.min(100, Math.round((+v.done || 0) / v.amount * 100)) : 0 };
@@ -576,6 +580,8 @@ function volKmlRenderPane() {
       });
     });
   });
+  _kmlSearchCount(shown);
+  if (_kmlQ && !shown) { el.innerHTML = `<div class="kml-empty"><div style="font-size:24px;margin-bottom:6px">🔍</div><div>Объёмов с «${esc(_kmlQ)}» нет</div></div>`; return; }
   el.innerHTML = `<div style="flex:1">${html}</div><div class="kml-pane-footer" style="display:flex;align-items:center;gap:8px"><span>Показано ${vis} / ${shown}</span>
     <span style="margin-left:auto;font-size:10px;color:var(--tx3)">выполнение — ПКМ по объекту на карте</span></div>`;
 }
