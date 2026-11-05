@@ -575,7 +575,8 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
     const ct = buf[25]; // color type
     if (ct === 0 || ct === 4) return 1; // grayscale or grayscale+alpha
     if (ct === 6) return 4;             // RGBA
-    return 3;                           // RGB or palette
+    if (ct === 3) return 'pal';         // палитра (топокарты nakarte): 1 канал + таблица цветов
+    return 3;                           // RGB
   }
 
   const tileDir = path.join(tmpDir,'sat_tiles');
@@ -624,6 +625,17 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
     vrtLines.push(`  <VRTRasterBand dataType="Byte" band="${band}">`);
     for (const {file,tx:tx2,ty:ty2,bands:tileBands} of tileFiles) {
       const xOff=(tx2-xMin)*256, yOff=(ty2-yMin)*256;
+      if (tileBands === 'pal') {
+        // палитровый PNG: канал 1 — номер цвета, R/G/B берём из таблицы цветов
+        vrtLines.push(
+          `    <ComplexSource><SourceFilename relativeToVRT="0">${file}</SourceFilename>`,
+          `      <SourceBand>1</SourceBand>`,
+          `      <SrcRect xOff="0" yOff="0" xSize="256" ySize="256"/>`,
+          `      <DstRect xOff="${xOff}" yOff="${yOff}" xSize="256" ySize="256"/>`,
+          `      <ColorTableComponent>${band}</ColorTableComponent>`,
+          `    </ComplexSource>`);
+        continue;
+      }
       const srcBand = Math.min(band, tileBands || 3);
       vrtLines.push(
         `    <SimpleSource><SourceFilename relativeToVRT="0">${file}</SourceFilename>`,
