@@ -65,7 +65,7 @@ function secAct(method, url) {
   return { sec: r.sec, act };
 }
 
-module.exports = (app, getDb, L, { broadcast, getPresence }) => {
+module.exports = (app, getDb, L, { broadcast, getPresence, kickClient, setSseGuard }) => {
   const db = () => getDb();
 
   // ── helpers ──────────────────────────────────────────────
@@ -137,6 +137,33 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
     }
     if (changed) setSetting('acl', JSON.stringify(acl));
   })();
+
+  // ── Отключённые и заблокированные админом ────────────────
+  // blocked_clients: [{cid, name (норм.), label, ip, until (мс, 0 = до разблокировки), at, msg}]
+  // Блок по устройству (clientId) и по имени — чтобы не обойти, сменив вкладку или браузер.
+  const readBlocks = () => {
+    let b = []; try { b = JSON.parse(setting('blocked_clients') || '[]') || []; } catch (e) {}
+    const now = Date.now(), live = b.filter(x => !x.until || x.until > now);
+    if (live.length !== b.length) setSetting('blocked_clients', JSON.stringify(live));
+    return live;
+  };
+  const blockFor = (cid, name) => {
+    const nn = normName(name);
+    return readBlocks().find(x => (cid && x.cid && x.cid === cid) || (nn && x.name && x.name === nn)) || null;
+  };
+  const blockInfo = b => ({ msg: b.msg || '', until: b.until || 0 });
+  if (setSseGuard) setSseGuard((meta, req) => {
+    if (isLoopback(req)) return null;
+    const b = blockFor(meta.clientId, meta.name); return b ? blockInfo(b) : null;
+  });
+  const BLOCK_FREE = /^\/api\/(version|client-errors|admin\/login)(\/|$)/;
+  app.use((req, res, next) => {
+    if (!req.path.startsWith('/api/') || BLOCK_FREE.test(req.path) || req.path === '/api/events') return next();
+    if (isAdmin(req)) return next();
+    const b = blockFor(req.get('X-Client-Id') || '', reqName(req));
+    if (!b) return next();
+    res.status(403).json(Object.assign({ error: 'Доступ закрыт администратором', blocked: true }, blockInfo(b)));
+  });
 
   // ── enforcement middleware ───────────────────────────────
   app.use((req, res, next) => {
@@ -309,6 +336,37 @@ module.exports = (app, getDb, L, { broadcast, getPresence }) => {
   app.post('/api/admin/reload', wrap((req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Только для админа' });
     if (broadcast) broadcast({ type: 'reload', t: Date.now() });
+    res.json({ ok: true });
+  }));
+
+  // ── отключить человека (и, по желанию, закрыть доступ) ───
+  // body: {clientId, name, ip, minutes: 0 — только отключить, >0 — на N минут, -1 — до разблокировки, msg}
+  app.post('/api/admin/kick', wrap((req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: 'Только для админа' });
+    const b = req.body || {}, cid = String(b.clientId || '').slice(0, 80);
+    if (!cid) return res.status(400).json({ error: 'Не указан клиент' });
+    if (cid === req.get('X-Client-Id')) return res.status(400).json({ error: 'Себя отключить нельзя' });
+    const minutes = Number(b.minutes) || 0, msg = String(b.msg || '').slice(0, 300);
+    let blocked = null;
+    if (minutes) {
+      const list = readBlocks().filter(x => x.cid !== cid);
+      blocked = { cid: cid.startsWith('anon-') ? '' : cid, name: normName(b.name), label: String(b.name || '').slice(0, 120) || String(b.ip || ''),
+        ip: String(b.ip || '').slice(0, 60), until: minutes > 0 ? Date.now() + minutes * 60000 : 0, at: Date.now(), msg };
+      if (!blocked.cid && !blocked.name) blocked = null;   // старая вкладка без имени и id — только отключить
+      else { list.push(blocked); setSetting('blocked_clients', JSON.stringify(list)); }
+    }
+    const n = kickClient ? kickClient(cid, { msg, until: blocked ? blocked.until : null, blocked: !!blocked }) : 0;
+    try { run(db(), 'INSERT INTO activity_log(id,action,details,user_name) VALUES(?,?,?,?)', [crypto.randomUUID(), 'Отключение', `Отключён: ${b.name || b.ip || cid}${blocked ? (blocked.until ? ' — доступ закрыт на ' + minutes + ' мин' : ' — доступ закрыт') : ''}`, reqName(req) || 'админ']); } catch (e) {}
+    res.json({ ok: true, tabs: n, blocked: !!blocked });
+  }));
+  app.get('/api/admin/blocks', wrap((req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: 'Только для админа' });
+    res.json(readBlocks());
+  }));
+  app.post('/api/admin/unblock', wrap((req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: 'Только для админа' });
+    const at = Number((req.body || {}).at);
+    setSetting('blocked_clients', JSON.stringify(readBlocks().filter(x => x.at !== at)));
     res.json({ ok: true });
   }));
 

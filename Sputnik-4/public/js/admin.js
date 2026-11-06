@@ -86,7 +86,9 @@ function onPresenceEvent(){ if(_admTab==='online'&&document.getElementById('adm-
 
 async function _admRenderOnline(){
   const box=document.getElementById('adm-body');if(!box)return;
-  let list=[];try{const r=await fetch(`${API}/presence`);if(r.ok)list=await r.json();}catch(e){}
+  let list=[],blocks=[];try{const r=await fetch(`${API}/presence`);if(r.ok)list=await r.json();}catch(e){}
+  try{const r=await fetch(`${API}/admin/blocks`);if(r.ok)blocks=await r.json();}catch(e){}
+  _admOnline=list;
   const fmtSince=t=>{const s=Math.max(0,Math.floor((Date.now()-t)/60000));return s<1?'только что':s<60?s+' мин':Math.floor(s/60)+' ч '+(s%60)+' мин';};
   const staleN=list.filter(p=>p.stale).length;
   box.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -104,8 +106,52 @@ async function _admRenderOnline(){
       <span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${p.stale?'color:#b45309':''}">${esc(nm)}</span>
       <span style="font-size:10px;color:var(--tx3);white-space:nowrap">${esc(p.ip||'')}</span>
       <span style="font-size:10px;color:var(--tx3);white-space:nowrap" title="Вкладок: ${p.tabs}">${p.tabs>1?'🗔×'+p.tabs+' · ':''}${fmtSince(p.connectedAt)}</span>
+      ${p.clientId===CLIENT_ID?'<span style="font-size:10px;color:var(--acc);white-space:nowrap">это вы</span>'
+        :`<button class="btn bs bxs" style="color:#dc2626;white-space:nowrap" onclick="_admKickMenu(event,'${escAttr(p.clientId)}')" title="Отключить от сервера">⏏ Отключить</button>`}
     </div>`;}).join(''):'<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">Никого нет</div>'}
-    </div>`;
+    </div>
+    ${blocks.length?`<div style="margin-top:10px;font-size:11px;font-weight:700;color:#b91c1c">🚫 Доступ закрыт (${blocks.length})</div>
+      ${blocks.map(b=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-bottom:1px solid var(--bd);font-size:12px">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b>${esc(b.label||b.name||'?')}</b>${b.msg?` <span style="color:var(--tx3)">— ${esc(b.msg)}</span>`:''}</span>
+        <span style="font-size:10px;color:var(--tx3);white-space:nowrap">${b.until?'до '+new Date(b.until).toLocaleString('ru',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'до разблокировки'}</span>
+        <button class="btn bs bxs" onclick="_admUnblock(${Number(b.at)})">Разблокировать</button></div>`).join('')}`:''}`;
+}
+// ── отключить человека ─────────────────────────────────────
+let _admOnline=[];
+function _admKickMenu(ev,cid){
+  ev.stopPropagation();
+  const p=_admOnline.find(x=>x.clientId===cid);if(!p)return;
+  const who=p.name||(p.stale?'старая вкладка '+(p.ip||''):p.ip||'?');
+  const anon=!p.name&&String(cid).startsWith('anon-');
+  const go=minutes=>_admKick(p,minutes);
+  const r=ev.currentTarget.getBoundingClientRect();
+  window._ctxKeepUntil=Date.now()+300;
+  showCtx(r.left,r.bottom+2,[
+    {i:'⏏',l:`<b>${esc(who)}</b>`,html:true,f:null},{sep:true},
+    {i:'⏏',l:'Отключить (может сразу войти снова)',f:()=>go(0)},
+    ...(anon?[]:[
+      {i:'⏱',l:'Отключить и закрыть доступ на 15 мин',f:()=>go(15)},
+      {i:'⏱',l:'… на 1 час',f:()=>go(60)},
+      {i:'⏱',l:'… до конца дня',f:()=>{const e=new Date();e.setHours(23,59,0,0);go(Math.max(1,Math.round((e-Date.now())/60000)));}},
+      {i:'🚫',l:'Отключить и закрыть доступ до разблокировки',cls:'dan',f:()=>go(-1)},
+    ]),
+  ]);
+}
+async function _admKick(p,minutes){
+  const who=p.name||p.ip||'';
+  const msg=prompt(`Сообщение для «${who}» (необязательно), например «Идёт обновление сервера»:`,'');
+  if(msg===null)return;
+  try{
+    const r=await fetch(`${API}/admin/kick`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientId:p.clientId,name:p.name||'',ip:p.ip||'',minutes,msg})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){toast(j.error||'Ошибка','err');return;}
+    toast(`«${who}» отключён${j.blocked?' — доступ закрыт':''}`,'ok');
+    setTimeout(_admRenderOnline,600);
+  }catch(e){toast('Ошибка сети','err');}
+}
+async function _admUnblock(at){
+  try{const r=await fetch(`${API}/admin/unblock`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({at})});if(r.ok)toast('Доступ открыт','ok');}catch(e){}
+  _admRenderOnline();
 }
 async function _admReloadAll(){
   const ok=await confirmDlg('Разослать команду обновить страницу всем подключённым? У людей на актуальной версии страница перезагрузится через 1–2 сек.',{okLabel:'Обновить у всех',danger:false});

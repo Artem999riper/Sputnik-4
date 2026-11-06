@@ -114,6 +114,10 @@ async function loadMyCaps(){
       if(isApi&&r.status===401){
         try{const j=await r.clone().json();if(j&&j.needName){const g=document.getElementById('name-gate');if(g&&g.style.display!=='flex'){g.style.display='flex';const i=document.getElementById('name-gate-inp');if(i)i.focus();}return r;}}catch(e){}
       }
+      // доступ закрыт администратором — экран вместо потока ошибок
+      if(isApi&&r.status===403){
+        try{const j=await r.clone().json();if(j&&j.blocked){showKicked(Object.assign({blocked:true},j));return r;}}catch(e){}
+      }
       if(isApi&&!r.ok&&method!=='GET'){
         let msg='';
         try{const j=await r.clone().json();msg=j&&j.error?String(j.error):'';}catch(e){}
@@ -225,3 +229,24 @@ function applyHiddenTabs(){
   window.addEventListener('unhandledrejection', e => { const r = e && e.reason; report('Промис: ' + ((r && r.message) || r), r && r.stack); });
   window.reportClientError = report;
 })();
+
+// ── «Вас отключил администратор» ─────────────────────────────
+// info: {msg, blocked, until (мс; 0 — до разблокировки)}. Страница перестаёт
+// получать обновления; «Подключиться снова» — перезагрузка (если доступ закрыт —
+// сервер снова покажет этот экран).
+function showKicked(info){
+  info=info||{};window._pgkKicked=true;
+  try{if(typeof _sseSrc!=='undefined'&&_sseSrc){_sseSrc.close();_sseSrc=null;}}catch(e){}
+  let o=document.getElementById('kicked-ovl');
+  if(!o){o=document.createElement('div');o.id='kicked-ovl';document.body.appendChild(o);}
+  const e=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const till=info.blocked?(info.until?'Доступ закрыт до '+new Date(info.until).toLocaleString('ru',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'Доступ закрыт до разблокировки администратором'):'';
+  o.style.cssText='position:fixed;inset:0;z-index:20000;background:rgba(15,23,42,.72);display:flex;align-items:center;justify-content:center';
+  o.innerHTML='<div style="background:var(--s,#fff);color:var(--tx,#111);border-radius:12px;padding:22px 26px;max-width:420px;width:calc(100% - 40px);box-shadow:0 16px 50px rgba(0,0,0,.4);text-align:center">'
+    +'<div style="font-size:34px;margin-bottom:6px">🚫</div>'
+    +'<div style="font-size:16px;font-weight:800;margin-bottom:8px">'+(info.blocked?'Доступ к программе закрыт':'Вас отключил администратор')+'</div>'
+    +(info.msg?'<div style="font-size:13px;margin-bottom:8px;padding:8px 10px;background:rgba(148,163,184,.15);border-radius:8px">'+e(info.msg)+'</div>':'')
+    +(till?'<div style="font-size:12px;color:#b45309;margin-bottom:10px">'+e(till)+'</div>':'')
+    +'<div style="font-size:11.5px;opacity:.7;margin-bottom:14px">Несохранённые изменения на этой странице могли не дойти до сервера.</div>'
+    +'<button class="btn bp" onclick="location.reload()">🔄 Подключиться снова</button></div>';
+}

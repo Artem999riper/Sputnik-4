@@ -390,6 +390,7 @@ function startSseListener(){
         if(ev.type==='uiconfig'){ if(typeof loadUiConfig==='function')loadUiConfig(); return; }
         if(ev.type==='editing'){ if(typeof onEditingEvent==='function')onEditingEvent(ev); return; }
         if(ev.type==='ui-settings'){ if(typeof uiServerLoad==='function')uiServerLoad(true); return; }
+        if(ev.type==='kicked'){ window._pgkKicked=true; try{_sseSrc.close();}catch(_){} _sseSrc=null; if(typeof showKicked==='function')showKicked(ev); return; }
         if(ev.type==='reload'){ try{toast('🔄 Обновление приложения…','ok');}catch(_){} setTimeout(function(){location.reload();},1500); return; }
         if(ev.type!=='change')return;
         handleSseChange(ev);
@@ -397,6 +398,7 @@ function startSseListener(){
       _sseSrc.onerror=function(){
         try{_sseSrc.close();}catch(_){}
         _sseSrc=null;
+        if(window._pgkKicked)return;   // отключён админом — не переподключаться
         setTimeout(connect,5000);
       };
     }catch(e){setTimeout(connect,5000);}
@@ -410,7 +412,7 @@ if(typeof window!=='undefined'){
   window.addEventListener('pageshow',function(e){ if(e.persisted)_sseResyncAll(); });
   document.addEventListener('visibilitychange',function(){
     if(document.visibilityState==='visible'){
-      if(!_sseSrc){try{startSseListener();}catch(e){}}
+      if(!_sseSrc&&!window._pgkKicked){try{startSseListener();}catch(e){}}
       _sseResyncAll();
     }
   });

@@ -56,6 +56,27 @@ function getPresence() {
   return Object.values(byCid).sort((a, b) => a.connectedAt - b.connectedAt);
 }
 
+// ── Отключение человека админом ──────────────────────────
+// Клиенту уходит событие kicked (страница показывает «Вас отключил администратор»
+// и не переподключается сама), затем поток закрывается.
+// sseGuard(meta) → null или {msg, until} — проверка блокировки при подключении.
+let sseGuard = null;
+function setSseGuard(fn) { sseGuard = fn; }
+function _kickRes(res, info) {
+  try { res.write(`data: ${JSON.stringify(Object.assign({ type: 'kicked', t: Date.now() }, info || {}))}\n\n`); } catch (e) {}
+  setTimeout(() => { try { res.end(); } catch (e) {} }, 300);
+}
+// clientId: «anon-<ip>» — старая вкладка без идентификатора (по ip и без cid)
+function kickClient(clientId, info) {
+  let n = 0;
+  for (const [res, meta] of [...sseClients.entries()]) {
+    if (meta.aux) { if (meta.clientId && meta.clientId === clientId) _kickRes(res, info); continue; }
+    const cid = meta.clientId || ('anon-' + meta.ip);
+    if (cid === clientId) { _kickRes(res, info); n++; }
+  }
+  return n;
+}
+
 function attachSse(app) {
   app.get('/api/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
@@ -73,6 +94,10 @@ function attachSse(app) {
       aux: req.query.aux === '1',
       ip, connectedAt: Date.now(),
     };
+    if (sseGuard) {
+      let g = null; try { g = sseGuard(meta, req); } catch (e) {}
+      if (g) { _kickRes(res, Object.assign({ blocked: true }, g)); return; }
+    }
     sseClients.set(res, meta);
     try { presenceEvents.emit('open', meta); } catch (e) {}
     broadcast({ type: 'presence', t: Date.now() });
@@ -174,4 +199,4 @@ function attachUndo(app, getDb) {
   });
 }
 
-module.exports = { attachSse, attachUndo, broadcast, trashAndDelete, getPresence, restoreFromData, presenceEvents };
+module.exports = { kickClient, setSseGuard, attachSse, attachUndo, broadcast, trashAndDelete, getPresence, restoreFromData, presenceEvents };

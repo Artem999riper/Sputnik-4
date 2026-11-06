@@ -189,7 +189,7 @@ getDb().then(database => {
   realtime.attachUndo(app, getDbInstance);
 
   // Админ/права/присутствие — enforcement middleware ДО бизнес-маршрутов
-  const adminApi = routeAdmin(app, getDbInstance, L, { broadcast: realtime.broadcast, getPresence: realtime.getPresence });
+  const adminApi = routeAdmin(app, getDbInstance, L, { broadcast: realtime.broadcast, getPresence: realtime.getPresence, kickClient: realtime.kickClient, setSseGuard: realtime.setSseGuard });
   // Версия / перезапуск / обновление программы
   require('./routes/system')(app, { isAdmin: adminApi.isAdmin, BACKUP_DIR, performAutoBackup });
   // Журнал изменений с откатом (до бизнес-маршрутов — чтобы видеть запись «до»)
