@@ -2413,20 +2413,18 @@ function pmLayerChange() {
 }
 
 // ── Метка по координатам ────────────────────────────────────
-function openCoordMarkerModal(prefillLatlng) {
+async function openCoordMarkerModal(prefillLatlng) {
   _pmSym = 'point';
-  _cmCrs = 'wgs';
+  // системы координат — общие с импортом и «Пересчётом» (crs-picker.js), последняя запоминается
+  try { if (typeof loadMskFull === 'function') await loadMskFull(); await crsLibLoad(); } catch (e) {}
+  const cmSt = prefillLatlng ? { sys: 'geo:wgs' } : (crspRecall('marker') || { sys: 'geo:wgs' });
   const lat0 = prefillLatlng ? prefillLatlng.lat.toFixed(6) : '';
   const lon0 = prefillLatlng ? prefillLatlng.lng.toFixed(6) : '';
   showModal('🔢 Метка по координатам', `
     <div class="fgr fone">
       <div class="fg">
         <label>Система координат</label>
-        <div style="display:flex;gap:4px">
-          <button id="cmb-wgs" class="btn bsm on" onclick="cmSetCrs('wgs')">WGS-84</button>
-          <button id="cmb-msk" class="btn bsm"    onclick="cmSetCrs('msk')">МСК-86</button>
-          <button id="cmb-gsk" class="btn bsm"    onclick="cmSetCrs('gsk')">ГСК-2011</button>
-        </div>
+        ${crspHtml('cm', cmSt, { onChange: 'cmCrsChanged' })}
       </div>
       <div id="cm-wgs-fields">
         <div style="font-size:9px;color:var(--tx3);margin-bottom:6px;line-height:1.5">
@@ -2436,14 +2434,14 @@ function openCoordMarkerModal(prefillLatlng) {
         </div>
         <div style="display:flex;gap:8px">
           <div class="fg" style="flex:1">
-            <label>Широта (°N)</label>
+            <label id="cm-lat-l">Широта (°N)</label>
             <input id="cm-lat" type="text" value="${lat0}"
               placeholder="60.123456 или 60 07 24.42" oninput="cmUpdatePreview()"
               style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
               border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2)">
           </div>
           <div class="fg" style="flex:1">
-            <label>Долгота (°E)</label>
+            <label id="cm-lon-l">Долгота (°E)</label>
             <input id="cm-lon" type="text" value="${lon0}"
               placeholder="68.654321 или 68 39 15.56" oninput="cmUpdatePreview()"
               style="width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px;
@@ -2466,7 +2464,7 @@ function openCoordMarkerModal(prefillLatlng) {
         </div>
         <div id="cm-zone-hint"
           style="font-size:10px;color:var(--tx3);margin-top:-4px;margin-bottom:2px">
-          Зона определяется автоматически по значению Y
+          Зона «авто» — по первым цифрам Y
         </div>
       </div>
       <div id="cm-preview"
@@ -2499,6 +2497,7 @@ function openCoordMarkerModal(prefillLatlng) {
       { label: '📍 Добавить', cls: 'bp', fn: async () => {
         const ll = _cmGetLatlng();
         if (!ll) { toast('❌ Некорректные координаты', 'err'); return; }
+        crspRemember('marker', crspRead('cm'));
         const name = (document.getElementById('cm-name')?.value || '').trim();
         const layerId = document.getElementById('cm-layer')?.value;
         const newName = (document.getElementById('cm-newname')?.value || '').trim();
@@ -2512,45 +2511,40 @@ function openCoordMarkerModal(prefillLatlng) {
       }}
     ]
   );
-  setTimeout(() => {
-    const el = _cmCrs === 'wgs' ? document.getElementById('cm-lat') : document.getElementById('cm-north');
-    if (el) el.focus();
-    cmUpdatePreview();
-  }, 80);
+  setTimeout(() => { cmCrsChanged(); const el = crsIsGeo(crspRead('cm')) ? document.getElementById('cm-lat') : document.getElementById('cm-north'); if (el) el.focus(); }, 80);
 }
 
-function cmSetCrs(crs) {
-  _cmCrs = crs;
-  ['wgs', 'msk', 'gsk'].forEach(c => {
-    const b = document.getElementById('cmb-' + c);
-    if (b) b.classList.toggle('on', c === crs);
-  });
-  const wf = document.getElementById('cm-wgs-fields');
-  const pf = document.getElementById('cm-proj-fields');
-  if (wf) wf.style.display = crs === 'wgs' ? '' : 'none';
-  if (pf) pf.style.display = crs !== 'wgs' ? '' : 'none';
+// система сменилась: широта/долгота или X/Y
+function cmCrsChanged() {
+  const st = crspRead('cm'), geo = crsIsGeo(st);
+  const wf = document.getElementById('cm-wgs-fields'), pf = document.getElementById('cm-proj-fields');
+  if (wf) wf.style.display = geo ? '' : 'none';
+  if (pf) pf.style.display = geo ? 'none' : '';
+  const nm = st.sys === 'geo:wgs' ? '' : ' — ' + crsLabel(st).replace(/ — широта\/долгота/, '');
+  const la = document.getElementById('cm-lat-l'), lo = document.getElementById('cm-lon-l');
+  if (la) la.textContent = 'Широта (°N)' + nm; if (lo) lo.textContent = 'Долгота (°E)';
+  const zh = document.getElementById('cm-zone-hint');
+  if (zh) zh.style.display = (!st.zone || st.zone === 'auto') && /^(msk|gk:)/.test(st.sys) ? '' : 'none';
   cmUpdatePreview();
 }
 
 function _cmGetLatlng() {
-  if (_cmCrs === 'wgs') {
-    const lat = _parseDMSCoord(document.getElementById('cm-lat')?.value || '');
-    const lon = _parseDMSCoord(document.getElementById('cm-lon')?.value || '');
-    if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
-    return { lat, lng: lon };
-  }
-  const rawN = (document.getElementById('cm-north')?.value || '').replace(/[\s ]/g, '').replace(',', '.');
-  const rawE = (document.getElementById('cm-east')?.value || '').replace(/[\s ]/g, '').replace(',', '.');
-  const north = parseFloat(rawN), east = parseFloat(rawE);
-  if (isNaN(north) || isNaN(east)) return null;
-  const zone = Math.round(east / 1000000);
-  if (zone < 1 || zone > 60) return null;
+  const st = crspRead('cm');
   try {
-    const conv = _cmCrs === 'msk' ? mskToWgs : gskToWgs;
-    const { lat, lon } = conv(north, east, zone);
-    if (isNaN(lat) || isNaN(lon)) return null;
-    return { lat, lng: lon };
-  } catch (_) { return null; }
+    if (crsIsGeo(st)) {
+      const lat = _parseDMSCoord(document.getElementById('cm-lat')?.value || '');
+      const lon = _parseDMSCoord(document.getElementById('cm-lon')?.value || '');
+      if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+      if (st.sys === 'geo:wgs') return { lat, lng: lon, name: 'WGS-84' };
+      const r = crsToWgs(st, lat, lon); return { lat: r.lat, lng: r.lng, name: r.name };
+    }
+    const north = parseFloat((document.getElementById('cm-north')?.value || '').replace(/[\s ]/g, '').replace(',', '.'));
+    const east = parseFloat((document.getElementById('cm-east')?.value || '').replace(/[\s ]/g, '').replace(',', '.'));
+    if (isNaN(north) || isNaN(east)) return null;
+    const r = crsToWgs(st, north, east);
+    if (!isFinite(r.lat) || !isFinite(r.lng) || Math.abs(r.lat) > 90 || Math.abs(r.lng) > 180) return null;
+    return { lat: r.lat, lng: r.lng, name: r.name };
+  } catch (e) { return null; }
 }
 
 function cmUpdatePreview() {
@@ -2558,14 +2552,7 @@ function cmUpdatePreview() {
   if (!el) return;
   const ll = _cmGetLatlng();
   if (!ll) { el.textContent = ''; return; }
-  let hint = '';
-  if (_cmCrs !== 'wgs') {
-    const rawE = (document.getElementById('cm-east')?.value || '').replace(/[\s ]/g, '').replace(',', '.');
-    const east = parseFloat(rawE);
-    const zone = isNaN(east) ? '?' : Math.round(east / 1000000);
-    hint = ` · зона ${zone}`;
-  }
-  el.innerHTML = `→ WGS-84${hint}: <b>${ll.lat.toFixed(6)}°N</b> &nbsp; <b>${ll.lng.toFixed(6)}°E</b>`;
+  el.innerHTML = `${ll.name && ll.name !== 'WGS-84' ? esc(ll.name) + ' ' : ''}→ WGS-84: <b>${ll.lat.toFixed(6)}°N</b> &nbsp; <b>${ll.lng.toFixed(6)}°E</b>`;
 }
 
 function cmLayerChange() {

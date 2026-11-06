@@ -117,45 +117,12 @@ function cvFmtAngle(v, fmt, isLat) {
 // side: 'src' | 'dst'. ctx: {lon} — долгота точки (для авто-зоны прямого пересчёта),
 // {easting} — восточная координата (для авто-зоны обратного пересчёта).
 function cvProj(side, ctx) {
-  const id = CV[side], sys = CV_SYSTEMS.find(s => s.id === id) || CV_SYSTEMS[0];
-  const zoneSel = CV[side + 'Zone'];
-  if (sys.kind === 'geo') return { proj: CV_GEO[id.split(':')[1]][1], name: CV_GEO[id.split(':')[1]][0], geo: true };
-  if (sys.kind === 'merc') return { proj: '+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +no_defs', name: 'Web Mercator' };
-  if (sys.kind === 'custom') {
-    const p = (CV[side + 'Custom'] || '').trim();
-    if (!p) throw new Error('Введите строку proj4 для своей системы');
-    return { proj: p, name: 'proj4', geo: /\+proj=(longlat|latlong|lonlat)/.test(p) };
-  }
-  if (sys.kind === 'gk') {
-    const dat = id.split(':')[1];
-    let z = zoneSel !== 'auto' ? +zoneSel : (ctx.easting != null ? Math.floor(ctx.easting / 1e6) : Math.floor(((ctx.lon % 360) + 360) % 360 / 6) + 1);
-    if (!(z >= 1 && z <= 60)) throw new Error('Не удалось определить зону — выберите её вручную');
-    const lon0 = 6 * z - 3;
-    return { proj: `+proj=tmerc +lat_0=0 +lon_0=${lon0} +k=1 +x_0=${z * 1e6 + 500000} +y_0=0 ${CV_DATUM[dat]} +units=m +no_defs`,
-      name: `${dat === 'sk42' ? 'СК-42' : dat === 'sk95' ? 'СК-95' : 'ГСК-2011'} зона ${z}`, zone: z };
-  }
-  if (sys.kind === 'utm') {
-    let z = zoneSel !== 'auto' ? +zoneSel : (ctx.lon != null ? Math.floor((ctx.lon + 180) / 6) + 1 : null);
-    if (!z) throw new Error('Для UTM укажите зону (по координатам X/Y её не определить)');
-    return { proj: `+proj=utm +zone=${z} +datum=WGS84 +units=m +no_defs`, name: `UTM ${z}N`, zone: z };
-  }
-  if (sys.kind === 'msk') {
-    const reg = CV[side + 'Msk'], datum = CV[side + 'MskDatum'];
-    const zones = (MSK_FULL && MSK_FULL.regions && MSK_FULL.regions[reg]) || [];
-    if (!zones.length) throw new Error('Нет параметров МСК для региона ' + reg);
-    let zr;
-    if (zoneSel !== 'auto') zr = zones.find(z => String(z.z) === String(zoneSel));
-    else if (ctx.easting != null) { const n = Math.floor(ctx.easting / 1e6); zr = zones.find(z => Math.floor(z.x0 / 1e6) === n); }
-    else { let bd = Infinity; zones.forEach(z => { const d = Math.abs(z.lon - ctx.lon); if (d < bd) { bd = d; zr = z; } }); }
-    if (!zr) zr = zones[0];
-    const tw = (MSK_FULL.datums && MSK_FULL.datums[datum]) || MSK_FULL.datums['2008'];
-    return { proj: `+proj=tmerc +lat_0=0 +lon_0=${zr.lon} +k=1 +x_0=${zr.x0} +y_0=${zr.y0} +ellps=${MSK_FULL.ellps || 'krass'} +towgs84=${tw.join(',')} +units=m +no_defs`,
-      name: `МСК-${reg} зона ${zr.z} (${datum})`, zone: zr.z };
-  }
-  throw new Error('Неизвестная система');
+  // общая логика систем (в т. ч. «★ Свои системы») — crs-picker.js
+  return crsProjOf({ sys: CV[side], zone: CV[side + 'Zone'], msk: CV[side + 'Msk'], mskDatum: CV[side + 'MskDatum'], custom: CV[side + 'Custom'] }, ctx);
 }
 function cvIsGeo(side) {
   const id = CV[side];
+  if (id.startsWith('lib:')) return crsIsGeo({ sys: id });
   if (id.startsWith('geo:')) return true;
   if (id === 'custom') return /\+proj=(longlat|latlong|lonlat)/.test(CV[side + 'Custom'] || '');
   return false;
@@ -252,10 +219,11 @@ function cvToggleOrder(side) {
 // ── Отрисовка вкладки ──────────────────────────────────────────────────
 async function loadCoordConvert() {
   if (typeof loadMskFull === 'function') await loadMskFull();
+  if (typeof crsLibLoad === 'function') await crsLibLoad(true);
   renderCoordConvert();
 }
 function _cvSysBlock(side) {
-  const id = CV[side], sys = CV_SYSTEMS.find(s => s.id === id) || CV_SYSTEMS[0];
+  const id = CV[side], ALL = CV_SYSTEMS.concat(CRS_LIB.map(l => ({ id: 'lib:' + l.id, kind: 'lib', label: '★ ' + l.name }))), sys = ALL.find(s => s.id === id) || CV_SYSTEMS[0];
   const o = (v, l, cur) => `<option value="${escAttr(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(l)}</option>`;
   const st = 'font-size:12px;padding:5px 8px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);width:100%;box-sizing:border-box';
   const ch = `onchange="_cvSet('${side}',this)"`;
@@ -276,7 +244,8 @@ function _cvSysBlock(side) {
   const ord = _cvLabels(side).map(l => l.split(' ')[0]).join(', ');
   return `<div class="cv-card">
     <div class="cv-card-hd">${side === 'src' ? '📥 Исходная система' : '📤 Целевая система'}</div>
-    <div class="cv-row"><label>Система</label><select data-f="" ${ch} style="${st}">${CV_SYSTEMS.map(s => o(s.id, s.label, id)).join('')}</select></div>
+    <div class="cv-row"><label>Система</label><div style="display:flex;gap:6px"><select data-f="" ${ch} style="${st}">${CV_SYSTEMS.map(s => o(s.id, s.label, id)).join('')}${CRS_LIB.length ? `<optgroup label="★ Свои системы (СК-63 и др.)">${CRS_LIB.map(l => o('lib:' + l.id, '★ ' + l.name, id)).join('')}</optgroup>` : ''}</select>
+      <button class="btn bs bsm" onclick="crsLibOpen()" title="Свои системы координат: районы СК-63, местные системы — для всех пользователей">★</button></div></div>
     ${extra}
     <div class="cv-row"><label>Порядок</label><div style="display:flex;gap:8px;align-items:center">
       <button class="btn bs bsm" onclick="cvToggleOrder('${side}')" title="Поменять местами ${cvIsGeo(side) ? 'широту и долготу' : 'X и Y'} ${side === 'src' ? 'во входных данных' : 'в результате'}">⇄ ${esc(ord)}</button>

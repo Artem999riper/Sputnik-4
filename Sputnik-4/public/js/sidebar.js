@@ -427,20 +427,13 @@ function _showDxfCrsModal(pv,fileName){
     const body=`
       <div style="display:flex;flex-direction:column;gap:6px">
         ${layersHtml}
-        <div style="font-size:12px;color:var(--tx3);margin-bottom:2px">Выберите систему координат DXF-файла:</div>
-        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86" checked> МСК-86 (авто зона по X)</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′, фикс.)</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′, фикс.)</label>
-        ${_mskFullPickerHtml('dxf')}
-        ${_utmPickerHtml('dxf')}
-        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="gsk2011"> ГСК-2011 (зоны МСК-86)</label>
-        ${_gkPickerHtml('dxf')}
-        <label style="display:block;padding:3px 0"><input type="radio" name="dxf-crs" value="wgs84"> WGS-84 (градусы)</label>
+        <div style="font-size:12px;color:var(--tx3);margin-bottom:2px">Система координат DXF-файла:</div>
+        ${crspHtml('dxf', crspRecall('import'))}
       </div>`;
     showModal('📥 Импорт DXF',body,[
       {label:'Отмена',cls:'bs',fn:()=>{closeModal();resolve(null);}},
       {label:'Импортировать',cls:'bp',fn:()=>{
-        const crs=_mskReadCrs('dxf','msk86');
+        let crs;try{const st=crspRead('dxf');crs=crsServerKey(st);crspRemember('import',st);}catch(e){toast('❌ '+e.message,'err');return;}
         const only=[...document.querySelectorAll('.dxf-lay')].filter(c=>c.checked).map(c=>c.value);
         if(lays.length&&!only.length){toast('Отметьте хотя бы один слой','err');return;}
         const merge=!!document.getElementById('dxf-merge')?.checked;
@@ -449,12 +442,7 @@ function _showDxfCrsModal(pv,fileName){
         closeModal();resolve({crs,onlyLayers:lays.length?only:undefined,merge,mergeName});
       }},
     ]);
-    // последняя выбранная СК
-    setTimeout(()=>{let c='';try{c=localStorage.getItem('dxf_last_crs')||'';}catch(e){}
-      const base=c.startsWith('mskfull:')?'mskfull':c.startsWith('utm:')?'utm':c;
-      const r=document.querySelector(`input[name="dxf-crs"][value="${base}"]`);if(r)r.checked=true;
-      if(base==='mskfull'){const [,rg,dt]=c.split(':');const a=document.getElementById('dxf-mskreg'),b=document.getElementById('dxf-mskdatum');if(a&&rg)a.value=rg;if(b&&dt)b.value=dt;}
-      if(base==='utm'){const z=document.getElementById('dxf-utmzone');if(z)z.value=c.split(':')[1];}},50);
+
   });
 }
 // Импорт MapInfo TAB: отправляем весь набор файлов (или ZIP) на сервер (ogr2ogr → GeoJSON)
@@ -531,15 +519,7 @@ function _showTabCrsModal(reason, kind){
         :'Файл MapInfo сохранён в системе <b>NonEarth</b> — это локальные метры (X — восток, Y — север) без географической привязки. Укажите, в какой системе координат заданы эти метры, и программа пересчитает объекты в WGS-84.'}
       </div>
       <div style="display:flex;flex-direction:column;gap:2px">
-        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk86" checked> МСК-86 (авто зона по X)</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′, фикс.)</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′, фикс.)</label>
-        ${_mskFullPickerHtml('tab')}
-        ${_utmPickerHtml('tab')}
-        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="gsk2011"> ГСК-2011 (зоны МСК-86)</label>
-        ${_gkPickerHtml('tab')}
-        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="geo:sk42"> СК-42 (градусы)</label>
-        <label style="display:block;padding:3px 0"><input type="radio" name="tab-crs" value="wgs84"> WGS-84 (градусы)</label>
+        ${crspHtml('tab', crspRecall('import'))}
       </div>
       <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;cursor:pointer">
         <input type="checkbox" id="tab-swap"> Поменять местами X и Y
@@ -548,7 +528,7 @@ function _showTabCrsModal(reason, kind){
     showModal(kind==='shp'?'📥 Импорт SHP — выберите систему координат':'📥 Импорт TAB — выберите систему координат', body, [
       {label:'Отмена',cls:'bs',fn:()=>{closeModal();resolve(null);}},
       {label:'Импортировать',cls:'bp',fn:()=>{
-        const crs=_mskReadCrs('tab','msk86');
+        let crs;try{const st=crspRead('tab');crs=crsServerKey(st);crspRemember('import',st);}catch(e){toast('❌ '+e.message,'err');return;}
         const swap=document.getElementById('tab-swap')?.checked?'1':'';
         closeModal();resolve({crs,swap});
       }},
@@ -762,17 +742,7 @@ function _showCsvConfigModal(text, fileName) {
           </div>
           <div>
             <div style="font-size:11px;font-weight:700;margin-bottom:4px">Система координат</div>
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86" checked> МСК-86 (авто зона по Y)</label>
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=72°05′)</label>
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=78°05′)</label>
-            ${_mskFullPickerHtml('csv','2px')}
-            ${_utmPickerHtml('csv','2px')}
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="gsk2011"> ГСК-2011 (зоны МСК-86)</label>
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="gk:sk42"> СК-42 Гаусс-Крюгер (зона по Y)</label>
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="gk:sk95"> СК-95 Гаусс-Крюгер (зона по Y)</label>
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="gk:gsk"> ГСК-2011 Гаусс-Крюгер (зона по Y)</label>
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="geo:sk42"> СК-42 (широта / долгота)</label>
-            <label style="display:block;padding:2px 0;font-size:12px"><input type="radio" name="csv-crs" value="wgs84"> WGS-84 (широта / долгота)</label>
+            ${crspHtml('csv', crspRecall('import'))}
           </div>
         </div>`;
     }
@@ -832,7 +802,8 @@ function _showCsvConfigModal(text, fileName) {
         const nc = parseInt(document.getElementById('csv-col-name')?.value ?? -1);
         const xc = parseInt(document.getElementById('csv-col-x')?.value  ?? 1);
         const yc = parseInt(document.getElementById('csv-col-y')?.value  ?? 2);
-        const crs = _mskReadCrs('csv','msk86');
+        const crsSt = crspRead('csv'); try { crsProjOf(crsSt, { lon: 75, easting: 2500000 }); } catch (e) { if (!/зон/.test(e.message)) { toast('❌ ' + e.message, 'err'); return; } }
+        const crs = crsLabel(crsSt); crspRemember('import', crsSt);
         const hdr = !!document.getElementById('csv-hdr')?.checked;
         const hc = parseInt(document.getElementById('csv-col-h')?.value ?? -1);
         const swap = !!document.getElementById('csv-swap')?.checked;
@@ -842,17 +813,13 @@ function _showCsvConfigModal(text, fileName) {
         const layerName = (document.getElementById('csv-lname')?.value||'').trim();
         _csvLast={crs,swap,attrs};try{localStorage.setItem('csv_import_last',JSON.stringify(_csvLast));}catch(e){}
         closeModal();
-        resolve({ delim, hasHeader: hdr, nameCol: nc, xCol: xc, yCol: yc, hCol: hc, crs, swap, attrs, dst, layerId, layerName });
+        resolve({ delim, hasHeader: hdr, nameCol: nc, xCol: xc, yCol: yc, hCol: hc, crs, crsSt, swap, attrs, dst, layerId, layerName });
       }},
     ]);
     // set select values after modal renders
     setTimeout(()=>{
       applyColDefaults();
-      // последняя использованная система координат
-      const c=_csvLast.crs||'';const base=c.startsWith('mskfull:')?'mskfull':c.startsWith('utm:')?'utm':c;
-      const r=document.querySelector(`input[name="csv-crs"][value="${base}"]`);if(r)r.checked=true;
-      if(base==='mskfull'){const [,rg,dt]=c.split(':');const a=document.getElementById('csv-mskreg'),b=document.getElementById('csv-mskdatum');if(a&&rg)a.value=rg;if(b&&dt)b.value=dt;}
-      if(base==='utm'){const z=document.getElementById('csv-utmzone');if(z)z.value=c.split(':')[1];}
+
     },50);
   });
 }
@@ -876,7 +843,7 @@ async function _importCsv(file, text) {
   if(typeof loadMskFull==='function'){try{await loadMskFull();}catch(e){}}
   const cfg = await _showCsvConfigModal(text, file.name);
   if (!cfg) return;
-  const { delim, hasHeader, nameCol, xCol, yCol, hCol, crs, swap, attrs, dst, layerId, layerName: lnIn } = cfg;
+  const { delim, hasHeader, nameCol, xCol, yCol, hCol, crs, crsSt, swap, attrs, dst, layerId, layerName: lnIn } = cfg;
   const headerRow = hasHeader ? _csvSplitLine(text.split(/\r?\n/).find(l => l.trim()) || '', delim) : [];
 
   const allLines = text.split(/\r?\n/).filter(l => l.trim());
@@ -898,35 +865,9 @@ async function _importCsv(file, text) {
 
     let lat, lng;
     try {
-      if (crs === 'wgs84') {
-        lat = x; lng = y;
-      } else if (crs.startsWith('gk:') && typeof CV_DATUM !== 'undefined') {
-        // Гаусс-Крюгер 6°: зона — первые цифры Y
-        const z = Math.floor(y / 1e6);
-        if (z < 1 || z > 60) throw new Error('zone');
-        const p = proj4(`+proj=tmerc +lat_0=0 +lon_0=${6 * z - 3} +k=1 +x_0=${z * 1e6 + 500000} +y_0=0 ${CV_DATUM[crs.slice(3)]} +units=m +no_defs`, '+proj=longlat +datum=WGS84 +no_defs', [y, x]);
-        lat = p[1]; lng = p[0];
-      } else if (crs === 'geo:sk42' && typeof CV_GEO !== 'undefined') {
-        const p = proj4(CV_GEO.sk42[1], '+proj=longlat +datum=WGS84 +no_defs', [y, x]);
-        lat = p[1]; lng = p[0];
-      } else if (typeof isMskFull === 'function' && isMskFull(crs)) {
-        // МСК любого региона (2001/2008) — зона по префиксу Y
-        const res = mskFullToWgs(x, y, crs);
-        lat = res.lat; lng = res.lon;
-      } else if (typeof isUtm === 'function' && isUtm(crs)) {
-        // UTM (север): зона задана явно (utm:<zone>); X=север, Y=восток
-        const res = utmToWgs(x, y, parseInt(crs.split(':')[1], 10));
-        lat = res.lat; lng = res.lon;
-      } else if (typeof isRegionalMsk === 'function' && isRegionalMsk(crs)) {
-        // МСК-66 / МСК-72 — зона по префиксу Y
-        const res = mskRegionalToWgs(x, y, crs);
-        lat = res.lat; lng = res.lon;
-      } else {
-        const zone = crs === 'msk86_z3' ? 3 : crs === 'msk86_z4' ? 4 : Math.round(y / 1e6);
-        const conv = crs.startsWith('gsk') ? gskToWgs : mskToWgs;
-        const res  = conv(x, y, zone);
-        lat = res.lat; lng = res.lon;
-      }
+      // любая система из общего списка (crs-picker.js); X — север/широта, Y — восток/долгота
+      const r = crsToWgs(crsSt, x, y);
+      lat = r.lat; lng = r.lng;
     } catch (e) { skipped++; return; }
 
     if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180)

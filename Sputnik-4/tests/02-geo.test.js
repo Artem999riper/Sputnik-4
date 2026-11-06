@@ -4,7 +4,7 @@ const fs = require('fs'), path = require('path');
 const { ROOT, loadBrowser } = require('./helpers');
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} ≠ ${b} (±${tol})`);
 
-const B = loadBrowser(['public/vendor/proj4.js', 'public/js/coord-convert.js', 'public/js/kameral.js'],
+const B = loadBrowser(['public/vendor/proj4.js', 'public/js/coord-convert.js', 'public/js/crs-picker.js', 'public/js/kameral.js'],
   { MSK_FULL: JSON.parse(fs.readFileSync(path.join(ROOT, 'public', 'msk-zones.json'), 'utf8')), coordMskRegion: '86' });
 const CV = B.get('CV'), conv = B.get('cvConvert');
 const setSys = (src, dst, o) => Object.assign(CV, { src, dst, srcZone: 'auto', dstZone: 'auto', srcMsk: '86', dstMsk: '86', srcMskDatum: '2008', dstMskDatum: '2008', srcSwap: false, dstSwap: false, withH: false }, o || {});
@@ -50,4 +50,19 @@ test('длина по Винсенти и площадь (эталон PROJ Geod
   near(d(P(61.25, 73.4), P(61.3, 73.5)), 7734.0252, 0.001, 'длина');
   near(d(P(55.75, 37.6), P(59.94, 30.31)), 635852.614, 0.01, 'Москва—Петербург');
   near(A([P(61.25, 73.4), P(61.25, 73.42), P(61.26, 73.42), P(61.26, 73.4)]), 1196196.59, 0.5, 'площадь');
+});
+
+test('общий выбор СК (метка, импорт): МСК-86, СК-42 ГК, своя система, ключ для сервера', () => {
+  const toW = B.get('crsToWgs'), key = B.get('crsServerKey');
+  // МСК-86 зона 4: туда-обратно с той же функцией, что «Пересчёт»
+  setSys('geo:wgs', 'msk'); const r = conv(61.5, 76.2, NaN);
+  const w = toW({ sys: 'msk', msk: '86', mskDatum: '2008', zone: 'auto' }, r.a, r.b);
+  assert.ok(Math.abs(w.lat - 61.5) < 1e-7 && Math.abs(w.lng - 76.2) < 1e-7, JSON.stringify(w));
+  // СК-42 ГК: зона по первым цифрам Y
+  const g = toW({ sys: 'gk:sk42', zone: 'auto' }, 7300000, 13500000);
+  assert.ok(Math.abs(g.lng - 75) < 0.01 && g.lat > 65 && g.lat < 66.5, JSON.stringify(g));
+  assert.strictEqual(key({ sys: 'msk', msk: '89', mskDatum: '2001', zone: 'auto' }), 'mskfull:89:2001');
+  assert.strictEqual(key({ sys: 'gk:sk95', zone: 'auto' }), 'gk:sk95');
+  assert.ok(/^\+proj=tmerc .*\+lon_0=78\.05/.test(key({ sys: 'msk', msk: '86', mskDatum: '2008', zone: '4' })));
+  assert.strictEqual(key({ sys: 'geo:wgs' }), 'wgs84');
 });

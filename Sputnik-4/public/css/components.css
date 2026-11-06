@@ -565,3 +565,13 @@ html[data-theme=dark] .wd-warn{background:#3f3410;color:#fde68a}
 .kml-search input{flex:1;font-size:12px;padding:5px 9px;border:1.5px solid var(--bd);border-radius:8px;background:var(--s2);color:var(--tx)}
 .kml-search input:focus{outline:none;border-color:var(--acc)}
 .kml-search span{font-size:10.5px;color:var(--tx3);white-space:nowrap}
+
+/* выбор системы координат (crs-picker.js) */
+.crsp{display:flex;flex-direction:column;gap:5px}
+.crsp select,.crsp textarea{width:100%;box-sizing:border-box;font-size:12px;padding:4px 6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);color:var(--tx)}
+.crsp-row{display:flex;gap:5px}.crsp-row select{flex:1;min-width:0}
+.crsp-custom{font-family:monospace;font-size:11px!important}
+.crsp-hint{font-size:10px;color:var(--tx3)}
+.crsl-row{display:flex;gap:6px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--bd)}
+.crsl-row code{display:block;font-size:10px;color:var(--tx3);word-break:break-all;margin-top:2px}
+.crsl-note{font-size:11px;color:var(--tx2)}
