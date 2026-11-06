@@ -410,6 +410,7 @@ function _katCtx(e) {
       { i: '⚙️', l: isDone ? 'Изменить выполнение (дата, факт, люди)…' : 'Выполнить с параметрами…', f: () => kmlToggleDone(l.id, i, true) },
       ...(typeof featSemDialog === 'function' ? [{ i: '🏷', l: 'Характеристики (тип, глубина, УГВ, разрез)…', f: () => featSemDialog(l.id, i) }] : []),
       { i: '🚫', l: pr._skip ? 'Вернуть в объём' : 'Исключить из объёма', f: async () => { await kmlToggleSkip(l.id, i); after(); } },
+      ...(g && /^(Multi)?Polygon$/.test(g.type) && typeof volPolyPartStart === 'function' ? [{ i: '⬡', l: 'Выполнена часть полигона (обвести мышкой)…', f: () => { _katPick(i); setTimeout(() => volPolyPartStart(l.id, i), 700); } }] : []),
       { sep: true }] : []),
     { i: '✏️', l: 'Редактировать объект…', f: () => kmlEditFeature(l.id, i) },
     ...(first && typeof cvOpenPoint === 'function' ? [{ i: '🧭', l: pt ? 'Координаты точки во всех системах' : 'Координаты первой вершины', f: () => cvOpenPoint(first[1], first[0]) }] : []),

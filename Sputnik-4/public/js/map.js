@@ -324,6 +324,8 @@ function setTool(t){
   }
 }
 function cancelMode(){
+  if(typeof VPP!=='undefined'&&VPP.on){_vppStop();return;}      // часть полигона
+  if(typeof VSEG!=='undefined'&&VSEG.on){_vsegStop();return;}    // участок линии
   if(typeof MN!=='undefined'&&MN.mode){mapNotesStop();return;}
   if(typeof FL!=='undefined'&&FL.axisDraw){_flAxisDone();return;}
   if(typeof _dwPickFn!=='undefined'&&_dwPickFn){_dwKmlPickStop(true);return;}

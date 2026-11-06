@@ -872,3 +872,169 @@ function volSegByPk(layerId, fIdx) {
     if (el) el.textContent = A != null && B != null ? `Длина участка: ${_vlN(Math.abs(B - A) / 1000)} км` : ''; };
   ['vp-a', 'vp-b'].forEach(id => document.getElementById(id).addEventListener('input', upd));
 }
+
+// ═══════════════════════════════════════════════════════════
+// Выполнена ЧАСТЬ ПОЛИГОНА: обвести мышкой выполненную часть (как участок у линии).
+// Щелчки ставят вершины контура (притягиваются к вершинам и границе полигона),
+// точки можно ставить и за пределами полигона — лишнее отрежется. Двойной щелчок /
+// Enter / щелчок по первой точке — готово, Backspace — убрать точку, Esc — отмена.
+// Полигон делится (polygon-clipping, vendor): пересечение с контуром — выполнено,
+// остальное — как было. Второй показатель из поля делится пропорционально площади.
+// ═══════════════════════════════════════════════════════════
+const VPP = { on: false, layerId: null, fIdx: -1, pts: [], hl: null, tmp: null, line: null, mk: [], raf: 0, last: null };
+function _vppPoly(layerId, fIdx) {
+  const l = (layers || []).find(x => x.id === layerId); if (!l) return null;
+  let gj; try { gj = JSON.parse(l.geojson); } catch (e) { return null; }
+  const feats = gj.type === 'FeatureCollection' ? gj.features : [gj], f = feats[fIdx];
+  if (!f || !f.geometry || !/^(Multi)?Polygon$/.test(f.geometry.type)) return null;
+  return { l, gj, feats, f };
+}
+// площадь (м²) мультиполигона в координатах polygon-clipping: [[[ [lng,lat]… ]…]…]
+function _vppArea(mp) {
+  const A = r => typeof _geoArea === 'function' ? _geoArea(r.slice(0, -1).map(c => ({ lat: c[1], lng: c[0] }))) : 0;
+  return (mp || []).reduce((s, poly) => s + A(poly[0]) - poly.slice(1).reduce((h, r) => h + A(r), 0), 0);
+}
+const _vppFmt = m2 => m2 >= 1e4 ? `${_vlN(m2 / 1e4)} га` : `${_vlN(Math.round(m2))} м²`;
+function volPolyPartStart(layerId, fIdx, splitOnly) {
+  if (typeof polygonClipping === 'undefined') { toast('Не загрузился модуль полигонов — обновите страницу (F5)', 'err'); return; }
+  const x = _vppPoly(layerId, fIdx); if (!x) { toast('Это не полигон', 'warn'); return; }
+  if (typeof VSEG !== 'undefined' && VSEG.on) _vsegStop();
+  _vppStop();
+  Object.assign(VPP, { on: true, layerId, fIdx, pts: [], split: !!splitOnly, total: _vppArea(x.f.geometry.type === 'Polygon' ? [x.f.geometry.coordinates] : x.f.geometry.coordinates) });
+  VPP.hl = L.geoJSON(x.f.geometry, { interactive: false, style: { color: '#0ea5e9', weight: 4, opacity: 0.85, dashArray: '6 5', fillColor: '#0ea5e9', fillOpacity: 0.08 } }).addTo(map);
+  map.getContainer().style.cursor = 'crosshair';
+  map.doubleClickZoom.disable();
+  map.on('click', _vppClick); map.on('mousemove', _vppMove); map.on('dblclick', _vppDbl);
+  document.addEventListener('keydown', _vppKey, true);
+  _vppBanner();
+}
+function _vppBanner() {
+  const bnr = document.getElementById('bnr'); if (!bnr) return;
+  bnr.className = 'show draw';
+  const t = document.getElementById('bnr-t'); if (!t) return;
+  const n = VPP.pts.length;
+  t.textContent = (VPP.split ? '✂ Обведите часть, которую отделить: ' : '⬡ Обведите выполненную часть: ')
+    + (n < 3 ? `щёлкайте по точкам контура (точек: ${n}, нужно ≥ 3; можно и за полигоном — лишнее отрежется)` : `точек ${n} · двойной щелчок или Enter — готово`)
+    + ' · Backspace — убрать точку · Esc — отмена';
+}
+function _vppStop() {
+  map.off('click', _vppClick); map.off('mousemove', _vppMove); map.off('dblclick', _vppDbl);
+  document.removeEventListener('keydown', _vppKey, true);
+  [VPP.tmp, VPP.hl, VPP.line, ...VPP.mk].forEach(x => { if (x) try { map.removeLayer(x); } catch (e) {} });
+  Object.assign(VPP, { on: false, tmp: null, hl: null, line: null, mk: [], pts: [], last: null });
+  try { map.doubleClickZoom.enable(); } catch (e) {}
+  map.getContainer().style.cursor = '';
+  const bnr = document.getElementById('bnr'); if (bnr) bnr.className = '';
+}
+function _vppKey(e) {
+  if (!VPP.on) return;
+  if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+  if (e.key === 'Escape') { e.stopImmediatePropagation(); _vppStop(); toast('Отменено', 'ok'); }
+  else if (e.key === 'Enter') { e.preventDefault(); _vppFinish(); }
+  else if (e.key === 'Backspace') { e.preventDefault(); VPP.pts.pop(); const m = VPP.mk.pop(); if (m) map.removeLayer(m); _vppDraw(VPP.last); _vppBanner(); }
+}
+// притяжка: к вершине полигона (12 px), иначе к его границе (8 px)
+function _vppSnap(ll) {
+  const x = _vppPoly(VPP.layerId, VPP.fIdx); if (!x) return [ll.lng, ll.lat];
+  const q = map.latLngToContainerPoint(ll), polys = x.f.geometry.type === 'Polygon' ? [x.f.geometry.coordinates] : x.f.geometry.coordinates;
+  let bv = null, bvd = 12, be = null, bed = 8;
+  polys.forEach(p => p.forEach(r => {
+    for (let i = 0; i < r.length; i++) {
+      const a = map.latLngToContainerPoint([r[i][1], r[i][0]]), d = a.distanceTo(q);
+      if (d < bvd) { bvd = d; bv = r[i]; }
+      if (i) {
+        const b0 = map.latLngToContainerPoint([r[i - 1][1], r[i - 1][0]]), dx = a.x - b0.x, dy = a.y - b0.y, L2 = dx * dx + dy * dy;
+        const t = L2 ? Math.max(0, Math.min(1, ((q.x - b0.x) * dx + (q.y - b0.y) * dy) / L2)) : 0;
+        const de = Math.hypot(b0.x + t * dx - q.x, b0.y + t * dy - q.y);
+        if (de < bed) { bed = de; be = [r[i - 1][0] + t * (r[i][0] - r[i - 1][0]), r[i - 1][1] + t * (r[i][1] - r[i - 1][1])]; }
+      }
+    }
+  }));
+  return (bv || be || [ll.lng, ll.lat]).slice(0, 2);
+}
+// контур из точек (+ курсор) → пересечение с полигоном
+function _vppCut(pts) {
+  const x = _vppPoly(VPP.layerId, VPP.fIdx); if (!x || pts.length < 3) return null;
+  const ring = pts.concat([pts[0]]);
+  try {
+    const g = x.f.geometry.coordinates;
+    return { x, inter: polygonClipping.intersection(g, [ring]), diff: polygonClipping.difference(g, [ring]) };
+  } catch (e) { return null; }
+}
+function _vppDraw(cur) {
+  if (VPP.line) { map.removeLayer(VPP.line); VPP.line = null; }
+  if (VPP.tmp) { map.removeLayer(VPP.tmp); VPP.tmp = null; }
+  const pts = VPP.pts.concat(cur ? [cur] : []);
+  if (pts.length >= 2) VPP.line = L.polyline(pts.concat(pts.length >= 3 ? [pts[0]] : []).map(c => [c[1], c[0]]), { color: '#16a34a', weight: 2, dashArray: '4 4', interactive: false }).addTo(map);
+  const r = _vppCut(pts);
+  if (r && r.inter.length) {
+    VPP.tmp = L.geoJSON({ type: 'MultiPolygon', coordinates: r.inter }, { interactive: false, style: { color: '#16a34a', weight: 2.5, fillColor: '#22c55e', fillOpacity: 0.45 } }).addTo(map);
+    const a = _vppArea(r.inter);
+    if (cur) VPP.tmp.bindTooltip(`${_vppFmt(a)} из ${_vppFmt(VPP.total)} (${Math.round(a / (VPP.total || 1) * 100)}%)`, { permanent: true, direction: 'top', className: 'lm-tip' }).openTooltip(L.latLng(cur[1], cur[0]));
+  }
+}
+function _vppMove(e) {
+  if (!VPP.on || !VPP.pts.length) return;
+  VPP.last = _vppSnap(e.latlng);
+  if (VPP.raf) return;
+  VPP.raf = requestAnimationFrame(() => { VPP.raf = 0; if (VPP.on) _vppDraw(VPP.last); });
+}
+function _vppClick(e) {
+  if (!VPP.on) return;
+  const p = _vppSnap(e.latlng);
+  // щелчок по первой точке — замкнуть
+  if (VPP.pts.length >= 3) { const f = map.latLngToContainerPoint([VPP.pts[0][1], VPP.pts[0][0]]); if (f.distanceTo(map.latLngToContainerPoint(e.latlng)) < 10) { _vppFinish(); return; } }
+  const prev = VPP.pts[VPP.pts.length - 1];
+  if (prev && Math.abs(prev[0] - p[0]) < 1e-10 && Math.abs(prev[1] - p[1]) < 1e-10) return;   // второй щелчок двойного
+  VPP.pts.push(p);
+  VPP.mk.push(L.circleMarker([p[1], p[0]], { radius: 5, color: '#fff', weight: 2, fillColor: VPP.pts.length === 1 ? '#f59e0b' : '#16a34a', fillOpacity: 1, interactive: false }).addTo(map));
+  _vppDraw(null); _vppBanner();
+}
+function _vppDbl(e) { if (!VPP.on) return; L.DomEvent.stop(e); _vppFinish(); }
+function _vppFinish() {
+  if (!VPP.on) return;
+  if (VPP.pts.length < 3) { toast('Нужно хотя бы 3 точки контура', 'warn'); return; }
+  const r = _vppCut(VPP.pts);
+  if (!r) { toast('Не удалось построить контур — попробуйте без самопересечений', 'err'); return; }
+  if (!r.inter.length) { toast('Контур не задевает полигон', 'warn'); return; }
+  const lid = VPP.layerId, fi = VPP.fIdx, a = _vppArea(r.inter), rest = _vppArea(r.diff), split = VPP.split;
+  map.off('click', _vppClick); map.off('mousemove', _vppMove); map.off('dblclick', _vppDbl);
+  if (VPP.tmp) { try { VPP.tmp.unbindTooltip(); } catch (e) {} }
+  if (!r.diff.length) {
+    _vppStop();
+    if (split) { toast('Контур охватывает весь полигон — делить нечего', 'warn'); return; }
+    toast('Контур охватывает весь полигон — отмечаю выполненным целиком', 'ok'); kmlToggleDone(lid, fi, true); return;
+  }
+  if (split) { _vppStop(); _vppApply(lid, fi, r, null); return; }
+  showModal(`⬡ Выполнена часть полигона — ${_vppFmt(a)}`, `<div class="vl-form">
+    <div class="vl-hint">Полигон будет разделён: часть <b>${_vppFmt(a)}</b> (${Math.round(a / (a + rest) * 100)}%) — выполнена, остальное (${_vppFmt(rest)}) — как было.${r.inter.length > 1 ? ` Выполненная часть — из ${r.inter.length} кусков.` : ''}</div>
+    <div class="fg"><label>Дата выполнения</label><input id="vpp-date" type="date" value="${_vlToday()}"></div>
+    <div class="vl-exec" onclick="volExecEdit()">Исполнители: <b>${esc(volExecLabel())}</b> ✏️</div>
+    <div class="fg"><label>Примечание</label><input id="vpp-note"></div>
+  </div>`, [{ label: 'Отмена', cls: 'bs', fn: () => { closeModal(); _vppStop(); } },
+    { label: '✂ Только разрезать', cls: 'bs', fn: () => { closeModal(); _vppStop(); _vppApply(lid, fi, r, null); } },
+    { label: '✅ Часть выполнена', cls: 'bp', fn: () => { const o = Object.assign(volExecNow(), { date: document.getElementById('vpp-date').value || _vlToday(), note: document.getElementById('vpp-note').value.trim() }); closeModal(); _vppStop(); _vppApply(lid, fi, r, o); } }]);
+}
+// заменить полигон кусками: выполненные (o задан) и остальные — со свойствами исходного
+async function _vppApply(lid, fi, r, o) {
+  const x = _vppPoly(lid, fi); if (!x) return;
+  const base = x.f.properties || {};
+  const v = volByLayer(lid), m = v ? volMeasure(v) : null;
+  const f2 = m && m.second && m.second.source === 'field' ? m.second.field : null, v2 = f2 ? _vlNumLoose(base[f2]) : null;
+  const tot = _vppArea(r.inter) + _vppArea(r.diff) || 1;
+  // остаток: самый большой кусок сохраняет постоянный id объекта
+  const restParts = r.diff.map(c => ({ c, a: _vppArea([c]) })).sort((p, q) => q.a - p.a);
+  const mk = (c, a, done, keepUid) => {
+    const p = JSON.parse(JSON.stringify(base));
+    if (!keepUid) delete p._uid;
+    if (f2 && v2 != null) p[f2] = Math.round(v2 * a / tot * 1000) / 1000;
+    if (done) { _vlSetDone(p, o); delete p._skip; }
+    return { type: 'Feature', properties: p, geometry: { type: 'Polygon', coordinates: c } };
+  };
+  const pieces = restParts.map((q, k) => mk(q.c, q.a, false, k === 0))
+    .concat(r.inter.map(c => mk(c, _vppArea([c]), !!o, false)));
+  x.feats.splice(fi, 1, ...pieces);
+  if (typeof kselCount === 'function' && kselCount()) kselClear();
+  try { await _vlSaveLayer(x.l, x.gj, o ? `✅ Выполнена часть полигона: ${_vppFmt(_vppArea(r.inter))}` : `✂ Полигон разделён на ${pieces.length} части`); }
+  catch (e) { toast('Ошибка сохранения', 'err'); }
+}
