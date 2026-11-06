@@ -128,7 +128,7 @@ function tabProgress(pb) { tabVolumes(pb); }
 async function volShowLayer(volId, table) {
   const v = (currentObj?.volumes || []).find(x => x.id === volId) || VL.all.find(x => x.id === volId); if (!v) return;
   const l = (layers || []).find(x => x.id === v.layer_id); if (!l) { toast('Слой не найден', 'err'); return; }
-  if (!l.visible && typeof kmlToggleVis === 'function') await kmlToggleVis(l.id, 1);
+  if (!lvis(l) && typeof kmlToggleVis === 'function') await kmlToggleVis(l.id, 1);
   if (table) { kmlAttrTable(l.id); return; }
   setTimeout(() => { try { const g = lGroups[l.id]; const b = g && g.getBounds && g.getBounds(); if (b && b.isValid()) map.flyToBounds(b, { padding: [50, 50], maxZoom: 17, duration: 0.6 }); } catch (e) {} }, 200);
 }
@@ -535,7 +535,7 @@ function volKmlRenderCats() {
   const ss = _vlpSites(), all = _vlpLayers();
   if (VLP.site !== 'ALL' && !ss.some(s => s.id === VLP.site)) VLP.site = 'ALL';
   const row = (id, label, ls, n) => `<div class="kml-cat-row ${VLP.site === id ? 'active' : ''}" onclick="VLP.site='${escAttr(id)}';renderKmlPanel()">
-    <input type="checkbox" ${ls.some(l => l.visible) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="volKmlBulkVis('${escAttr(id)}',this.checked)" style="cursor:pointer;flex-shrink:0">
+    <input type="checkbox" ${ls.some(l => lvis(l)) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="volKmlBulkVis('${escAttr(id)}',this.checked)" style="cursor:pointer;flex-shrink:0">
     <span class="kml-cat-label" title="${escAttr(label)}">${label}</span><span class="kml-cat-count">${n}</span></div>`;
   const lsOf = s => s.vols.map(v => (layers || []).find(l => l.id === v.layer_id)).filter(Boolean);
   el.innerHTML = row('ALL', '📦 Все объекты', all, all.length)
@@ -566,7 +566,7 @@ function volKmlRenderPane() {
       html += `<div class="vlp-cat" style="--sc:${sec.color}">${sec.icon} ${esc(sec.label)}</div>`;
       s.vols.filter(v => (v.category || 'geology') === c && vm(s, v)).sort((a, b) => String(a.name).localeCompare(String(b.name), 'ru')).forEach(v => {
         const l = (layers || []).find(x => x.id === v.layer_id); if (!l) return;
-        shown++; if (l.visible) vis++;
+        shown++; if (lvis(l)) vis++;
         const t = { done: +v.done || 0, done2: +v.done2 || 0, pct: v.amount > 0 ? Math.min(100, Math.round((+v.done || 0) / v.amount * 100)) : 0 };
         html += _kmlLayerRowHtml(l, {
           name: `<b>${esc(v.name)}</b>`, cls: 'vlp-row', noPin: true,
@@ -587,7 +587,7 @@ function volKmlRenderPane() {
 }
 async function volKmlBulkVis(siteId, on) {
   const ids = VL.all.filter(v => v.layer_id && (siteId === 'ALL' || v.site_id === siteId)).map(v => v.layer_id);
-  for (const l of (layers || []).filter(x => ids.includes(x.id) && !!x.visible !== on)) { try { await kmlToggleVis(l.id, on ? 1 : 0); } catch (e) {} }
+  for (const l of (layers || []).filter(x => ids.includes(x.id) && !!lvis(x) !== on)) { try { await kmlToggleVis(l.id, on ? 1 : 0); } catch (e) {} }
   renderKmlPanel();
 }
 // изменить объём из панели слоёв: открыть его объект, затем окно объёма
@@ -670,7 +670,7 @@ async function volMarkStart(layerId) {
   await volBrigades();
   VMK.on = true; VMK.layer = layerId || null; VMK.n = 0;
   if (typeof switchView === 'function' && document.querySelector('.nt.on')?.dataset.v !== 'map') switchView('map');
-  if (layerId) { const l = (layers || []).find(x => x.id === layerId); if (l && !l.visible) await kmlToggleVis(l.id, 1); }
+  if (layerId) { const l = (layers || []).find(x => x.id === layerId); if (l && !lvis(l)) await kmlToggleVis(l.id, 1); }
   try { closeModal(); } catch (e) {}
   _vmkBar();
   document.addEventListener('keydown', _vmkKey, true);

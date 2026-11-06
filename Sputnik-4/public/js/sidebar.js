@@ -293,6 +293,14 @@ function layerVisibleEffective(l){
   }
   return !!l.visible;
 }
+// Видимость слоя для ЭТОГО человека (короткое имя для панелей и меню):
+// у кого нет права «переключение слоёв для всех» — с учётом его личной видимости
+function lvis(l){return !!l&&layerVisibleEffective(l);}
+// показать слой без записи на сервер (ссылка на объект, новая заметка)
+function lvisShow(l){
+  if(!l)return;
+  if(typeof can==='function'&&!can('layerToggleGlobal'))localLayerVisSet(l.id,1);else l.visible=1;
+}
 function _updateKmlLabelScale(){
   if(!mapReady())return;
   const z=map.getZoom();

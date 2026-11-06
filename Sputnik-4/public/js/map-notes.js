@@ -58,7 +58,7 @@ function mapNotesPick(id) {
 // рисовать в этот слой (из вкладки «Заметки»)
 function mapNotesDrawTo(id) {
   MN.layerId = id; _mnSave();
-  const l = (layers || []).find(x => x.id === id); if (l && !l.visible) kmlToggleVis(id, 1);
+  const l = (layers || []).find(x => x.id === id); if (l && !lvis(l)) kmlToggleVis(id, 1);
   if (!MN.mode) mapNotesOpen(); else _mnBar();
   try { if (kmlPanelOpen) renderKmlPanel(); } catch (e) {}
 }
@@ -75,7 +75,7 @@ async function _mnAdd(features) {
   const l = await _mnLayer(); if (!l) return;
   let gj; try { gj = JSON.parse(l.geojson); } catch (e) { gj = { type: 'FeatureCollection', features: [] }; }
   gj.features = (gj.features || []).concat(features);
-  if (!l.visible) l.visible = 1;
+  if (!lvis(l)) lvisShow(l);
   await _kmlSaveGeojson(l, gj);
   if (typeof kmlInvalidateLayerCache === 'function') kmlInvalidateLayerCache(l.id);
   renderLayerGroups();
@@ -87,7 +87,7 @@ function mnKmlRenderCats() {
   const el = document.getElementById('kml-cats'); if (!el) return;
   const ls = mnLayers(), cur = _mnCur();
   el.innerHTML = `<div class="kml-cat-row active">
-      <input type="checkbox" ${ls.some(l => l.visible) ? 'checked' : ''} onchange="mnKmlBulkVis(this.checked)" style="cursor:pointer;flex-shrink:0">
+      <input type="checkbox" ${ls.some(l => lvis(l)) ? 'checked' : ''} onchange="mnKmlBulkVis(this.checked)" style="cursor:pointer;flex-shrink:0">
       <span class="kml-cat-label">✏️ Все заметки</span><span class="kml-cat-count">${ls.length}</span></div>
     <div class="kml-cat-actions">
       <button class="btn bp bxs" onclick="mapNotesOpen()">${MN.mode ? '⏹ Закончить рисование' : '✏️ Рисовать заметки'}</button>
@@ -111,11 +111,11 @@ function mnKmlRenderPane() {
     btns: `<button class="kml-icon-btn ${cur && cur.id === l.id && MN.mode ? 'on' : ''}" onclick="mapNotesDrawTo('${escAttr(l.id)}')" title="Рисовать заметки в этот слой">✏️</button>`,
   })).join('');
   el.innerHTML = `<div style="flex:1">${rows}</div><div class="kml-pane-footer" style="display:flex;align-items:center;gap:8px">
-    <span>Показано ${ls.filter(l => l.visible).length} / ${ls.length}</span>
+    <span>Показано ${ls.filter(l => lvis(l)).length} / ${ls.length}</span>
     <span style="margin-left:auto;font-size:10px;color:var(--tx3)">2× клик — переименовать</span></div>`;
 }
 async function mnKmlBulkVis(on) {
-  for (const l of mnLayers().filter(x => !!x.visible !== on)) { try { await kmlToggleVis(l.id, on ? 1 : 0); } catch (e) {} }
+  for (const l of mnLayers().filter(x => !!lvis(x) !== on)) { try { await kmlToggleVis(l.id, on ? 1 : 0); } catch (e) {} }
   renderKmlPanel();
 }
 

@@ -254,7 +254,7 @@ function _handleDeepLink(){
   try{
     if(kmlId&&typeof layers!=='undefined'){
       const l=layers.find(x=>x.id===kmlId);
-      if(l&&!l.visible){ l.visible=1; try{renderLayerGroups();}catch(e){} }
+      if(l&&!lvis(l)){ lvisShow(l); try{renderLayerGroups();}catch(e){} }
     }
   }catch(e){}
   const ll=L.latLng(lat,lng);

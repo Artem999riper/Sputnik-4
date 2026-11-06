@@ -240,7 +240,7 @@ async function _srMapImage(o, sat, opt) {
   const bases = (o.bases || []).filter(b => b && b.lat && b.lng);
   // заметки на карте (слой «Заметки») — добавим те, что попали в область объекта (после расчёта рамки)
   const notes = [];
-  (layers || []).forEach(l => { const st = typeof kmlStyleOf === 'function' ? kmlStyleOf(l) : null; if (!st || !st.notes || !l.visible) return;
+  (layers || []).forEach(l => { const st = typeof kmlStyleOf === 'function' ? kmlStyleOf(l) : null; if (!st || !st.notes || !lvis(l)) return;
     try { (JSON.parse(l.geojson).features || []).forEach(f => f && f.geometry && f.properties && f.properties._note && notes.push(f)); } catch (e) {} });
   const pts = [];
   const walk = c => { if (typeof c[0] === 'number') pts.push(c); else c.forEach(walk); };

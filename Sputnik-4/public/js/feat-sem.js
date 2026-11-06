@@ -242,7 +242,7 @@ function featSemSelect(lid, kind, idxs) {
   const l = (layers || []).find(x => x.id === lid); if (!l) return;
   if (!idxs) { const c = featSemCheck(l, volByLayer(lid)); idxs = kind === 'miss' ? c.miss : c.under.concat(c.over); }
   if (!idxs.length) { toast('Таких объектов нет', 'ok'); return; }
-  if (!l.visible) kmlToggleVis(lid, 1);
+  if (!lvis(l)) kmlToggleVis(lid, 1);
   KSEL.m.clear(); idxs.forEach(i => kselToggle(lid, i, true)); kselRender();
   try { const gj = JSON.parse(l.geojson), fs = idxs.map(i => gj.features[i]).filter(Boolean); const b = L.geoJSON({ type: 'FeatureCollection', features: fs }).getBounds(); if (b.isValid()) map.fitBounds(b.pad(0.3), { maxZoom: 16 }); } catch (e) {}
   toast(kind === 'miss' ? `Выделено без характеристик: ${idxs.length} — «⚙️ Действия → 🏷 Характеристики всем выделенным»` : `Выделено с отклонением: ${idxs.length}`, 'ok');

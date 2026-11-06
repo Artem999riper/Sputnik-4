@@ -183,7 +183,7 @@ function _kmlRenderCats() {
   if (!el) return;
   const allLayers = layers.filter(_kmlIsPlain);
   const ungrouped = allLayers.filter(l => !l.group_id || !kmGroups[l.group_id]);
-  const totalVis  = allLayers.some(l => l.visible);
+  const totalVis  = allLayers.some(l => lvis(l));
   let html = '';
 
   // «Все слои»
@@ -198,7 +198,7 @@ function _kmlRenderCats() {
     const g = kmGroups[gid];
     if (!g) return;
     const gLayers  = allLayers.filter(l => l.group_id === gid);
-    const anyVis   = gLayers.some(l => l.visible);
+    const anyVis   = gLayers.some(l => lvis(l));
     const siteIds  = g.site_ids || [];
     const boundSites = siteIds.length ? (typeof sites !== 'undefined' ? sites.filter(s => siteIds.includes(s.id)) : []) : [];
     const isActive = !siteIds.length || (typeof currentObj !== 'undefined' && currentObj && siteIds.includes(currentObj.id));
@@ -216,7 +216,7 @@ function _kmlRenderCats() {
 
   // «Без группы»
   html += `<div class="kml-cat-row ${_kmlSelectedCat === 'UNGROUPED' ? 'active' : ''}" onclick="_kmlSelectCat('UNGROUPED')">
-    <input type="checkbox" ${ungrouped.some(l => l.visible) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="_kmlCatBulkVis('UNGROUPED',this.checked)" style="cursor:pointer;flex-shrink:0">
+    <input type="checkbox" ${ungrouped.some(l => lvis(l)) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="_kmlCatBulkVis('UNGROUPED',this.checked)" style="cursor:pointer;flex-shrink:0">
     <span class="kml-cat-label">📄 Без группы</span>
     <span class="kml-cat-count">${ungrouped.length}</span>
   </div>`;
@@ -265,7 +265,7 @@ function _kmlRenderLayerPane() {
   const filteredIds = new Set(filtered.map(l => l.id));
   [..._kmlSel].forEach(id => { if (!filteredIds.has(id)) _kmlSel.delete(id); });
 
-  const visCount = filtered.filter(l => l.visible).length;
+  const visCount = filtered.filter(l => lvis(l)).length;
   const selN = _kmlSel.size;
   const footer = selN > 0
     ? `<div class="kml-pane-footer" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -364,8 +364,8 @@ function _kmlLayerRowHtml(l, o) {
       <input type="checkbox" class="kml-sel-cb" ${_kmlSel.has(l.id) ? 'checked' : ''} title="Выбрать для удаления"
         onchange="kmlToggleSel('${l.id}',this.checked)" onclick="event.stopPropagation()" style="cursor:pointer;flex-shrink:0;accent-color:#e02424">
       ${arrow}
-      <button class="kml-icon-btn ${l.visible ? 'on' : ''}" title="${l.visible ? 'Скрыть слой' : 'Показать слой'}"
-        onclick="event.stopPropagation();kmlToggleVis('${l.id}',${l.visible ? 0 : 1})" style="flex-shrink:0">${l.visible ? '👁' : '🚫'}</button>
+      <button class="kml-icon-btn ${lvis(l) ? 'on' : ''}" title="${lvis(l) ? 'Скрыть слой' : 'Показать слой'}"
+        onclick="event.stopPropagation();kmlToggleVis('${l.id}',${lvis(l) ? 0 : 1})" style="flex-shrink:0">${lvis(l) ? '👁' : '🚫'}</button>
       <div class="kml-sym-preview" onclick="kmlOpenStyleModal('${l.id}')" title="Стиль слоя">${svgPrev}</div>
       <div class="kml-layer-name" onclick="${featCnt > 0 ? `_kmlToggleExpand('${l.id}')` : ''}" ondblclick="kmlRenameLayer('${l.id}')" title="${esc(l.name)}">${o.name != null ? o.name : esc(l.name)}${featCnt ? ` <span class="kml-feat-badge">${featCnt}</span>` : ''}</div>
       <button class="kml-icon-btn ${lblOn ? 'on' : ''}" onclick="toggleLayerLabels('${l.id}')" title="Подписи">🏷</button>
@@ -503,7 +503,7 @@ function kmlToggleGroup(gid) {
 }
 async function kmlGroupVisToggle(gid) {
   const gl = layers.filter(l => l.group_id === gid);
-  const newVis = gl.some(l => l.visible) ? 0 : 1;
+  const newVis = gl.some(l => lvis(l)) ? 0 : 1;
   for (const l of gl) await toggleLV(l.id, newVis);
   setTimeout(renderKmlPanel, 150);
 }
@@ -641,7 +641,7 @@ function kmlLayerCtx(ev, id) {
     _kmlIsNote(l)?{i:'🗂',l:'Перенести в обычные слои',f:()=>mapNotesSetLayerKind(id,false)}:{i:'✏️',l:'Перенести в заметки',f:()=>mapNotesSetLayerKind(id,true)},
     {i:'✏️',l:'Переименовать',f:()=>kmlRenameLayer(id)},
     {i:'🔍',l:'Приблизить к слою',f:()=>kmlZoomTo(id)},
-    {i:l.visible?'🚫':'👁',l:l.visible?'Скрыть':'Показать',f:()=>kmlToggleVis(id,l.visible?0:1)},
+    {i:lvis(l)?'🚫':'👁',l:lvis(l)?'Скрыть':'Показать',f:()=>kmlToggleVis(id,lvis(l)?0:1)},
     {i:'🏷',l:layerLabels[id]?'Скрыть подписи':'Показать подписи',f:()=>{toggleLayerLabels(id);renderKmlPanel();}},
     ...groupItems,{sep:true},
     {i:'🗑',l:'Удалить слой',cls:'dan',f:()=>kmlDeleteLayer(id)},
@@ -1748,7 +1748,7 @@ function renderLayerGroupsWithSymbols() {
   if (map.getPane('volPointsPane'))map.getPane('volPointsPane').style.zIndex = 640;
 
   const keep = new Set();
-  const _visOk = l => (typeof layerVisibleEffective === 'function') ? layerVisibleEffective(l) : l.visible;
+  const _visOk = l => lvis(l);
   layers.filter(l => _visOk(l) && !l.site_id).forEach(l => {
     // If the layer's group is bound to a specific site, only show when that site is active
     if (l.group_id) {
@@ -1907,7 +1907,7 @@ function renderLayerGroupsWithSymbols() {
                 {i:'📋',l:'Объекты слоя',f:()=>kmlOpenFeatureList(l.id)},
                 {i:'🎨',l:'Стиль слоя',f:()=>kmlOpenStyleModal(l.id)},
                 {i:'🏷',l:layerLabels[l.id]?'Скрыть подписи слоя':'Показать подписи слоя',f:()=>toggleLayerLabels(l.id)},
-                {i:'👁',l:l.visible?'Скрыть слой':'Показать слой',f:()=>kmlToggleVis(l.id,l.visible?0:1)},
+                {i:'👁',l:lvis(l)?'Скрыть слой':'Показать слой',f:()=>kmlToggleVis(l.id,lvis(l)?0:1)},
                 {sep:true},
                 {i:'🧰',l:'ГИС-операции (буфер, обрезка…)',f:()=>gisToolsOpen(l.id)},
                 {i:'📦',l:_vol?`Объём «${esc(String(_vol.name).slice(0,24))}»…`:'Сделать объёмом объекта…',html:true,f:()=>volBindLayer(l.id)},
@@ -1960,7 +1960,7 @@ function openLayerExportDialog() {
   if (!list.length) { toast('Нет слоёв для экспорта', 'err'); return; }
   const rows = list.map(l => `
     <label class="lex-row" data-name="${escAttr((l.name || '').toLowerCase())}" style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer">
-      <input type="checkbox" class="lex-cb" value="${l.id}" ${l.visible ? 'checked' : ''}>
+      <input type="checkbox" class="lex-cb" value="${l.id}" ${lvis(l) ? 'checked' : ''}>
       <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${l.color || '#666'};flex-shrink:0"></span>
       <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(l.name || '').replace(/[<>&]/g, '')}</span>
     </label>
@@ -2579,7 +2579,7 @@ async function initKmlManager() {
   // Показывать/скрывать слои при смене зума (если задан диапазон масштаба)
   map.on('zoomend', () => {
     const z = map.getZoom();
-    layers.filter(l => l.visible && !l.site_id).forEach(l => {
+    layers.filter(l => lvis(l) && !l.site_id).forEach(l => {
       const minZ = l.min_zoom != null ? l.min_zoom : 0;
       const maxZ = l.max_zoom != null ? l.max_zoom : 20;
       if (minZ === 0 && maxZ === 20) return; // без ограничений
