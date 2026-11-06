@@ -35,6 +35,7 @@ const CV_SYSTEMS = [
   { id: 'gk:sk95',  kind: 'gk',  label: 'СК-95 — Гаусс-Крюгер (зоны 6°)' },
   { id: 'gk:gsk',   kind: 'gk',  label: 'ГСК-2011 — Гаусс-Крюгер (зоны 6°)' },
   { id: 'msk',      kind: 'msk', label: 'МСК (местная система региона)' },
+  { id: 'sk63',     kind: 'sk63', label: 'СК-63 (район, зона)' },
   { id: 'utm',      kind: 'utm', label: 'UTM / WGS-84 (северное полушарие)' },
   { id: 'merc',     kind: 'merc', label: 'Web Mercator (EPSG:3857)' },
   { id: 'custom',   kind: 'custom', label: 'Своя система (строка proj4)' },
@@ -61,7 +62,7 @@ let CV = {
   src: 'geo:wgs', dst: 'msk',
   srcZone: 'auto', dstZone: 'auto',
   srcMsk: '86', dstMsk: '86', srcMskDatum: '2008', dstMskDatum: '2008',
-  srcCustom: '', dstCustom: '',
+  srcCustom: '', dstCustom: '', srcSk63: 'W3', dstSk63: 'W3',
   angFmt: 'dd',       // вывод углов: dd | dm | dms
   dec: 3,             // знаков после запятой для метров
   withH: false,       // пересчитывать эллипсоидальную высоту
@@ -118,7 +119,7 @@ function cvFmtAngle(v, fmt, isLat) {
 // {easting} — восточная координата (для авто-зоны обратного пересчёта).
 function cvProj(side, ctx) {
   // общая логика систем (в т. ч. «★ Свои системы») — crs-picker.js
-  return crsProjOf({ sys: CV[side], zone: CV[side + 'Zone'], msk: CV[side + 'Msk'], mskDatum: CV[side + 'MskDatum'], custom: CV[side + 'Custom'] }, ctx);
+  return crsProjOf({ sys: CV[side], zone: CV[side + 'Zone'], msk: CV[side + 'Msk'], mskDatum: CV[side + 'MskDatum'], custom: CV[side + 'Custom'], sk63: CV[side + 'Sk63'] }, ctx);
 }
 function cvIsGeo(side) {
   const id = CV[side];
@@ -238,6 +239,11 @@ function _cvSysBlock(side) {
       <div class="cv-row"><label>Зона</label><select data-f="Zone" ${ch} style="${st}">${o('auto', 'Авто (по долготе / по Y)', CV[side + 'Zone'])}${zones.map(z => o(z.z, `${z.z} (ЦМ ${z.lon}°)`, CV[side + 'Zone'])).join('')}</select></div>
       <div class="cv-row"><label>Реализация</label><select data-f="MskDatum" ${ch} style="${st}">${o('2008', '2008 (ГОСТ Р 51794-2008)', CV[side + 'MskDatum'])}${o('2001', '2001 (ГОСТ Р 51794-2001)', CV[side + 'MskDatum'])}</select></div>`;
   }
+  if (sys.kind === 'sk63') {
+    const D = (SK63 && SK63.districts) || {}, zs = D[CV[side + 'Sk63']] || [];
+    extra += `<div class="cv-row"><label>Район</label><select data-f="Sk63" ${ch} style="${st}">${Object.keys(D).sort().map(d => o(d, sk63DistrictLabel(d), CV[side + 'Sk63'])).join('')}</select></div>
+      <div class="cv-row"><label>Зона</label><select data-f="Zone" ${ch} style="${st}">${o('auto', 'Авто (по первым цифрам Y / по долготе)', CV[side + 'Zone'])}${zs.map(z => o(z.z, `${z.z} (ЦМ ${(+z.lon).toFixed(4)}°)`, CV[side + 'Zone'])).join('')}</select></div>`;
+  }
   if (sys.kind === 'custom') {
     extra += `<div class="cv-row"><label>proj4</label><textarea data-f="Custom" onchange="_cvSet('${side}',this)" style="${st};min-height:54px;font-family:monospace;font-size:11px" placeholder="+proj=tmerc +lat_0=0 +lon_0=… +ellps=krass +towgs84=… +units=m +no_defs">${esc(CV[side + 'Custom'] || '')}</textarea></div>`;
   }
@@ -256,13 +262,13 @@ function _cvSysBlock(side) {
 function _cvSet(side, el) {
   const f = el.dataset.f;
   if (f === '') { CV[side] = el.value; CV[side + 'Zone'] = 'auto'; }
-  else if (f === 'Msk') { CV[side + 'Msk'] = el.value; CV[side + 'Zone'] = 'auto'; }
+  else if (f === 'Msk' || f === 'Sk63') { CV[side + f] = el.value; CV[side + 'Zone'] = 'auto'; }
   else CV[side + f] = el.value;
   _cvSave();
   renderCoordConvert(true);
 }
 function cvSwap() {
-  ['', 'Zone', 'Msk', 'MskDatum', 'Custom', 'Swap'].forEach(f => { const t = CV['src' + f]; CV['src' + f] = CV['dst' + f]; CV['dst' + f] = t; });
+  ['', 'Zone', 'Msk', 'MskDatum', 'Custom', 'Swap', 'Sk63'].forEach(f => { const t = CV['src' + f]; CV['src' + f] = CV['dst' + f]; CV['dst' + f] = t; });
   // перенести результат одиночного пересчёта во вход
   const ra = document.getElementById('cv-out-a'), rb = document.getElementById('cv-out-b');
   const ia = document.getElementById('cv-in-a'), ib = document.getElementById('cv-in-b');

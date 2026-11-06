@@ -6,6 +6,7 @@ const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a}
 
 const B = loadBrowser(['public/vendor/proj4.js', 'public/js/coord-convert.js', 'public/js/crs-picker.js', 'public/js/kameral.js'],
   { MSK_FULL: JSON.parse(fs.readFileSync(path.join(ROOT, 'public', 'msk-zones.json'), 'utf8')), coordMskRegion: '86' });
+require('vm').runInContext('SK63 = ' + fs.readFileSync(path.join(ROOT, 'public', 'sk63-zones.json'), 'utf8'), B.ctx);   // СК-63 (в браузере грузится с сервера)
 const CV = B.get('CV'), conv = B.get('cvConvert');
 const setSys = (src, dst, o) => Object.assign(CV, { src, dst, srcZone: 'auto', dstZone: 'auto', srcMsk: '86', dstMsk: '86', srcMskDatum: '2008', dstMskDatum: '2008', srcSwap: false, dstSwap: false, withH: false }, o || {});
 
@@ -65,4 +66,19 @@ test('общий выбор СК (метка, импорт): МСК-86, СК-42 
   assert.strictEqual(key({ sys: 'gk:sk95', zone: 'auto' }), 'gk:sk95');
   assert.ok(/^\+proj=tmerc .*\+lon_0=78\.05/.test(key({ sys: 'msk', msk: '86', mskDatum: '2008', zone: '4' })));
   assert.strictEqual(key({ sys: 'geo:wgs' }), 'wgs84');
+});
+
+test('СК-63: район W3 совпадает с МСК-86 (сдвиг −5 800 000 / −2 000 000), сервер и браузер одинаково', () => {
+  const toW = B.get('crsToWgs');
+  setSys('msk', 'geo:wgs', { srcZone: '3' });
+  const m = conv(1490000, 3512345.6, NaN);                         // МСК-86 зона 3 → WGS
+  const w = toW({ sys: 'sk63', sk63: 'W3', zone: 'auto' }, 7290000, 5512345.6);
+  assert.ok(Math.abs(w.lat - m.lat) < 1e-6 && Math.abs(w.lng - m.lon) < 1e-6, JSON.stringify([w, m.lat, m.lon]));
+  assert.strictEqual(B.get('crsServerKey')({ sys: 'sk63', sk63: 'Q6', zone: 'auto' }), 'sk63:Q6');
+  const inv = require('../routes/misc')._test.makeDxfInverseTransform('sk63:W3');
+  const s = inv(5512345.6, 7290000);
+  assert.ok(Math.abs(s[1] - w.lat) < 1e-7 && Math.abs(s[0] - w.lng) < 1e-7, 'сервер = браузер');
+  const D = JSON.parse(fs.readFileSync(path.join(ROOT, 'public', 'sk63-zones.json'), 'utf8')).districts;
+  assert.strictEqual(Object.keys(D).length, 17);
+  assert.deepStrictEqual(D.S6.map(z => z.z), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13], 'S6: зоны по сдвигу (в исходнике «12» дважды)');
 });

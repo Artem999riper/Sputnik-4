@@ -204,6 +204,8 @@ const _GK_DATUM = {
   sk95: '+ellps=krass +towgs84=24.47,-130.89,-81.56,0,0,0.13,-0.22',
   gsk:  '+a=6378136.5 +rf=298.2564151 +towgs84=0.013,-0.092,-0.03,-0.001738,0.003559,-0.004263,0.0074',
 };
+let _SK63 = null;
+const _sk63 = () => _SK63 || (_SK63 = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'sk63-zones.json'), 'utf8')));
 function makeDxfInverseTransform(crs, sampleX) {
   if (crs === 'wgs84') return (x, y) => [x, y];
   const sx = sampleX || 3500000;
@@ -219,6 +221,17 @@ function makeDxfInverseTransform(crs, sampleX) {
     };
   }
   if (crs === 'geo:sk42') return (x, y) => proj4(`+proj=longlat ${_GK_DATUM.sk42} +no_defs`, _DXF_WGS84, [x, y]);
+  // СК-63: crs вида «sk63:<район>» (public/sk63-zones.json), зона — по первым цифрам восточной координаты
+  if (typeof crs === 'string' && crs.indexOf('sk63:') === 0) {
+    const zs = (_sk63().districts || {})[crs.slice(5)];
+    if (!zs) throw new Error('Неизвестный район СК-63: ' + crs);
+    const cache = {};
+    return (x, y) => {
+      const z = Math.floor(x / 1e6), zr = zs.find(q => q.z === z); if (!zr) return [NaN, NaN];
+      const ps = cache[z] || (cache[z] = `+proj=tmerc +lat_0=${zr.lat} +lon_0=${zr.lon > 180 ? zr.lon - 360 : zr.lon} +k=${zr.k} +x_0=${zr.x0} +y_0=${zr.y0} ${_GK_DATUM.sk42} +units=m +no_defs`);
+      return proj4(ps, _DXF_WGS84, [x, y]);
+    };
+  }
   // Произвольная строка proj4 (например, из .prj)
   if (typeof crs === 'string' && /^\+proj=|^(PROJCS|GEOGCS)\[/i.test(crs)) return (x, y) => proj4(crs, _DXF_WGS84, [x, y]);
   // Полный справочник МСК: crs вида "mskfull:<регион>:<датум>"

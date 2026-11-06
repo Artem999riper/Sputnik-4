@@ -10,8 +10,14 @@
 // ═══════════════════════════════════════════════════════════
 const CRSP_WGS = '+proj=longlat +datum=WGS84 +no_defs';
 let CRS_LIB = [];                 // [{id, name, proj, note}]
+// СК-63: районы и зоны (public/sk63-zones.json — из MapInfo MAPINFOW.PRJ, датум Пулково-1942)
+let SK63 = null;
+const SK63_TOWGS = '23.57,-140.95,-79.8,0,0.35,0.79,-0.22';      // как СК-42 / МСК (ГОСТ 32453)
+function sk63DistrictLabel(d) { const zs = (SK63 && SK63.districts[d]) || []; if (!zs.length) return d; const lo = Math.min(...zs.map(z => z.lon)), hi = Math.max(...zs.map(z => z.lon)), w = /6$/.test(d) ? 6 : 3;
+  const f = v => Math.round(((v + 540) % 360) - 180); return `${d} — зоны ${w}°, ${zs.length} шт., ${f(lo - w / 2)}°…${f(hi + w / 2)}° в.д.`; }
 let _crsLibLoaded = false;
 async function crsLibLoad(force) {
+  if (!SK63) { try { SK63 = await fetch('/sk63-zones.json').then(r => r.json()); } catch (e) { SK63 = { districts: {} }; } }
   if (_crsLibLoaded && !force) return CRS_LIB;
   try { const j = await fetch(`${API}/app-settings/crs_library`).then(r => r.json()); CRS_LIB = Array.isArray(j && j.value) ? j.value : []; } catch (e) {}
   _crsLibLoaded = true;
@@ -53,6 +59,18 @@ function crsProjOf(st, ctx = {}) {
     if (!z) throw new Error('Для UTM выберите зону (по X/Y её не определить)');
     return { proj: `+proj=utm +zone=${z} +datum=WGS84 +units=m +no_defs`, name: `UTM ${z}N`, zone: z };
   }
+  if (sys.kind === 'sk63') {
+    const d = st.sk63 || 'W3', zs = (SK63 && SK63.districts && SK63.districts[d]) || [];
+    if (!zs.length) throw new Error('Нет параметров СК-63 для района ' + d);
+    let zr;
+    if (zoneSel !== 'auto') zr = zs.find(z => String(z.z) === String(zoneSel));
+    else if (ctx.easting != null) zr = zs.find(z => z.z === Math.floor(ctx.easting / 1e6));
+    else { let bd = Infinity; zs.forEach(z => { const dd = Math.abs((((z.lon - ctx.lon) + 540) % 360) - 180); if (dd < bd) { bd = dd; zr = z; } }); }
+    if (!zr) throw new Error(`СК-63 ${d}: нет зоны ${ctx.easting != null ? Math.floor(ctx.easting / 1e6) : ''} — проверьте район или выберите зону`);
+    const lon0 = zr.lon > 180 ? zr.lon - 360 : zr.lon;
+    return { proj: `+proj=tmerc +lat_0=${zr.lat} +lon_0=${lon0} +k=${zr.k} +x_0=${zr.x0} +y_0=${zr.y0} +ellps=krass +towgs84=${SK63_TOWGS} +units=m +no_defs`,
+      name: `СК-63 ${d} зона ${zr.z}`, zone: zr.z };
+  }
   if (sys.kind === 'msk') {
     const reg = st.msk || '86', datum = st.mskDatum || '2008';
     const zones = (MSK_FULL && MSK_FULL.regions && MSK_FULL.regions[reg]) || [];
@@ -82,11 +100,13 @@ function crsServerKey(st) {
   if (id === 'geo:wgs') return 'wgs84';
   if (id.startsWith('gk:') && auto) return id;
   if (id === 'msk' && auto) return `mskfull:${st.msk || '86'}:${st.mskDatum || '2008'}`;
+  if (id === 'sk63' && auto) return `sk63:${st.sk63 || 'W3'}`;
   return crsProjOf(st, { easting: 0, lon: 0 }).proj;     // фиксированная зона / UTM / своя / широта-долгота — строка proj4
 }
 function crsLabel(st) {
   const s = crsAllSystems().find(x => x.id === st.sys); let t = s ? s.label.replace(/^★ /, '') : st.sys;
   if (st.sys === 'msk') t = `МСК-${st.msk || '86'}${CV_REGION_NAMES[st.msk] ? ' (' + CV_REGION_NAMES[st.msk] + ')' : ''}, ${st.mskDatum || '2008'}`;
+  if (st.sys === 'sk63') t = `СК-63 ${st.sk63 || 'W3'}`;
   if (st.zone && st.zone !== 'auto') t += `, зона ${st.zone}`;
   return t;
 }
@@ -95,7 +115,7 @@ function crsLabel(st) {
 // prefix — уникальный префикс id; st — начальное состояние; opt.onChange — имя глобальной функции
 const _CRSP = {};   // prefix → { st, onChange }
 function crspHtml(prefix, st, opt = {}) {
-  _CRSP[prefix] = { st: Object.assign({ sys: 'msk', zone: 'auto', msk: (typeof coordMskRegion !== 'undefined' ? coordMskRegion : '86'), mskDatum: '2008', custom: '' }, st || {}), onChange: opt.onChange || '' };
+  _CRSP[prefix] = { st: Object.assign({ sys: 'msk', zone: 'auto', msk: (typeof coordMskRegion !== 'undefined' ? coordMskRegion : '86'), mskDatum: '2008', custom: '', sk63: 'W3' }, st || {}), onChange: opt.onChange || '' };
   // справочник своих систем ещё не загружен — догрузить и перерисовать
   if (!_crsLibLoaded) crsLibLoad().then(() => { const el = document.getElementById(prefix + '-crsp'); if (el) el.innerHTML = _crspInner(prefix); });
   return `<div class="crsp" id="${prefix}-crsp">${_crspInner(prefix)}</div>`;
@@ -113,17 +133,22 @@ function _crspInner(prefix) {
       <select ${ch('zone')} title="Зона">${o('auto', 'зона — авто (по Y)', S.zone)}${zones.map(z => o(z.z, `зона ${z.z} (ЦМ ${z.lon}°)`, S.zone)).join('')}</select>
       <select ${ch('mskDatum')} title="Реализация">${o('2008', '2008', S.mskDatum)}${o('2001', '2001', S.mskDatum)}</select></div>`;
   }
+  if (sys.kind === 'sk63') {
+    const D = (SK63 && SK63.districts) || {}, zs = D[S.sk63] || [];
+    h += `<div class="crsp-row"><select ${ch('sk63')} title="Район СК-63">${Object.keys(D).sort().map(d => o(d, sk63DistrictLabel(d), S.sk63)).join('')}</select>
+      <select ${ch('zone')} title="Зона">${o('auto', 'зона — авто (по Y)', S.zone)}${zs.map(z => o(z.z, `зона ${z.z} (ЦМ ${(+z.lon).toFixed(3)}°)`, S.zone)).join('')}</select></div>`;
+  }
   if (sys.kind === 'gk' || sys.kind === 'utm') {
     h += `<div class="crsp-row"><select ${ch('zone')}>${sys.kind === 'gk' ? o('auto', 'зона — авто (по первым цифрам Y)', S.zone) : o('auto', 'зона — по центру карты', S.zone)}${Array.from({ length: 60 }, (_, i) => o(i + 1, `зона ${i + 1}${sys.kind === 'gk' ? ` (ЦМ ${6 * (i + 1) - 3}°)` : 'N'}`, S.zone)).join('')}</select></div>`;
   }
   if (sys.kind === 'custom') h += `<textarea class="crsp-custom" rows="2" placeholder="+proj=tmerc +lat_0=0 +lon_0=… +x_0=… +y_0=… +ellps=krass +towgs84=… +units=m +no_defs" onchange="_crspSet('${prefix}','custom',this.value)">${esc(S.custom || '')}</textarea>`;
-  if (!lib.length) h += `<div class="crsp-hint">СК-63 и другие местные системы — добавьте один раз в «★ Свои системы» на вкладке «Пересчёт координат», и они появятся здесь.</div>`;
+  if (!lib.length) h += `<div class="crsp-hint">Другие местные системы — добавьте один раз в «★ Свои системы» на вкладке «Пересчёт координат», и они появятся здесь.</div>`;
   return h;
 }
 function _crspSet(prefix, f, v) {
   const P = _CRSP[prefix]; if (!P) return;
   P.st[f] = v;
-  if (f === 'sys' || f === 'msk') P.st.zone = 'auto';
+  if (f === 'sys' || f === 'msk' || f === 'sk63') P.st.zone = 'auto';
   // UTM: «по центру карты» — сразу ставим зону, иначе из X/Y её не узнать
   if (f === 'sys' && v === 'utm' && typeof map !== 'undefined' && map.getCenter) P.st.zone = String(Math.floor((map.getCenter().lng + 180) / 6) + 1);
   const el = document.getElementById(prefix + '-crsp'); if (el) el.innerHTML = _crspInner(prefix);
