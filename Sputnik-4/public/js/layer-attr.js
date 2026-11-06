@@ -422,6 +422,13 @@ function _katCtx(e) {
     } },
   ]);
 }
+// слой изменился где-то ещё (действия над выделенным, удаление с карты) — обновить открытую таблицу;
+// removed — объекты удалены, индексы сдвинулись: текущая строка и подсветка сбрасываются
+function katLayerChanged(id, removed) {
+  if (KAT.layerId !== id || !document.getElementById('kat-panel')?.classList.contains('open')) return;
+  if (removed) { KAT.sel = -1; _katHl(null); }
+  try { _katRender(); } catch (e) {}
+}
 async function _katSave(l, mutate, msg) {
   let gj; try { gj = JSON.parse(l.geojson); } catch (e) { toast('Ошибка разбора слоя', 'err'); return; }
   const feats = gj.type === 'FeatureCollection' ? gj.features : [gj];

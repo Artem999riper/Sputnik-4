@@ -1067,6 +1067,7 @@ async function _ksDelete(){
   });
   Promise.all(saves).then(()=>{
     renderLayerGroups();
+    if(typeof katLayerChanged==='function')s.entries.forEach(en=>en.rec&&katLayerChanged(en.rec.id,true));
     toast('🗑 Удалено: '+s.total+' объект(ов)','ok');
     _ksCleanup();
   });
@@ -1080,6 +1081,9 @@ async function _kmlSaveGeojson(l, gj){
       group_id:l.group_id||'',line_dash:l.line_dash||'solid',min_zoom:l.min_zoom,max_zoom:l.max_zoom,
       size:l.size,show_labels:l.show_labels?1:0,fill_opacity:l.fill_opacity,geojson:JSON.stringify(gj)})});
   l.geojson=JSON.stringify(gj);
+  // список слоёв мог перечитаться с сервера, пока шло сохранение, — l тогда старая копия
+  const cur=(typeof layers!=='undefined'&&layers||[]).find(x=>x.id===l.id);if(cur&&cur!==l)cur.geojson=l.geojson;
+  if(typeof katLayerChanged==='function')katLayerChanged(l.id);   // открытая таблица атрибутов
 }
 // Замкнутая (или замыкаемая) KML-линия → полигон: появляется заливка (настройка в «Стиль слоя»)
 async function kmlLineToPolygon(layerId, fIdx){
@@ -1472,6 +1476,7 @@ async function kmlDeleteFeature(layerId, fIdx, mode) {
       symbol:l.symbol||'',group_id:l.group_id||'',line_dash:l.line_dash||'solid',geojson:newGeojson})});
   l.geojson = newGeojson;
   renderLayerGroups();
+  if (typeof katLayerChanged === 'function') katLayerChanged(layerId, true);
   toast('Объект удалён','ok');
   if (inline) { if (kmlPanelOpen) _kmlRenderLayerPane(); }
   else kmlOpenFeatureList(layerId);  // обновить список
