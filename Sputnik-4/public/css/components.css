@@ -185,6 +185,16 @@ a{color:var(--acc);text-decoration:none;word-break:break-all}a:hover{text-decora
 .kat-tbl tbody tr:hover{background:var(--s2)}
 .kat-tbl tr.on{background:color-mix(in srgb,#facc15 30%,transparent)}
 .kat-tbl tr.hid{opacity:.45}
+.kat-tbl tr.sel{background:color-mix(in srgb,#f59e0b 22%,transparent)}
+.kat-tbl tr.sel.on{background:color-mix(in srgb,#f59e0b 38%,transparent)}
+.kat-tbl tbody{user-select:none}
+#kat-panel:focus{outline:none}
+.kat-tbl .kat-cb{width:22px;padding:2px 4px;text-align:center}
+.kat-tbl .kat-cb input{margin:0;cursor:pointer;width:13px;height:13px}
+.kat-selbox{display:inline-flex;gap:6px;align-items:center;color:#b45309}
+.kat-selbox:empty{display:none}
+.kat-selbox .btn.on{background:var(--accl);border-color:var(--acc)}
+body.kat-open #ksel-bar{bottom:calc(38vh + 14px)}
 .kat-inp{width:100%;min-width:120px;font-size:12px;padding:1px 4px;border:1.5px solid var(--acc);border-radius:3px}
 /* легенда раскраски слоёв */
 .kml-legend{background:rgba(255,255,255,.95);border:1px solid #d1d5db;border-radius:8px;padding:6px 9px;font-size:11px;color:#111827;max-height:40vh;overflow:auto;max-width:260px;box-shadow:0 2px 8px rgba(0,0,0,.15)}

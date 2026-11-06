@@ -43,6 +43,7 @@ function kselRender() {
       pointToLayer: (_, ll) => L.circleMarker(ll, { pane: 'kselPane', radius: 15, color: '#f59e0b', weight: 4, fillColor: '#fde68a', fillOpacity: 0.35, interactive: false }) }).addTo(map);
   }
   _kselBar(ks.total);
+  if (typeof _katSyncSel === 'function') _katSyncSel();   // таблица атрибутов — те же строки
 }
 function _kselBar(n) {
   let b = document.getElementById('ksel-bar');

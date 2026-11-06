@@ -178,12 +178,14 @@ function kmlRenderLegend() { if (_kaLegend) { try { _kaLegend.remove(); } catch 
 function kmlLegendShow() {}
 
 // ── Таблица атрибутов (панель снизу карты) ─────────────────
-const KAT = { layerId: null, sort: null, dir: 1, q: '', sel: -1, hl: null, max: 1500 };
+const KAT = { layerId: null, sort: null, dir: 1, q: '', sel: -1, hl: null, max: 1500, onlySel: false, order: [] };
 function kmlAttrTable(layerId) {
-  KAT.layerId = layerId; KAT.sort = null; KAT.dir = 1; KAT.q = ''; KAT.sel = -1;
+  KAT.layerId = layerId; KAT.sort = null; KAT.dir = 1; KAT.q = ''; KAT.sel = -1; KAT.onlySel = false;
   let p = document.getElementById('kat-panel');
   if (!p) {
-    p = document.createElement('div'); p.id = 'kat-panel';
+    p = document.createElement('div'); p.id = 'kat-panel'; p.tabIndex = -1;
+    // Ctrl+A — выделить все показанные строки
+    p.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'ф' || e.code === 'KeyA') && !e.target.closest('input')) { e.preventDefault(); _katSelAll(true); } });
     document.body.appendChild(p);
   }
   p.classList.add('open'); document.body.classList.add('kat-open');
@@ -220,6 +222,8 @@ function _katRender() {
   let rows = feats.map((f, i) => ({ f, i, sz: _katSize(f) }));
   const q = KAT.q.trim().toLowerCase();
   if (q) rows = rows.filter(r => fields.some(k => String((r.f.properties || {})[k] ?? '').toLowerCase().includes(q)));
+  const nSel = _katSelIdx().length;
+  if (KAT.onlySel && nSel) rows = rows.filter(r => kselHas(l.id, r.i)); else KAT.onlySel = false;
   if (KAT.sort) {
     const k = KAT.sort, d = KAT.dir;
     const pr = r => r.f.properties || {};
@@ -231,7 +235,7 @@ function _katRender() {
       return String(va).localeCompare(String(vb), 'ru', { numeric: true }) * d;
     });
   }
-  const total = rows.length; rows = rows.slice(0, KAT.max);
+  const total = rows.length; rows = rows.slice(0, KAT.max); KAT.order = rows.map(r => r.i);
   const arrow = k => KAT.sort === k ? (KAT.dir > 0 ? ' ▲' : ' ▼') : '';
   const st = kmlStyleOf(l) || {};
   // слой — объём объекта: столбцы «выполнено», дата, факт второго показателя
@@ -240,20 +244,22 @@ function _katRender() {
       <b>📋 ${esc(l.name)}</b><span style="color:var(--tx3)">${q ? `${total} из ${feats.length}` : feats.length} объект(ов)</span>
       <input id="kat-q" placeholder="🔍 Поиск по всем полям…" value="${escAttr(KAT.q)}" oninput="KAT.q=this.value;_katRender();setTimeout(()=>{const e=document.getElementById('kat-q');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},0)">
       <button class="btn bs bxs" onclick="_katAddField()">＋ Поле</button>
-      <span style="color:var(--tx3);font-size:10px">щелчок — к объекту · двойной щелчок — изменить · ПКМ по заголовку — поле</span>
+      <span id="kat-selbox" class="kat-selbox">${_katSelBoxHtml(nSel)}</span>
+      <span style="color:var(--tx3);font-size:10px">щелчок — к объекту · Ctrl/Shift + щелчок — выделить · двойной щелчок — изменить · ПКМ — действия</span>
       <button class="kml-panel-close" onclick="kmlAttrTableClose()" title="Закрыть">✕</button></div>
-    <div class="kat-body"><table class="kat-tbl"><thead><tr><th>#</th><th></th>
+    <div class="kat-body"><table class="kat-tbl" oncontextmenu="_katCtx(event)"><thead><tr><th class="kat-cb" title="Выделить все показанные / снять"><input type="checkbox" onclick="event.stopPropagation();_katSelAll(this.checked)" ${rows.length && rows.every(r => kselHas(l.id, r.i)) ? 'checked' : ''}></th><th>#</th><th></th>
       ${vol ? `<th onclick="_katSort('#done')" title="Выполнено (щелчок по ячейке — отметить)">✅${arrow('#done')}</th><th onclick="_katSort('#date')">Дата${arrow('#date')}</th>${vm.second ? `<th onclick="_katSort('#f2')" title="Факт (${esc(volSecondLabel(vm))}); двойной щелчок — изменить">Факт, ${esc(vm.second.unit || '')}${arrow('#f2')}</th>` : ''}` : ''}
       ${fields.map(k => `<th onclick="_katSort('${escAttr(k)}')" oncontextmenu="event.preventDefault();_katFieldMenu(event,'${escAttr(k)}')" title="${esc(k)}">${esc(k)}${st.colorBy === k ? ' 🌈' : ''}${st.labelField === k ? ' 🏷' : ''}${arrow(k)}</th>`).join('')}
       <th onclick="_katSort('#size')">Площадь / длина${arrow('#size')}</th></tr></thead><tbody>
       ${rows.map(r => {
         const pr = r.f.properties || {}, c = kmlAttrColor(l, pr);
-        return `<tr data-i="${r.i}" class="${r.i === KAT.sel ? 'on' : ''}${pr._hidden || pr._skip ? ' hid' : ''}" onclick="_katPick(${r.i})">
-          <td>${r.i + 1}</td><td>${c ? `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${c};margin-right:3px"></span>` : ''}${ic(r.f.geometry && r.f.geometry.type)}</td>
+        const sl = kselHas(l.id, r.i);
+        return `<tr data-i="${r.i}" class="${r.i === KAT.sel ? 'on' : ''}${sl ? ' sel' : ''}${pr._hidden || pr._skip ? ' hid' : ''}" onclick="_katRowClick(event,${r.i})">
+          <td class="kat-cb" onclick="event.stopPropagation();_katRowClick({ctrlKey:true},${r.i})"><input type="checkbox" tabindex="-1" ${sl ? 'checked' : ''}></td><td>${r.i + 1}</td><td>${c ? `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${c};margin-right:3px"></span>` : ''}${ic(r.f.geometry && r.f.geometry.type)}</td>
           ${vol ? `<td class="kat-done" onclick="event.stopPropagation();kmlToggleDone('${escAttr(l.id)}',${r.i})" title="${pr._skip ? 'Исключён из объёма' : pr._done ? 'Снять «выполнено»' : 'Выполнить'}">${pr._done ? '✅' : pr._skip ? '🚫' : '⬜'}</td>
             <td style="color:var(--tx2)" ondblclick="event.stopPropagation();volDoneDialog('${escAttr(l.id)}',[${r.i}])">${pr._done && pr._done_date ? fmt(pr._done_date) : ''}</td>
             ${vm.second ? `<td ondblclick="event.stopPropagation();volDoneDialog('${escAttr(l.id)}',[${r.i}])">${pr._done ? esc(String(volFact2Of(r.f, vm) ?? '')) : ''}</td>` : ''}` : ''}
-          ${fields.map(k => `<td ondblclick="event.stopPropagation();_katEdit(this,${r.i},'${escAttr(k)}')">${esc(pr[k] == null ? '' : String(pr[k]))}</td>`).join('')}
+          ${fields.map(k => `<td data-k="${escAttr(k)}" ondblclick="event.stopPropagation();_katEdit(this,${r.i},'${escAttr(k)}')">${esc(pr[k] == null ? '' : String(pr[k]))}</td>`).join('')}
           <td style="color:var(--tx2)">${r.sz.t}</td></tr>`;
       }).join('')}
       </tbody></table>${total > KAT.max ? `<div style="padding:6px;color:var(--tx3);font-size:11px">Показаны первые ${KAT.max} из ${total} — уточните поиск.</div>` : ''}</div>`;
@@ -279,6 +285,142 @@ function _katPick(i) {
       else map.flyToBounds(b, { paddingTopLeft: [40, 60], paddingBottomRight: [40, bottom], maxZoom: 17, duration: 0.6 });
     }
   } catch (e) {}
+}
+// ── Выделение строк и меню ПКМ ────────────────────────────
+// Выделение общее с картой (KSEL из kml-select.js): выделенное в таблице подсвечено
+// на карте, а Shift+рамка на карте отмечает строки здесь.
+function _katSelIdx() { const l = _katLayer(); const s = l && typeof KSEL !== 'undefined' && KSEL.m.get(l.id); return s ? [...s].sort((a, b) => a - b) : []; }
+function _katSelBoxHtml(n) {
+  if (!n) return '';
+  return `<b>Выделено: ${n}</b><button class="btn bs bxs" onclick="_katSelMenu(event)">⚙️ Действия ▾</button>`
+    + `<button class="btn bs bxs${KAT.onlySel ? ' on' : ''}" onclick="KAT.onlySel=!KAT.onlySel;_katRender()" title="Показать в таблице только выделенные строки">${KAT.onlySel ? '☑' : '☐'} только выделенные</button>`
+    + `<button class="btn bs bxs" onclick="kselClear()" title="Снять выделение">✕</button>`;
+}
+function _katRowClick(e, i) {
+  const l = _katLayer(); if (!l) return;
+  if (e.shiftKey && KAT.sel >= 0) {                    // Shift — диапазон от текущей строки
+    const a = KAT.order.indexOf(KAT.sel), b = KAT.order.indexOf(i);
+    if (a >= 0 && b >= 0) { const x = Math.min(a, b), y = Math.max(a, b); KAT.order.slice(x, y + 1).forEach(j => kselToggle(l.id, j, true)); kselRender(); return; }
+  }
+  if (e.ctrlKey || e.metaKey || e.shiftKey) {          // Ctrl — добавить / снять строку
+    if (!_katSelIdx().length && KAT.sel >= 0 && KAT.sel !== i && !kselCount()) kselToggle(l.id, KAT.sel, true);
+    kselToggle(l.id, i); KAT.sel = i; kselRender(); return;
+  }
+  if (kselCount()) kselClear();                         // простой щелчок — к объекту
+  _katPick(i);
+}
+function _katSelAll(on) {
+  const l = _katLayer(); if (!l) return;
+  KAT.order.forEach(i => kselToggle(l.id, i, on)); kselRender();
+}
+// выделение изменилось (здесь или на карте) — обновить строки без перерисовки таблицы
+function _katSyncSel() {
+  const p = document.getElementById('kat-panel'), l = _katLayer();
+  if (!p || !l || !p.classList.contains('open')) return;
+  if (KAT.onlySel) { _katRender(); return; }
+  let any = false, all = true;
+  p.querySelectorAll('tbody tr[data-i]').forEach(tr => {
+    const i = +tr.dataset.i, s = kselHas(l.id, i);
+    tr.classList.toggle('sel', s); tr.classList.toggle('on', i === KAT.sel);
+    const cb = tr.querySelector('.kat-cb input'); if (cb) cb.checked = s;
+    any = true; if (!s) all = false;
+  });
+  const h = p.querySelector('thead .kat-cb input'); if (h) h.checked = any && all;
+  const b = document.getElementById('kat-selbox'); if (b) b.innerHTML = _katSelBoxHtml(_katSelIdx().length);
+}
+// строки → текст с табуляцией (вставляется в Excel / Word как таблица)
+function _katCopyRows(idxs) {
+  const l = _katLayer(); if (!l || !idxs.length) return;
+  const feats = _kaFeatures(l), fields = kmlFields(l, feats);
+  const cell = v => String(v == null ? '' : v).replace(/[\t\r\n]+/g, ' ');
+  const txt = [['№', ...fields, 'Площадь / длина'].join('\t'),
+    ...idxs.map(i => { const f = feats[i], p = (f && f.properties) || {}; return [i + 1, ...fields.map(k => cell(p[k])), _katSize(f).t].join('\t'); })].join('\r\n');
+  navigator.clipboard.writeText(txt).then(() => toast(`Скопировано строк: ${idxs.length} — вставьте в Excel`, 'ok'), () => toast('Не удалось скопировать', 'err'));
+}
+// задать значение поля сразу нескольким объектам
+async function _katSetField(idxs, k) {
+  const l = _katLayer(); if (!l || !idxs.length) return;
+  if (k == null) { k = (prompt('Название нового поля:') || '').trim(); if (!k) return; if (k.startsWith('_')) { toast('Название не может начинаться с «_»', 'err'); return; } }
+  const feats = _kaFeatures(l), vals = [...new Set(idxs.map(i => ((feats[i] || {}).properties || {})[k]).map(v => v == null ? '' : String(v)))];
+  const nv = prompt(`«${k}» для ${idxs.length} объект(ов):`, vals.length === 1 ? vals[0] : ''); if (nv == null) return;
+  const num = idxs.every(i => typeof (((feats[i] || {}).properties || {})[k]) === 'number') && Number.isFinite(_kaNum(nv));
+  await _katSave(l, fs => { idxs.forEach(i => { if (!fs[i]) return; fs[i].properties = fs[i].properties || {}; fs[i].properties[k] = num ? _kaNum(nv) : nv; }); }, `«${k}» задано: ${idxs.length}`);
+}
+function _katSelectSame(k, v) {
+  const l = _katLayer(); if (!l) return;
+  const sv = v == null ? '' : String(v); let n = 0;
+  _kaFeatures(l).forEach((f, i) => { const x = (f.properties || {})[k]; if ((x == null ? '' : String(x)) === sv) { kselToggle(l.id, i, true); n++; } });
+  kselRender(); toast(`Выделено с «${k}» = «${sv || 'пусто'}»: ${n}`, 'ok');
+}
+function _katFit(idxs) {
+  const l = _katLayer(); if (!l) return;
+  const feats = _kaFeatures(l), g = idxs.map(i => feats[i]).filter(f => f && f.geometry);
+  try { const b = L.geoJSON({ type: 'FeatureCollection', features: g }).getBounds(); if (b.isValid()) map.flyToBounds(b, { paddingTopLeft: [40, 60], paddingBottomRight: [40, (document.getElementById('kat-panel')?.getBoundingClientRect().height || 0) + 30], maxZoom: 17, duration: 0.6 }); } catch (e) {}
+}
+// пункты таблицы для нескольких строк (k, v — поле и значение ячейки под мышью)
+function _katMultiItems(k, v) {
+  const l = _katLayer(), idxs = _katSelIdx(), fields = kmlFields(l, _kaFeatures(l));
+  return [
+    ...(k ? [{ i: '✏️', l: `Задать «${esc(k)}» всем выделенным…`, html: true, f: () => _katSetField(idxs, k) }] : []),
+    { i: '🖊', l: 'Задать значение поля', sub: [...fields.map(f => ({ i: '•', l: f, f: () => _katSetField(idxs, f) })), { sep: true }, { i: '＋', l: 'Новое поле…', f: () => _katSetField(idxs, null) }] },
+    { i: '📋', l: `Копировать строки (${idxs.length}) — для Excel`, f: () => _katCopyRows(idxs) },
+    { i: '🗺', l: 'Показать выделенные на карте', f: () => _katFit(idxs) },
+    { i: KAT.onlySel ? '☑' : '☐', l: 'Только выделенные в таблице', f: () => { KAT.onlySel = !KAT.onlySel; _katRender(); } },
+    { i: '⇄', l: 'Обратить выделение (среди показанных)', f: () => { KAT.order.forEach(i => kselToggle(l.id, i)); kselRender(); } },
+    { i: '✕', l: 'Снять выделение', f: () => kselClear() },
+  ];
+}
+function _katSelMenu(ev, cx, cy, k, v) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  if (cx == null) { const r = ev.currentTarget.getBoundingClientRect(); cx = r.left; cy = r.bottom + 2; }
+  _ksSel = kselToKs(); if (!_ksSel.total) return;
+  _ksMenu(cx, cy, _katMultiItems(k, v));
+  setTimeout(() => { const c = document.getElementById('ctx'); if (c && c.getBoundingClientRect().bottom > innerHeight - 4) c.style.top = Math.max(4, innerHeight - c.offsetHeight - 4) + 'px'; }, 0);
+}
+// ПКМ по строке таблицы
+function _katCtx(e) {
+  const tr = e.target.closest('tbody tr[data-i]'); if (!tr) return;
+  e.preventDefault(); e.stopPropagation();
+  const l = _katLayer(); if (!l) return;
+  const i = +tr.dataset.i, td = e.target.closest('td[data-k]'), k = td ? td.dataset.k : null;
+  const feats = _kaFeatures(l), f = feats[i]; if (!f) return;
+  const pr = f.properties || {}, v = k ? pr[k] : undefined;
+  window._ctxKeepUntil = Date.now() + 300;
+  if (kselHas(l.id, i) && _katSelIdx().length > 1) { _katSelMenu(null, e.clientX, e.clientY, k, v); return; }
+  KAT.sel = i; _katSyncSel(); _katHl(f);
+  const vol = typeof volByLayer === 'function' ? volByLayer(l.id) : null;
+  const isDone = typeof kmlIsDone === 'function' ? kmlIsDone(pr) : !!pr._done;
+  const g = f.geometry, pt = g && g.type === 'Point' ? g.coordinates : null;
+  const first = (() => { let c = g && g.coordinates; while (c && Array.isArray(c[0])) c = c[0]; return c; })();
+  const after = () => { if (KAT.layerId === l.id) _katRender(); };
+  const nm = pr.name || pr.Name || pr['название'] || `Объект ${i + 1}`;
+  showCtx(e.clientX, e.clientY, [
+    { i: '🗺', l: `<b>${esc(String(nm).slice(0, 40))}</b> <span style="color:var(--tx3);font-weight:400">строка ${i + 1}</span>`, html: true, f: null }, { sep: true },
+    { i: '🔍', l: 'Показать на карте', f: () => _katPick(i) },
+    { i: '⬚', l: kselHas(l.id, i) ? 'Снять выделение строки' : 'Выделить строку (Ctrl + щелчок)', f: () => { kselToggle(l.id, i); kselRender(); } },
+    ...(k ? [{ sep: true },
+      { i: '✏️', l: `Изменить «${esc(k)}»`, html: true, f: () => _katEdit(td, i, k) },
+      { i: '📋', l: 'Копировать значение', f: () => navigator.clipboard.writeText(v == null ? '' : String(v)).then(() => toast('Скопировано', 'ok')) },
+      { i: '⬚', l: `Выделить все с таким же «${esc(k)}»`, html: true, f: () => _katSelectSame(k, v) },
+    ] : []),
+    { i: '📄', l: 'Копировать строку — для Excel', f: () => _katCopyRows([i]) },
+    { sep: true },
+    ...(vol ? [
+      { i: '✅', l: isDone ? 'Снять «выполнено»' : 'Выполнить', f: async () => { await kmlToggleDone(l.id, i); after(); } },
+      { i: '⚙️', l: isDone ? 'Изменить выполнение (дата, факт, люди)…' : 'Выполнить с параметрами…', f: () => kmlToggleDone(l.id, i, true) },
+      ...(typeof featSemDialog === 'function' ? [{ i: '🏷', l: 'Характеристики (тип, глубина, УГВ, разрез)…', f: () => featSemDialog(l.id, i) }] : []),
+      { i: '🚫', l: pr._skip ? 'Вернуть в объём' : 'Исключить из объёма', f: async () => { await kmlToggleSkip(l.id, i); after(); } },
+      { sep: true }] : []),
+    { i: '✏️', l: 'Редактировать объект…', f: () => kmlEditFeature(l.id, i) },
+    ...(first && typeof cvOpenPoint === 'function' ? [{ i: '🧭', l: pt ? 'Координаты точки во всех системах' : 'Координаты первой вершины', f: () => cvOpenPoint(first[1], first[0]) }] : []),
+    { i: '📤', l: 'Перенести в другой слой', f: () => kmlMoveFeature(l.id, i) },
+    { i: '💾', l: 'Экспорт объекта…', f: () => kmlExportFeature(l.id, i) },
+    { sep: true },
+    { i: '🗑', l: 'Удалить объект', cls: 'dan', f: async () => {
+      const n0 = _kaFeatures(l).length; await kmlDeleteFeature(l.id, i);
+      if (_kaFeatures(l).length < n0) { if (kselCount()) kselClear(); KAT.sel = -1; _katHl(null); after(); }
+    } },
+  ]);
 }
 async function _katSave(l, mutate, msg) {
   let gj; try { gj = JSON.parse(l.geojson); } catch (e) { toast('Ошибка разбора слоя', 'err'); return; }

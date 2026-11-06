@@ -929,12 +929,13 @@ function _ksCollect(poly){
   }
   return {entries,total,lines,polys};
 }
-function _ksMenu(cx,cy){
+function _ksMenu(cx,cy,extra){
   const s=_ksSel;if(!s)return;
   window._ctxKeepUntil=Date.now()+400; // не дать «хвосту» клика закрыть меню
   const items=[
     {i:'⬚',l:`<b>Выделено: ${s.total} объект(ов)</b>`,f:null,html:true},
     {sep:true},
+    ...(extra&&extra.length?[...extra,{sep:true}]:[]),   // пункты таблицы атрибутов
     {i:'✅',l:'Перевести в выполненные (сегодня)',f:()=>_ksApply('Выполнено',f=>{_vlSetDone(f.properties,volExecNow());delete f.properties._skip;}).then(()=>_ksVolRefresh(s))},
     {i:'⚙️',l:'В выполненные с параметрами (дата, люди, буровая)…',f:()=>{const t=(s.entries||[]).filter(en=>!en.isSite).map(en=>({layerId:en.rec.id,idxs:en.idxs.slice()}));_ksCleanup();if(t.length)volDoneDialog(t);}},
     ...((s.entries||[]).some(en=>!en.isSite&&typeof volByLayer==='function'&&volByLayer(en.rec.id))?[{i:'🏷',l:'Характеристики всем выделенным…',f:()=>{const t=(s.entries||[]).filter(en=>!en.isSite&&volByLayer(en.rec.id)).map(en=>({layerId:en.rec.id,idxs:en.idxs.slice()}));_ksCleanup();if(t.length)featSemDialog(t);}}]:[]),
