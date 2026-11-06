@@ -211,8 +211,9 @@ async function _admRenderRights(){
 }
 // Выбрать человека из сотрудников (или ввести имя) и создать для него запись прав
 async function _admAddPerson(ev){
+  // положение кнопки — до await: после него браузер уже обнулил event.currentTarget
+  const r=(ev.currentTarget||ev.target).getBoundingClientRect();
   let ws=[];try{ws=await fetch(`${API}/pgk/workers`).then(r=>r.json());}catch(e){}
-  const r=ev.currentTarget.getBoundingClientRect();
   _searchPick({x:r.left,y:r.bottom+4,title:'Кому задать права',items:ws.map(w=>({v:w.name,l:w.name,sub:w.role||''})),current:null,addLabel:'имя',onPick:async name=>{
     if(!name)return;
     // запись прав создаётся, когда есть хоть один запрет — по умолчанию запрещаем удаление, дальше настраивается галочками
