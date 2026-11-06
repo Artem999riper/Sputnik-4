@@ -393,6 +393,7 @@ function startSseListener(){
         if(ev.type==='kicked'){ window._pgkKicked=true; try{_sseSrc.close();}catch(_){} _sseSrc=null; if(typeof showKicked==='function')showKicked(ev); return; }
         if(ev.type==='reload'){ try{toast('🔄 Обновление приложения…','ok');}catch(_){} setTimeout(function(){location.reload();},1500); return; }
         if(ev.type!=='change')return;
+        if(typeof dashOnChange==='function')dashOnChange(ev);   // открытый дашборд — пересчитать
         handleSseChange(ev);
       };
       _sseSrc.onerror=function(){

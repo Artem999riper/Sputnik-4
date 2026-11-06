@@ -220,6 +220,7 @@ getDb().then(database => {
   require('./routes/editing')(app, { broadcast: realtime.broadcast, presenceEvents: realtime.presenceEvents });
   require('./routes/ui-settings')(app, getDbInstance, { isAdmin: adminApi.isAdmin, broadcast: realtime.broadcast });
   require('./routes/health')(app, getDbInstance, { isAdmin: adminApi.isAdmin, BACKUP_DIR, broadcast: realtime.broadcast });
+  require('./routes/dashboard')(app, getDbInstance);
   require('./routes/dbinfo')(app, getDbInstance, { isAdmin: adminApi.isAdmin, BACKUP_DIR, DB_PATH: process.env.PGK_DB || path.join(__dirname, 'survey.db'), ROOT: __dirname });
   routeMisc (app, getDbInstance, L, {
     upload, demProcessor, BACKUP_DIR, doBackup,

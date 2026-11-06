@@ -34,6 +34,7 @@ Chromium). Also available as Admin → Обновление → «🧪 Само�
 - `flood_zones.py` — flood zones below a БСВ-77 level (called from `floodZones()` in dem-processor.js, `/api/dem/flood`; UI in `public/js/flood.js`)
 - `terrain_analysis.py` — slope, aspect, flow lines, watershed, survey comparison (`/api/dem/analysis`, UI `public/js/terrain-ui.js`); `gis_ops.py` — buffer/clip/difference/select/dissolve (`/api/gis/op`, UI `public/js/gis-tools.js`)
 - `situation.js` — «ситуация» для выгрузки рельефа: OSM (Overpass) → классы → DXF по шаблону ПурГеоКом (`situation-template.json`: слои, упрощённые типы линий и блоки условных знаков из Osnova_2015), дописывается в DXF горизонталей (cp1251); маршруты `/api/situation/*`, UI `public/js/dem-situation.js`; `public/js/sat-classify.js` — оконтуривание по спутниковой подложке в браузере (вода/лес/луг/болото/грунт по цвету и фактуре, пороги по снимку, контуры по рёбрам пикселей); с ситуацией DXF пишется в формате 2000 (`dxf2000.js`, основа `dxf2000-skeleton.dxf`)
+- `routes/dashboard.js` — сводка «📊 Дашборда» (`/api/dashboard`): объёмы план/факт, темп и прогноз, отставание, лента, «требует внимания», вахты; UI `public/js/dashboard.js` (блоки настраиваются, обновление по SSE)
 - `routes/dbinfo.js` — Администрирование → «🗄 Состав базы»: таблицы с описаниями, записи, размер (dbstat), папки, крупные слои (`/api/admin/dbinfo`)
 - `routes/dem-jobs.js` — background DEM export queue (`/api/dem/jobs`), archives in `exports/` next to the DB
 - `satellite-fetcher.js` — downloads Esri World Imagery tiles and assembles JPEG+JGW worldfile
