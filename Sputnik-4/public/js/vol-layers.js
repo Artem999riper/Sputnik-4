@@ -96,6 +96,7 @@ function tabVolumes(pb) {
           <button class="btn bs bxs" onclick="volShowLayer('${v.id}',true)" title="Таблица атрибутов: выполнено, дата, факт">📋 Таблица</button>
           ${layer && typeof featSemReport === 'function' ? `<button class="btn bs bxs" onclick="featSemReport(['${escAttr(layer.id)}'],'${escAttr(v.name + ' — ' + (o.name || ''))}')" title="Ведомость выработок в Excel: координаты, глубина план/факт, УГВ, ММГ, разрез…">📑 Ведомость</button>` : ''}`
         : `<button class="btn bp bxs" onclick="volAddProgress('${v.id}')">＋ Выполнение</button>`}
+        ${t.pct < 100 && (v.layer_id ? layer : (+v.amount || 0) > 0) ? `<button class="btn bs bxs vl-close" onclick="volCompleteAll('${v.id}')" title="Отметить объём выполненным целиком — закрыть недостающее">☑ Выполнен</button>` : ''}
         <button class="btn bs bxs" onclick="volEditModal('${v.id}')" title="Изменить объём">✏️</button>
         <button class="btn bd bxs" onclick="volDelete('${v.id}')" title="Удалить объём (слой останется)">🗑</button>
       </div>
@@ -462,6 +463,50 @@ function _vlProgressModal(v, p) {
     const r = await fetch(p ? `${API}/vol_progress/${p.id}` : `${API}/volumes/${v.id}/progress`, { method: p ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!r.ok) { const j = await r.json().catch(() => ({})); toast(j.error || 'Ошибка сохранения', 'err'); return; }
     closeModal(); volOpen[v.id] = true; await volAfterChange(v.site_id); toast('Сохранено', 'ok');
+  } }]);
+}
+// ── «☑ Выполнен»: закрыть объём целиком одной кнопкой ──
+// ручной объём — строка выполнения на недостающее количество; объём-слой — все невыполненные
+// объекты слоя (кроме исключённых) отмечаются выполненными с датой и исполнителями
+function volCompleteAll(volId) {
+  const v = (currentObj?.volumes || []).find(x => x.id === volId); if (!v) return;
+  const t = volTotals(v, currentObj?.vol_progress), m = volMeasure(v);
+  let what = '', lay = null, idxs = [];
+  if (v.layer_id) {
+    lay = (layers || []).find(l => l.id === v.layer_id); if (!lay) { toast('Слой объёма не найден', 'err'); return; }
+    let gj; try { gj = JSON.parse(lay.geojson); } catch (e) { toast('Ошибка разбора слоя', 'err'); return; }
+    (gj.features || []).forEach((f, i) => { const p = f.properties || {}; if (!p._done && !p._skip) idxs.push(i); });
+    if (!idxs.length) { toast('Все объекты слоя уже выполнены (или исключены)', 'ok'); return; }
+    what = `Будут отмечены выполненными <b>${idxs.length}</b> объект(ов) слоя «${esc(lay.name)}» — сейчас ${_vlN(t.done)} / ${_vlN(v.amount)} ${esc(v.unit)}.`
+      + (m.second && m.second.source === 'fact' ? '<br>Факт второго показателя у них будет пустым — его можно вписать потом в таблице.' : '');
+  } else {
+    const left = Math.max(0, (+v.amount || 0) - t.done);
+    if (!(left > 0)) { toast('Объём уже выполнен', 'ok'); return; }
+    what = `Будет добавлена строка выполнения на недостающие <b>${_vlN(left)} ${esc(v.unit)}</b> (сейчас ${_vlN(t.done)} из ${_vlN(v.amount)}).`;
+  }
+  showModal(`☑ Объём выполнен — ${v.name}`, `<div class="vl-form">
+    <div class="vl-hint">${what}</div>
+    <div class="fg"><label>Дата выполнения</label><input id="vca-date" type="date" value="${_vlToday()}"></div>
+    <div class="vl-exec" onclick="volExecEdit()">Исполнители: <b>${esc(volExecLabel())}</b> ✏️</div>
+    <div class="fg"><label>Примечание</label><input id="vca-note" value="Объём закрыт"></div>
+  </div>`, [{ label: 'Отмена', cls: 'bs', fn: closeModal }, { label: '☑ Выполнен', cls: 'bp', fn: async () => {
+    const date = document.getElementById('vca-date').value || _vlToday(), note = document.getElementById('vca-note').value.trim();
+    const ex = volExecNow();
+    closeModal();
+    try {
+      if (lay) {
+        const l = (layers || []).find(x => x.id === v.layer_id); let gj = JSON.parse(l.geojson);
+        const fs = gj.features || [];
+        idxs.forEach(i => { if (!fs[i]) return; fs[i].properties = fs[i].properties || {}; _vlSetDone(fs[i].properties, Object.assign({}, ex, { date, note })); });
+        await _vlSaveLayer(l, gj, `☑ «${v.name}» выполнен: +${idxs.length}`);
+      } else {
+        const t2 = volTotals(v, currentObj?.vol_progress), left = Math.max(0, (+v.amount || 0) - t2.done);
+        const body = { site_id: v.site_id, work_date: date, completed: left, worker_ids: ex.workers || '', machine_id: ex.machine || null, notes: note, user_name: un() };
+        const r = await fetch(`${API}/volumes/${v.id}/progress`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!r.ok) { const j = await r.json().catch(() => ({})); toast(j.error || 'Ошибка сохранения', 'err'); return; }
+        await volAfterChange(v.site_id); toast(`☑ «${v.name}» выполнен: +${_vlN(left)} ${v.unit}`, 'ok');
+      }
+    } catch (e) { toast('Ошибка: ' + e.message, 'err'); }
   } }]);
 }
 function volAddProgress(volId) { const v = (currentObj?.volumes || []).find(x => x.id === volId); if (v) _vlProgressModal(v, null); }

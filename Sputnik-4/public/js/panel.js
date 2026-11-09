@@ -79,6 +79,8 @@ function _ssoReposition(){
 function renderSiteStatsOverlay(site){
   const el=document.getElementById('site-stats-overlay');
   if(!el||!site)return;
+  // плашка — только при мини-карточке; при открытой полной карточке объекта её не показываем
+  if(document.getElementById('panel')?.classList.contains('open')){hideSiteStatsOverlay();return;}
   const vols=site.volumes||[];
   if(!vols.length){hideSiteStatsOverlay();return;}
   const rows=vols.map(v=>{
