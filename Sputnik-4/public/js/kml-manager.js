@@ -608,6 +608,25 @@ async function kmlMoveToGroup(lid, gid) {
   renderKmlPanel();
 }
 
+// Выбор группы из списка с поиском; можно сразу создать новую (ввести название)
+function kmlPickGroup(lid,x,y){
+  const l=layers.find(t=>t.id===lid);if(!l)return;
+  const cnt=gid=>layers.filter(t=>t.group_id===gid).length;
+  const items=kmGroupOrder.filter(g=>kmGroups[g]).map(g=>({v:g,l:kmGroups[g].name,sub:cnt(g)+' сл.'}));
+  if(l.group_id)items.unshift({v:'',l:'— без группы'});
+  _searchPick({x,y,title:`«${l.name}» — в группу`,items,current:l.group_id||'',addLabel:'группу',onPick:async v=>{
+    if(v==null)return;
+    let gid=v;
+    if(v&&!kmGroups[v]){   // новое название — создать группу
+      const ex=kmGroupOrder.find(g=>kmGroups[g]&&kmGroups[g].name.toLowerCase()===String(v).toLowerCase());
+      if(ex)gid=ex;else{gid='g_'+Date.now();kmGroups[gid]={id:gid,name:String(v),collapsed:false,site_ids:[]};kmGroupOrder.push(gid);await saveKmGroups();}
+    }
+    if((l.group_id||'')===(gid||''))return;
+    await kmlMoveToGroup(lid,gid||null);
+    toast(gid?`Слой перенесён в «${kmGroups[gid].name}»`:'Слой убран из группы','ok');
+  }});
+}
+
 // ── Удалить слой ────────────────────────────────────────────
 async function kmlDeleteLayer(id) {
   if(!await confirmDlg('Удалить слой?'))return;
@@ -624,11 +643,11 @@ function kmlLayerCtx(ev, id) {
   if(ev&&ev.stopPropagation)ev.stopPropagation();
   const l=layers.find(x=>x.id===id);if(!l)return;
   const cx=ev.clientX,cy=ev.clientY;
-  const moveToGroupItems=kmGroupOrder.length?[
-    ...kmGroupOrder.map(gid=>({i:'📁',l:'В группу: '+esc(kmGroups[gid].name),f:()=>kmlMoveToGroup(id,gid)})),
-  ]:[];
-  const removeFromGroupItem=l.group_id?[{i:'📄',l:'Убрать из группы',f:()=>kmlMoveToGroup(id,null)}]:[];
-  const groupItems=(moveToGroupItems.length||removeFromGroupItem.length)?[{sep:true},...moveToGroupItems,...removeFromGroupItem]:[];
+  // одна строка «В группу…» → список групп с поиском (групп бывает много)
+  const curG=l.group_id&&kmGroups[l.group_id]?kmGroups[l.group_id].name:'';
+  const groupItems=[{sep:true},
+    {i:'📁',l:curG?`В группу… <span style="color:var(--tx3);font-weight:400">(сейчас «${esc(curG)}»)</span>`:'В группу…',html:true,f:()=>kmlPickGroup(id,cx,cy)},
+    ...(l.group_id?[{i:'📄',l:'Убрать из группы',f:()=>kmlMoveToGroup(id,null)}]:[])];
   showCtx(cx,cy,[
     {i:'🗺',l:`<b>${esc(l.name)}</b>`,f:null},{sep:true},
     {i:_kmlExpanded.has(id)?'▼':'▶',l:_kmlExpanded.has(id)?'Свернуть объекты':'Показать объекты',f:()=>{if(!_kmlExpanded.has(id))_kmlExpanded.add(id);_kmlRenderLayerPane();}},
@@ -1913,6 +1932,7 @@ function renderLayerGroupsWithSymbols() {
                 {i:'🧰',l:'ГИС-операции (буфер, обрезка…)',f:()=>gisToolsOpen(l.id)},
                 {i:'📦',l:_vol?`Объём «${esc(String(_vol.name).slice(0,24))}»…`:'Сделать объёмом объекта…',html:true,f:()=>volBindLayer(l.id)},
                 ...(typeof demBatchByLayer==='function'&&/"(Multi)?Polygon"/.test(l.geojson||'')?[{i:'🏔',l:'Рельеф по полигонам слоя…',f:()=>demWizardKml(l.id)}]:[]),
+                {i:'📁',l:'В группу…',f:()=>kmlPickGroup(l.id,cx,cy)},
                 ...(l.group_id?[{i:'📄',l:'Убрать из группы',f:()=>kmlMoveToGroup(l.id,null)}]:[]),
                 {sep:true},
                 {i:'🗑',l:'Удалить слой',cls:'dan',f:()=>kmlDeleteLayer(l.id)},
