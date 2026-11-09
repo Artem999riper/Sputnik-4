@@ -204,7 +204,7 @@ function _kmlRenderCats() {
     const isActive = !siteIds.length || (typeof currentObj !== 'undefined' && currentObj && siteIds.includes(currentObj.id));
     const siteTip  = boundSites.length ? ` title="Привязана к: ${boundSites.map(s => esc(s.name)).join(', ')}"` : '';
     html += `<div class="kml-cat-row ${_kmlSelectedCat === gid ? 'active' : ''}"
-        onclick="_kmlSelectCat('${gid}')"
+        onclick="_kmlSelectCat('${gid}')" ondragover="_kmlCatDragOver(event,'${gid}')" ondragleave="this.classList.remove('dnd-over')" ondrop="_kmlCatDrop(event,'${gid}')"
         oncontextmenu="event.preventDefault();kmlGroupCtx(event,'${gid}')"
         style="${!isActive ? 'opacity:.5' : ''}"${siteTip}>
       <input type="checkbox" ${anyVis ? 'checked' : ''} onclick="event.stopPropagation()" onchange="kmlGroupVisToggle('${gid}')" style="cursor:pointer;flex-shrink:0">
@@ -215,7 +215,7 @@ function _kmlRenderCats() {
   });
 
   // «Без группы»
-  html += `<div class="kml-cat-row ${_kmlSelectedCat === 'UNGROUPED' ? 'active' : ''}" onclick="_kmlSelectCat('UNGROUPED')">
+  html += `<div class="kml-cat-row ${_kmlSelectedCat === 'UNGROUPED' ? 'active' : ''}" onclick="_kmlSelectCat('UNGROUPED')" ondragover="_kmlCatDragOver(event,'UNGROUPED')" ondragleave="this.classList.remove('dnd-over')" ondrop="_kmlCatDrop(event,'UNGROUPED')">
     <input type="checkbox" ${ungrouped.some(l => lvis(l)) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="_kmlCatBulkVis('UNGROUPED',this.checked)" style="cursor:pointer;flex-shrink:0">
     <span class="kml-cat-label">📄 Без группы</span>
     <span class="kml-cat-count">${ungrouped.length}</span>
@@ -259,6 +259,7 @@ function _kmlRenderLayerPane() {
     return;
   }
 
+  _kmlShown = filtered.map(l => l.id);
   const rows = filtered.map(l => _kmlLayerRowHtml(l)).join('');
 
   // Оставляем в выборе только те слои, что есть в текущем списке
@@ -272,8 +273,12 @@ function _kmlRenderLayerPane() {
         <span>Выбрано: <b>${selN}</b></span>
         <button class="btn bs bxs" onclick="kmlSelClear()">Снять</button>
         <span style="flex:1"></span>
-        ${selN >= 2 ? `<button class="btn bp bxs" onclick="kmlMergeSelected()">🔗 Объединить (${selN})</button>` : ''}
-        <button class="btn bd bxs" onclick="kmlDeleteSelected()">🗑 Удалить (${selN})</button>
+        <button class="btn bs bxs" onclick="kmlPickGroup([..._kmlSel],event.clientX,event.clientY-260)" title="Перенести выбранные в группу">📁 В группу</button>
+        <button class="btn bs bxs" onclick="kmlSelVis(1)" title="Показать выбранные">👁</button>
+        <button class="btn bs bxs" onclick="kmlSelVis(0)" title="Скрыть выбранные">🚫</button>
+        <button class="btn bs bxs" onclick="kmlSelColor()" title="Один цвет всем выбранным">🎨</button>
+        ${selN >= 2 ? `<button class="btn bs bxs" onclick="kmlMergeSelected()" title="Объединить в один слой">🔗 (${selN})</button>` : ''}
+        <button class="btn bd bxs" onclick="kmlDeleteSelected()" title="Удалить выбранные">🗑 (${selN})</button>
       </div>`
     : `<div class="kml-pane-footer" style="display:flex;align-items:center;gap:8px">
         <span>Показано ${visCount} / ${filtered.length}</span>
@@ -360,14 +365,15 @@ function _kmlLayerRowHtml(l, o) {
     const arrow   = featCnt > 0
       ? `<span class="kml-exp-arrow" onclick="event.stopPropagation();_kmlToggleExpand('${l.id}')" title="${isExp ? 'Свернуть' : 'Показать объекты'}">${isExp ? '▼' : '▶'}</span>`
       : `<span class="kml-exp-arrow empty"></span>`;
-    return `<div class="kml-layer-row${o.cls ? ' ' + o.cls : ''}" data-lid="${l.id}" oncontextmenu="event.preventDefault();kmlLayerCtx(event,'${l.id}')">
-      <input type="checkbox" class="kml-sel-cb" ${_kmlSel.has(l.id) ? 'checked' : ''} title="Выбрать для удаления"
-        onchange="kmlToggleSel('${l.id}',this.checked)" onclick="event.stopPropagation()" style="cursor:pointer;flex-shrink:0;accent-color:#e02424">
+    const dnd = o.noDrag ? '' : ` draggable="true" ondragstart="_kmlDragStart(event,'${l.id}')" ondragend="_kmlDragEnd()" ondragover="_kmlDragOver(event,'${l.id}')" ondragleave="this.classList.remove('dnd-top','dnd-bot')" ondrop="_kmlDrop(event,'${l.id}')"`;
+    return `<div class="kml-layer-row${o.cls ? ' ' + o.cls : ''}${_kmlSel.has(l.id) ? ' sel' : ''}" data-lid="${l.id}"${dnd} onmouseenter="kmlHoverLayer('${l.id}')" onmouseleave="kmlHoverOff()" oncontextmenu="event.preventDefault();kmlLayerCtx(event,'${l.id}')">
+      <input type="checkbox" class="kml-sel-cb" ${_kmlSel.has(l.id) ? 'checked' : ''} title="Выбрать (или Ctrl / Shift + щелчок по названию)"
+        onchange="kmlToggleSel('${l.id}',this.checked)" onclick="event.stopPropagation()" style="cursor:pointer;flex-shrink:0">
       ${arrow}
       <button class="kml-icon-btn ${lvis(l) ? 'on' : ''}" title="${lvis(l) ? 'Скрыть слой' : 'Показать слой'}"
         onclick="event.stopPropagation();kmlToggleVis('${l.id}',${lvis(l) ? 0 : 1})" style="flex-shrink:0">${lvis(l) ? '👁' : '🚫'}</button>
       <div class="kml-sym-preview" onclick="kmlOpenStyleModal('${l.id}')" title="Стиль слоя">${svgPrev}</div>
-      <div class="kml-layer-name" onclick="${featCnt > 0 ? `_kmlToggleExpand('${l.id}')` : ''}" ondblclick="kmlRenameLayer('${l.id}')" title="${esc(l.name)}">${o.name != null ? o.name : esc(l.name)}${featCnt ? ` <span class="kml-feat-badge">${featCnt}</span>` : ''}</div>
+      <div class="kml-layer-name" onclick="_kmlRowClick(event,'${l.id}',${featCnt > 0})" ondblclick="kmlRenameLayer('${l.id}')" title="${esc(l.name)}">${o.name != null ? o.name : esc(l.name)}${featCnt ? ` <span class="kml-feat-badge">${featCnt}</span>` : ''}</div>
       <button class="kml-icon-btn ${lblOn ? 'on' : ''}" onclick="toggleLayerLabels('${l.id}')" title="Подписи">🏷</button>
       <button class="kml-icon-btn" onclick="kmlZoomTo('${l.id}')" title="Приблизить">🔍</button>
       ${o.noPin ? '' : `<button class="kml-icon-btn ${_kmlPlacingLayerId === l.id ? 'on' : ''}" onclick="kmlStartPlacement('${l.id}')" title="Разместить иконку">📌</button>`}
@@ -419,7 +425,7 @@ function _kmlFeatureChildRows(l) {
       else if (geomType === 'LineString') coordLabel = `${f.geometry.coordinates.length} точек`;
       else if (geomType === 'Polygon')    coordLabel = `${(f.geometry.coordinates[0] || []).length} вершин`;
     } catch (e) {}
-    return `<div class="kml-feat-row" style="${isHidden ? 'opacity:.45' : ''}">
+    return `<div class="kml-feat-row" style="${isHidden ? 'opacity:.45' : ''}" onmouseenter="kmlHoverFeature('${l.id}',${idx})" onmouseleave="kmlHoverOff()">
       <span class="kml-feat-sym">${preview}</span>
       <div class="kml-feat-info" onclick="kmlZoomToFeature('${l.id}',${idx})" title="Приблизить">
         <div class="kml-feat-name">${esc(nm)}</div>
@@ -600,30 +606,152 @@ function kmlRenameLayer(id) {
 }
 
 // ── Переместить в группу ────────────────────────────────────
-async function kmlMoveToGroup(lid, gid) {
+async function kmlMoveToGroup(lid, gid, noRender) {
   const l=layers.find(x=>x.id===lid);if(!l)return;
   l.group_id=gid||'';
-  await fetch(`${API}/layers/${lid}`,{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:l.name,color:l.color,visible:l.visible?1:0,symbol:l.symbol||'',group_id:l.group_id,line_dash:l.line_dash||'solid'})});
+  await _kmlPutMeta(l);
+  if(!noRender)renderKmlPanel();
+}
+// сохранить свойства слоя без геометрии (название, цвет, группа, знак…)
+function _kmlPutMeta(l){
+  return fetch(`${API}/layers/${l.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:l.name,color:l.color,visible:l.visible?1:0,symbol:l.symbol||'',group_id:l.group_id||'',line_dash:l.line_dash||'solid'})});
+}
+
+// ── Выбор нескольких слоёв: Ctrl / Shift + щелчок по названию ──
+let _kmlShown=[], _kmlAnchor=null;
+function _kmlRowClick(e,id,canExp){
+  if(_kmlTab!=='layers'){ if(canExp)_kmlToggleExpand(id); return; }
+  if(e.ctrlKey||e.metaKey){ if(_kmlSel.has(id))_kmlSel.delete(id);else _kmlSel.add(id); _kmlAnchor=id; _kmlRenderLayerPane(); return; }
+  if(e.shiftKey){
+    const a=_kmlShown.indexOf(_kmlAnchor!=null?_kmlAnchor:id), b=_kmlShown.indexOf(id);
+    if(a>=0&&b>=0){ _kmlShown.slice(Math.min(a,b),Math.max(a,b)+1).forEach(x=>_kmlSel.add(x)); try{getSelection().removeAllRanges();}catch(_){} _kmlRenderLayerPane(); return; }
+  }
+  _kmlAnchor=id;
+  if(canExp)_kmlToggleExpand(id);
+}
+async function kmlSelVis(v){
+  const ids=[..._kmlSel];for(const id of ids)await toggleLV(id,v);
+  renderKmlPanel();toast(`${v?'Показано':'Скрыто'} слоёв: ${ids.length}`,'ok');
+}
+function kmlSelColor(){
+  const ls=[..._kmlSel].map(i=>layers.find(t=>t.id===i)).filter(Boolean);if(!ls.length)return;
+  showModal(`🎨 Цвет для ${ls.length} слоёв`,`<div class="fg"><label>Цвет</label><input type="color" id="f-selcol" value="${escAttr(ls[0].color||'#1a56db')}" style="width:80px;height:36px;padding:2px"></div>`,
+    [{label:'Отмена',cls:'bs',fn:closeModal},{label:'Применить',cls:'bp',fn:async()=>{
+      const c=document.getElementById('f-selcol').value;closeModal();
+      for(const t of ls){t.color=c;await _kmlPutMeta(t);if(typeof kmlInvalidateLayerCache==='function')kmlInvalidateLayerCache(t.id);}
+      try{renderLayerGroups();}catch(e){} renderKmlPanel();toast(`Цвет изменён: ${ls.length}`,'ok');
+    }}]);
+}
+function _kmlSelMenu(cx,cy){
+  const n=_kmlSel.size;window._ctxKeepUntil=Date.now()+300;
+  showCtx(cx,cy,[
+    {i:'☑',l:`<b>Выбрано слоёв: ${n}</b>`,html:true,f:null},{sep:true},
+    {i:'📁',l:'В группу…',f:()=>kmlPickGroup([..._kmlSel],cx,cy)},
+    {i:'👁',l:'Показать',f:()=>kmlSelVis(1)},
+    {i:'🚫',l:'Скрыть',f:()=>kmlSelVis(0)},
+    {i:'🎨',l:'Один цвет…',f:kmlSelColor},
+    {i:'📄',l:'Дублировать',f:async()=>{for(const id of [..._kmlSel])await kmlDuplicateLayer(id,true);renderKmlPanel();toast(`Скопировано слоёв: ${n}`,'ok');}},
+    ...(n>=2?[{i:'🔗',l:`Объединить в один (${n})`,f:kmlMergeSelected}]:[]),
+    {sep:true},
+    {i:'✕',l:'Снять выбор',f:kmlSelClear},
+    {i:'🗑',l:`Удалить (${n})`,cls:'dan',f:kmlDeleteSelected},
+  ]);
+}
+// Дублировать слой: копия геометрии, стиля и группы, «(копия)» в названии
+async function kmlDuplicateLayer(id,quiet){
+  const l=layers.find(x=>x.id===id);if(!l)return;
+  let gj;try{gj=JSON.parse(l.geojson);}catch(e){toast('Ошибка разбора слоя','err');return;}
+  (gj.features||[]).forEach(f=>{if(f&&f.properties)delete f.properties._uid;});   // у копии — свои постоянные id
+  const base=String(l.name).replace(/\s*\(копия(?: \d+)?\)$/,'');
+  let nm=base+' (копия)',k=2;while(layers.some(x=>x.name===nm))nm=`${base} (копия ${k++})`;
+  try{
+    const r=await fetch(`${API}/layers`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:nm,geojson:JSON.stringify(gj),color:l.color,symbol:l.symbol||'',group_id:l.group_id||'',line_dash:l.line_dash||'solid'})});
+    if(!r.ok)throw new Error(r.status);
+    const {id:nid}=await r.json();
+    await fetch(`${API}/layers/${nid}`,{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:nm,color:l.color,visible:1,symbol:l.symbol||'',group_id:l.group_id||'',line_dash:l.line_dash||'solid',
+        min_zoom:l.min_zoom,max_zoom:l.max_zoom,size:l.size,show_labels:l.show_labels?1:0,fill_opacity:l.fill_opacity})});
+    if(l.style_json){let st=null;try{st=JSON.parse(l.style_json);}catch(e){}
+      if(st){delete st.notes;delete st.situation;await fetch(`${API}/layers/${nid}/style`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({style:st})});}}
+    layers=await fetch(`${API}/layers`).then(x=>x.json()).catch(()=>layers);
+    if(layerLabels[id])layerLabels[nid]=true;
+    if(!quiet){renderKmlPanel();try{renderLayerGroups();}catch(e){}toast(`Создан «${nm}»`,'ok');}
+    return nid;
+  }catch(e){toast('Не удалось скопировать слой: '+e.message,'err');}
+}
+
+// ── Перетаскивание слоёв: на группу слева — перенос, на другой слой — порядок ──
+let _kmlDrag=null;
+function _kmlDragStart(e,id){
+  const ids=_kmlSel.has(id)&&_kmlSel.size>1?_kmlShown.filter(x=>_kmlSel.has(x)):[id];
+  _kmlDrag={ids};
+  try{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain','kml:'+ids.join(','));}catch(_){}
+  setTimeout(()=>document.querySelectorAll('.kml-layer-row').forEach(r=>{if(ids.includes(r.dataset.lid))r.classList.add('dragging');}),0);
+  document.getElementById('kml-cats')?.classList.add('dnd-on');
+}
+function _kmlDragEnd(){
+  _kmlDrag=null;
+  document.querySelectorAll('.dragging,.dnd-top,.dnd-bot,.dnd-over').forEach(x=>x.classList.remove('dragging','dnd-top','dnd-bot','dnd-over'));
+  document.getElementById('kml-cats')?.classList.remove('dnd-on');
+}
+function _kmlDragOver(e,id){
+  if(!_kmlDrag||_kmlDrag.ids.includes(id))return;
+  e.preventDefault();e.dataTransfer.dropEffect='move';
+  const r=e.currentTarget.getBoundingClientRect(),top=e.clientY<r.top+r.height/2;
+  e.currentTarget.classList.toggle('dnd-top',top);e.currentTarget.classList.toggle('dnd-bot',!top);
+}
+async function _kmlDrop(e,id){
+  if(!_kmlDrag)return;e.preventDefault();
+  const ids=_kmlDrag.ids,r=e.currentTarget.getBoundingClientRect(),before=e.clientY<r.top+r.height/2;
+  _kmlDragEnd();
+  if(ids.includes(id))return;
+  const tgt=layers.find(x=>x.id===id);if(!tgt)return;
+  // перенесённые встают перед / после целевого слоя; группа — как у целевого
+  const moving=ids.map(i=>layers.find(x=>x.id===i)).filter(Boolean);
+  const rest=layers.filter(x=>!ids.includes(x.id));
+  let k=rest.indexOf(tgt);if(!before)k++;
+  rest.splice(k,0,...moving);layers=rest;
+  for(const t of moving)if((t.group_id||'')!==(tgt.group_id||'')){t.group_id=tgt.group_id||'';await _kmlPutMeta(t);}
+  await _kmlSaveOrder();
+  renderKmlPanel();try{renderLayerGroups();}catch(_){}
+}
+function _kmlCatDragOver(e,cat){if(!_kmlDrag||cat==='ALL')return;e.preventDefault();e.currentTarget.classList.add('dnd-over');}
+async function _kmlCatDrop(e,cat){
+  if(!_kmlDrag||cat==='ALL')return;e.preventDefault();
+  const ids=_kmlDrag.ids;_kmlDragEnd();
+  const gid=cat==='UNGROUPED'?'':cat;
+  const mv=ids.map(i=>layers.find(x=>x.id===i)).filter(t=>t&&(t.group_id||'')!==gid);
+  if(!mv.length)return;
+  for(const t of mv)await kmlMoveToGroup(t.id,gid||null,true);
   renderKmlPanel();
+  toast(gid?`→ «${kmGroups[gid].name}»: ${mv.length} сл.`:`Убрано из групп: ${mv.length}`,'ok');
+}
+async function _kmlSaveOrder(){
+  try{await fetch(`${API}/layers/order`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:layers.map(x=>x.id)})});}
+  catch(e){toast('Порядок не сохранён — нет связи','err');}
 }
 
 // Выбор группы из списка с поиском; можно сразу создать новую (ввести название)
 function kmlPickGroup(lid,x,y){
-  const l=layers.find(t=>t.id===lid);if(!l)return;
+  const ids=Array.isArray(lid)?lid:[lid];
+  const ls=ids.map(i=>layers.find(t=>t.id===i)).filter(Boolean);if(!ls.length)return;
+  const l=ls[0];
   const cnt=gid=>layers.filter(t=>t.group_id===gid).length;
   const items=kmGroupOrder.filter(g=>kmGroups[g]).map(g=>({v:g,l:kmGroups[g].name,sub:cnt(g)+' сл.'}));
-  if(l.group_id)items.unshift({v:'',l:'— без группы'});
-  _searchPick({x,y,title:`«${l.name}» — в группу`,items,current:l.group_id||'',addLabel:'группу',onPick:async v=>{
+  if(ls.some(t=>t.group_id))items.unshift({v:'',l:'— без группы'});
+  _searchPick({x,y,title:ls.length>1?`${ls.length} слоёв — в группу`:`«${l.name}» — в группу`,items,current:ls.length>1?null:(l.group_id||''),addLabel:'группу',onPick:async v=>{
     if(v==null)return;
     let gid=v;
     if(v&&!kmGroups[v]){   // новое название — создать группу
       const ex=kmGroupOrder.find(g=>kmGroups[g]&&kmGroups[g].name.toLowerCase()===String(v).toLowerCase());
       if(ex)gid=ex;else{gid='g_'+Date.now();kmGroups[gid]={id:gid,name:String(v),collapsed:false,site_ids:[]};kmGroupOrder.push(gid);await saveKmGroups();}
     }
-    if((l.group_id||'')===(gid||''))return;
-    await kmlMoveToGroup(lid,gid||null);
-    toast(gid?`Слой перенесён в «${kmGroups[gid].name}»`:'Слой убран из группы','ok');
+    const mv=ls.filter(t=>(t.group_id||'')!==(gid||''));if(!mv.length)return;
+    for(const t of mv)await kmlMoveToGroup(t.id,gid||null,true);
+    renderKmlPanel();
+    toast(gid?`${mv.length>1?'Слоёв перенесено: '+mv.length+' →':'Слой перенесён в'} «${kmGroups[gid].name}»`:(mv.length>1?`Убрано из групп: ${mv.length}`:'Слой убран из группы'),'ok');
   }});
 }
 
@@ -643,6 +771,7 @@ function kmlLayerCtx(ev, id) {
   if(ev&&ev.stopPropagation)ev.stopPropagation();
   const l=layers.find(x=>x.id===id);if(!l)return;
   const cx=ev.clientX,cy=ev.clientY;
+  if(_kmlSel.has(id)&&_kmlSel.size>1){_kmlSelMenu(cx,cy);return;}
   // одна строка «В группу…» → список групп с поиском (групп бывает много)
   const curG=l.group_id&&kmGroups[l.group_id]?kmGroups[l.group_id].name:'';
   const groupItems=[{sep:true},
@@ -652,6 +781,7 @@ function kmlLayerCtx(ev, id) {
     {i:'🗺',l:`<b>${esc(l.name)}</b>`,f:null},{sep:true},
     {i:_kmlExpanded.has(id)?'▼':'▶',l:_kmlExpanded.has(id)?'Свернуть объекты':'Показать объекты',f:()=>{if(!_kmlExpanded.has(id))_kmlExpanded.add(id);_kmlRenderLayerPane();}},
     {i:'🎨',l:'Стиль / условный знак',f:()=>kmlOpenStyleModal(id)},
+    {i:'📄',l:'Дублировать слой',f:()=>kmlDuplicateLayer(id)},
     {i:'📊',l:'Таблица атрибутов',f:()=>kmlAttrTable(id)},
     {i:'📋',l:'Каталог координат…',f:()=>coordCatalogLayer(id)},
     ...(typeof volByLayer==='function'&&volByLayer(id)&&typeof featSemReport==='function'?[{i:'📑',l:'Ведомость выработок (Excel)',f:()=>{const v=volByLayer(id);featSemReport([id],v.name+(v.site_name?' — '+v.site_name:''));}}]:[]),
@@ -1857,6 +1987,8 @@ function renderLayerGroupsWithSymbols() {
               L.DomEvent.stopPropagation(ev);
               const pt = { latlng: exact, originalEvent: { altKey: true } };
               if (_kdActive) _kdClick(pt); else if (_demVertMode) _demVertClick(pt); else if (_epActive) _epClick(pt); else if (_ksActive) _ksClick(pt);
+            } else if (!exact && typeof kmlMeasurePopup === 'function') {
+              kmlMeasurePopup(ev.latlng, f, l);   // линия / полигон — длина, площадь (map-assist.js)
             }
           });
 
@@ -1968,6 +2100,8 @@ function renderLayerGroupsWithSymbols() {
     }
   });
 
+  // порядок наложения как в списке «Слои»: верхний слой — сверху (линии и полигоны)
+  try { layers.slice().reverse().forEach(l => { const g = lGroups[l.id]; if (g && g.bringToFront && !l.site_id) g.bringToFront(); }); } catch (e) {}
   // Объёмы всегда поверх KML
   setTimeout(bringVolumesToFront, 50);
   if (typeof kmlRenderLegend === 'function') kmlRenderLegend();

@@ -183,9 +183,9 @@ body.kat-resizing{cursor:ns-resize!important;user-select:none}
 .kat-hd input{flex:1;min-width:160px;max-width:320px;font-size:12px;padding:4px 8px}
 .kat-hd .kml-panel-close{margin-left:auto}
 .kat-body{flex:1;overflow:auto}
-.kat-tbl{border-collapse:collapse;font-size:12px;width:max-content;min-width:100%}
-.kat-tbl th{position:sticky;top:0;background:var(--s2);text-align:left;padding:5px 8px;border-bottom:1.5px solid var(--bd);cursor:pointer;white-space:nowrap;font-size:11px;user-select:none;max-width:260px;overflow:hidden;text-overflow:ellipsis}
-.kat-tbl td{padding:3px 8px;border-bottom:1px solid var(--bd);white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
+.kat-tbl{border-collapse:separate;border-spacing:0;font-size:12px;table-layout:fixed}
+.kat-tbl th{position:sticky;top:0;z-index:2;background:var(--s2);text-align:left;padding:5px 18px 5px 8px;border-bottom:1.5px solid var(--bd);cursor:pointer;white-space:nowrap;font-size:11px;user-select:none;overflow:hidden;text-overflow:ellipsis}
+.kat-tbl td{padding:3px 8px;border-bottom:1px solid var(--bd);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kat-tbl tr{cursor:pointer}
 .kat-tbl tbody tr:hover{background:var(--s2)}
 .kat-tbl tr.on{background:color-mix(in srgb,#facc15 30%,transparent)}
@@ -193,6 +193,33 @@ body.kat-resizing{cursor:ns-resize!important;user-select:none}
 .kat-tbl tr.sel{background:color-mix(in srgb,#f59e0b 22%,transparent)}
 .kat-tbl tr.sel.on{background:color-mix(in srgb,#f59e0b 38%,transparent)}
 .kat-tbl tbody{user-select:none}
+/* закреплённые слева столбцы (☐ # значок и первое поле) */
+.kat-tbl .kat-fz{position:sticky;z-index:1;background:var(--s)}
+.kat-tbl th.kat-fz{z-index:3;background:var(--s2)}
+.kat-tbl .kat-fzl{box-shadow:inset -1.5px 0 0 var(--bd)}
+.kat-tbl tbody tr:hover td.kat-fz{background:var(--s2)}
+.kat-tbl tr.on td.kat-fz{background:color-mix(in srgb,#facc15 30%,var(--s))}
+.kat-tbl tr.sel td.kat-fz{background:color-mix(in srgb,#f59e0b 22%,var(--s))}
+.kat-tbl td.kat-cell{box-shadow:inset 0 0 0 2px var(--acc)}
+.kat-tbl th .kat-thn{overflow:hidden;text-overflow:ellipsis}
+/* ширина столбца — потянуть правый край заголовка */
+.kat-rs{position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize}
+.kat-rs:hover,body.kat-colrs .kat-rs{background:color-mix(in srgb,var(--acc) 40%,transparent)}
+body.kat-colrs{cursor:col-resize!important;user-select:none}
+.kat-fb{position:absolute;right:7px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--tx3);padding:0 2px;border-radius:3px}
+.kat-fb:hover{background:var(--accl);color:var(--acc)}
+.kat-fb.on{color:#fff;background:var(--acc)}
+.kat-fltb{color:var(--acc);border-color:var(--acc)}
+/* окно фильтра по значениям */
+.kat-fm{position:fixed;z-index:10001;width:270px;background:var(--s);border:1.5px solid var(--bd);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:8px;font-size:12px;display:flex;flex-direction:column;gap:6px}
+.kat-fm-h{font-weight:800;font-size:12px}
+.kat-fm-s{display:flex;gap:4px}
+.kat-fm input[type=search]{font-size:12px;padding:4px 7px}
+.kat-fm label{display:flex;align-items:center;gap:6px;padding:2px 2px;cursor:pointer}
+.kat-fm label span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kat-fm label small{color:var(--tx3)}
+.kat-fm-l{max-height:240px;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:2px 4px}
+.kat-fm-b{display:flex;gap:6px;align-items:center}
 #kat-panel:focus{outline:none}
 .kat-tbl .kat-cb{width:22px;padding:2px 4px;text-align:center}
 .kat-tbl .kat-cb input{margin:0;cursor:pointer;width:13px;height:13px}

@@ -568,7 +568,7 @@ function volKmlRenderPane() {
         const l = (layers || []).find(x => x.id === v.layer_id); if (!l) return;
         shown++; if (lvis(l)) vis++;
         const t = { done: +v.done || 0, done2: +v.done2 || 0, pct: v.amount > 0 ? Math.min(100, Math.round((+v.done || 0) / v.amount * 100)) : 0 };
-        html += _kmlLayerRowHtml(l, {
+        html += _kmlLayerRowHtml(l, { noDrag: true,
           name: `<b>${esc(v.name)}</b>`, cls: 'vlp-row', noPin: true,
           sub: `<div class="vlp-prog"><div class="pbt"><div class="pbf" style="width:${t.pct}%;background:${t.pct >= 100 ? 'var(--grn)' : 'var(--acc)'}"></div></div>
             <b style="color:${t.pct >= 100 ? 'var(--grn)' : 'var(--acc)'}">${t.pct}%</b></div>${volLine(v, t)}${l.name !== v.name ? ` · <span title="Слой">🗂 ${esc(l.name)}</span>` : ''}${typeof featSemBadges === 'function' ? featSemBadges(l, v) : ''}`,

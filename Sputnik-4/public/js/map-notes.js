@@ -105,7 +105,7 @@ function mnKmlRenderPane() {
       <div style="font-size:10px;color:var(--tx3);margin-top:4px">«✏️ Рисовать заметки» слева или «🧰 Инструменты ▾ → Заметки» внизу карты</div></div>`;
     return;
   }
-  const rows = ls.map(l => _kmlLayerRowHtml(l, {
+  const rows = ls.map(l => _kmlLayerRowHtml(l, { noDrag: true,
     noPin: true, cls: cur && cur.id === l.id ? 'mn-cur' : '',
     name: `${cur && cur.id === l.id ? '<span title="Новые заметки рисуются сюда">✏️</span> ' : ''}${esc(l.name)}`,
     btns: `<button class="kml-icon-btn ${cur && cur.id === l.id && MN.mode ? 'on' : ''}" onclick="mapNotesDrawTo('${escAttr(l.id)}')" title="Рисовать заметки в этот слой">✏️</button>`,

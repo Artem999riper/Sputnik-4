@@ -180,12 +180,15 @@ function kmlLegendShow() {}
 // ── Таблица атрибутов (панель снизу карты) ─────────────────
 const KAT = { layerId: null, sort: null, dir: 1, q: '', sel: -1, hl: null, max: 1500, onlySel: false, order: [] };
 function kmlAttrTable(layerId) {
+  if (KAT.layerId !== layerId) { KAT.flt = {}; KAT.cell = null; }
   KAT.layerId = layerId; KAT.sort = null; KAT.dir = 1; KAT.q = ''; KAT.sel = -1; KAT.onlySel = false;
   let p = document.getElementById('kat-panel');
   if (!p) {
     p = document.createElement('div'); p.id = 'kat-panel'; p.tabIndex = -1;
     // Ctrl+A — выделить все показанные строки
     p.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'ф' || e.code === 'KeyA') && !e.target.closest('input')) { e.preventDefault(); _katSelAll(true); } });
+    p.addEventListener('paste', e => { if (e.target.closest('input,textarea')) return; const t = (e.clipboardData || window.clipboardData).getData('text'); if (t) { e.preventDefault(); _katPaste(t); } });
+    p.addEventListener('copy', e => { if (e.target.closest('input,textarea') || String(getSelection()).trim()) return; if (_katCopy()) e.preventDefault(); });
     document.body.appendChild(p);
   }
   _katRestoreH();
@@ -249,14 +252,33 @@ function _katSize(f) {
   } catch (e) {}
   return { v: null, t: '' };
 }
+// ширины столбцов: по слою, в localStorage kat_w = {layerId: {столбец: px}}
+function _katW(lid) { try { return (JSON.parse(localStorage.getItem('kat_w') || '{}') || {})[lid] || {}; } catch (e) { return {}; } }
+function _katWSave(lid, w) { try { const a = JSON.parse(localStorage.getItem('kat_w') || '{}') || {}; if (w && Object.keys(w).length) a[lid] = w; else delete a[lid]; localStorage.setItem('kat_w', JSON.stringify(a)); } catch (e) {} }
+// значение ячейки для фильтра и сравнения
+function _katCellVal(f, k, vm) {
+  const p = f.properties || {};
+  if (k === '#done') return p._done ? 'выполнено' : p._skip ? 'исключён' : 'не выполнено';
+  if (k === '#date') return p._done && p._done_date ? String(p._done_date).slice(0, 10) : '';
+  if (k === '#f2') return p._done && vm ? String(volFact2Of(f, vm) ?? '') : '';
+  return p[k] == null ? '' : String(p[k]);
+}
 function _katRender() {
   const p = document.getElementById('kat-panel'), l = _katLayer();
   if (!p || !l) { kmlAttrTableClose(); return; }
+  const bodyEl = p.querySelector('.kat-body'), sx = bodyEl ? bodyEl.scrollLeft : 0, sy = bodyEl ? bodyEl.scrollTop : 0;
   const feats = _kaFeatures(l), fields = kmlFields(l, feats);
   const ic = t => /Point/.test(t) ? '📍' : /LineString/.test(t) ? '〰' : /Polygon/.test(t) ? '⬡' : '•';
+  const vol = typeof volByLayer === 'function' ? volByLayer(l.id) : null, vm = vol ? volMeasure(vol) : null;
   let rows = feats.map((f, i) => ({ f, i, sz: _katSize(f) }));
   const q = KAT.q.trim().toLowerCase();
   if (q) rows = rows.filter(r => fields.some(k => String((r.f.properties || {})[k] ?? '').toLowerCase().includes(q)));
+  // фильтры по столбцам (как в Excel): {столбец: [допустимые значения]}
+  KAT.flt = KAT.flt || {};
+  Object.keys(KAT.flt).forEach(k => { if (!k.startsWith('#') && !fields.includes(k)) delete KAT.flt[k]; });
+  KAT._pre = rows;   // до фильтров — для списка значений
+  const fk = Object.keys(KAT.flt);
+  if (fk.length) rows = rows.filter(r => fk.every(k => KAT.flt[k].has(_katCellVal(r.f, k, vm))));
   const nSel = _katSelIdx().length;
   if (KAT.onlySel && nSel) rows = rows.filter(r => kselHas(l.id, r.i)); else KAT.onlySel = false;
   if (KAT.sort) {
@@ -273,31 +295,175 @@ function _katRender() {
   const total = rows.length; rows = rows.slice(0, KAT.max); KAT.order = rows.map(r => r.i);
   const arrow = k => KAT.sort === k ? (KAT.dir > 0 ? ' ▲' : ' ▼') : '';
   const st = kmlStyleOf(l) || {};
-  // слой — объём объекта: столбцы «выполнено», дата, факт второго показателя
-  const vol = typeof volByLayer === 'function' ? volByLayer(l.id) : null, vm = vol ? volMeasure(vol) : null;
+  // столбцы: ☐ # значок | первое поле (закреплены) | ✅ дата факт (объём) | остальные поля | площадь
+  const W = _katW(l.id);
+  const autoW = k => { let m = String(k).length; for (let n = 0; n < Math.min(feats.length, 200); n++) { const v = (feats[n].properties || {})[k]; if (v != null) m = Math.max(m, String(v).length); } return Math.max(64, Math.min(280, m * 7 + 26)); };
+  const cols = [{ id: '#cb', w: 26, fz: 1 }, { id: '#n', w: 44, fz: 1 }, { id: '#ic', w: 34, fz: 1 }];
+  const f0 = fields[0], restF = fields.slice(1);
+  if (f0) cols.push({ id: f0, f: 1, fz: 1 });
+  if (vol) { cols.push({ id: '#done', w: 46 }, { id: '#date', w: 92 }); if (vm.second) cols.push({ id: '#f2', w: 86 }); }
+  restF.forEach(k => cols.push({ id: k, f: 1 }));
+  cols.push({ id: '#size', w: 132 });
+  let left = 0;
+  cols.forEach(c => { c.w = W[c.id] || c.w || autoW(c.id); if (c.fz) { c.left = left; left += c.w; } });
+  const lastFz = cols.filter(c => c.fz).pop();
+  const tw = cols.reduce((a, c) => a + c.w, 0);
+  const fz = c => c.fz ? ` kat-fz${c === lastFz ? ' kat-fzl' : ''}" style="left:${c.left}px` : '';
+  const fb = k => `<span class="kat-fb${KAT.flt[k] ? ' on' : ''}" onclick="event.stopPropagation();_katFilterMenu(event,'${escAttr(k)}')" title="Фильтр по значениям">${KAT.flt[k] ? '⏷' : '▾'}</span>`;
+  const rs = k => `<span class="kat-rs" onpointerdown="_katColResize(event,'${escAttr(k)}')" ondblclick="event.stopPropagation();_katColAuto('${escAttr(k)}')" onclick="event.stopPropagation()" title="Потяните — ширина · двойной щелчок — по содержимому"></span>`;
+  const head = c => {
+    const k = c.id;
+    if (k === '#cb') return `<th class="kat-cb${fz(c)}" title="Выделить все показанные / снять"><input type="checkbox" onclick="event.stopPropagation();_katSelAll(this.checked)" ${rows.length && rows.every(r => kselHas(l.id, r.i)) ? 'checked' : ''}></th>`;
+    if (k === '#n') return `<th class="${fz(c)}">#${rs(k)}</th>`;
+    if (k === '#ic') return `<th class="${fz(c)}"></th>`;
+    if (k === '#done') return `<th class="${fz(c)}" onclick="_katSort('#done')" title="Выполнено (щелчок по ячейке — отметить)">✅${arrow('#done')}${fb(k)}${rs(k)}</th>`;
+    if (k === '#date') return `<th class="${fz(c)}" onclick="_katSort('#date')">Дата${arrow('#date')}${fb(k)}${rs(k)}</th>`;
+    if (k === '#f2') return `<th class="${fz(c)}" onclick="_katSort('#f2')" title="Факт (${esc(volSecondLabel(vm))}); двойной щелчок — изменить">Факт, ${esc(vm.second.unit || '')}${arrow('#f2')}${fb(k)}${rs(k)}</th>`;
+    if (k === '#size') return `<th class="${fz(c)}" onclick="_katSort('#size')">Площадь / длина${arrow('#size')}${rs(k)}</th>`;
+    return `<th class="${fz(c)}" onclick="_katSort('${escAttr(k)}')" oncontextmenu="event.preventDefault();event.stopPropagation();_katFieldMenu(event,'${escAttr(k)}')" title="${esc(k)}"><span class="kat-thn">${esc(k)}${st.colorBy === k ? ' 🌈' : ''}${st.labelField === k ? ' 🏷' : ''}${arrow(k)}</span>${fb(k)}${rs(k)}</th>`;
+  };
+  const cell = (c, r) => {
+    const k = c.id, pr = r.f.properties || {};
+    if (k === '#cb') return `<td class="kat-cb${fz(c)}" onclick="event.stopPropagation();_katRowClick({ctrlKey:true},${r.i})"><input type="checkbox" tabindex="-1" ${kselHas(l.id, r.i) ? 'checked' : ''}></td>`;
+    if (k === '#n') return `<td class="${fz(c)}">${r.i + 1}</td>`;
+    if (k === '#ic') { const co = kmlAttrColor(l, pr); return `<td class="${fz(c)}">${co ? `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${co};margin-right:3px"></span>` : ''}${ic(r.f.geometry && r.f.geometry.type)}</td>`; }
+    if (k === '#done') return `<td class="kat-done${fz(c)}" onclick="event.stopPropagation();kmlToggleDone('${escAttr(l.id)}',${r.i})" title="${pr._skip ? 'Исключён из объёма' : pr._done ? 'Снять «выполнено»' : 'Выполнить'}">${pr._done ? '✅' : pr._skip ? '🚫' : '⬜'}</td>`;
+    if (k === '#date') return `<td class="${fz(c)}" style="color:var(--tx2)" ondblclick="event.stopPropagation();volDoneDialog('${escAttr(l.id)}',[${r.i}])">${pr._done && pr._done_date ? fmt(pr._done_date) : ''}</td>`;
+    if (k === '#f2') return `<td class="${fz(c)}" ondblclick="event.stopPropagation();volDoneDialog('${escAttr(l.id)}',[${r.i}])">${pr._done ? esc(String(volFact2Of(r.f, vm) ?? '')) : ''}</td>`;
+    if (k === '#size') return `<td class="${fz(c)}" style="color:var(--tx2)">${r.sz.t}</td>`;
+    const on = KAT.cell && KAT.cell.i === r.i && KAT.cell.k === k;
+    return `<td data-k="${escAttr(k)}" class="${on ? 'kat-cell' : ''}${fz(c)}" ondblclick="event.stopPropagation();_katEdit(this,${r.i},'${escAttr(k)}')" title="${escAttr(pr[k] == null ? '' : String(pr[k]).slice(0, 300))}">${esc(pr[k] == null ? '' : String(pr[k]))}</td>`;
+  };
+  const nFlt = Object.keys(KAT.flt).length;
   p.innerHTML = `<div class="kat-grip" onpointerdown="_katResize(event)" ondblclick="_katResizeToggle()" title="Потяните — выше / ниже · двойной щелчок — развернуть / как было"></div><div class="kat-hd">
-      <b>📋 ${esc(l.name)}</b><span style="color:var(--tx3)">${q ? `${total} из ${feats.length}` : feats.length} объект(ов)</span>
+      <b>📋 ${esc(l.name)}</b><span style="color:var(--tx3)">${q || nFlt ? `${total} из ${feats.length}` : feats.length} объект(ов)</span>
       <input id="kat-q" placeholder="🔍 Поиск по всем полям…" value="${escAttr(KAT.q)}" oninput="KAT.q=this.value;_katRender();setTimeout(()=>{const e=document.getElementById('kat-q');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},0)">
+      ${nFlt ? `<button class="btn bs bxs kat-fltb" onclick="KAT.flt={};_katRender()" title="Сбросить фильтры по столбцам">⏷ Фильтр: ${nFlt} ✕</button>` : ''}
       <button class="btn bs bxs" onclick="_katAddField()">＋ Поле</button>
       <span id="kat-selbox" class="kat-selbox">${_katSelBoxHtml(nSel)}</span>
-      <span style="color:var(--tx3);font-size:10px">щелчок — к объекту · Ctrl/Shift + щелчок — выделить · двойной щелчок — изменить · ПКМ — действия</span>
+      <span style="color:var(--tx3);font-size:10px" title="Щелчок по строке — к объекту; Ctrl/Shift + щелчок — выделить; двойной щелчок по ячейке — изменить; ▾ в заголовке — фильтр по значениям; край заголовка — ширина столбца; Ctrl+V — вставить из Excel с выбранной ячейки; Ctrl+C — копировать; ПКМ — действия">Ctrl/Shift — выделить · ▾ — фильтр · Ctrl+V — из Excel · ПКМ — действия ⓘ</span>
       <button class="kml-panel-close" onclick="kmlAttrTableClose()" title="Закрыть">✕</button></div>
-    <div class="kat-body"><table class="kat-tbl" oncontextmenu="_katCtx(event)"><thead><tr><th class="kat-cb" title="Выделить все показанные / снять"><input type="checkbox" onclick="event.stopPropagation();_katSelAll(this.checked)" ${rows.length && rows.every(r => kselHas(l.id, r.i)) ? 'checked' : ''}></th><th>#</th><th></th>
-      ${vol ? `<th onclick="_katSort('#done')" title="Выполнено (щелчок по ячейке — отметить)">✅${arrow('#done')}</th><th onclick="_katSort('#date')">Дата${arrow('#date')}</th>${vm.second ? `<th onclick="_katSort('#f2')" title="Факт (${esc(volSecondLabel(vm))}); двойной щелчок — изменить">Факт, ${esc(vm.second.unit || '')}${arrow('#f2')}</th>` : ''}` : ''}
-      ${fields.map(k => `<th onclick="_katSort('${escAttr(k)}')" oncontextmenu="event.preventDefault();_katFieldMenu(event,'${escAttr(k)}')" title="${esc(k)}">${esc(k)}${st.colorBy === k ? ' 🌈' : ''}${st.labelField === k ? ' 🏷' : ''}${arrow(k)}</th>`).join('')}
-      <th onclick="_katSort('#size')">Площадь / длина${arrow('#size')}</th></tr></thead><tbody>
+    <div class="kat-body"><table class="kat-tbl" style="width:${tw}px" oncontextmenu="_katCtx(event)" onmouseleave="kmlHoverOff&&kmlHoverOff()">
+      <colgroup>${cols.map(c => `<col data-c="${escAttr(c.id)}" style="width:${c.w}px">`).join('')}</colgroup>
+      <thead><tr>${cols.map(head).join('')}</tr></thead><tbody>
       ${rows.map(r => {
-        const pr = r.f.properties || {}, c = kmlAttrColor(l, pr);
-        const sl = kselHas(l.id, r.i);
-        return `<tr data-i="${r.i}" class="${r.i === KAT.sel ? 'on' : ''}${sl ? ' sel' : ''}${pr._hidden || pr._skip ? ' hid' : ''}" onclick="_katRowClick(event,${r.i})">
-          <td class="kat-cb" onclick="event.stopPropagation();_katRowClick({ctrlKey:true},${r.i})"><input type="checkbox" tabindex="-1" ${sl ? 'checked' : ''}></td><td>${r.i + 1}</td><td>${c ? `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${c};margin-right:3px"></span>` : ''}${ic(r.f.geometry && r.f.geometry.type)}</td>
-          ${vol ? `<td class="kat-done" onclick="event.stopPropagation();kmlToggleDone('${escAttr(l.id)}',${r.i})" title="${pr._skip ? 'Исключён из объёма' : pr._done ? 'Снять «выполнено»' : 'Выполнить'}">${pr._done ? '✅' : pr._skip ? '🚫' : '⬜'}</td>
-            <td style="color:var(--tx2)" ondblclick="event.stopPropagation();volDoneDialog('${escAttr(l.id)}',[${r.i}])">${pr._done && pr._done_date ? fmt(pr._done_date) : ''}</td>
-            ${vm.second ? `<td ondblclick="event.stopPropagation();volDoneDialog('${escAttr(l.id)}',[${r.i}])">${pr._done ? esc(String(volFact2Of(r.f, vm) ?? '')) : ''}</td>` : ''}` : ''}
-          ${fields.map(k => `<td data-k="${escAttr(k)}" ondblclick="event.stopPropagation();_katEdit(this,${r.i},'${escAttr(k)}')">${esc(pr[k] == null ? '' : String(pr[k]))}</td>`).join('')}
-          <td style="color:var(--tx2)">${r.sz.t}</td></tr>`;
+        const pr = r.f.properties || {}, sl = kselHas(l.id, r.i);
+        return `<tr data-i="${r.i}" class="${r.i === KAT.sel ? 'on' : ''}${sl ? ' sel' : ''}${pr._hidden || pr._skip ? ' hid' : ''}" onclick="_katRowClick(event,${r.i})" onmouseenter="kmlHoverFeature&&kmlHoverFeature('${escAttr(l.id)}',${r.i})">${cols.map(c => cell(c, r)).join('')}</tr>`;
       }).join('')}
-      </tbody></table>${total > KAT.max ? `<div style="padding:6px;color:var(--tx3);font-size:11px">Показаны первые ${KAT.max} из ${total} — уточните поиск.</div>` : ''}</div>`;
+      </tbody></table>${!rows.length ? `<div style="padding:10px;color:var(--tx3);font-size:12px">Ничего не найдено${nFlt ? ' — <a href="#" onclick="event.preventDefault();KAT.flt={};_katRender()">сбросить фильтры</a>' : ''}</div>` : ''}${total > KAT.max ? `<div style="padding:6px;color:var(--tx3);font-size:11px">Показаны первые ${KAT.max} из ${total} — уточните поиск.</div>` : ''}</div>`;
+  const nb = p.querySelector('.kat-body'); if (nb) { nb.scrollLeft = sx; nb.scrollTop = sy; }
+  KAT._cols = cols;
+}
+// ширина столбца: потянуть правый край заголовка
+function _katColResize(e, k) {
+  e.preventDefault(); e.stopPropagation();
+  const l = _katLayer(); if (!l) return;
+  const col = document.querySelector(`#kat-panel col[data-c="${CSS.escape(k)}"]`), tbl = document.querySelector('#kat-panel .kat-tbl');
+  if (!col || !tbl) return;
+  const x0 = e.clientX, w0 = parseFloat(col.style.width) || 80, t0 = parseFloat(tbl.style.width) || 0;
+  document.body.classList.add('kat-colrs');
+  let w = w0;
+  const mv = ev => { w = Math.max(30, Math.min(900, w0 + ev.clientX - x0)); col.style.width = w + 'px'; tbl.style.width = (t0 + w - w0) + 'px'; };
+  const up = () => {
+    document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up);
+    document.body.classList.remove('kat-colrs');
+    const W = _katW(l.id); W[k] = Math.round(w); _katWSave(l.id, W); _katRender();
+  };
+  document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up);
+}
+function _katColAuto(k) { const l = _katLayer(); if (!l) return; const W = _katW(l.id); delete W[k]; _katWSave(l.id, W); _katRender(); }
+
+// ── фильтр по столбцу: список значений с галочками (как в Excel) ──
+function _katFilterMenu(e, k) {
+  const l = _katLayer(); if (!l) return;
+  document.getElementById('kat-fm')?.remove();
+  const vol = typeof volByLayer === 'function' ? volByLayer(l.id) : null, vm = vol ? volMeasure(vol) : null;
+  // значения — среди строк, прошедших поиск и фильтры других столбцов
+  const others = Object.keys(KAT.flt).filter(x => x !== k);
+  const base = (KAT._pre || []).filter(r => others.every(x => KAT.flt[x].has(_katCellVal(r.f, x, vm))));
+  const cnt = new Map(); base.forEach(r => { const v = _katCellVal(r.f, k, vm); cnt.set(v, (cnt.get(v) || 0) + 1); });
+  const vals = [...cnt.keys()].sort((a, b) => a === '' ? 1 : b === '' ? -1 : (Number.isFinite(+a) && Number.isFinite(+b) && a.trim() && b.trim() ? +a - +b : a.localeCompare(b, 'ru', { numeric: true })));
+  const cur = KAT.flt[k];
+  const box = document.createElement('div'); box.id = 'kat-fm'; box.className = 'kat-fm';
+  const nm = k === '#done' ? 'Выполнено' : k === '#date' ? 'Дата' : k === '#f2' ? 'Факт' : k;
+  box.innerHTML = `<div class="kat-fm-h">⏷ ${esc(nm)}</div>
+    <div class="kat-fm-s"><button class="btn bs bxs" data-a="asc">▲ По возрастанию</button><button class="btn bs bxs" data-a="desc">▼ По убыванию</button></div>
+    <input type="search" placeholder="🔍 Поиск значения…">
+    <label class="kat-fm-all"><input type="checkbox" data-all> <b>(Выделить все)</b></label>
+    <div class="kat-fm-l">${vals.map((v, n) => `<label><input type="checkbox" data-n="${n}" ${!cur || cur.has(v) ? 'checked' : ''}> <span>${v === '' ? '<i>(пусто)</i>' : esc(v.length > 80 ? v.slice(0, 80) + '…' : v)}</span><small>${cnt.get(v)}</small></label>`).join('')}</div>
+    <div class="kat-fm-b"><button class="btn bs bxs" data-a="clear">Сбросить</button><span style="flex:1"></span><button class="btn bs bxs" data-a="cancel">Отмена</button><button class="btn bp bxs" data-a="ok">OK</button></div>`;
+  document.body.appendChild(box);
+  const r = e.currentTarget.closest('th').getBoundingClientRect();
+  box.style.left = Math.max(6, Math.min(r.left, innerWidth - box.offsetWidth - 6)) + 'px';
+  box.style.top = Math.max(6, Math.min(r.bottom + 2, innerHeight - box.offsetHeight - 6)) + 'px';
+  const cbs = () => [...box.querySelectorAll('.kat-fm-l input')];
+  const shown = () => cbs().filter(c => c.closest('label').style.display !== 'none');
+  const all = box.querySelector('[data-all]');
+  const syncAll = () => { const s = shown(); all.checked = s.length && s.every(c => c.checked); all.indeterminate = !all.checked && s.some(c => c.checked); };
+  syncAll();
+  all.onchange = () => shown().forEach(c => { c.checked = all.checked; });
+  box.querySelector('.kat-fm-l').onchange = syncAll;
+  const inp = box.querySelector('input[type=search]');
+  inp.oninput = () => { const qq = inp.value.toLowerCase(); cbs().forEach(c => { const v = vals[+c.dataset.n]; c.closest('label').style.display = !qq || v.toLowerCase().includes(qq) ? '' : 'none'; }); syncAll(); };
+  const close = () => { box.remove(); document.removeEventListener('mousedown', out, true); document.removeEventListener('keydown', key, true); };
+  const ok = () => {
+    // при поиске — оставить только найденные отмеченные (как в Excel)
+    const qq = inp.value.trim(), on = (qq ? shown() : cbs()).filter(c => c.checked).map(c => vals[+c.dataset.n]);
+    if (!qq && on.length === vals.length) delete KAT.flt[k]; else KAT.flt[k] = new Set(on);
+    close(); _katRender();
+  };
+  box.onclick = ev => {
+    const a = ev.target.closest('[data-a]'); if (!a) return;
+    const act = a.dataset.a;
+    if (act === 'ok') ok(); else if (act === 'cancel') close();
+    else if (act === 'clear') { delete KAT.flt[k]; close(); _katRender(); }
+    else { KAT.sort = k; KAT.dir = act === 'asc' ? 1 : -1; close(); _katRender(); }
+  };
+  const out = ev => { if (!box.contains(ev.target)) close(); };
+  const key = ev => { if (ev.key === 'Escape') { ev.stopPropagation(); close(); } else if (ev.key === 'Enter') { ev.preventDefault(); ok(); } };
+  setTimeout(() => { document.addEventListener('mousedown', out, true); document.addEventListener('keydown', key, true); }, 0);
+  inp.focus();
+}
+
+// ── вставка из Excel (Ctrl+V) и копирование (Ctrl+C) ──
+// Вставка — с текущей ячейки (щёлкните по ней) вниз и вправо по показанным строкам и столбцам.
+// Одно значение при нескольких выделенных строках — во все выделенные строки этого столбца.
+function _katToVal(old, t) {
+  t = String(t).trim();
+  if (/^-?\d+(?:[.,]\d+)?$/.test(t) && !(typeof old === 'string' && old.trim() && !Number.isFinite(_kaNum(old)))) return +t.replace(',', '.');
+  return t;
+}
+async function _katPaste(text) {
+  const l = _katLayer(); if (!l) return;
+  if (!KAT.cell) { toast('Щёлкните по ячейке, с которой вставлять', 'warn'); return; }
+  const feats = _kaFeatures(l), fields = (KAT._cols || []).filter(c => c.f).map(c => c.id);
+  const grid = String(text).replace(/\r/g, '').replace(/\n$/, '').split('\n').map(r => r.split('\t'));
+  const c0 = fields.indexOf(KAT.cell.k), r0 = KAT.order.indexOf(KAT.cell.i);
+  if (c0 < 0 || r0 < 0) { toast('Ячейка не видна в таблице', 'warn'); return; }
+  const sel = _katSelIdx();
+  const writes = [];   // [i, k, v]
+  if (grid.length === 1 && grid[0].length === 1 && sel.length > 1 && sel.includes(KAT.cell.i)) {
+    sel.forEach(i => writes.push([i, KAT.cell.k, grid[0][0]]));
+  } else {
+    grid.forEach((row, dr) => row.forEach((v, dc) => {
+      const i = KAT.order[r0 + dr], k = fields[c0 + dc];
+      if (i != null && k != null) writes.push([i, k, v]);
+    }));
+  }
+  if (!writes.length) return;
+  const lost = grid.length * (grid[0] || []).length - writes.length;
+  if (writes.length > 1) {
+    const cols = [...new Set(writes.map(w => w[1]))];
+    if (!await confirmDlg(`Вставить ${writes.length} знач. в столбц${cols.length > 1 ? 'ы' : 'е'} «${cols.join('», «')}» (${new Set(writes.map(w => w[0])).size} строк)?${lost > 0 ? `\nНе поместилось: ${lost} — за краем таблицы.` : ''}`, { okLabel: 'Вставить', danger: false })) return;
+  }
+  await _katSave(l, fs => { writes.forEach(([i, k, v]) => { if (!fs[i]) return; fs[i].properties = fs[i].properties || {}; fs[i].properties[k] = _katToVal(fs[i].properties[k], v); }); }, `Вставлено: ${writes.length}`);
+}
+function _katCopy() {
+  const l = _katLayer(); if (!l) return false;
+  const sel = _katSelIdx();
+  if (sel.length) { _katCopyRows(KAT.order.filter(i => sel.includes(i))); return true; }
+  if (KAT.cell) { const v = ((_kaFeatures(l)[KAT.cell.i] || {}).properties || {})[KAT.cell.k]; navigator.clipboard.writeText(v == null ? '' : String(v)).then(() => toast('Скопировано', 'ok')); return true; }
+  return false;
 }
 function _katSort(k) { if (KAT.sort === k) KAT.dir = -KAT.dir; else { KAT.sort = k; KAT.dir = 1; } _katRender(); }
 function _katHl(f) {
@@ -333,6 +499,9 @@ function _katSelBoxHtml(n) {
 }
 function _katRowClick(e, i) {
   const l = _katLayer(); if (!l) return;
+  // текущая ячейка — для вставки из Excel / копирования
+  const td = e && e.target && e.target.closest && e.target.closest('td[data-k]');
+  if (td) { KAT.cell = { i, k: td.dataset.k }; document.querySelectorAll('#kat-panel td.kat-cell').forEach(x => x.classList.remove('kat-cell')); td.classList.add('kat-cell'); }
   if (e.shiftKey && KAT.sel >= 0) {                    // Shift — диапазон от текущей строки
     const a = KAT.order.indexOf(KAT.sel), b = KAT.order.indexOf(i);
     if (a >= 0 && b >= 0) { const x = Math.min(a, b), y = Math.max(a, b); KAT.order.slice(x, y + 1).forEach(j => kselToggle(l.id, j, true)); kselRender(); return; }

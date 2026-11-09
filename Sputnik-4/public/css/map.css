@@ -50,6 +50,13 @@ body:has(#kml-panel.open) #brigades-page{right:520px}
 /* layer rows */
 .kml-layer-row{display:flex;align-items:center;gap:3px;padding:4px 8px;border-bottom:1px solid var(--bd);transition:background .1s}
 .kml-layer-row:hover{background:var(--accl)}
+.kml-layer-row.sel{background:color-mix(in srgb,var(--acc) 14%,transparent)}
+.kml-layer-row[draggable=true]{cursor:grab}
+.kml-layer-row.dragging{opacity:.4}
+.kml-layer-row.dnd-top{box-shadow:inset 0 2px 0 var(--acc)}
+.kml-layer-row.dnd-bot{box-shadow:inset 0 -2px 0 var(--acc)}
+#kml-cats.dnd-on .kml-cat-row{outline:1px dashed color-mix(in srgb,var(--acc) 45%,transparent);outline-offset:-2px}
+.kml-cat-row.dnd-over{background:var(--accl)!important;outline:2px solid var(--acc)!important}
 .kml-layer-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;color:var(--tx);font-size:11px}
 .kml-icon-btn{background:none;border:1px solid transparent;cursor:pointer;font-size:12px;padding:2px 3px;border-radius:3px;color:var(--tx2);opacity:1;flex-shrink:0;transition:all .1s;line-height:1}
 .kml-icon-btn:hover{background:var(--s3);border-color:var(--bd);color:var(--tx)}
@@ -100,3 +107,9 @@ body:has(#kml-panel.open) #ep-panel{right:520px}
 .ep-body{flex:1;overflow:hidden;padding:4px 12px 8px;position:relative}
 #ep-loading{font-size:12px;color:var(--tx2);padding:24px;text-align:center}
 #ep-canvas{width:100%!important;height:165px!important}
+
+/* map-assist.js: подсветка при наведении и окно замера */
+@keyframes maBlink{0%,100%{opacity:1}50%{opacity:.35}}
+.ma-blink{animation:maBlink .8s ease-in-out infinite}
+.ma-pop{font-size:12px;line-height:1.6;min-width:180px}
+.ma-pop a{color:var(--acc);text-decoration:none;font-weight:600}

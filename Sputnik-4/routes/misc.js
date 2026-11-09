@@ -548,9 +548,18 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
   }));
 
   // ── KML LAYERS (global) ────────────────────────────────────
+  // порядок: новые (без sort_order) сверху, дальше — как расставили перетаскиванием
   app.get('/api/layers', wrap((req, res) =>
-    res.json(all(db(), 'SELECT * FROM kml_layers ORDER BY created_at DESC'))
+    res.json(all(db(), 'SELECT * FROM kml_layers ORDER BY sort_order IS NOT NULL, sort_order, created_at DESC'))
   ));
+  // новый порядок слоёв: {ids:[…]} — сверху вниз (перетаскивание в панели «Слои»)
+  app.patch('/api/layers/order', wrap((req, res) => {
+    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(String).slice(0, 20000) : null;
+    if (!ids) return res.status(400).json({ error: 'Нужен список ids' });
+    const d = db(), st = d.prepare('UPDATE kml_layers SET sort_order=? WHERE id=?');
+    d.transaction(() => ids.forEach((id, i) => st.run(i, id)))();
+    res.json({ ok: true, n: ids.length });
+  }));
 
   app.post('/api/layers', wrap((req, res) => {
     const err = required(['name', 'geojson'], req.body);
