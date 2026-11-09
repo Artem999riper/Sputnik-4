@@ -175,5 +175,13 @@ ds.GetRasterBand(1).WriteArray(z); ds=None`]);
     r = await A({ mode: 'compare', points: P.map((q, i) => [...q, d0[i] + 0.5]) });
     assert.ok(Math.abs(r.stats.mean - 0.5) < 0.2, 'сдвиг съёмки ' + r.stats.mean);
     assert.strictEqual((await S.api('POST', '/api/dem/analysis', { bbox, mode: 'watershed' })).status, 400);
+    // горизонтали через 5 м: отметки кратны шагу, каждая 5-я (кратная 25 м) — утолщённая
+    r = await A({ mode: 'contours', interval: 5 });
+    const cs = r.contours.features;
+    assert.ok(cs.length >= 3, 'горизонталей ' + cs.length);
+    assert.ok(cs.every(f => Math.abs(f.properties.h / 5 - Math.round(f.properties.h / 5)) < 1e-6), 'отметки не кратны 5 м');
+    assert.ok(cs.every(f => f.properties.major === (Math.round(f.properties.h / 5) % 5 === 0)), 'утолщённые — не каждая 5-я');
+    assert.ok(cs.every(f => /LineString/.test(f.geometry.type)));
+    assert.strictEqual(r.stats.interval, 5);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

@@ -1,14 +1,15 @@
 // ═══════════════════════════════════════════════════════════
 // terrain-ui.js — «🧭 Анализ рельефа» (сервер: terrain_analysis.py):
-//   уклоны (с контурами крутых участков), линии стока
+//   горизонтали с подписями (сразу на карте), уклоны (с контурами крутых участков), линии стока
 //   (тальвеги), водосбор точки, сравнение со своей съёмкой (разница, объёмы).
 // Область — как в «Затоплении» (прямоугольник, полигон, контур из слоя).
 // ═══════════════════════════════════════════════════════════
-const TA = Object.assign({ mode: 'slope', steep: 10, thr: '', layer: '', hfield: '', snap: 50 },
+const TA = Object.assign({ mode: 'slope', steep: 10, thr: '', layer: '', hfield: '', snap: 50, interval: 1, clabel: 'major' },
   (() => { try { return JSON.parse(localStorage.getItem('terrain_opts') || '{}'); } catch (e) { return {}; } })(),
   { res: null, busy: false, ov: null, vec: null, area: '', name: '', point: null });
-function _taSave() { try { const { mode, steep, thr, layer, hfield, snap } = TA; localStorage.setItem('terrain_opts', JSON.stringify({ mode, steep, thr, layer, hfield, snap })); } catch (e) {} }
+function _taSave() { try { const { mode, steep, thr, layer, hfield, snap, interval, clabel } = TA; localStorage.setItem('terrain_opts', JSON.stringify({ mode, steep, thr, layer, hfield, snap, interval, clabel })); } catch (e) {} }
 const TA_MODES = [
+  ['contours', '〰', 'Горизонтали', 'сразу на карте, с подписями высот, шаг на выбор'],
   ['slope', '📐', 'Уклоны', 'крутизна склонов по классам, контуры крутых участков'],
   ['flow', '💧', 'Линии стока', 'куда стекает вода (тальвеги), площадь водосбора'],
   ['watershed', '🏞', 'Водосбор точки', 'щёлкните место на карте — что стекает в него (труба, створ)'],
@@ -23,6 +24,11 @@ function openTerrainPanel() {
   const lay = ptLayers.find(l => l.id === TA.layer) || ptLayers[0];
   const fields = lay && typeof kmlFields === 'function' ? kmlFields(lay) : [];
   let opts = '';
+  if (TA.mode === 'contours') opts = `<div style="display:flex;gap:8px;align-items:center;font-size:12px;flex-wrap:wrap">
+      <span>Шаг</span><input id="ta-int" type="text" inputmode="decimal" list="ta-int-l" value="${esc(String(TA.interval).replace('.', ','))}" style="width:70px"> <span>м</span>
+      <datalist id="ta-int-l">${['0,25', '0,5', '1', '2', '2,5', '5', '10', '20', '50'].map(v => `<option value="${v}">`).join('')}</datalist>
+      <span style="margin-left:8px">Подписи</span><select id="ta-clabel" onchange="TA.clabel=this.value;_taSave();_taContourLabels()">${[['major', 'утолщённых (каждая 5-я)'], ['all', 'всех горизонталей'], ['none', 'без подписей']].map(([v, t]) => `<option value="${v}" ${TA.clabel === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div style="font-size:10px;color:var(--tx3)">Высоты — ArcticDEM в БСВ-77; на открытой местности точность ±1–2 м, в лесу и у построек хуже, поэтому шаг мельче 0,5 м — скорее для картинки. Каждая 5-я горизонталь утолщённая.</div>`;
   if (TA.mode === 'slope') opts = `<label style="display:flex;gap:6px;align-items:center;font-size:12px;text-transform:none;font-weight:500;margin:0">Контуры крутых участков: уклон от <input id="ta-steep" type="number" min="1" max="60" step="1" value="${TA.steep}" style="width:64px"> °</label>`;
   if (TA.mode === 'flow') opts = `<label style="display:flex;gap:6px;align-items:center;font-size:12px;text-transform:none;font-weight:500;margin:0">Показывать сток с водосбором от <input id="ta-thr" type="text" inputmode="decimal" placeholder="авто" value="${esc(String(TA.thr || ''))}" style="width:70px"> км²</label>
       <div style="font-size:10px;color:var(--tx3)">Меньше число — больше мелких ручьёв. «Авто» — 1% площади области.</div>`;
@@ -45,6 +51,7 @@ function openTerrainPanel() {
     const info = { slope: `Средний уклон <b>${n(st.mean, 1)}°</b>, наибольший ${n(st.max, 1)}°. Контуров круче ${n(st.steep, 0)}°: <b>${(r.zones || {}).features ? r.zones.features.length : 0}</b>.`,
       flow: `Линий стока: <b>${st.count}</b> (водосбор от ${n(st.threshold_km2, 3)} км²), площадь области ${n(st.area_km2, 2)} км². Толще — больше водосбор.`,
       watershed: `Водосбор: <b>${n(st.area_km2, 3)} км²</b> (${n(st.area_km2 * 100, 1)} га), отметка в створе ${n(st.outlet_h)} м, наивысшая точка ${n(st.max_h)} м.${st.shift_m != null ? `<br>Створ ${st.shift_m > (st.res || 0) ? `притянут к руслу на <b>${n(st.shift_m, 0)} м</b> от указанной точки (на карте — пунктир)` : 'там, где указали'}.` : ''}`,
+      contours: `Горизонталей: <b>${st.count}</b> через <b>${n(st.interval)} м</b> (утолщённые — через ${n(st.interval * 5)} м), высоты в области от ${n(st.hmin, 1)} до ${n(st.hmax, 1)} м.`,
       compare: `Точек: <b>${st.n}</b>. Разница «съёмка − ArcticDEM»: средняя <b>${n(st.mean)} м</b>, медиана ${n(st.median)}, СКО ${n(st.std)}, RMS ${n(st.rms)}, от ${n(st.min)} до ${n(st.max)} м.
         ${st.area_ha ? `<br>В контуре точек (${n(st.area_ha, 2)} га): съёмка выше ArcticDEM — <b>${n(st.fill, 0)} м³</b>, ниже — <b>${n(-st.cut, 0)} м³</b>.` : ''}
         ${r.overlay ? `<br>Картограмма: красный — съёмка выше, синий — ниже (шкала ±${n(r.overlay.limit)} м).` : ''}` }[TA.res.mode] || '';
@@ -118,6 +125,8 @@ async function terrainRun() {
   if (!_demBbox) { toast('Сначала выберите область', 'err'); return; }
   const body = { mode: TA.mode, bbox: _demBbox, clip: _demClip || null };
   const steep = document.getElementById('ta-steep'); if (steep) { TA.steep = +steep.value || 10; body.steep = TA.steep; }
+  const ti = document.getElementById('ta-int');
+  if (ti) { const v = parseFloat(String(ti.value).replace(',', '.')); if (!(v >= 0.1 && v <= 500)) { toast('Шаг горизонталей — от 0,1 до 500 м', 'err'); return; } TA.interval = v; body.interval = v; }
   const thr = document.getElementById('ta-thr'); if (thr) { TA.thr = thr.value.replace(',', '.'); body.threshold_km2 = parseFloat(TA.thr) || 0; }
   if (TA.mode === 'watershed') { if (!TA.point) { _taPickPoint(); return; } body.point = TA.point; body.snap_m = +TA.snap || 0; }
   if (TA.mode === 'compare') {
@@ -142,12 +151,14 @@ async function terrainRun() {
   finally { sse.close(); TA.busy = false; openTerrainPanel(); }
 }
 function _taClear() {
+  _taContourLabelsOff();
   if (TA.ov) { try { map.removeLayer(TA.ov); } catch (e) {} TA.ov = null; }
   if (TA.vec) { try { map.removeLayer(TA.vec); } catch (e) {} TA.vec = null; }
   TA.res = null;
 }
 // Векторные результаты (для слоя/экспорта)
 function _taVec(r) {
+  if (r.contours) return r.contours.features;
   if (r.zones) return r.zones.features;
   if (r.lines) return r.lines.features;
   if (r.polygon) return r.polygon.features;
@@ -159,6 +170,7 @@ function _taDraw() {
   if (TA.ov) { try { map.removeLayer(TA.ov); } catch (e) {} } if (TA.vec) { try { map.removeLayer(TA.vec); } catch (e) {} }
   if (r.overlay && r.overlay.png) TA.ov = L.imageOverlay('data:image/png;base64,' + r.overlay.png, r.overlay.bounds, { opacity: 0.85, interactive: false }).addTo(map);
   const feats = _taVec(r);
+  if (r.contours) { _taDrawContours(r); return; }
   const dzColor = dz => dz == null ? '#9ca3af' : dz > 0.5 ? '#dc2626' : dz > 0.15 ? '#f87171' : dz < -0.5 ? '#2563eb' : dz < -0.15 ? '#60a5fa' : '#16a34a';
   TA.vec = L.geoJSON({ type: 'FeatureCollection', features: feats }, {
     style: f => r.lines ? { color: '#0284c7', weight: [0, 1.5, 2.5, 4][(f.properties || {}).class || 1], opacity: 0.95 }
@@ -180,12 +192,12 @@ function _taDraw() {
 }
 function _taName() {
   const r = TA.res, n = r.stats || {};
-  return { slope: `Уклоны ≥ ${n.steep}°`, flow: 'Линии стока', watershed: `Водосбор ${(n.area_km2 || 0).toLocaleString('ru-RU')} км²`, compare: 'Съёмка − ArcticDEM' }[r.mode] || 'Анализ рельефа';
+  return { contours: `Горизонтали через ${String(n.interval).replace('.', ',')} м`, slope: `Уклоны ≥ ${n.steep}°`, flow: 'Линии стока', watershed: `Водосбор ${(n.area_km2 || 0).toLocaleString('ru-RU')} км²`, compare: 'Съёмка − ArcticDEM' }[r.mode] || 'Анализ рельефа';
 }
 async function _taSaveLayer() {
   const feats = _taVec(TA.res); if (!feats.length) return;
   const name = (prompt('Название слоя:', _taName()) || '').trim(); if (!name) return;
-  const color = { slope: '#dc2626', flow: '#0284c7', watershed: '#0369a1', compare: '#16a34a' }[TA.res.mode] || '#2563eb';
+  const color = { contours: '#b45309', slope: '#dc2626', flow: '#0284c7', watershed: '#0369a1', compare: '#16a34a' }[TA.res.mode] || '#2563eb';
   const r = await fetch(`${API}/layers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color, geojson: JSON.stringify({ type: 'FeatureCollection', features: feats }) }) });
   if (!r.ok) return;
   layers = await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers);
@@ -197,6 +209,56 @@ function _taExport() {
   const pts = TA.res.points;
   const parts = pts
     ? [{ name: 'СЪЁМКА_МИНУС_ARCTICDEM', color: '#16a34a', features: feats.map(f => ({ ...f, properties: { ...f.properties, name: `${f.properties.name || ''} ${f.properties.dz == null ? '' : (f.properties.dz > 0 ? '+' : '') + f.properties.dz}`.trim() } })) }]
+    : TA.res.contours ? [{ name: 'ГОРИЗОНТАЛИ_ОСНОВНЫЕ', color: '#b45309', features: feats.filter(f => !f.properties.major) }, { name: 'ГОРИЗОНТАЛИ_УТОЛЩЕННЫЕ', color: '#7c2d12', features: feats.filter(f => f.properties.major) }]
     : [{ name: { slope: 'КРУТЫЕ_УЧАСТКИ', flow: 'ЛИНИИ_СТОКА', watershed: 'ВОДОСБОР' }[TA.res.mode] || 'АНАЛИЗ', color: '#0284c7', features: feats }];
   kmlExportDialog([{ key: 'all', label: _taName(), parts }], _taName().replace(/[^\wа-яё0-9.,-]+/gi, '_'));
+}
+
+// ── Горизонтали на карте: линии + подписи высот вдоль линий ──
+// Подписи ставятся заново при сдвиге и масштабе: примерно через 320 px вдоль линии,
+// только в видимой части, текст повёрнут по линии и не «вверх ногами».
+function _taDrawContours(r) {
+  const feats = r.contours.features;
+  TA.vec = L.geoJSON({ type: 'FeatureCollection', features: feats }, {
+    style: f => f.properties.major ? { color: '#fbbf24', weight: 2.2, opacity: 0.95 } : { color: '#fde68a', weight: 1, opacity: 0.85 },
+    onEachFeature: (f, ly) => ly.bindTooltip(`Горизонталь <b>${String(f.properties.h).replace('.', ',')} м</b>`, { sticky: true }),
+  }).addTo(map);
+  _taContourLabels();
+  if (!TA._lblOn) { TA._lblOn = true; map.on('moveend zoomend', _taContourLabels); }
+}
+function _taContourLabelsOff() {
+  if (TA.lbl) { try { map.removeLayer(TA.lbl); } catch (e) {} TA.lbl = null; }
+  if (TA._lblOn) { map.off('moveend zoomend', _taContourLabels); TA._lblOn = false; }
+}
+function _taContourLabels() {
+  if (TA.lbl) { try { map.removeLayer(TA.lbl); } catch (e) {} TA.lbl = null; }
+  const r = TA.res; if (!r || !r.contours || TA.clabel === 'none') return;
+  const size = map.getSize(), pad = 20, STEP = 320, MAX = 250;
+  const out = [];
+  const inView = p => p.x > pad && p.y > pad && p.x < size.x - pad && p.y < size.y - pad;
+  for (const f of r.contours.features) {
+    if (out.length >= MAX) break;
+    const pr = f.properties; if (TA.clabel === 'major' && !pr.major) continue;
+    const g = f.geometry, lines = g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : [];
+    for (const c of lines) {
+      const pts = c.map(q => map.latLngToContainerPoint([q[1], q[0]]));
+      let acc = STEP * 0.5;   // первая подпись — не у самого края линии
+      for (let i = 1; i < pts.length && out.length < MAX; i++) {
+        const a = pts[i - 1], b = pts[i], d = a.distanceTo(b); if (!d) continue;
+        let t = acc;
+        while (t <= d) {
+          const p = L.point(a.x + (b.x - a.x) * t / d, a.y + (b.y - a.y) * t / d);
+          if (inView(p)) {
+            let ang = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+            if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
+            out.push({ ll: map.containerPointToLatLng(p), ang, h: pr.h, major: pr.major });
+          }
+          t += STEP;
+        }
+        acc = t - d;
+      }
+    }
+  }
+  TA.lbl = L.layerGroup(out.map(o => L.marker(o.ll, { interactive: false, keyboard: false,
+    icon: L.divIcon({ className: 'ta-clbl', iconSize: null, html: `<span class="${o.major ? 'mj' : ''}" style="transform:translate(-50%,-50%) rotate(${o.ang.toFixed(1)}deg)">${String(o.h).replace('.', ',')}</span>` }) }))).addTo(map);
 }

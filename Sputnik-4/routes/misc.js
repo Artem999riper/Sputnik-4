@@ -1275,7 +1275,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
   app.post('/api/dem/analysis', async (req, res) => {
     if (!demProcessor || !demProcessor.terrainAnalysis) return res.status(503).json({ error: 'Нужен GDAL (OSGeo4W) на сервере' });
     const b = req.body || {}, bb = b.bbox || {};
-    if (!['slope', 'aspect', 'flow', 'watershed', 'compare'].includes(b.mode)) return res.status(400).json({ error: 'Неизвестный режим' });
+    if (!['slope', 'aspect', 'flow', 'watershed', 'compare', 'contours'].includes(b.mode)) return res.status(400).json({ error: 'Неизвестный режим' });
     if (![bb.minLat, bb.maxLat, bb.minLng, bb.maxLng].every(v => Number.isFinite(+v)) || +bb.minLat >= +bb.maxLat || +bb.minLng >= +bb.maxLng)
       return res.status(400).json({ error: 'Не указана область расчёта' });
     const bbox = { minLat: +bb.minLat, maxLat: +bb.maxLat, minLng: +bb.minLng, maxLng: +bb.maxLng };
@@ -1285,7 +1285,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     try {
       res.json(await demProcessor.terrainAnalysis({ mode: b.mode, bbox, clip: b.clip && b.clip.type === 'Polygon' ? b.clip : null,
         steep: parseFloat(b.steep) || 10, min_area: parseFloat(b.minArea) || 200, threshold_km2: parseFloat(b.threshold_km2) || 0,
-        point: b.point || null, points: Array.isArray(b.points) ? b.points.slice(0, 20000) : null },
+        point: b.point || null, points: Array.isArray(b.points) ? b.points.slice(0, 20000) : null, interval: parseFloat(b.interval) || 0 },
         (pct, text) => broadcast({ type: 'flood_progress', pct, text })));
     } catch (e) { res.status(500).json({ error: e.message || 'Ошибка анализа рельефа' }); }
   });

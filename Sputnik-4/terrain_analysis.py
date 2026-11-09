@@ -7,6 +7,7 @@ terrain_analysis.py — анализ рельефа ArcticDEM (высоты в �
   watershed  — водосбор точки (что стекает в выбранное место)
   compare    — сравнение со своей съёмкой: разница «съёмка − ArcticDEM» в точках,
                картограмма разницы и объёмы (выше / ниже)
+  contours   — горизонтали с шагом interval (м), каждая 5-я — утолщённая (major)
 Расчёт — в поперечном Меркаторе с осевым меридианом по центру области (метры).
 Вход: params.json {mode, dem_tif, bbox, clip, cache_dir, ...}, результат — JSON в params.out.
 Сток считается методом «priority-flood» (Barnes, 2014): понижения заполняются,
@@ -402,9 +403,57 @@ def mode_compare(p):
     return {'points': {'type': 'FeatureCollection', 'features': out}, 'overlay': overlay, 'stats': st}
 
 
+def mode_contours(p):
+    """Горизонтали через interval метров (БСВ-77) — для просмотра на карте."""
+    step = float(p.get('interval') or 1.0)
+    if not (0.1 <= step <= 500):
+        raise SystemExit('ERROR: шаг горизонталей — от 0,1 до 500 м')
+    G = Grid(p, int(p.get('max_cells') or 1_500_000), min_res=2.0)
+    z = G.dem.copy()
+    # лёгкое сглаживание 3×3 (по ячейкам с данными) — горизонтали без «лесенки» пикселей
+    ok = ~G.nodata
+    zz = np.where(ok, z, 0.0); w = ok.astype(np.float64)
+    pz = np.pad(zz, 1, mode='edge'); pw = np.pad(w, 1, mode='edge')
+    sz = sum(pz[i:i + G.rows, j:j + G.cols] for i in range(3) for j in range(3))
+    sw = sum(pw[i:i + G.rows, j:j + G.cols] for i in range(3) for j in range(3))
+    z = np.where(sw > 0, sz / np.maximum(sw, 1e-9), -9999.0)
+    z[G.nodata] = -9999.0
+    vals = z[(~G.nodata) & G.inside]
+    if not vals.size:
+        raise SystemExit('ERROR: в области нет данных рельефа')
+    zmin, zmax = float(vals.min()), float(vals.max())
+    n_est = (zmax - zmin) / step
+    if n_est > 600:
+        raise SystemExit(f'ERROR: перепад {zmax - zmin:.0f} м — при шаге {step:g} м выйдет {int(n_est)} горизонталей, возьмите шаг крупнее')
+    d = G._mem(gdal.GDT_Float32); b = d.GetRasterBand(1); b.SetNoDataValue(-9999.0); b.WriteArray(z.astype(np.float32))
+    m = ogr.GetDriverByName('Memory').CreateDataSource('c'); l = m.CreateLayer('c', G.loc, ogr.wkbLineString)
+    l.CreateField(ogr.FieldDefn('id', ogr.OFTInteger)); l.CreateField(ogr.FieldDefn('h', ogr.OFTReal))
+    gdal.ContourGenerate(b, step, 0.0, [], 1, -9999.0, l, 0, 1)
+    out, nmaj = [], 0
+    for f in l:
+        g = f.GetGeometryRef().Clone()
+        try:
+            g = g.Intersection(G.area)
+        except Exception:
+            pass
+        if g is None or g.IsEmpty() or g.Length() < G.res * 3:
+            continue
+        g = g.SimplifyPreserveTopology(G.res * 0.4)
+        h = round(f.GetField('h'), 3)
+        k = round(h / step)
+        major = (k % 5 == 0)
+        nmaj += major
+        g.Transform(G.to_w)
+        out.append({'type': 'Feature', 'properties': {'h': h, 'major': bool(major), 'name': f'{h:g} м'},
+                    'geometry': json.loads(g.ExportToJson(['COORDINATE_PRECISION=7']))})
+    return {'contours': {'type': 'FeatureCollection', 'features': out},
+            'stats': {'res': G.res, 'interval': step, 'count': len(out), 'major': nmaj,
+                      'hmin': round(zmin, 2), 'hmax': round(zmax, 2)}}
+
+
 def main(pf):
     p = json.load(open(pf, encoding='utf-8'))
-    fn = {'slope': mode_slope, 'aspect': mode_aspect, 'flow': mode_flow, 'watershed': mode_watershed, 'compare': mode_compare}.get(p.get('mode'))
+    fn = {'slope': mode_slope, 'aspect': mode_aspect, 'flow': mode_flow, 'watershed': mode_watershed, 'compare': mode_compare, 'contours': mode_contours}.get(p.get('mode'))
     if not fn:
         raise SystemExit('ERROR: неизвестный режим')
     r = fn(p)
