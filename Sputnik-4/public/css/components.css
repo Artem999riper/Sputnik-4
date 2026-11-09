@@ -172,8 +172,13 @@ a{color:var(--acc);text-decoration:none;word-break:break-all}a:hover{text-decora
 #mtb .mt{white-space:nowrap}
 
 /* ── Таблица атрибутов слоя (layer-attr.js) ── */
-#kat-panel{position:fixed;left:var(--sw);right:0;bottom:0;height:38vh;min-height:180px;z-index:1600;background:var(--s);border-top:2px solid var(--acc);box-shadow:0 -6px 20px rgba(0,0,0,.15);display:none;flex-direction:column}
+#kat-panel{position:fixed;left:var(--sw);right:0;bottom:0;height:var(--kat-h,38vh);min-height:120px;z-index:1600;background:var(--s);border-top:2px solid var(--acc);box-shadow:0 -6px 20px rgba(0,0,0,.15);display:none;flex-direction:column}
 #kat-panel.open{display:flex}
+/* ручка: потянуть верхнюю границу таблицы — выше / ниже */
+.kat-grip{position:absolute;left:0;right:0;top:-6px;height:12px;cursor:ns-resize;z-index:2;touch-action:none}
+.kat-grip::after{content:'';position:absolute;left:50%;top:3px;width:46px;height:5px;margin-left:-23px;border-radius:3px;background:var(--acc);opacity:.55}
+.kat-grip:hover::after,body.kat-resizing .kat-grip::after{opacity:1}
+body.kat-resizing{cursor:ns-resize!important;user-select:none}
 .kat-hd{display:flex;gap:10px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--bd);font-size:12px;flex-wrap:wrap}
 .kat-hd input{flex:1;min-width:160px;max-width:320px;font-size:12px;padding:4px 8px}
 .kat-hd .kml-panel-close{margin-left:auto}
@@ -194,14 +199,14 @@ a{color:var(--acc);text-decoration:none;word-break:break-all}a:hover{text-decora
 .kat-selbox{display:inline-flex;gap:6px;align-items:center;color:#b45309}
 .kat-selbox:empty{display:none}
 .kat-selbox .btn.on{background:var(--accl);border-color:var(--acc)}
-body.kat-open #ksel-bar{bottom:calc(38vh + 14px)}
+body.kat-open #ksel-bar{bottom:calc(var(--kat-h,38vh) + 14px)}
 .kat-inp{width:100%;min-width:120px;font-size:12px;padding:1px 4px;border:1.5px solid var(--acc);border-radius:3px}
 /* легенда раскраски слоёв */
 .kml-legend{background:rgba(255,255,255,.95);border:1px solid #d1d5db;border-radius:8px;padding:6px 9px;font-size:11px;color:#111827;max-height:40vh;overflow:auto;max-width:260px;box-shadow:0 2px 8px rgba(0,0,0,.15)}
 .kml-legend-h{font-weight:700;cursor:pointer;user-select:none}
 .kml-legend-l{margin-top:6px}
 .kml-legend-r{display:flex;gap:6px;align-items:center;padding:1px 0}
-body.kat-open .leaflet-bottom{bottom:calc(38vh + 4px)}
+body.kat-open .leaflet-bottom{bottom:calc(var(--kat-h,38vh) + 4px)}
 body.kat-open #mtb,body.kat-open #ep-panel{display:none}
 /* шторка подложек (map-swipe.js) */
 #msw-bar{position:absolute;top:0;bottom:0;width:0;z-index:700;pointer-events:none}

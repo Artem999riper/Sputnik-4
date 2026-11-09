@@ -188,9 +188,44 @@ function kmlAttrTable(layerId) {
     p.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'ф' || e.code === 'KeyA') && !e.target.closest('input')) { e.preventDefault(); _katSelAll(true); } });
     document.body.appendChild(p);
   }
+  _katRestoreH();
   p.classList.add('open'); document.body.classList.add('kat-open');
   _katRender();
 }
+// ── Высота таблицы: потянуть за верхнюю границу (запоминается в браузере) ──
+const KAT_H_DEF = () => Math.round(innerHeight * 0.38);
+function _katSetH(h, save) {
+  h = Math.round(Math.max(120, Math.min(innerHeight - 110, h)));
+  document.body.style.setProperty('--kat-h', h + 'px');
+  if (save) { try { localStorage.setItem('kat_h', h); } catch (e) {} }
+  try { map.invalidateSize(); } catch (e) {}
+  return h;
+}
+function _katResize(e) {
+  if (e.button != null && e.button !== 0) return;
+  e.preventDefault();
+  const p = document.getElementById('kat-panel'); if (!p) return;
+  const y0 = e.clientY, h0 = p.getBoundingClientRect().height;
+  document.body.classList.add('kat-resizing');
+  const mv = ev => { _katSetH(h0 + (y0 - ev.clientY)); };
+  const up = ev => {
+    document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up);
+    document.body.classList.remove('kat-resizing');
+    _katSetH(h0 + (y0 - ev.clientY), true);
+  };
+  document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up);
+}
+// двойной щелчок по ручке: развернуть почти на весь экран ↔ обычная высота
+function _katResizeToggle() {
+  const p = document.getElementById('kat-panel'); if (!p) return;
+  const big = innerHeight - 110, cur = p.getBoundingClientRect().height;
+  _katSetH(cur >= big - 5 ? KAT_H_DEF() : big, true);
+}
+function _katRestoreH() {
+  let h = 0; try { h = +localStorage.getItem('kat_h') || 0; } catch (e) {}
+  if (h > 0) _katSetH(h); else document.body.style.removeProperty('--kat-h');
+}
+window.addEventListener('resize', () => { const h = parseFloat(document.body.style.getPropertyValue('--kat-h')); if (h && h > innerHeight - 110) _katSetH(innerHeight - 110); });
 function kmlAttrTableClose() {
   const p = document.getElementById('kat-panel'); if (p) p.classList.remove('open');
   document.body.classList.remove('kat-open');
@@ -240,7 +275,7 @@ function _katRender() {
   const st = kmlStyleOf(l) || {};
   // слой — объём объекта: столбцы «выполнено», дата, факт второго показателя
   const vol = typeof volByLayer === 'function' ? volByLayer(l.id) : null, vm = vol ? volMeasure(vol) : null;
-  p.innerHTML = `<div class="kat-hd">
+  p.innerHTML = `<div class="kat-grip" onpointerdown="_katResize(event)" ondblclick="_katResizeToggle()" title="Потяните — выше / ниже · двойной щелчок — развернуть / как было"></div><div class="kat-hd">
       <b>📋 ${esc(l.name)}</b><span style="color:var(--tx3)">${q ? `${total} из ${feats.length}` : feats.length} объект(ов)</span>
       <input id="kat-q" placeholder="🔍 Поиск по всем полям…" value="${escAttr(KAT.q)}" oninput="KAT.q=this.value;_katRender();setTimeout(()=>{const e=document.getElementById('kat-q');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},0)">
       <button class="btn bs bxs" onclick="_katAddField()">＋ Поле</button>
