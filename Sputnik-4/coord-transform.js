@@ -99,6 +99,11 @@ function makeTransform(crs, centerLng) {
   if (crs === 'wgs84' || !crs) {
     return (lng, lat) => [lng, lat];
   }
+  // готовая строка proj4 (окно экспорта: МСК любой зоны, СК-42/95, ГСК, UTM, СК-63, свои системы)
+  if (typeof crs === 'string' && /^\+proj=/.test(crs)) {
+    let P; try { P = proj4(crs); } catch (e) { throw new Error('Неверная система координат: ' + e.message); }
+    return (lng, lat) => proj4(_WGS84, crs, [lng, lat]);
+  }
   if (typeof crs === 'string' && crs.indexOf('mskfull:') === 0) {
     const d = _mskFullProjStr(crs, centerLng);
     if (!d) throw new Error('Неизвестный регион МСК: ' + crs);

@@ -103,6 +103,20 @@ function crsServerKey(st) {
   if (id === 'sk63' && auto) return `sk63:${st.sk63 || 'W3'}`;
   return crsProjOf(st, { easting: 0, lon: 0 }).proj;     // фиксированная зона / UTM / своя / широта-долгота — строка proj4
 }
+// Для ЭКСПОРТА: выбор + центр данных (долгота, широта) → {crs: ключ для сервера ('wgs84' или строка proj4),
+// name: «МСК-86 зона 3 (2008)», geo}. Зона «авто» — по центру выгружаемых данных (одна на весь файл).
+function crsExportResolve(st, lng, lat) {
+  if ((st.sys || 'geo:wgs') === 'geo:wgs') return { crs: 'wgs84', name: 'WGS-84', proj: null, geo: true };
+  const P = crsProjOf(st, { lon: lng, lat });
+  return { crs: P.proj, name: P.name, proj: P.proj, geo: crsIsGeo(st) };
+}
+// центр рамки объектов (GeoJSON-объекты или их массивы) → [lng, lat]
+function crsGeoCenter(feats) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const walk = c => { if (!Array.isArray(c)) return; if (typeof c[0] === 'number') { if (c[0] < x0) x0 = c[0]; if (c[0] > x1) x1 = c[0]; if (c[1] < y0) y0 = c[1]; if (c[1] > y1) y1 = c[1]; } else c.forEach(walk); };
+  (feats || []).forEach(f => { const g = f && (f.geometry || f); if (!g) return; if (g.type === 'GeometryCollection') (g.geometries || []).forEach(q => walk(q.coordinates)); else walk(g.coordinates); });
+  return Number.isFinite(x0) ? [(x0 + x1) / 2, (y0 + y1) / 2] : [map && map.getCenter ? map.getCenter().lng : 75, map && map.getCenter ? map.getCenter().lat : 62];
+}
 function crsLabel(st) {
   const s = crsAllSystems().find(x => x.id === st.sys); let t = s ? s.label.replace(/^★ /, '') : st.sys;
   if (st.sys === 'msk') t = `МСК-${st.msk || '86'}${CV_REGION_NAMES[st.msk] ? ' (' + CV_REGION_NAMES[st.msk] + ')' : ''}, ${st.mskDatum || '2008'}`;

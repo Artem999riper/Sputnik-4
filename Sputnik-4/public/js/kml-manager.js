@@ -2110,9 +2110,11 @@ function renderLayerGroupsWithSymbols() {
 }
 
 // ── Экспорт слоёв в DXF / KML ───────────────────────────────
-function openLayerExportDialog() {
+async function openLayerExportDialog() {
   const list = (layers || []).slice();
   if (!list.length) { toast('Нет слоёв для экспорта', 'err'); return; }
+  // справочники систем (МСК всех регионов, СК-63, свои) — как в импорте и «Пересчёте»
+  try { if (typeof loadMskFull === 'function') await loadMskFull(); await crsLibLoad(); } catch (e) {}
   const rows = list.map(l => `
     <label class="lex-row" data-name="${escAttr((l.name || '').toLowerCase())}" style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer">
       <input type="checkbox" class="lex-cb" value="${l.id}" ${lvis(l) ? 'checked' : ''}>
@@ -2150,13 +2152,8 @@ function openLayerExportDialog() {
       </div>
       <div id="lex-crs-row">
         <div style="font-weight:600;margin-bottom:4px">Система координат</div>
-        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="wgs84"> WGS-84 (градусы)</label>
-        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86" checked> МСК-86 (авто зона по долготе)</label>
-        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86_z3"> МСК-86 Зона 3 (ЦМ=66°, фиксированная)</label>
-        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="msk86_z4"> МСК-86 Зона 4 (ЦМ=72°, фиксированная)</label>
-        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="gsk2011"> ГСК-2011 (6° зоны)</label>
-        <label style="display:block;padding:2px 0"><input type="radio" name="lex-crs" value="utmauto"> UTM / WGS-84 (авто зона, сев.)</label>
-        ${typeof _mskFullPickerHtml==='function' ? _mskFullPickerHtml('lex','2px') : ''}
+        ${crspHtml('lex', crspRecall('export') || { sys: 'msk', zone: 'auto' }, { onChange: '_lexCrsInfo' })}
+        <div id="lex-crs-info" class="crsp-hint" style="margin-top:4px"></div>
       </div>
       <div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
@@ -2169,7 +2166,7 @@ function openLayerExportDialog() {
         <input type="search" id="lex-search" placeholder="🔍 Поиск слоя по имени…" autocomplete="off"
           oninput="lexFilterLayers(this.value)"
           style="width:100%;box-sizing:border-box;font-size:12px;padding:6px 9px;margin-bottom:6px;border:1.5px solid var(--bd);border-radius:var(--rs);background:var(--s2);color:var(--tx);outline:none">
-        <div style="max-height:260px;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:6px 10px" id="lex-list">
+        <div style="max-height:260px;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:6px 10px" id="lex-list" onchange="_lexCrsInfo()">
           ${rows}
         </div>
         <div id="lex-empty" style="display:none;padding:10px;text-align:center;font-size:11px;color:var(--tx3)">Ничего не найдено</div>
@@ -2179,13 +2176,23 @@ function openLayerExportDialog() {
     { label: 'Отмена', cls: 'bs', fn: closeModal },
     { label: 'Скачать DXF', cls: 'bp', fn: doLayerExport },
   ]);
-  // Догружаем список регионов МСК (если справочник ещё не загружен)
-  if (typeof loadMskFull === 'function') {
-    loadMskFull().then(() => {
-      const s = document.getElementById('lex-mskreg');
-      if (s && !s.options.length && typeof _mskRegionOptionsHtml === 'function') s.innerHTML = _mskRegionOptionsHtml();
-    }).catch(()=>{});
-  }
+  setTimeout(_lexCrsInfo, 30);
+}
+// имя файла латиницей (кириллицу в имени скачиваемого файла понимают не все браузеры)
+function _lexTranslit(t) {
+  const m = { а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya' };
+  return String(t).replace(/[а-яё]/gi, c => { const r = m[c.toLowerCase()]; return c === c.toLowerCase() ? r : r.charAt(0).toUpperCase() + r.slice(1); });
+}
+// Подсказка под выбором системы: какая зона получится для отмеченных слоёв
+function _lexCrsInfo() {
+  const el = document.getElementById('lex-crs-info'); if (!el) return;
+  try {
+    const ids = Array.from(document.querySelectorAll('.lex-cb')).filter(c => c.checked).map(c => c.value);
+    const fs = []; ids.forEach(id => { const l = layers.find(x => x.id === id); try { const g = JSON.parse(l.geojson); (g.features || [g]).forEach(f => fs.push(f)); } catch (e) {} });
+    if (!fs.length) { el.textContent = ''; return; }
+    const [lng, lat] = crsGeoCenter(fs), r = crsExportResolve(crspRead('lex'), lng, lat);
+    el.textContent = `В файле: ${r.name}`;
+  } catch (e) { el.textContent = '⚠ ' + e.message; }
 }
 
 // Фильтр списка слоёв в диалоге экспорта по имени
@@ -2208,6 +2215,7 @@ function lexSelectVisible(on) {
     const cb = row.querySelector('.lex-cb');
     if (cb) cb.checked = on;
   });
+  _lexCrsInfo();
 }
 
 function lexFmtChange() {
@@ -2256,10 +2264,13 @@ async function doLayerExport() {
     return;
   }
 
-  // DXF / TAB export (оба в метрах, с выбором СК)
-  const crs = (typeof _mskReadCrs === 'function')
-    ? _mskReadCrs('lex', 'wgs84')
-    : (document.querySelector('input[name="lex-crs"]:checked')?.value || 'wgs84');
+  // DXF / TAB export (оба в метрах, с выбором СК): зона «авто» — по центру выбранных слоёв
+  const st = crspRead('lex'); crspRemember('export', st);
+  let crs, crsName;
+  try {
+    const fs = []; ids.forEach(id => { const l = layers.find(x => x.id === id); try { const g = JSON.parse(l.geojson); (g.features || [g]).forEach(f => fs.push(f)); } catch (e) {} });
+    const [lng, lat] = crsGeoCenter(fs), r = crsExportResolve(st, lng, lat); crs = r.crs; crsName = r.name;
+  } catch (e) { toast(e.message, 'err'); return; }
   const isTab = fmt === 'tab';
   const endpoint = isTab ? 'export-tab' : 'export-dxf';
   const ext = isTab ? 'zip' : 'dxf';
@@ -2270,7 +2281,7 @@ async function doLayerExport() {
     const r = await fetch(`${API}/layers/${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ layerIds: ids, crs }),
+      body: JSON.stringify({ layerIds: ids, crs, crsName }),
     });
     if (!r.ok) {
       let msg = 'Ошибка экспорта';
@@ -2282,7 +2293,8 @@ async function doLayerExport() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = isTab ? `layers_${crs}_tab.zip` : `layers_${crs}.${ext}`;
+    const fnm = `layers_${_lexTranslit(String(crsName || crs)).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')}`;
+    a.download = isTab ? `${fnm}_tab.zip` : `${fnm}.${ext}`;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);

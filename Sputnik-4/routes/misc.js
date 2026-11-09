@@ -1129,6 +1129,11 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     } catch (e) { cleanup(); res.status(500).json({ error: 'Ошибка импорта TAB: ' + (e.message || '') }); }
   }));
 
+  // имя выгрузки: по названию системы из окна экспорта («МСК-86 зона 3 (2008)») или по ключу
+  const _exportBase = (req, crsKey, zoneInfo) => {
+    const nm = req.body && req.body.crsName ? String(req.body.crsName).slice(0, 60) : (/^\+proj=/.test(String(crsKey)) ? 'proj' : crsKey + zoneInfo);
+    return ('layers_' + nm).replace(/[<>:"/\\|?*()+=,\x00-\x1F]+/g, '').replace(/\s+/g, '_');
+  };
   app.post('/api/layers/export-dxf', wrap(async (req, res) => {
     const { crs, filename } = req.body || {};
     const d = db();
@@ -1155,7 +1160,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     }));
     const dxfStr = buildLayersDXF({ layers, transform });
 
-    const safeName = (filename || `layers_${crsKey}${zoneInfo}.dxf`)
+    const safeName = (filename || `${_exportBase(req, crsKey, zoneInfo)}.dxf`)
       .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
     const tmpPath = path.join(__dirname, '..', 'public', 'uploads', `_dxf_${Date.now()}_${Math.random().toString(36).slice(2)}.dxf`);
     saveDXF(tmpPath, dxfStr);
@@ -1180,7 +1185,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     const { centerLng } = geojsonBboxCenter(rows);
     const crsKey = crs || 'wgs84';
     const transform = makeTransform(crsKey, centerLng);
-    const isGeo = crsKey === 'wgs84';
+    const isGeo = crsKey === 'wgs84' || /\+proj=(longlat|latlong|lonlat)/.test(String(crsKey));
 
     let zoneInfo = '';
     if (crsKey === 'msk86') zoneInfo = `_z${pickMsk86Zone(centerLng)}`;
@@ -1191,7 +1196,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     else if (crsKey === 'utmauto' || (typeof crsKey === 'string' && crsKey.indexOf('utm:') === 0)) { const _z = crsKey === 'utmauto' ? (Math.floor((((centerLng % 360) + 540) % 360) / 6) + 1) : parseInt(crsKey.split(':')[1], 10); zoneInfo = `_UTM${_z}N`; }
 
     const { mif, mid } = buildLayersMIF({ layers: rows, transform, isGeo });
-    const base = `layers_${crsKey}${zoneInfo}`.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+    const base = _exportBase(req, crsKey, zoneInfo);
 
     const AdmZip = require('adm-zip');
     const zip = new AdmZip();
@@ -1217,7 +1222,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     const { centerLng } = geojsonBboxCenter(rows);
     const crsKey = crs || 'wgs84';
     const transform = makeTransform(crsKey, centerLng);
-    const isGeo = crsKey === 'wgs84';
+    const isGeo = crsKey === 'wgs84' || /\+proj=(longlat|latlong|lonlat)/.test(String(crsKey));
 
     let zoneInfo = '';
     if (crsKey === 'msk86') zoneInfo = `_z${pickMsk86Zone(centerLng)}`;
@@ -1227,7 +1232,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     else if (typeof crsKey === 'string' && crsKey.indexOf('mskfull:') === 0) { const _p = crsKey.split(':'); const _z = mskFullZone(crsKey, centerLng); zoneInfo = `_MSK${_p[1]}${_z ? '_z' + _z : ''}`; }
     else if (crsKey === 'utmauto' || (typeof crsKey === 'string' && crsKey.indexOf('utm:') === 0)) { const _z = crsKey === 'utmauto' ? (Math.floor((((centerLng % 360) + 540) % 360) / 6) + 1) : parseInt(crsKey.split(':')[1], 10); zoneInfo = `_UTM${_z}N`; }
 
-    const base = `layers_${crsKey}${zoneInfo}`.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+    const base = _exportBase(req, crsKey, zoneInfo);
     const { mif, mid } = buildLayersMIF({ layers: rows, transform, isGeo });
 
     // Временная папка: MIF/MID → ogr2ogr → TAB-набор
