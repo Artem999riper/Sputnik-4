@@ -12,7 +12,7 @@ async function selectSite(id){
     const r=await fetch(`${API}/sites/${id}`);
     if(!r.ok)throw new Error('not found');
     currentObj=await r.json();currentType='site';activeSiteId=id;
-    window._ssoCollapsed=false;
+    window._ssoCollapsed=true;   // «📊 Объёмы» при открытии объекта — свёрнуты (развернуть — щелчок)
     _showMiniPanel();
     renderSiteStatsOverlay(currentObj);
     renderSidebar();
@@ -188,7 +188,7 @@ function closePanel(){
   setTimeout(()=>map.invalidateSize({animate:false,pan:false}),260);
   // For sites: go back to mini panel instead of closing entirely
   if(currentType==='site'&&currentObj){
-    window._ssoCollapsed=false;
+    window._ssoCollapsed=true;
     _showMiniPanel();
     renderSiteStatsOverlay(currentObj);
     return;
