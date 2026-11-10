@@ -58,6 +58,7 @@ function _admRender(){
       <button class="btn bs bsm" id="adm-t-update" onclick="_admSwitch('update')">🔄 Обновление</button>
       <button class="btn bs bsm" id="adm-t-db" onclick="_admSwitch('db')">🩺 Проверка базы</button>
       <button class="btn bs bsm" id="adm-t-dbinfo" onclick="_admSwitch('dbinfo')">🗄 Состав базы</button>
+      <button class="btn bs bsm" id="adm-t-backups" onclick="_admSwitch('backups')">💾 Резервные копии</button>
       <button class="btn bs bsm" id="adm-t-errors" onclick="_admSwitch('errors')">🐞 Ошибки</button>
     </div>
     <div id="adm-body" style="min-height:260px"></div>`,
@@ -66,7 +67,7 @@ function _admRender(){
 }
 function _admSwitch(tab){
   _admTab=tab;
-  ['online','rights','tabs','settings','update','db','dbinfo','errors'].forEach(t=>{
+  ['online','rights','tabs','settings','update','db','dbinfo','backups','errors'].forEach(t=>{
     const b=document.getElementById('adm-t-'+t);
     if(b)b.className='btn '+(t===tab?'bp':'bs')+' bsm';
   });
@@ -77,6 +78,7 @@ function _admSwitch(tab){
   else if(tab==='update')_admRenderUpdate();
   else if(tab==='db')_admRenderDb();
   else if(tab==='dbinfo')_admRenderDbInfo();
+  else if(tab==='backups')_admRenderBackups();
   else if(tab==='errors')_admRenderErrors();
   else _admRenderSettings();
 }
@@ -88,6 +90,7 @@ async function _admRenderOnline(){
   const box=document.getElementById('adm-body');if(!box)return;
   let list=[],blocks=[];try{const r=await fetch(`${API}/presence`);if(r.ok)list=await r.json();}catch(e){}
   try{const r=await fetch(`${API}/admin/blocks`);if(r.ok)blocks=await r.json();}catch(e){}
+  if(_admTab!=='online'||!document.getElementById('adm-body'))return;   // пока грузилось, переключились на другую вкладку
   _admOnline=list;
   const fmtSince=t=>{const s=Math.max(0,Math.floor((Date.now()-t)/60000));return s<1?'только что':s<60?s+' мин':Math.floor(s/60)+' ч '+(s%60)+' мин';};
   const staleN=list.filter(p=>p.stale).length;
@@ -526,4 +529,67 @@ async function _admDbiLoad(n) {
   const cell = v => v == null ? '<span style="color:var(--tx3)">—</span>' : esc(String(v));
   e.innerHTML = `<div class="dbi-cols"><b>Поля (${r.cols.length}):</b> ${r.cols.map(c => `<code>${esc(c.name)}</code>${c.pk ? '🔑' : ''}<small>${esc(c.type.toLowerCase())}</small>`).join(' ')}</div>
     ${r.rows.length ? `<div class="dbi-tbl"><table><tr>${r.cols.map(c => `<th>${esc(c.name)}</th>`).join('')}</tr>${r.rows.map(x => `<tr>${r.cols.map(c => `<td>${cell(x[c.name])}</td>`).join('')}</tr>`).join('')}</table></div><div class="vl-hint">Последние ${r.rows.length} записи (длинные значения обрезаны).</div>` : '<div class="vl-hint">Записей нет.</div>'}`;
+}
+
+// ── 💾 Резервные копии: все копии, место, удаление ─────────────────
+const _bkSz=b=>b>=1073741824?(b/1073741824).toFixed(2)+' ГБ':b>=1048576?(b/1048576).toFixed(1)+' МБ':Math.max(1,Math.round(b/1024))+' КБ';
+const _BK_KIND={auto:'авто',manual:'вручную',other:'прочая'};
+async function _admRenderBackups(){
+  const box=document.getElementById('adm-body');if(!box)return;
+  box.innerHTML=typeof skel==='function'?skel(5):'⏳';
+  let d;try{const r=await fetch(`${API}/admin/backups`);d=await r.json();if(!r.ok)throw new Error(d.error||r.status);}
+  catch(e){box.innerHTML=`<div style="color:#ef4444;padding:10px;font-size:12px">${esc(e.message)}</div>`;return;}
+  if(_admTab!=='backups')return;
+  const it=d.items||[];
+  box.innerHTML=`
+    <div style="font-size:11px;color:var(--tx2);margin-bottom:8px;line-height:1.5">
+      Копий: <b>${it.length}</b> · занимают <b>${_bkSz(d.total||0)}</b>${d.free!=null?` · свободно на диске ${_bkSz(d.free)}`:''}<br>
+      <span style="color:var(--tx3)">Папка: ${esc(d.dir||'')}. Самую свежую копию удалить нельзя. Автокопии и так удаляются по очереди — сколько хранить, задаётся в «💾 Резервные копии» на левой панели.</span></div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:12px">
+      Удалить старше <select id="bk-days">${[[7,'7 дней'],[14,'14 дней'],[30,'30 дней'],[60,'60 дней'],[90,'90 дней']].map(([v,t])=>`<option value="${v}" ${v===30?'selected':''}>${t}</option>`).join('')}</select>
+      оставив не меньше <select id="bk-keep">${[3,5,10].map(v=>`<option value="${v}">${v}</option>`).join('')}</select> последних
+      <button class="btn bd bsm" onclick="_admBkCleanup()">🧹 Удалить старые</button>
+      <span id="bk-cl-hint" style="color:var(--tx3)"></span>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;font-size:11px">
+      <label style="display:flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" onchange="document.querySelectorAll('.bk-cb:not(:disabled)').forEach(c=>c.checked=this.checked);_admBkSel()"> все</label>
+      <span style="flex:1"></span><span id="bk-sel" style="color:var(--tx3)"></span>
+      <button class="btn bd bxs" id="bk-del" disabled onclick="_admBkDelete()">🗑 Удалить выбранные</button>
+    </div>
+    <div style="max-height:330px;overflow-y:auto;border:1px solid var(--bd);border-radius:var(--rs)">
+    ${it.length?it.map((f,i)=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-bottom:1px solid var(--bd);font-size:12px;cursor:pointer">
+        <input type="checkbox" class="bk-cb" value="${escAttr(f.name)}" data-size="${f.size}" ${i===0?'disabled title="Самая свежая — остаётся"':''} onchange="_admBkSel()">
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escAttr(f.name)}">${esc(f.name)}${i===0?' <b style="color:var(--grn)">· последняя</b>':''}</span>
+        <span style="font-size:10px;color:var(--tx3);white-space:nowrap">${_BK_KIND[f.kind]||''}</span>
+        <span style="font-size:11px;color:var(--tx2);white-space:nowrap">${new Date(f.date).toLocaleString('ru',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+        <span style="font-size:11px;white-space:nowrap;width:64px;text-align:right">${_bkSz(f.size)}</span>
+      </label>`).join(''):'<div style="padding:14px;text-align:center;color:var(--tx3);font-size:12px">Резервных копий нет</div>'}
+    </div>`;
+  const upd=()=>{const dd=+document.getElementById('bk-days').value,k=+document.getElementById('bk-keep').value;
+    const v=it.slice(k).filter(f=>Date.parse(f.date)<Date.now()-dd*86400000);
+    document.getElementById('bk-cl-hint').textContent=v.length?`— удалится ${v.length} шт., освободится ${_bkSz(v.reduce((a,f)=>a+f.size,0))}`:'— таких нет';};
+  document.getElementById('bk-days').onchange=upd;document.getElementById('bk-keep').onchange=upd;upd();
+}
+function _admBkSel(){
+  const c=[...document.querySelectorAll('.bk-cb:checked')];
+  const b=document.getElementById('bk-del');if(b)b.disabled=!c.length;
+  const s=document.getElementById('bk-sel');if(s)s.textContent=c.length?`выбрано ${c.length} · ${_bkSz(c.reduce((a,x)=>a+ +x.dataset.size,0))}`:'';
+}
+async function _admBkDelete(){
+  const names=[...document.querySelectorAll('.bk-cb:checked')].map(c=>c.value);if(!names.length)return;
+  if(!await confirmDlg(`Удалить резервные копии (${names.length})? Вернуть их будет нельзя.`))return;
+  const r=await fetch(`${API}/admin/backups/delete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names})});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok){toast(j.error||'Ошибка','err');return;}
+  toast(`🗑 Удалено копий: ${j.deleted}, освобождено ${_bkSz(j.freed||0)}${j.kept?' (самая свежая оставлена)':''}`,'ok');
+  _admRenderBackups();
+}
+async function _admBkCleanup(){
+  const days=+document.getElementById('bk-days').value,keep=+document.getElementById('bk-keep').value;
+  if(!await confirmDlg(`Удалить резервные копии старше ${days} дней (не трогая ${keep} последних)?`))return;
+  const r=await fetch(`${API}/admin/backups/cleanup`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({days,keep})});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok){toast(j.error||'Ошибка','err');return;}
+  toast(`🧹 Удалено копий: ${j.deleted}, освобождено ${_bkSz(j.freed||0)}, осталось ${j.left}`,'ok');
+  _admRenderBackups();
 }
