@@ -25,6 +25,7 @@ const CAPS = {
 const RULES = [
   { m: 'PATCH',  re: /^\/api\/layers\/[^/]+\/visible/, cap: 'layerToggleGlobal' },
   { m: 'ANY',    re: /^\/api\/layers(\/|\?|$)/,          cap: 'kmlEdit' },
+  { m: 'ANY',    re: /^\/api\/layers-trash(\/|\?|$)/,    cap: 'kmlEdit' },
   { m: 'ANY',    re: /^\/api\/(volumes|vol_progress)(\/|\?|$)/, cap: 'volumes' },
   { m: 'ANY',    re: /^\/api\/sites\/[^/]+\/(volumes|progress)(\/|\?|$)/, cap: 'volumes' },
   { m: 'ANY',    re: /^\/api\/(mto|materials|equip_groups|mat_groups|spare_groups|spare_parts|fuel_reserves|fuel_transactions)(\/|\?|$)/, cap: 'refs' },

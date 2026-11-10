@@ -4,6 +4,7 @@ const { v4: uuid } = require('uuid');
 const { all, get, run } = require('../database');
 const { required, wrap } = require('./validate');
 const VS = require('./volume-sync');
+const LH = require('./layer-history');   // корзина слоёв и версии
 const { trashAndDelete, broadcast } = require('./realtime');
 const proj4 = require('proj4');
 
@@ -591,6 +592,8 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     const fillOp = fill_opacity != null ? Math.max(0, Math.min(1, parseFloat(fill_opacity)))
       : (existing && existing.fill_opacity != null ? existing.fill_opacity : 0.2);
     if (geojson !== undefined) {
+      // прежнее состояние — в версии слоя (не чаще раза в 15 минут)
+      try { const old = get(db(), 'SELECT geojson FROM kml_layers WHERE id=?', [req.params.id]); if (old && old.geojson !== geojson) LH.snapshot(db(), req.params.id, req); } catch (e) {}
       run(db(), 'UPDATE kml_layers SET name=?,color=?,visible=?,symbol=?,group_id=?,line_dash=?,min_zoom=?,max_zoom=?,size=?,geojson=?,show_labels=?,fill_opacity=? WHERE id=?',
         [name, color || '#1a56db', vis, symbol || '', group_id || '', line_dash || 'solid', minZ, maxZ, sz, geojson, lbl, fillOp, req.params.id]);
       // слой — объём объекта: пересчитать план и выполнение; если объектам раздали _uid — вернуть слой
@@ -608,7 +611,9 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     const st = req.body && req.body.style;
     const txt = st == null ? null : JSON.stringify(st);
     if (txt && txt.length > 200000) return res.status(400).json({ error: 'Слишком большой стиль' });
-    if (!get(db(), 'SELECT id FROM kml_layers WHERE id=?', [req.params.id])) return res.status(404).json({ error: 'Not found' });
+    const cur = get(db(), 'SELECT id, style_json FROM kml_layers WHERE id=?', [req.params.id]);
+    if (!cur) return res.status(404).json({ error: 'Not found' });
+    if ((cur.style_json || null) !== txt) { try { LH.snapshot(db(), req.params.id, req); } catch (e) {} }
     run(db(), 'UPDATE kml_layers SET style_json=? WHERE id=?', [txt, req.params.id]);
     res.json({ success: true });
   }));
@@ -622,8 +627,10 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
   }));
 
   app.delete('/api/layers/:id', wrap((req, res) => {
+    const row = get(db(), 'SELECT * FROM kml_layers WHERE id=?', [req.params.id]);
     const _restore = trashAndDelete(db(), 'kml_layers', req.params.id);
     if (!_restore) return res.status(404).json({ error: 'Not found' });
+    try { LH.toTrash(db(), row, req); } catch (e) {}   // в корзину на 7 дней
     VS.syncLayer(db(), req.params.id);   // объём на этом слое — обнулить
     res.json({ success: true, _restore });
   }));

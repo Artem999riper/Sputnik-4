@@ -226,6 +226,7 @@ function _kmlRenderCats() {
     <button class="btn bs bxs" onclick="kmlCreateGroup()">📁 + Группа</button>
     <button class="btn bs bxs" onclick="kmlCreateIconLayer()">📌 Создать слой</button>
     <button class="btn bs bxs" onclick="openCoordMarkerModal()">🔢 По координатам</button>
+    <button class="btn bs bxs" onclick="kmlTrashOpen()" title="Удалённые слои — 7 дней можно вернуть">🗑 Корзина</button>
   </div>`;
 
   el.innerHTML = html;
@@ -317,7 +318,7 @@ async function kmlDeleteSelected() {
   try { layers = await fetch(`${API}/layers`).then(r => r.json()); } catch(e) {}
   renderKmlPanel();
   try { renderLP(); renderLayerGroups(); } catch(e) {}
-  toast(`Удалено слоёв: ${ok}`, ok ? 'ok' : 'err');
+  toast(`Удалено слоёв: ${ok} — 7 дней их можно вернуть из «🗑 Корзины»`, ok ? 'ok' : 'err');
 }
 // Объединить выбранные слои в один (объекты сливаются в первый выбранный)
 async function kmlMergeSelected() {
@@ -760,7 +761,7 @@ async function kmlDeleteLayer(id) {
   if(!await confirmDlg('Удалить слой?'))return;
   if(lGroups[id])map.removeLayer(lGroups[id]);
   layers=layers.filter(l=>l.id!==id);renderKmlPanel();
-  await apiDelUndo(`/layers/${id}`,'Слой удалён',async()=>{
+  await apiDelUndo(`/layers/${id}`,'Слой удалён — 7 дней лежит в «🗑 Корзине»',async()=>{
     const fresh=await fetch(`${API}/layers`).then(r=>r.json()).catch(()=>[]);
     layers=fresh;renderKmlPanel();try{renderLayerGroups();}catch(e){}
   });
@@ -782,6 +783,7 @@ function kmlLayerCtx(ev, id) {
     {i:_kmlExpanded.has(id)?'▼':'▶',l:_kmlExpanded.has(id)?'Свернуть объекты':'Показать объекты',f:()=>{if(!_kmlExpanded.has(id))_kmlExpanded.add(id);_kmlRenderLayerPane();}},
     {i:'🎨',l:'Стиль / условный знак',f:()=>kmlOpenStyleModal(id)},
     {i:'📄',l:'Дублировать слой',f:()=>kmlDuplicateLayer(id)},
+    {i:'🕓',l:'Версии слоя (вернуть как было)…',f:()=>kmlVersionsOpen(id)},
     {i:'📊',l:'Таблица атрибутов',f:()=>kmlAttrTable(id)},
     {i:'📋',l:'Каталог координат…',f:()=>coordCatalogLayer(id)},
     ...(typeof volByLayer==='function'&&volByLayer(id)&&typeof featSemReport==='function'?[{i:'📑',l:'Ведомость выработок (Excel)',f:()=>{const v=volByLayer(id);featSemReport([id],v.name+(v.site_name?' — '+v.site_name:''));}}]:[]),
@@ -2065,6 +2067,7 @@ function renderLayerGroupsWithSymbols() {
                 {i:'📦',l:_vol?`Объём «${esc(String(_vol.name).slice(0,24))}»…`:'Сделать объёмом объекта…',html:true,f:()=>volBindLayer(l.id)},
                 ...(typeof demBatchByLayer==='function'&&/"(Multi)?Polygon"/.test(l.geojson||'')?[{i:'🏔',l:'Рельеф по полигонам слоя…',f:()=>demWizardKml(l.id)}]:[]),
                 {i:'📁',l:'В группу…',f:()=>kmlPickGroup(l.id,cx,cy)},
+                {i:'🕓',l:'Версии слоя…',f:()=>kmlVersionsOpen(l.id)},
                 ...(l.group_id?[{i:'📄',l:'Убрать из группы',f:()=>kmlMoveToGroup(l.id,null)}]:[]),
                 {sep:true},
                 {i:'🗑',l:'Удалить слой',cls:'dan',f:()=>kmlDeleteLayer(l.id)},
