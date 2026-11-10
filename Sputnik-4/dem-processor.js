@@ -10,7 +10,11 @@ const path    = require('path');
 const fs      = require('fs');
 const os      = require('os');
 const { promisify } = require('util');
-const execFileP = promisify(execFile);
+const _execFileP = promisify(execFile);
+// GDAL и Python — с пониженным приоритетом: тяжёлая выгрузка не должна отнимать процессор
+// у самого сервера (иначе у всех «нет связи», пока идёт перепроецирование подложки)
+function _lowPrio(ch) { try { if (ch && ch.pid) require('os').setPriority(ch.pid, require('os').constants.priority.PRIORITY_BELOW_NORMAL); } catch (e) {} return ch; }
+function execFileP(...a) { const p = _execFileP(...a); _lowPrio(p.child); return p; }
 const execP     = promisify(exec);
 
 // ── STAC API ───────────────────────────────────────────────
@@ -225,7 +229,7 @@ async function runWarpProgress(args, src, dst, onPct, config) {
     try {
       await new Promise((resolve, reject) => {
         const { spawn } = require('child_process');
-        const ch = spawn(_pythonExe, ['-u', '-c', _WARP_PY, JSON.stringify({ args, src, dst, config: config || {} })], { env: gdalEnv() });
+        const ch = _lowPrio(spawn(_pythonExe, ['-u', '-c', _WARP_PY, JSON.stringify({ args, src, dst, config: config || {} })], { env: gdalEnv() }));
         let out = '', err = '', ok = false;
         ch.stdout.on('data', d => {
           out += d; const lines = out.split(/\r?\n/); out = lines.pop();
@@ -253,7 +257,7 @@ function runGDALProgress(exe, args, onPct) {
   console.log('[DEM]', exe, '(progress)', args.slice(0,5).join(' '));
   const { spawn } = require('child_process');
   return new Promise((resolve, reject) => {
-    const child = spawn(gdal(exe), args, { env: gdalEnv() });
+    const child = _lowPrio(spawn(gdal(exe), args, { env: gdalEnv() }));
     let errBuf = '';
     let last = -1;
     const parse = (chunk) => {
@@ -821,7 +825,7 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   console.log('[DEM] gdalwarp (с прогрессом)', targetSrs.slice(0, 60));
   await runWarpProgress([
     '-overwrite',
-    '-multi', '-wo', 'NUM_THREADS=ALL_CPUS',   // все ядра процессора
+    '-multi', '-wo', `NUM_THREADS=${Math.max(1, require('os').cpus().length - 1)}`,   // все ядра, кроме одного — серверу
     '-s_srs','EPSG:3857',   // источник — Web Mercator (родная проекция тайлов)
     '-t_srs', targetSrs,
     ...teArgs, ...trArgs,

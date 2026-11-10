@@ -88,11 +88,13 @@ function _netSet(ok) {
   if (ok) { if (bar && bar.classList.contains('show')) { bar.classList.remove('show'); toast('🟢 Связь с сервером восстановлена', 'ok'); } }
   else NET.t = setTimeout(() => { if (!NET.ok && bar) bar.classList.add('show'); }, 5000);
 }
+// «нет связи» — только после двух неудачных проверок подряд (сервер мог на миг задуматься)
+let _netFails = 0;
 async function _netPing() {
   try {
-    const r = await fetch(`${API}/version`, { cache: 'no-store', signal: AbortSignal.timeout(6000) });
-    _netSet(r.ok);
-  } catch (e) { _netSet(false); }
+    const r = await fetch(`${API}/ping`, { cache: 'no-store', signal: AbortSignal.timeout(10000) });
+    if (r.ok) { _netFails = 0; _netSet(true); } else if (++_netFails >= 2) _netSet(false);
+  } catch (e) { if (++_netFails >= 2) _netSet(false); else setTimeout(_netPing, 3000); }
 }
 (function () {
   const go = () => {

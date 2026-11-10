@@ -64,8 +64,21 @@ const clientFiles = () => [path.join(ROOT, 'public', 'index.html'),
   ...listFiles(path.join(ROOT, 'public', 'js'), /\.js$/), ...listFiles(path.join(ROOT, 'public', 'css'), /\.css$/)];
 const BOOT_HASH = hashFiles(serverFiles());
 let _cache = { t: 0, server: BOOT_HASH, client: '' };
+// «не обновился ли код»: файлы перечитываются, только если у них сменились дата/размер
+// (раньше все файлы читались с диска на каждый запрос /api/version — при тяжёлой выгрузке
+// на тот же диск это тормозило весь сервер)
+let _sig = '';
+function _filesSig() {
+  let s = '';
+  for (const f of [...serverFiles(), ...clientFiles()]) { try { const st = fs.statSync(f); s += f.length + ':' + st.size + ':' + st.mtimeMs + ';'; } catch (e) {} }
+  return crypto.createHash('sha1').update(s).digest('hex');
+}
 function currentHashes() {
-  if (Date.now() - _cache.t > 5000) _cache = { t: Date.now(), server: hashFiles(serverFiles()), client: hashFiles(clientFiles()) };
+  if (Date.now() - _cache.t > 30000) {
+    const sig = _filesSig();
+    if (sig !== _sig || !_cache.client) { _sig = sig; _cache = { t: Date.now(), server: hashFiles(serverFiles()), client: hashFiles(clientFiles()) }; }
+    else _cache.t = Date.now();
+  }
   return _cache;
 }
 
@@ -129,6 +142,9 @@ module.exports = (app, { isAdmin, BACKUP_DIR, performAutoBackup }) => {
     try { fs.writeFileSync(path.join(BACKUP_DIR, '.restart'), STARTED_AT); } catch (e) {}
     setTimeout(() => process.exit(0), 600);
   };
+
+  // проверка связи (значок 🟢/🔴): без обращения к диску — отвечает, даже когда диск занят выгрузкой
+  app.get('/api/ping', (req, res) => res.json({ ok: true, t: Date.now() }));
 
   app.get('/api/version', (req, res) => {
     const h = currentHashes(), g = gitCommit();

@@ -112,12 +112,13 @@ module.exports = (app, getDb, { demProcessor, broadcast }) => {
       let note = '';
       if (job.kind === 'batch') {
         const r = await runDemBatch(demProcessor, params, prog);
-        fs.writeFileSync(fileOf(job.id), r.buf);
+        await fs.promises.writeFile(fileOf(job.id), r.buf);
         note = `участков ${r.ok} из ${r.total}`;
       } else {
         const r = await demProcessor.processDEM({ ...demParams(params), cacheOnly: false,
           bbox: params.bbox, clip: params.clip || null, projId: params.projId, proj4: params.proj4, epsg: params.epsg, projName: params.projName, onProgress: prog });
-        try { fs.copyFileSync(r.file, fileOf(job.id)); } finally { demProcessor.cleanupTmp(r.tmpDir); }
+        // асинхронно: копирование архива в гигабайты не должно останавливать сервер
+        try { await fs.promises.copyFile(r.file, fileOf(job.id)); } finally { demProcessor.cleanupTmp(r.tmpDir); }
         const n = [];
         if (r.interval != null && r.interval !== r.requestedInterval) n.push(`шаг горизонталей ${r.interval} м вместо ${r.requestedInterval} м`);
         if (r.geoid === false && params.useGeoid !== false && !params.satelliteOnly) n.push('⚠ высоты НЕ в БСВ-77');
