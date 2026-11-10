@@ -185,25 +185,32 @@ CP1251_MAP[0x0451] = 0xB8;
 // transform: (lng, lat) => [x, y] в целевой СК
 // ═══════════════════════════════════════════════════════════
 function buildLayersDXF({ layers = [], transform = (lng, lat) => [lng, lat] }) {
+  // DXF R12: имя слоя — не длиннее 31 символа, только буквы, цифры и « _ - $ »
+  // (иначе AutoCAD файл не открывает); регистр не различается
+  const R12_MAX = 31;
   const sanitizeName = (n) => String(n || 'СЛОЙ')
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
-    .replace(/\s+/g, '_')
+    .replace(/[^A-Za-z0-9А-Яа-яЁё_$-]+/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '')
     || 'СЛОЙ';
+  // длинное — начало и конец названия («Инженерно-геологиче_уч_150-250»): различия обычно в конце
+  const shorten = (n) => n.length <= R12_MAX ? n
+    : n.slice(0, 19).replace(/_+$/, '') + '_' + n.slice(-11).replace(/^[_-]+/, '');
 
   const seen = new Set();
   const layerDefs = layers.map((l, i) => {
-    let nm = sanitizeName(l.name || `СЛОЙ_${i + 1}`);
+    let nm = shorten(sanitizeName(l.name || `СЛОЙ_${i + 1}`));
     let candidate = nm; let k = 1;
-    while (seen.has(candidate)) { candidate = `${nm}_${k++}`; }
-    seen.add(candidate);
+    // одинаковые после обрезки — номер в конце, общая длина всё равно ≤ 31
+    while (seen.has(candidate.toUpperCase())) { const suf = `_${k++}`; candidate = nm.slice(0, R12_MAX - suf.length).replace(/_+$/, '') + suf; }
+    seen.add(candidate.toUpperCase());
     return { dxfName: candidate, color: Number.isFinite(l.color) ? l.color : 7, gj: l.geojson };
   });
 
   let s = '';
   s += g(0, 'SECTION'); s += g(2, 'HEADER');
   s += g(9, '$ACADVER'); s += g(1, 'AC1009');
+  s += g(9, '$DWGCODEPAGE'); s += g(3, 'ANSI_1251');   // кириллица в cp1251
   s += g(9, '$INSUNITS'); s += g(70, 6);
   s += g(0, 'ENDSEC');
 
