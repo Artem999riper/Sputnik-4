@@ -4,10 +4,10 @@
 //   (тальвеги), водосбор точки, сравнение со своей съёмкой (разница, объёмы).
 // Область — как в «Затоплении» (прямоугольник, полигон, контур из слоя).
 // ═══════════════════════════════════════════════════════════
-const TA = Object.assign({ mode: 'slope', steep: 10, thr: '', layer: '', hfield: '', snap: 50, interval: 1, clabel: 'major' },
+const TA = Object.assign({ mode: 'slope', steep: 10, thr: '', layer: '', hfield: '', snap: 50, interval: 1, clabel: 'major', majorN: 5 },
   (() => { try { return JSON.parse(localStorage.getItem('terrain_opts') || '{}'); } catch (e) { return {}; } })(),
   { res: null, busy: false, ov: null, vec: null, area: '', name: '', point: null });
-function _taSave() { try { const { mode, steep, thr, layer, hfield, snap, interval, clabel } = TA; localStorage.setItem('terrain_opts', JSON.stringify({ mode, steep, thr, layer, hfield, snap, interval, clabel })); } catch (e) {} }
+function _taSave() { try { const { mode, steep, thr, layer, hfield, snap, interval, clabel, majorN } = TA; localStorage.setItem('terrain_opts', JSON.stringify({ mode, steep, thr, layer, hfield, snap, interval, clabel, majorN })); } catch (e) {} }
 const TA_MODES = [
   ['contours', '〰', 'Горизонтали', 'сразу на карте, с подписями высот, шаг на выбор'],
   ['slope', '📐', 'Уклоны', 'крутизна склонов по классам, контуры крутых участков'],
@@ -25,10 +25,12 @@ function openTerrainPanel() {
   const fields = lay && typeof kmlFields === 'function' ? kmlFields(lay) : [];
   let opts = '';
   if (TA.mode === 'contours') opts = `<div style="display:flex;gap:8px;align-items:center;font-size:12px;flex-wrap:wrap">
-      <span>Шаг</span><input id="ta-int" type="text" inputmode="decimal" list="ta-int-l" value="${esc(String(TA.interval).replace('.', ','))}" style="width:70px"> <span>м</span>
-      <datalist id="ta-int-l">${['0,25', '0,5', '1', '2', '2,5', '5', '10', '20', '50'].map(v => `<option value="${v}">`).join('')}</datalist>
-      <span style="margin-left:8px">Подписи</span><select id="ta-clabel" onchange="TA.clabel=this.value;_taSave();_taContourLabels()">${[['major', 'утолщённых (каждая 5-я)'], ['all', 'всех горизонталей'], ['none', 'без подписей']].map(([v, t]) => `<option value="${v}" ${TA.clabel === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
-      <div style="font-size:10px;color:var(--tx3)">Высоты — ArcticDEM в БСВ-77; на открытой местности точность ±1–2 м, в лесу и у построек хуже, поэтому шаг мельче 0,5 м — скорее для картинки. Каждая 5-я горизонталь утолщённая.</div>`;
+      <span>Шаг</span><select id="ta-int-s" onchange="_taIntSel(this.value)">${TA_STEPS.map(v => `<option value="${v}" ${+TA.interval === v ? 'selected' : ''}>${String(v).replace('.', ',')} м</option>`).join('')}<option value="custom" ${TA_STEPS.includes(+TA.interval) ? '' : 'selected'}>свой…</option></select>
+      <input id="ta-int" type="text" inputmode="decimal" value="${esc(String(TA.interval).replace('.', ','))}" style="width:64px;${TA_STEPS.includes(+TA.interval) ? 'display:none' : ''}" oninput="_taMajorHint()">
+      <span style="margin-left:8px">Утолщённая — каждая</span><select id="ta-major" onchange="TA.majorN=+this.value;_taSave();_taMajorHint();_taReMajor()">${[[2, '2-я'], [4, '4-я'], [5, '5-я'], [10, '10-я'], [0, 'нет утолщённых']].map(([v, t]) => `<option value="${v}" ${+TA.majorN === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      <span id="ta-major-h" style="color:var(--tx3)"></span></div>
+      <div style="display:flex;gap:8px;align-items:center;font-size:12px;flex-wrap:wrap"><span>Подписи</span><select id="ta-clabel" onchange="TA.clabel=this.value;_taSave();_taContourLabels()">${[['major', 'утолщённых'], ['all', 'всех горизонталей'], ['none', 'без подписей']].map(([v, t]) => `<option value="${v}" ${TA.clabel === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div style="font-size:10px;color:var(--tx3)">Высоты — ArcticDEM в БСВ-77; на открытой местности точность ±1–2 м, в лесу и у построек хуже, поэтому шаг мельче 0,5 м — скорее для картинки. Утолщение можно менять и после расчёта — без пересчёта.</div>`;
   if (TA.mode === 'slope') opts = `<label style="display:flex;gap:6px;align-items:center;font-size:12px;text-transform:none;font-weight:500;margin:0">Контуры крутых участков: уклон от <input id="ta-steep" type="number" min="1" max="60" step="1" value="${TA.steep}" style="width:64px"> °</label>`;
   if (TA.mode === 'flow') opts = `<label style="display:flex;gap:6px;align-items:center;font-size:12px;text-transform:none;font-weight:500;margin:0">Показывать сток с водосбором от <input id="ta-thr" type="text" inputmode="decimal" placeholder="авто" value="${esc(String(TA.thr || ''))}" style="width:70px"> км²</label>
       <div style="font-size:10px;color:var(--tx3)">Меньше число — больше мелких ручьёв. «Авто» — 1% площади области.</div>`;
@@ -51,7 +53,7 @@ function openTerrainPanel() {
     const info = { slope: `Средний уклон <b>${n(st.mean, 1)}°</b>, наибольший ${n(st.max, 1)}°. Контуров круче ${n(st.steep, 0)}°: <b>${(r.zones || {}).features ? r.zones.features.length : 0}</b>.`,
       flow: `Линий стока: <b>${st.count}</b> (водосбор от ${n(st.threshold_km2, 3)} км²), площадь области ${n(st.area_km2, 2)} км². Толще — больше водосбор.`,
       watershed: `Водосбор: <b>${n(st.area_km2, 3)} км²</b> (${n(st.area_km2 * 100, 1)} га), отметка в створе ${n(st.outlet_h)} м, наивысшая точка ${n(st.max_h)} м.${st.shift_m != null ? `<br>Створ ${st.shift_m > (st.res || 0) ? `притянут к руслу на <b>${n(st.shift_m, 0)} м</b> от указанной точки (на карте — пунктир)` : 'там, где указали'}.` : ''}`,
-      contours: `Горизонталей: <b>${st.count}</b> через <b>${n(st.interval)} м</b> (утолщённые — через ${n(st.interval * 5)} м), высоты в области от ${n(st.hmin, 1)} до ${n(st.hmax, 1)} м.`,
+      contours: `Горизонталей: <b>${st.count}</b> через <b>${n(st.interval)} м</b>${+TA.majorN ? ` (утолщённые — через ${n(st.interval * TA.majorN)} м)` : ''}, высоты в области от ${n(st.hmin, 1)} до ${n(st.hmax, 1)} м.`,
       compare: `Точек: <b>${st.n}</b>. Разница «съёмка − ArcticDEM»: средняя <b>${n(st.mean)} м</b>, медиана ${n(st.median)}, СКО ${n(st.std)}, RMS ${n(st.rms)}, от ${n(st.min)} до ${n(st.max)} м.
         ${st.area_ha ? `<br>В контуре точек (${n(st.area_ha, 2)} га): съёмка выше ArcticDEM — <b>${n(st.fill, 0)} м³</b>, ниже — <b>${n(-st.cut, 0)} м³</b>.` : ''}
         ${r.overlay ? `<br>Картограмма: красный — съёмка выше, синий — ниже (шкала ±${n(r.overlay.limit)} м).` : ''}` }[TA.res.mode] || '';
@@ -80,6 +82,7 @@ function openTerrainPanel() {
     { label: '▶ Рассчитать', cls: 'bp', fn: terrainRun },
   ]);
   document.getElementById('mov').classList.add('side');
+  _taMajorHint();
 }
 function _taArea(kind) {
   TA.name = '';
@@ -126,6 +129,8 @@ async function terrainRun() {
   const body = { mode: TA.mode, bbox: _demBbox, clip: _demClip || null };
   const steep = document.getElementById('ta-steep'); if (steep) { TA.steep = +steep.value || 10; body.steep = TA.steep; }
   const ti = document.getElementById('ta-int');
+  const tis = document.getElementById('ta-int-s');
+  if (tis && tis.value !== 'custom') ti.value = tis.value;
   if (ti) { const v = parseFloat(String(ti.value).replace(',', '.')); if (!(v >= 0.1 && v <= 500)) { toast('Шаг горизонталей — от 0,1 до 500 м', 'err'); return; } TA.interval = v; body.interval = v; }
   const thr = document.getElementById('ta-thr'); if (thr) { TA.thr = thr.value.replace(',', '.'); body.threshold_km2 = parseFloat(TA.thr) || 0; }
   if (TA.mode === 'watershed') { if (!TA.point) { _taPickPoint(); return; } body.point = TA.point; body.snap_m = +TA.snap || 0; }
@@ -217,8 +222,31 @@ function _taExport() {
 // ── Горизонтали на карте: линии + подписи высот вдоль линий ──
 // Подписи ставятся заново при сдвиге и масштабе: примерно через 320 px вдоль линии,
 // только в видимой части, текст повёрнут по линии и не «вверх ногами».
+const TA_STEPS = [0.1, 0.2, 0.25, 0.5, 1, 2, 2.5, 5, 10, 20, 50];
+function _taIntSel(v) {
+  const i = document.getElementById('ta-int'); if (!i) return;
+  if (v === 'custom') { i.style.display = ''; i.focus(); i.select(); } else { i.style.display = 'none'; i.value = String(v).replace('.', ','); }
+  _taMajorHint();
+}
+// «утолщённые — через N м»
+function _taMajorHint() {
+  const el = document.getElementById('ta-major-h'), i = document.getElementById('ta-int'); if (!el || !i) return;
+  const st = parseFloat(String(i.value).replace(',', '.')), k = +TA.majorN;
+  el.textContent = k && st > 0 ? `→ через ${String(Math.round(st * k * 1000) / 1000).replace('.', ',')} м` : '';
+}
+// утолщённые по выбору: отметка кратна «шаг × N» (без пересчёта на сервере)
+function _taIsMajor(h, step) { const k = +TA.majorN; if (!k || !(step > 0)) return false; return Math.round(Math.round(h / step) % k) === 0; }
+function _taReMajor() {
+  const r = TA.res; if (!r || !r.contours) return;
+  const step = r.stats.interval;
+  r.contours.features.forEach(f => { f.properties.major = _taIsMajor(f.properties.h, step); });
+  if (TA.vec) { try { map.removeLayer(TA.vec); } catch (e) {} }
+  _taDrawContours(r);
+  if (document.getElementById('ta-major')) openTerrainPanel();   // сводка в окне — с новым утолщением
+}
 function _taDrawContours(r) {
   const feats = r.contours.features;
+  feats.forEach(f => { f.properties.major = _taIsMajor(f.properties.h, r.stats.interval); });
   TA.vec = L.geoJSON({ type: 'FeatureCollection', features: feats }, {
     style: f => f.properties.major ? { color: '#fbbf24', weight: 2.2, opacity: 0.95 } : { color: '#fde68a', weight: 1, opacity: 0.85 },
     onEachFeature: (f, ly) => ly.bindTooltip(`Горизонталь <b>${String(f.properties.h).replace('.', ',')} м</b>`, { sticky: true }),
