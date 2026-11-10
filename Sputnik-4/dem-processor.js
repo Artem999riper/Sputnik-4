@@ -192,6 +192,12 @@ function runGDAL(exe, args) {
   console.log('[DEM]', exe, args.slice(0,5).join(' '));
   return execFileP(gdal(exe), args, {
     env: gdalEnv(), maxBuffer: 400*1024*1024, timeout: 600000,
+  }).catch(e => {
+    // понятная причина: строки ERROR из вывода GDAL (а не «Command failed: …» на весь экран)
+    const errs = String(e.stderr || '').split(/\r?\n/).filter(l => /ERROR|FAILURE/i.test(l)).slice(-3).join(' | ');
+    const msg = errs || (e.killed ? `${exe}: превышено время (10 мин)` : String(e.message || '').split(/\r?\n/).slice(-2).join(' '));
+    console.error('[DEM]', exe, 'ошибка:', msg);
+    const err = new Error(`${exe}: ${msg}`.slice(0, 600)); err.stderr = e.stderr; throw err;
   });
 }
 
@@ -497,6 +503,7 @@ function _tileHeaders(url) {
   if (url.includes('opentopomap.org'))     return { 'User-Agent':UA_BROWSER, 'Referer':'https://opentopomap.org/' };
   if (url.includes('cartocdn.com'))        return { 'User-Agent':UA_BROWSER, 'Referer':'https://carto.com/' };
   if (url.includes('2gis.com'))            return { 'User-Agent':UA_BROWSER, 'Referer':'https://2gis.ru/' };
+  if (url.includes('nakarte.me'))          return { 'User-Agent':UA_BROWSER, 'Referer':'https://nakarte.me/' };
   return { 'User-Agent':UA_BROWSER };
 }
 
@@ -523,6 +530,59 @@ function fetchTile(z,x,y,urlTemplate,subdomains) {
     req.on('error',reject);
     req.on('timeout',()=>{req.destroy();reject(new Error('timeout'));});
   });
+}
+
+// ── Тайлы: проверка формата и палитровые PNG → RGB (PPM) ─────────────────
+// Сервер может ответить «200» пустым телом или страницей ошибки — такой «тайл»
+// ломает gdalwarp. Палитровые PNG (топокарты nakarte) раскрашиваем сами: так
+// не зависим от версии GDAL (ColorTableComponent в VRT есть не везде).
+function _tileKind(b) {
+  if (!b || b.length < 24) return null;
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'png';
+  if (b[0] === 0xFF && b[1] === 0xD8) return 'jpg';
+  if (b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') return 'webp';
+  if (b.toString('latin1', 0, 3) === 'GIF') return 'gif';
+  return null;
+}
+// палитровый PNG (1/2/4/8 бит, без чересстрочности) → PPM (P6, RGB); прозрачное — белым. null — не вышло
+function _palPngToPpm(buf) {
+  try {
+    const zlib = require('zlib');
+    let pos = 8, w = 0, h = 0, bd = 0, ct = 0, il = 0, plte = null, trns = null; const idat = [];
+    while (pos + 8 <= buf.length) {
+      const len = buf.readUInt32BE(pos), type = buf.toString('latin1', pos + 4, pos + 8), data = buf.subarray(pos + 8, pos + 8 + len);
+      if (type === 'IHDR') { w = data.readUInt32BE(0); h = data.readUInt32BE(4); bd = data[8]; ct = data[9]; il = data[12]; }
+      else if (type === 'PLTE') plte = data;
+      else if (type === 'tRNS') trns = data;
+      else if (type === 'IDAT') idat.push(data);
+      else if (type === 'IEND') break;
+      pos += 12 + len;
+    }
+    if (ct !== 3 || il !== 0 || !plte || ![1, 2, 4, 8].includes(bd) || !w || !h) return null;
+    const raw = zlib.inflateSync(Buffer.concat(idat)), rowB = Math.ceil(w * bd / 8);
+    if (raw.length < h * (rowB + 1)) return null;
+    const cur = Buffer.alloc(rowB), prev = Buffer.alloc(rowB), out = Buffer.alloc(w * h * 3);
+    const hdr = Buffer.from(`P6\n${w} ${h}\n255\n`, 'latin1');
+    for (let y = 0; y < h; y++) {
+      const f = raw[y * (rowB + 1)], src = raw.subarray(y * (rowB + 1) + 1, (y + 1) * (rowB + 1));
+      for (let i = 0; i < rowB; i++) {
+        const a = i ? cur[i - 1] : 0, b = prev[i], c = i ? prev[i - 1] : 0, x = src[i];
+        let v;
+        if (f === 0) v = x; else if (f === 1) v = x + a; else if (f === 2) v = x + b; else if (f === 3) v = x + ((a + b) >> 1);
+        else { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); v = x + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c); }
+        cur[i] = v & 255;
+      }
+      const per = 8 / bd, mask = (1 << bd) - 1;
+      for (let xx = 0; xx < w; xx++) {
+        const idx = bd === 8 ? cur[xx] : (cur[Math.floor(xx / per)] >> (8 - bd * (xx % per + 1))) & mask;
+        const o = (y * w + xx) * 3, transparent = trns && idx < trns.length && trns[idx] === 0;
+        if (transparent || idx * 3 + 2 >= plte.length) { out[o] = out[o + 1] = out[o + 2] = 255; }
+        else { out[o] = plte[idx * 3]; out[o + 1] = plte[idx * 3 + 1]; out[o + 2] = plte[idx * 3 + 2]; }
+      }
+      cur.copy(prev);
+    }
+    return Buffer.concat([hdr, out]);
+  } catch (e) { return null; }
 }
 
 async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, satSourceUrl, satSourceSubdomains, satMPP, satMaxZoom) {
@@ -582,16 +642,26 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   const tileDir = path.join(tmpDir,'sat_tiles');
   fs.mkdirSync(tileDir, {recursive:true});
   const tileFiles = [];
-  let tilesDone = 0, lastLogPct = -1;
+  let tilesDone = 0, lastLogPct = -1, nMissing = 0, nBad = 0, badSample = '';
   for (let ty2 = yMin; ty2 <= yMax; ty2++) {
     for (let tx2 = xMin; tx2 <= xMax; tx2++) {
-      const out = path.join(tileDir, `t_${ty2}_${tx2}.jpg`);
-      let tileBuf = null;
+      let tileBuf = null, lastErr = '';
       for (let a = 0; a < 3; a++) {
-        try { tileBuf = await fetchTile(zoom,tx2,ty2,satSourceUrl,satSourceSubdomains); fs.writeFileSync(out, tileBuf); break; }
-        catch(e) { if (a===2) console.warn(`[SAT] tile ${tx2}/${ty2} fail:`,e.message); }
+        try { tileBuf = await fetchTile(zoom,tx2,ty2,satSourceUrl,satSourceSubdomains); break; }
+        catch(e) { lastErr = e.message; if (/HTTP 404/.test(e.message)) break; }   // 404 — тайла нет (пусто), не повторяем
       }
-      if (fs.existsSync(out)) tileFiles.push({file:out, tx:tx2, ty:ty2, bands:_pngBands(tileBuf)});
+      const kind = _tileKind(tileBuf);
+      if (!tileBuf) { nMissing++; if (!/HTTP 404/.test(lastErr) && nMissing <= 3) console.warn(`[SAT] tile ${tx2}/${ty2}:`, lastErr); }
+      else if (!kind) { nBad++; if (!badSample) badSample = tileBuf.toString('utf8', 0, 120).replace(/\s+/g, ' '); }
+      else {
+        let file, bands = _pngBands(tileBuf);
+        if (bands === 'pal') {
+          const ppm = _palPngToPpm(tileBuf);
+          if (ppm) { file = path.join(tileDir, `t_${ty2}_${tx2}.ppm`); fs.writeFileSync(file, ppm); bands = 3; }
+        }
+        if (!file) { file = path.join(tileDir, `t_${ty2}_${tx2}.${kind}`); fs.writeFileSync(file, tileBuf); }
+        tileFiles.push({file, tx:tx2, ty:ty2, bands});
+      }
       tilesDone++;
       const pct = Math.floor(tilesDone / totalTiles * 100);
       if (pct >= lastLogPct + 5) {
@@ -600,7 +670,8 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
       }
     }
   }
-  if (!tileFiles.length) throw new Error('Не удалось скачать тайлы спутника');
+  if (nMissing || nBad) console.log(`[SAT] без тайла: ${nMissing} (нет на сервере)${nBad ? `, не картинка: ${nBad} — «${badSample}»` : ''}`);
+  if (!tileFiles.length) throw new Error(nBad ? `Сервер подложки вернул не картинки (${nBad} шт.): «${badSample}»` : 'Не удалось скачать тайлы подложки — в этой области у источника нет тайлов или нет связи');
 
   // Шаг 2: собираем VRT в EPSG:3857 (Web Mercator — родная проекция Esri-тайлов)
   // ВАЖНО: тайлы физически в Web Mercator (EPSG:3857), не в EPSG:4326!
@@ -685,6 +756,7 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   const mpp = (satMPP && satMPP > 0) ? satMPP : 0;
   const trArgs = mpp ? ['-tr', String(mpp), String(mpp)] : [];
   await runGDAL('gdalwarp', [
+    '-overwrite',
     '-s_srs','EPSG:3857',   // источник — Web Mercator (родная проекция тайлов)
     '-t_srs', targetSrs,
     ...teArgs, ...trArgs,
