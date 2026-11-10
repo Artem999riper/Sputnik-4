@@ -85,8 +85,21 @@ function _netSet(ok) {
   if (d) { d.className = ok ? 'on' : 'off'; d.title = ok ? 'Связь с сервером есть' : 'Нет связи с сервером — изменения не сохраняются'; }
   clearTimeout(NET.t);
   const bar = document.getElementById('net-bar');
-  if (ok) { if (bar && bar.classList.contains('show')) { bar.classList.remove('show'); toast('🟢 Связь с сервером восстановлена', 'ok'); } }
-  else NET.t = setTimeout(() => { if (!NET.ok && bar) bar.classList.add('show'); }, 5000);
+  if (ok) {
+    if (bar && bar.classList.contains('show')) { bar.classList.remove('show'); toast('🟢 Связь с сервером восстановлена', 'ok'); }
+    // в журнал ошибок админа — одна запись о перерыве (вместо ошибки на каждый запрос)
+    if (NET.downAt) {
+      const O = window._NETOUT || { reqs: [], n: 0 }, hm = t => new Date(t).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const msg = `Связь с сервером прерывалась: ${hm(NET.downAt)} — ${hm(Date.now())} (≈${Math.round((Date.now() - NET.downAt) / 1000)} с)${O.n ? `, неудачных запросов ${O.n}: ${O.reqs.join(', ')}` : ''}`;
+      fetch(`${API}/client-errors`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg, stack: 'Сервер не отвечал этому браузеру (перезапуск, выключен, перегружен или сеть). Программа в браузере при этом не ломалась.', url: location.pathname }) }).catch(() => {});
+      if (window._NETOUT) Object.assign(window._NETOUT, { first: 0, last: 0, n: 0, reqs: [] });
+      NET.downAt = 0;
+    }
+  } else {
+    NET.downAt = NET.downAt || Date.now();
+    NET.t = setTimeout(() => { if (!NET.ok && bar) bar.classList.add('show'); }, 5000);
+  }
 }
 // «нет связи» — только после двух неудачных проверок подряд (сервер мог на миг задуматься)
 let _netFails = 0;

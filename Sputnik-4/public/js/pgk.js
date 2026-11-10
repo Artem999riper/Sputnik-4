@@ -5,10 +5,20 @@ function _getPGKContainer(){
   return document.getElementById(pageId);
 }
 async function loadPGK(){
-  const[wr,mr,er,br]=await Promise.all([
-    fetch(`${API}/pgk/workers/summary`),fetch(`${API}/pgk/machinery`),
-    fetch(`${API}/pgk/equipment`),fetch(`${API}/bases`)
-  ]);
+  let wr,mr,er,br;
+  try{
+    [wr,mr,er,br]=await Promise.all([
+      fetch(`${API}/pgk/workers/summary`),fetch(`${API}/pgk/machinery`),
+      fetch(`${API}/pgk/equipment`),fetch(`${API}/bases`)
+    ]);
+  }catch(e){
+    // сервер не ответил (перезапуск, выключен) — сказать прямо, а не оставлять пустую страницу
+    const c=_getPGKContainer();
+    if(c&&!c.querySelector('table'))c.innerHTML=`<div style="padding:40px 20px;text-align:center;color:var(--tx3)"><div style="font-size:28px">🔴</div>
+      <div style="margin:8px 0 12px">Нет связи с сервером — данные не загрузились.</div><button class="btn bp bsm" onclick="loadPGK()">🔄 Повторить</button></div>`;
+    else toast('Нет связи с сервером — показаны прежние данные','err');
+    return;
+  }
   pgkWorkers=await wr.json();pgkMachinery=await mr.json();
   pgkEquipment=await er.json();bases=await br.json();
   [pgkFuelReserves,pgkSpareGroups,pgkSpares,pgkEquipGroups,pgkMatGroups]=await Promise.all([

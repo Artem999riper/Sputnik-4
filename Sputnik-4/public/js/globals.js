@@ -216,9 +216,26 @@ function applyHiddenTabs(){
 // Одинаковые — не чаще раза в минуту; ошибки загрузки картинок/тайлов не считаем.
 (function () {
   const sent = new Map();
+  // обрыв связи — не ошибка программы: копим неудачные запросы и, когда связь вернётся,
+  // пишем в журнал одну запись «связь прерывалась с … по …»
+  const OUT = window._NETOUT = { first: 0, last: 0, n: 0, reqs: [] };
+  const _hm = t => new Date(t).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  setInterval(() => {
+    if (!OUT.n || Date.now() - OUT.last < 15000) return;
+    const msg = `Связь с сервером прерывалась: ${_hm(OUT.first)} — ${_hm(OUT.last)} (≈${Math.max(1, Math.round((OUT.last - OUT.first) / 1000))} с), неудачных запросов ${OUT.n}: ${OUT.reqs.join(', ')}${OUT.n > OUT.reqs.length ? '…' : ''}`;
+    fetch(`${API}/client-errors`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg, stack: 'Сервер не отвечал (перезапуск, выключен, сеть). Сама программа в браузере при этом не ломалась.', url: location.pathname }) })
+      .then(r => { if (r.ok) { OUT.n = 0; OUT.reqs = []; OUT.first = 0; } }).catch(() => {});
+  }, 10000);
   const report = (message, stack) => {
     message = String(message || 'Ошибка').slice(0, 1000);
     if (/ResizeObserver loop|Script error\.?$/.test(message)) return;
+    const net = message.match(/Нет связи с сервером:?\s*([A-Z]+ \S+)?/) || (/Failed to fetch|NetworkError|Load failed/.test(message) && [message, '']);
+    if (net) {
+      const now = Date.now(); if (!OUT.first) OUT.first = now; OUT.last = now; OUT.n++;
+      const r = (net[1] || '').trim(); if (r && OUT.reqs.length < 6 && !OUT.reqs.includes(r)) OUT.reqs.push(r);
+      return;
+    }
     const k = message, t = sent.get(k); if (t && Date.now() - t < 60000) return; sent.set(k, Date.now());
     try {
       fetch(`${API}/client-errors`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
