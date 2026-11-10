@@ -201,6 +201,51 @@ function runGDAL(exe, args) {
   });
 }
 
+// gdalwarp с ЖИВЫМ прогрессом: через Python-обвязку GDAL (gdal.Warp с callback, вывод
+// построчно без буфера). Сам gdalwarp при выводе не в консоль копит «0...10...» до конца.
+// Нет Python с osgeo — обычный gdalwarp (прогресс тогда приходит в конце).
+const _WARP_PY = [
+  'import sys, json',
+  'from osgeo import gdal',
+  'gdal.UseExceptions()',
+  'a = json.loads(sys.argv[1])',
+  'for k, v in a.get("config", {}).items(): gdal.SetConfigOption(k, v)',
+  'last = [-1]',
+  'def cb(c, m, d):',
+  '    p = int(c * 100)',
+  '    if p >= last[0] + 1:',
+  '        last[0] = p; print("PCT %d" % p, flush=True)',
+  '    return 1',
+  'gdal.Warp(a["dst"], a["src"], options=gdal.WarpOptions(options=a["args"], callback=cb))',
+  'print("WARP_OK", flush=True)',
+].join('\n');
+async function runWarpProgress(args, src, dst, onPct, config) {
+  findGDALBin();
+  if (_pythonExe) {
+    try {
+      await new Promise((resolve, reject) => {
+        const { spawn } = require('child_process');
+        const ch = spawn(_pythonExe, ['-u', '-c', _WARP_PY, JSON.stringify({ args, src, dst, config: config || {} })], { env: gdalEnv() });
+        let out = '', err = '', ok = false;
+        ch.stdout.on('data', d => {
+          out += d; const lines = out.split(/\r?\n/); out = lines.pop();
+          for (const l of lines) { const m = l.match(/^PCT (\d+)/); if (m) { try { onPct(+m[1]); } catch (e) {} } else if (/^WARP_OK/.test(l)) ok = true; }
+        });
+        ch.stderr.on('data', d => { err += d; });
+        ch.on('error', reject);
+        ch.on('close', code => code === 0 && (ok || /WARP_OK/.test(out)) ? resolve()
+          : reject(Object.assign(new Error((err.split(/\r?\n/).filter(l => /ERROR|Error|error/.test(l)).slice(-2).join(' | ') || err.slice(-300) || `код ${code}`)), { py: true, noOsgeo: /No module named .?osgeo/.test(err) })));
+      });
+      return;
+    } catch (e) {
+      if (!e.noOsgeo) throw new Error('gdalwarp: ' + e.message.slice(0, 500));
+      console.warn('[DEM] Python без osgeo — gdalwarp без живого прогресса');
+    }
+  }
+  const cfg = Object.entries(config || {}).flatMap(([k, v]) => ['--config', k, String(v)]);
+  return runGDALProgress('gdalwarp', [...cfg, ...args, src, dst], onPct);
+}
+
 // Как runGDAL, но парсит индикатор прогресса gdalwarp (печатается по умолчанию
 // в stdout как "0...10...20...30...40...50...60...70...80...90...100 - done.")
 // и вызывает onPct(0..100) по ~5%.
@@ -213,8 +258,9 @@ function runGDALProgress(exe, args, onPct) {
     let last = -1;
     const parse = (chunk) => {
       const s = chunk.toString();
-      const nums = s.match(/\d{1,3}/g);
-      if (nums) {
+      // только отметки прогресса GDAL «0...10...20» и «100 - done» (в путях к файлам тоже бывают цифры)
+      const nums = [...s.matchAll(/(\d{1,3})(?=\.\.\.|\s*-\s*done)/g)].map(m => m[1]);
+      if (nums.length) {
         for (const n of nums) {
           const v = parseInt(n, 10);
           if (v >= 0 && v <= 100 && v >= last + 5) { last = v; try { onPct(v); } catch(_) {} }
@@ -585,7 +631,9 @@ function _palPngToPpm(buf) {
   } catch (e) { return null; }
 }
 
-async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, satSourceUrl, satSourceSubdomains, satMPP, satMaxZoom) {
+// onProg(f 0…1, текст) — ход сборки подложки для очереди выгрузок (скачивание ~40 %, перепроецирование ~45 %, части ~15 %)
+async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, satSourceUrl, satSourceSubdomains, satMPP, satMaxZoom, onProg) {
+  const prog = (f, t) => { try { onProg && onProg(Math.max(0, Math.min(1, f)), t); } catch (e) {} };
   const {minLat,maxLat,minLng,maxLng} = bbox;
 
   // Вычисляем размер области в км для решения о зуме
@@ -668,6 +716,7 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
         lastLogPct = pct;
         console.log(`[SAT] скачано ${tilesDone}/${totalTiles} тайлов (${pct}%)`);
       }
+      if (tilesDone % 10 === 0 || tilesDone === totalTiles) prog(0.4 * tilesDone / totalTiles, `Подложка: скачано ${tilesDone} из ${totalTiles} тайлов`);
     }
   }
   if (nMissing || nBad) console.log(`[SAT] без тайла: ${nMissing} (нет на сервере)${nBad ? `, не картинка: ${nBad} — «${badSample}»` : ''}`);
@@ -755,15 +804,33 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   // при satMPP=1 масштаб вставки получается верным сразу, без ручного домножения.
   const mpp = (satMPP && satMPP > 0) ? satMPP : 0;
   const trArgs = mpp ? ['-tr', String(mpp), String(mpp)] : [];
-  await runGDAL('gdalwarp', [
+  // оценка итогового размера: с мелким пикселем (1 м на 100 км) это миллиарды пикселей — долго
+  const srcRes = 156543.034 * Math.cos((minLat + maxLat) / 2 * Math.PI / 180) / Math.pow(2, zoom);   // м/пикс. снимка
+  const outRes = mpp || srcRes;
+  const outW = Math.round(lonKm * 1000 / outRes), outH = Math.round(latKm * 1000 / outRes);
+  const nParts = Math.ceil(outW / 16000) * Math.ceil(outH / 16000);
+  const mpx = outW * outH / 1e6;
+  const sizeTxt = `${outW.toLocaleString('ru-RU')}×${outH.toLocaleString('ru-RU')} пикс.${nParts > 1 ? `, ${nParts} частей` : ''}`;
+  console.log(`[SAT] итог ~${sizeTxt} (${Math.round(mpx)} Мпикс), пиксель снимка ≈ ${srcRes.toFixed(1)} м, в файле ${outRes.toFixed(2)} м`);
+  if (mpp && mpp < srcRes / 3) console.log(`[SAT] ⚠ пиксель ${mpp} м намного мельче, чем в самом снимке (≈${srcRes.toFixed(0)} м): файл большой и обработка долгая, а деталей не прибавится`);
+  // при сильном увеличении lanczos только тратит время — cubic даёт то же на глаз
+  const resampling = mpp && mpp < srcRes * 0.75 ? 'cubic' : 'lanczos';
+  const fineWarn = mpp && mpp < srcRes / 3 ? ` · ⚠ пиксель ${mpp} м мельче снимка (≈${srcRes.toFixed(0)} м) — долго, деталей не прибавится` : '';
+  prog(0.4, `Подложка: перепроецирование — итог ~${sizeTxt}${fineWarn}`);
+  let lastWarp = -1;
+  console.log('[DEM] gdalwarp (с прогрессом)', targetSrs.slice(0, 60));
+  await runWarpProgress([
     '-overwrite',
+    '-multi', '-wo', 'NUM_THREADS=ALL_CPUS',   // все ядра процессора
     '-s_srs','EPSG:3857',   // источник — Web Mercator (родная проекция тайлов)
     '-t_srs', targetSrs,
     ...teArgs, ...trArgs,
-    '-r','lanczos',
+    '-r', resampling,
     '-co','COMPRESS=LZW','-co','TILED=YES','-co','BIGTIFF=IF_SAFER',
-    vrtFile, satTif,
-  ]);
+  ], vrtFile, satTif, pct => {
+    if (pct >= lastWarp + 10) { lastWarp = pct; console.log(`[SAT] перепроецирование ${pct}%`); }
+    prog(0.4 + 0.45 * pct / 100, `Подложка: перепроецирование ${pct}% (итог ~${sizeTxt})${fineWarn}`);
+  }, { GDAL_CACHEMAX: '1024' });
   if (mpp) console.log(`[SAT] фиксированный размер пикселя: ${mpp} м/пиксель`);
 
   // Шаг 4: геопривязка satTif + при необходимости РАЗБИЕНИЕ на части (для больших
@@ -828,6 +895,8 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
       const xoff = c * SECTION_PX, yoff = r * SECTION_PX;
       const xs = Math.min(SECTION_PX, W - xoff), ys = Math.min(SECTION_PX, H - yoff);
       const idx = `r${r}_c${c}`;
+      prog(0.85 + 0.15 * n / (rows * cols), `Подложка: часть ${n + 1} из ${rows * cols}`);
+      console.log(`[SAT] часть ${n + 1} из ${rows * cols}`);
       const sec = await _writeSection(xoff, yoff, xs, ys, idx,
         path.join(tmpDir, `satellite_${idx}.tif`), path.join(tmpDir, `satellite_${idx}.tfw`));
       if (wkt && n === 0) sec.prj = satPrj;
@@ -932,11 +1001,11 @@ async function _fetchDemWgs({ bbox, tmpDir, log, onProgress, cacheOnly, useGeoid
     // тяжёлый шаг → растягиваем на 15..90%, иначе на 15..28% (дальше геоид/DXF).
     const clipFrom = 15, clipTo = cacheOnly ? 90 : 28;
     const clippedTif=path.join(tmpDir,'clipped.tif');
-    await runGDALProgress('gdalwarp',[
+    await runWarpProgress([
       '-of','GTiff','-te',String(minLng),String(minLat),String(maxLng),String(maxLat),
       '-te_srs','EPSG:4326','-t_srs','EPSG:4326','-r','bilinear',
-      '-co','COMPRESS=LZW','-co','TILED=YES','-co','BIGTIFF=IF_SAFER',srcVrt,clippedTif,
-    ], pct => onProgress && onProgress(
+      '-co','COMPRESS=LZW','-co','TILED=YES','-co','BIGTIFF=IF_SAFER',
+    ], srcVrt, clippedTif, pct => onProgress && onProgress(
       Math.round(clipFrom + (clipTo-clipFrom)*pct/100),
       `Загрузка ArcticDEM ${usedRes}... ${pct}%`
     ));
@@ -1039,7 +1108,8 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
     // ── Режим «только спутник»: пропускаем весь DEM-пайплайн ──────────────
     if (satelliteOnly) {
       onProgress&&onProgress(10,'Загрузка спутника...');
-      const satRes = await buildSatellite(bbox,tmpDir,proj4,epsg,null,satZoom,satSourceUrl,satSourceSubdomains,satMPP,satMaxZoom);
+      const satRes = await buildSatellite(bbox,tmpDir,proj4,epsg,null,satZoom,satSourceUrl,satSourceSubdomains,satMPP,satMaxZoom,
+        (f,t)=>onProgress&&onProgress(10+Math.round(78*f),t));
       const satFiles=[];
       for (const sec of satRes) {
         if (sec.tif && fs.existsSync(sec.tif)) satFiles.push(sec.tif);
@@ -1249,7 +1319,8 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
     if (exportSatellite){
       onProgress&&onProgress(85,'Загрузка спутника...');
       try{
-        satSections=await buildSatellite(bbox,tmpDir,proj4,epsg,reprojTif,satZoom,satSourceUrl,satSourceSubdomains,satMPP,satMaxZoom);
+        satSections=await buildSatellite(bbox,tmpDir,proj4,epsg,reprojTif,satZoom,satSourceUrl,satSourceSubdomains,satMPP,satMaxZoom,
+          (f,t)=>onProgress&&onProgress(85+Math.round(4*f),t));
         for (const sec of satSections) {
           if (sec.tif && fs.existsSync(sec.tif)) satFiles.push(sec.tif);
           if (sec.tfw && fs.existsSync(sec.tfw)) satFiles.push(sec.tfw);
