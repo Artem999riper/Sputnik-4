@@ -208,6 +208,11 @@ getDb().then(database => {
   db = database;
 
   // SSE + Undo инфраструктура (middleware транслирует все мутации)
+  // учёт использования (Администрирование → «📈 Активность») — раньше всех маршрутов, чтобы видеть все запросы
+  {
+    const _lo = req => { const ip = req.ip || (req.socket && req.socket.remoteAddress) || ''; return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'; };
+    require('./routes/usage')(app, getDbInstance, { isLoopback: _lo, isAdmin: req => adminApi.isAdmin(req) });
+  }
   realtime.attachSse(app);
   realtime.attachUndo(app, getDbInstance);
 

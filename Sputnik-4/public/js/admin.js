@@ -52,6 +52,7 @@ function _admRender(){
   showModal('⚙️ Администрирование',`
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;border-bottom:1.5px solid var(--bd);padding-bottom:8px">
       <button class="btn bs bsm" id="adm-t-online"  onclick="_admSwitch('online')">👥 Онлайн</button>
+      <button class="btn bs bsm" id="adm-t-usage" onclick="_admSwitch('usage')">📈 Активность</button>
       <button class="btn bs bsm" id="adm-t-rights"  onclick="_admSwitch('rights')">🔑 Права</button>
       <button class="btn bs bsm" id="adm-t-tabs"    onclick="_admSwitch('tabs')">🗂 Вкладки</button>
       <button class="btn bs bsm" id="adm-t-settings" onclick="_admSwitch('settings')">⚙️ Настройки</button>
@@ -67,12 +68,13 @@ function _admRender(){
 }
 function _admSwitch(tab){
   _admTab=tab;
-  ['online','rights','tabs','settings','update','db','dbinfo','backups','errors'].forEach(t=>{
+  ['online','usage','rights','tabs','settings','update','db','dbinfo','backups','errors'].forEach(t=>{
     const b=document.getElementById('adm-t-'+t);
     if(b)b.className='btn '+(t===tab?'bp':'bs')+' bsm';
   });
   _admStopPoll();
   if(tab==='online'){_admRenderOnline();_admPollTimer=setInterval(()=>{if(document.getElementById('adm-online-list'))_admRenderOnline();else _admStopPoll();},8000);}
+  else if(tab==='usage')_admRenderUsage();
   else if(tab==='rights')_admRenderRights();
   else if(tab==='tabs')_admRenderTabs();
   else if(tab==='update')_admRenderUpdate();
@@ -88,14 +90,15 @@ function onPresenceEvent(){ if(_admTab==='online'&&document.getElementById('adm-
 
 async function _admRenderOnline(){
   const box=document.getElementById('adm-body');if(!box)return;
-  let list=[],blocks=[];try{const r=await fetch(`${API}/presence`);if(r.ok)list=await r.json();}catch(e){}
+  let list=[],blocks=[],live=null;try{const r=await fetch(`${API}/presence`);if(r.ok)list=await r.json();}catch(e){}
+  try{const r=await fetch(`${API}/admin/usage/live`);if(r.ok)live=await r.json();}catch(e){}
   try{const r=await fetch(`${API}/admin/blocks`);if(r.ok)blocks=await r.json();}catch(e){}
   if(_admTab!=='online'||!document.getElementById('adm-body'))return;   // пока грузилось, переключились на другую вкладку
   _admOnline=list;
   const fmtSince=t=>{const s=Math.max(0,Math.floor((Date.now()-t)/60000));return s<1?'только что':s<60?s+' мин':Math.floor(s/60)+' ч '+(s%60)+' мин';};
   const staleN=list.filter(p=>p.stale).length;
   box.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-      <div style="font-size:11px;color:var(--tx3);flex:1">Сейчас в программе: <b style="color:var(--acc)">${list.length}</b></div>
+      <div style="font-size:11px;color:var(--tx3);flex:1">Сейчас в программе: <b style="color:var(--acc)">${list.length}</b>${live?` · сервер: процессор <b style="color:${live.server.cpu>85?'#dc2626':live.server.cpu>60?'#d97706':'var(--grn)'}">${live.server.cpu}%</b> (Спутник ${live.server.nodeCpu}%), память ${live.server.memUsedPct}% из ${live.server.memTotalGb} ГБ${live.jobs&&live.jobs.length?` · идёт выгрузка: ${live.jobs.map(j=>esc((j.user_name||'?')+' — '+(j.pct||0)+'%')).join(', ')}`:''}`:''}</div>
       <button class="btn bs bsm" onclick="_admReloadAll()" title="Разослать команду обновить страницу всем на новой версии">🔄 Обновить у всех</button>
     </div>
     ${staleN?`<div style="font-size:10px;color:#b45309;background:#fef3c7;border-radius:var(--rs);padding:5px 8px;margin-bottom:6px;line-height:1.4">
@@ -108,6 +111,8 @@ async function _admRenderOnline(){
       <span style="width:8px;height:8px;border-radius:50%;background:${dot};flex-shrink:0"></span>
       <span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${p.stale?'color:#b45309':''}">${esc(nm)}</span>
       <span style="font-size:10px;color:var(--tx3);white-space:nowrap">${esc(p.ip||'')}</span>
+      ${(()=>{const u=live&&live.users.find(x=>x.name===p.name);if(!u)return '<span style="font-size:10px;color:var(--tx3);width:150px;text-align:right">—</span>';
+        const hot=u.kbpm>2048||u.cpuMsPm>20000;return `<span style="font-size:10px;white-space:nowrap;width:150px;text-align:right;color:${hot?'#dc2626':'var(--tx2)'}" title="За последние минуты: запросов в минуту, трафик в минуту, время сервера в минуту${u.last?'. Последнее действие: '+escAttr(u.last):''}">${u.rpm} запр/мин · ${u.kbpm>=1024?(u.kbpm/1024).toFixed(1)+' МБ':u.kbpm+' КБ'}/мин</span>`;})()}
       <span style="font-size:10px;color:var(--tx3);white-space:nowrap" title="Вкладок: ${p.tabs}">${p.tabs>1?'🗔×'+p.tabs+' · ':''}${fmtSince(p.connectedAt)}</span>
       ${p.clientId===CLIENT_ID?'<span style="font-size:10px;color:var(--acc);white-space:nowrap">это вы</span>'
         :`<button class="btn bs bxs" style="color:#dc2626;white-space:nowrap" onclick="_admKickMenu(event,'${escAttr(p.clientId)}')" title="Отключить от сервера">⏏ Отключить</button>`}
@@ -592,4 +597,51 @@ async function _admBkCleanup(){
   if(!r.ok){toast(j.error||'Ошибка','err');return;}
   toast(`🧹 Удалено копий: ${j.deleted}, освобождено ${_bkSz(j.freed||0)}, осталось ${j.left}`,'ok');
   _admRenderBackups();
+}
+
+// ── 📈 Активность: кто какими функциями пользуется и какая от него нагрузка ──
+let _admUsDays=7;
+const _usSz=b=>b>=1073741824?(b/1073741824).toFixed(2)+' ГБ':b>=1048576?(b/1048576).toFixed(1)+' МБ':Math.round(b/1024)+' КБ';
+const _usTime=ms=>ms>=3600000?(ms/3600000).toFixed(1)+' ч':ms>=60000?Math.round(ms/60000)+' мин':(ms/1000).toFixed(1)+' с';
+async function _admRenderUsage(){
+  const box=document.getElementById('adm-body');if(!box)return;
+  box.innerHTML=typeof skel==='function'?skel(5):'⏳';
+  let d;try{const r=await fetch(`${API}/admin/usage?days=${_admUsDays}`);d=await r.json();if(!r.ok)throw new Error(d.error||r.status);}
+  catch(e){box.innerHTML=`<div style="color:#ef4444;padding:10px">${esc(e.message)}</div>`;return;}
+  if(_admTab!=='usage')return;
+  const U=d.users||[],maxB=Math.max(1,...U.map(u=>u.bytes)),maxT=Math.max(1,...U.map(u=>u.ms+(u.jobSec||0)*1000));
+  box.innerHTML=`<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap;font-size:12px">
+      Период ${[[1,'сегодня'],[7,'7 дней'],[30,'30 дней'],[90,'90 дней']].map(([v,t])=>`<button class="btn ${_admUsDays===v?'bp':'bs'} bxs" onclick="_admUsDays=${v};_admRenderUsage()">${t}</button>`).join('')}
+      <span style="flex:1"></span><span style="color:var(--tx3)">всего: трафик ${_usSz(d.total.bytes)}, время сервера ${_usTime(d.total.ms)}</span></div>
+    <div style="font-size:10.5px;color:var(--tx3);margin-bottom:6px">«Действия» — всё, кроме просмотра (правки, выгрузки, экспорт, отчёты…). Полоски — доля трафика и времени сервера. Щелчок по человеку — подробный профиль.</div>
+    <div style="max-height:380px;overflow-y:auto;border:1px solid var(--bd);border-radius:var(--rs)">
+    ${U.length?U.map(u=>`<div onclick="_admUsUser('${escAttr(u.name)}')" style="padding:7px 10px;border-bottom:1px solid var(--bd);cursor:pointer;font-size:12px" onmouseover="this.style.background='var(--s2)'" onmouseout="this.style.background=''">
+      <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b style="flex:1;min-width:140px">${esc(u.name)}</b>
+        <span style="color:var(--tx2)">действий <b>${u.actions}</b></span>
+        ${u.jobs?`<span style="color:var(--tx2)">выгрузок рельефа/подложки <b>${u.jobs}</b>${u.jobSec?` (${_usTime(u.jobSec*1000)} обработки)`:''}</span>`:''}
+        ${u.online_min?`<span style="color:var(--tx3)">в программе ${_usTime(u.online_min*60000)}</span>`:''}</div>
+      <div style="display:grid;grid-template-columns:60px 1fr 70px;gap:4px 8px;align-items:center;margin-top:4px;font-size:10.5px;color:var(--tx3)">
+        <span>трафик</span><span style="height:6px;background:var(--s2);border-radius:3px"><i style="display:block;height:100%;width:${u.bytes/maxB*100}%;background:#3b82f6;border-radius:3px"></i></span><span style="text-align:right">${_usSz(u.bytes)}</span>
+        <span>сервер</span><span style="height:6px;background:var(--s2);border-radius:3px"><i style="display:block;height:100%;width:${(u.ms+(u.jobSec||0)*1000)/maxT*100}%;background:#f59e0b;border-radius:3px"></i></span><span style="text-align:right">${_usTime(u.ms+(u.jobSec||0)*1000)}</span></div>
+      ${u.top.length?`<div style="margin-top:3px;font-size:10.5px;color:var(--tx2)">${u.top.map(t=>`${esc(t.f)} — ${t.n}`).join(' · ')}</div>`:''}
+    </div>`).join(''):'<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">За этот период данных нет — учёт начинается с обновления программы</div>'}
+    </div>`;
+}
+async function _admUsUser(name){
+  const days=Math.max(_admUsDays,7);
+  let d;try{const r=await fetch(`${API}/admin/usage/user?name=${encodeURIComponent(name)}&days=${days}`);d=await r.json();if(!r.ok)throw new Error(d.error);}catch(e){toast('Не удалось загрузить: '+e.message,'err');return;}
+  const F=d.features||[],acts=F.filter(f=>!/^Просмотр/.test(f.feature)),view=F.find(f=>/^Просмотр/.test(f.feature));
+  const maxN=Math.max(1,...acts.map(f=>f.n)),maxD=Math.max(1,...d.byDay.map(x=>x.actions));
+  showModal(`📈 ${name} — за ${days} дн.`,`<div style="font-size:12px;min-width:min(560px,88vw)">
+    <div style="font-weight:700;margin-bottom:4px">Чем пользовался</div>
+    ${acts.length?`<div style="display:grid;grid-template-columns:minmax(150px,1.4fr) 1fr 44px 70px 70px;gap:3px 8px;align-items:center">
+      <span style="color:var(--tx3);font-size:10px">функция</span><span></span><span style="color:var(--tx3);font-size:10px;text-align:right">раз</span><span style="color:var(--tx3);font-size:10px;text-align:right">трафик</span><span style="color:var(--tx3);font-size:10px;text-align:right">сервер</span>
+      ${acts.map(f=>`<span title="последний раз ${esc(f.last)}">${esc(f.feature)}</span><span style="height:7px;background:var(--s2);border-radius:3px"><i style="display:block;height:100%;width:${f.n/maxN*100}%;background:var(--acc);border-radius:3px"></i></span>
+        <b style="text-align:right">${f.n}</b><span style="text-align:right;color:var(--tx2)">${_usSz(f.bytes)}</span><span style="text-align:right;color:var(--tx2)">${_usTime(f.ms)}</span>`).join('')}</div>`:'<div style="color:var(--tx3)">Только просмотр</div>'}
+    ${view?`<div style="color:var(--tx3);font-size:10.5px;margin-top:4px">Просмотр и обновление данных: ${view.n} запросов, ${_usSz(view.bytes)}, ${_usTime(view.ms)} работы сервера.</div>`:''}
+    ${d.byDay.length>1?`<div style="font-weight:700;margin:10px 0 4px">По дням (действия)</div><div style="display:flex;gap:2px;align-items:flex-end;height:60px">${d.byDay.map(x=>`<div title="${esc(x.day)}: действий ${x.actions}, трафик ${_usSz(x.bytes)}" style="flex:1;background:var(--acc);opacity:.8;border-radius:2px 2px 0 0;height:${Math.max(2,x.actions/maxD*100)}%"></div>`).join('')}</div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--tx3)"><span>${esc(d.byDay[0].day)}</span><span>${esc(d.byDay[d.byDay.length-1].day)}</span></div>`:''}
+    ${d.jobs.length?`<div style="font-weight:700;margin:10px 0 4px">Выгрузки рельефа и подложки (${d.jobs.length})</div><div style="max-height:150px;overflow:auto">${d.jobs.map(j=>`<div style="display:flex;gap:8px;font-size:11px;padding:2px 0;border-bottom:1px solid var(--bd)"><span style="color:var(--tx3);white-space:nowrap">${esc(j.at)}</span><span style="flex:1">${esc(j.kind)}: ${esc(j.title||'')}</span><span style="white-space:nowrap">${j.status==='done'?'✅':j.status==='error'?'❌':'⏳'} ${j.sec!=null?_usTime(j.sec*1000):''}${j.size?' · '+_usSz(j.size):''}</span></div>`).join('')}</div>`:''}
+    ${d.sessions.length?`<div style="font-weight:700;margin:10px 0 4px">Сеансы (последние)</div><div style="max-height:110px;overflow:auto;font-size:11px;color:var(--tx2)">${d.sessions.map(x=>`<div>${esc(x.started_at)} — ${esc(String(x.ended||'').slice(11,16))} · ${esc(x.ip||'')}</div>`).join('')}</div>`:''}
+  </div>`,[{label:'Закрыть',cls:'bs',fn:()=>{closeModal();openAdminPanel();}}]);
 }
