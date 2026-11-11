@@ -365,9 +365,21 @@ async function _admUpdRollback(name){
   const out=document.getElementById('adm-upd-zip');if(out)out.textContent='⏳ Откатываю…';
   try{const r=await fetch(`${API}/admin/update/rollback`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});_admUpdResult(await r.json(),out);}catch(e){out.textContent='Ошибка: '+e.message;}
 }
-function _admRenderSettings(){
+async function _admRenderSettings(){
   const box=document.getElementById('adm-body');if(!box)return;
+  let def=null;try{def=(await fetch(`${API}/app-settings/default_basemap`).then(r=>r.json())).value;}catch(e){}
+  if(_admTab!=='settings')return;
+  const names=Object.keys(window._mapBaseLayers||{}),cur=(def&&def.name)||'🛰 Спутник';
   box.innerHTML=`
+    <div style="font-size:12px;font-weight:700;margin-bottom:6px">🗺 Подложка карты по умолчанию</div>
+    <div style="font-size:10px;color:var(--tx3);margin-bottom:8px;line-height:1.5">
+      Включается у всех при открытии программы. Каждый может переключить у себя — его выбор запомнится, пока вы не смените подложку по умолчанию:
+      после сохранения у всех при следующем открытии (или F5) включится эта.
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+      <select id="adm-basemap" style="max-width:340px">${names.map(n=>`<option value="${escAttr(n)}" ${n===cur?'selected':''}>${esc(n)}</option>`).join('')}</select>
+      <button class="btn bp bsm" onclick="_admSaveBasemap()">💾 Сохранить для всех</button>
+    </div>
     <div style="font-size:12px;font-weight:700;margin-bottom:6px">Пароль администратора</div>
     <div style="font-size:10px;color:var(--tx3);margin-bottom:10px;line-height:1.5">
       Нужен, чтобы открывать эту панель с других устройств (не с ПК-сервера). С самого сервера доступ есть всегда.
@@ -375,6 +387,14 @@ function _admRenderSettings(){
     <div class="fg" style="max-width:280px"><label>Новый пароль (мин. 4 символа)</label>
       <input id="adm-newpw" type="password" autocomplete="new-password"></div>
     <button class="btn bp bsm" style="margin-top:8px" onclick="_admSavePw()">💾 Сохранить пароль</button>`;
+}
+async function _admSaveBasemap(){
+  const name=(document.getElementById('adm-basemap')||{}).value;if(!name)return;
+  const r=await fetch(`${API}/app-settings/default_basemap`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:{name,v:Date.now()}})});
+  if(!r.ok){toast('Не удалось сохранить','err');return;}
+  try{localStorage.setItem('basemap',JSON.stringify({name,v:0}));}catch(e){}
+  if(typeof _mapBaseSet==='function')_mapBaseSet(name);
+  toast(`Подложка по умолчанию: ${name} — у остальных при следующем открытии`,'ok');
 }
 async function _admSavePw(){
   const pw=(document.getElementById('adm-newpw')||{}).value||'';

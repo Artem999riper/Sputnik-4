@@ -1,3 +1,19 @@
+// ── Подложка при открытии: по умолчанию — та, что задал администратор (app_settings
+// default_basemap = {name, v}); свой выбор браузер помнит (localStorage), пока админ
+// не сменит подложку по умолчанию (новое v — у всех снова его подложка).
+function _mapBaseSet(name){
+  const L2=window._mapBaseLayers||{},lay=L2[name];if(!lay||map.hasLayer(lay))return;
+  Object.values(L2).forEach(l=>{if(map.hasLayer(l))map.removeLayer(l);});
+  lay.addTo(map);map.fire('baselayerchange',{layer:lay,name});
+}
+async function _mapBaseInit(){
+  let def=null;try{def=(await fetch(`${API}/app-settings/default_basemap`).then(r=>r.json())).value;}catch(e){}
+  let mine=null;try{mine=JSON.parse(localStorage.getItem('basemap')||'null');}catch(e){}
+  const v=def&&def.v||0;
+  const name=mine&&mine.name&&(mine.v||0)===v?mine.name:(def&&def.name);
+  if(name&&window._mapBaseLayers[name])_mapBaseSet(name);
+  map.on('baselayerchange',e=>{try{if(e&&e.name&&window._mapBaseLayers[e.name])localStorage.setItem('basemap',JSON.stringify({name:e.name,v}));}catch(x){}});
+}
 function initMap(){
   map=L.map('map',{center:[62,55],zoom:5,zoomControl:false,attributionControl:false,maxZoom:21});
   const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OSM',maxZoom:21,maxNativeZoom:19});
@@ -25,6 +41,7 @@ function initMap(){
     '📜 GGC 250 m — ГГЦ 1:25 000':ggc250,'📜 GGC 500 m — ГГЦ 1:50 000':ggc500,'📜 GGC 1 km — ГГЦ 1:100 000':ggc1k,'📜 GGC 2 km — ГГЦ 1:200 000':ggc2k,
     '📜 Topo 250 m — Генштаб 1:25 000':gsh250,'📜 Topo 500 m — Генштаб 1:50 000':gsh500,'📜 Topo 1 km — Генштаб 1:100 000':gsh1k,'📜 Topo 10 km — Генштаб 1:1 000 000':gsh10k};
   window._mapLayerCtrl=L.control.layers(window._mapBaseLayers,{},{position:'topright'}).addTo(map);
+  _mapBaseInit();
   L.control.zoom({position:'bottomright'}).addTo(map);
   // Pane для точечных объёмов — поверх vpLayers и KML
   map.createPane('volPointsPane');
