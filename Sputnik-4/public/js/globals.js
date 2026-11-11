@@ -267,3 +267,43 @@ function showKicked(info){
     +'<div style="font-size:11.5px;opacity:.7;margin-bottom:14px">Несохранённые изменения на этой странице могли не дойти до сервера.</div>'
     +'<button class="btn bp" onclick="location.reload()">🔄 Подключиться снова</button></div>';
 }
+
+// ── Слои карты: качаем только изменившиеся ──────────────────
+// GET /api/layers (без параметров) перехватывается: сначала лёгкий список без
+// геометрии (?lite=1, у каждого слоя rev — версия геометрии), затем геометрия
+// только новых и изменившихся слоёв (POST /api/layers-get), остальное — из памяти.
+// Раньше каждый браузер раз в 2 минуты и после любой правки любого слоя перекачивал
+// ВСЕ слои целиком — на медленной сети это забивало канал сервера.
+(function () {
+  const of = window.fetch;
+  const C = new Map();          // id → { rev, geojson }
+  let inflight = null;
+  const fake = arr => ({
+    ok: true, status: 200, statusText: 'OK', headers: new Headers({ 'Content-Type': 'application/json' }),
+    json: async () => arr.map(o => ({ ...o })),
+    text: async () => JSON.stringify(arr),
+    clone() { return fake(arr); },
+  });
+  async function smart() {
+    const lr = await of(`${API}/layers?lite=1`, { cache: 'no-store' });
+    if (!lr.ok) return lr;
+    const lite = await lr.json();
+    const need = lite.filter(l => { const c = C.get(l.id); return !c || c.rev !== (l.rev || 0); }).map(l => l.id);
+    for (let i = 0; i < need.length; i += 60) {
+      const r = await of(`${API}/layers-get`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: need.slice(i, i + 60) }) });
+      if (!r.ok) return of(`${API}/layers`);   // что-то не так — по-старому, целиком
+      (await r.json()).forEach(x => C.set(x.id, { rev: x.rev || 0, geojson: x.geojson }));
+    }
+    const ids = new Set(lite.map(l => l.id));
+    [...C.keys()].forEach(k => { if (!ids.has(k)) C.delete(k); });
+    return fake(lite.map(l => { const c = C.get(l.id), o = { ...l, geojson: c ? c.geojson : '{"type":"FeatureCollection","features":[]}' }; delete o.glen; return o; }));
+  }
+  window.fetch = function (u, o) {
+    const isList = typeof u === 'string' && /\/api\/layers$/.test(u) && (!o || !o.method || /^get$/i.test(o.method));
+    if (!isList) return of.apply(this, arguments);
+    // одновременные запросы списка (SSE + таймер + вкладка) — один на всех
+    if (!inflight) inflight = smart().catch(() => of(`${API}/layers`)).finally(() => { setTimeout(() => { inflight = null; }, 0); });
+    return inflight.then(r => (typeof r.clone === 'function' ? r.clone() : r));
+  };
+  window._layersCacheInfo = () => ({ layers: C.size, mb: +([...C.values()].reduce((s, c) => s + (c.geojson || '').length, 0) / 1048576).toFixed(1) });
+})();

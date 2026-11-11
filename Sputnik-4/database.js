@@ -234,7 +234,12 @@ async function getDb() {
       error TEXT, user_name TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now','localtime')), started_at TEXT, finished_at TEXT)`);
   ta("ALTER TABLE kml_layers ADD COLUMN show_labels INTEGER DEFAULT 0");
   ta("ALTER TABLE kml_layers ADD COLUMN style_json TEXT");
-  ta("ALTER TABLE kml_layers ADD COLUMN sort_order INTEGER");   // порядок слоёв (перетаскивание в панели); NULL — новые, сверху   // раскраска по атрибуту, поле и размер подписей
+  ta("ALTER TABLE kml_layers ADD COLUMN sort_order INTEGER");
+  // версия геометрии слоя: растёт сама при каждом изменении geojson — браузеры
+  // докачивают только изменившиеся слои (GET /api/layers?lite=1 + POST /api/layers-get)
+  ta("ALTER TABLE kml_layers ADD COLUMN rev INTEGER DEFAULT 0");
+  ta(`CREATE TRIGGER IF NOT EXISTS kml_layers_rev AFTER UPDATE OF geojson ON kml_layers
+      WHEN NEW.geojson IS NOT OLD.geojson BEGIN UPDATE kml_layers SET rev = COALESCE(OLD.rev, 0) + 1 WHERE id = NEW.id; END`);   // порядок слоёв (перетаскивание в панели); NULL — новые, сверху   // раскраска по атрибуту, поле и размер подписей
   ta("ALTER TABLE kml_layers ADD COLUMN fill_opacity REAL DEFAULT 0.2");
   // МТО — материально-техническое обеспечение (справка о технических средствах)
   ta("CREATE TABLE IF NOT EXISTS mto_items (id TEXT PRIMARY KEY, category TEXT DEFAULT '', name TEXT NOT NULL, quantity TEXT DEFAULT '', year TEXT DEFAULT '', condition TEXT DEFAULT 'Исправен', ownership TEXT DEFAULT '', notes TEXT DEFAULT '', sort_order INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))");

@@ -550,9 +550,27 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
 
   // ── KML LAYERS (global) ────────────────────────────────────
   // порядок: новые (без sort_order) сверху, дальше — как расставили перетаскиванием
-  app.get('/api/layers', wrap((req, res) =>
-    res.json(all(db(), 'SELECT * FROM kml_layers ORDER BY sort_order IS NOT NULL, sort_order, created_at DESC'))
-  ));
+  // ?lite=1 — без геометрии (+ rev — версия геометрии, glen — её размер): браузер сверяет
+  // со своим кэшем и докачивает только новые/изменившиеся слои через POST /api/layers-get
+  let _layerCols = null;
+  app.get('/api/layers', wrap((req, res) => {
+    const ORDER = 'ORDER BY sort_order IS NOT NULL, sort_order, created_at DESC';
+    if (req.query.lite) {
+      _layerCols = _layerCols || all(db(), 'PRAGMA table_info(kml_layers)').map(c => c.name).filter(c => c !== 'geojson');
+      return res.json(all(db(), `SELECT ${_layerCols.map(c => '"' + c + '"').join(',')}, LENGTH(geojson) glen FROM kml_layers ${ORDER}`));
+    }
+    res.json(all(db(), `SELECT * FROM kml_layers ${ORDER}`));
+  }));
+  app.post('/api/layers-get', wrap((req, res) => {
+    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(String).slice(0, 5000) : [];
+    if (!ids.length) return res.json([]);
+    const out = [];
+    for (let i = 0; i < ids.length; i += 500) {
+      const part = ids.slice(i, i + 500);
+      out.push(...all(db(), `SELECT id, rev, geojson FROM kml_layers WHERE id IN (${part.map(() => '?').join(',')})`, part));
+    }
+    res.json(out);
+  }));
   // новый порядок слоёв: {ids:[…]} — сверху вниз (перетаскивание в панели «Слои»)
   app.patch('/api/layers/order', wrap((req, res) => {
     const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(String).slice(0, 20000) : null;

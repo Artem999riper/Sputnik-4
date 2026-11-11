@@ -19,3 +19,18 @@ test('порядок слоёв сохраняется, новый слой — 
   assert.deepStrictEqual(got, [nid, ...want]);
   assert.strictEqual((await S.api('PATCH', '/api/layers/order', {})).status, 400);
 });
+
+test('лёгкий список слоёв: rev растёт при изменении геометрии, геометрия — по запросу', async () => {
+  const id = (await S.api('POST', '/api/layers', { name: 'R', geojson: gj })).body.id;
+  const lite = () => S.api('GET', '/api/layers?lite=1').then(r => r.body.find(l => l.id === id));
+  const a = await lite();
+  assert.ok(a && !('geojson' in a) && a.glen > 0, 'без геометрии, с размером');
+  await S.api('PUT', `/api/layers/${id}`, { name: 'R2', geojson: gj });                    // геометрия та же — версия не меняется
+  assert.strictEqual((await lite()).rev, a.rev);
+  const g2 = JSON.stringify({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [73, 61] } }] });
+  await S.api('PUT', `/api/layers/${id}`, { name: 'R2', geojson: g2 });
+  const b = await lite();
+  assert.strictEqual(b.rev, (a.rev || 0) + 1); assert.strictEqual(b.name, 'R2');
+  const got = (await S.api('POST', '/api/layers-get', { ids: [id] })).body;
+  assert.strictEqual(got.length, 1); assert.strictEqual(got[0].geojson, g2); assert.strictEqual(got[0].rev, b.rev);
+});

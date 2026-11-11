@@ -60,6 +60,29 @@ try {
 const app  = express();
 const PORT = process.env.PORT || 3000;
 app.use(cors());
+// Сжатие JSON-ответов (gzip): геометрия слоёв жмётся в 5–10 раз — по медленной сети
+// (Wi-Fi, 10 Мбит) сервер не забивает канал. Маленькие ответы — как есть.
+{
+  const zlib = require('zlib');
+  app.use((req, res, next) => {
+    if (!/\bgzip\b/.test(req.headers['accept-encoding'] || '')) return next();
+    const json = res.json.bind(res);
+    res.json = (obj) => {
+      const body = JSON.stringify(obj);
+      if (body === undefined || body.length < 8192 || res.headersSent) return json(obj);
+      zlib.gzip(Buffer.from(body), { level: 5 }, (err, buf) => {
+        if (err || res.headersSent) return err ? json(obj) : undefined;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Content-Encoding', 'gzip');
+        res.setHeader('Vary', 'Accept-Encoding');
+        res.setHeader('Content-Length', buf.length);
+        res.end(buf);
+      });
+      return res;
+    };
+    next();
+  });
+}
 // Глобальный лимит — 8 MB для обычных JSON запросов.
 // Для KML/GeoJSON слоёв отдельный лимит 50 MB (применяется до глобального).
 app.use('/api/layers', express.json({ limit: '200mb' }));   // слои ситуации по снимку бывают десятки МБ
