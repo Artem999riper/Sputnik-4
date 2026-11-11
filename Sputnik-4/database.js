@@ -55,6 +55,9 @@ async function getDb() {
     mode = 'delete';
   }
   _db.pragma('synchronous = NORMAL');
+  // кэш страниц базы в памяти 32 МБ (по умолчанию ~2 МБ) и временные таблицы в памяти —
+  // меньше чтений с диска на частых запросах (слои, объёмы, дашборд)
+  try { _db.pragma('cache_size = -32000'); _db.pragma('temp_store = MEMORY'); } catch (e) {}
   console.log(`[DB] journal_mode = ${mode.toUpperCase()}${isUNC ? ' (сетевой путь UNC)' : ''}`);
 
   _db.exec(`
@@ -347,6 +350,13 @@ async function getDb() {
   ta("CREATE INDEX IF NOT EXISTS idx_fugv_borehole      ON field_ugv(borehole_uuid)");
   ta("CREATE INDEX IF NOT EXISTS idx_fmmg_borehole      ON field_mmg(borehole_uuid)");
   ta("CREATE INDEX IF NOT EXISTS idx_fphotos_borehole   ON field_photos(borehole_uuid)");
+  // частые запросы: уведомления каждые 30 с у каждого, журнал действий, очередь выгрузок
+  ta("CREATE INDEX IF NOT EXISTS idx_notif_recipient    ON notifications(recipient, is_read)");
+  ta("CREATE INDEX IF NOT EXISTS idx_actlog_created     ON activity_log(created_at)");
+  ta("CREATE INDEX IF NOT EXISTS idx_demjobs_status     ON dem_jobs(status)");
+  // статистика для планировщика запросов SQLite (быстро; при запуске и раз в сутки)
+  ta("PRAGMA optimize");
+  setInterval(() => { try { _db.pragma('optimize'); } catch (e) {} }, 24 * 3600 * 1000).unref();
 
   return _db;
 }

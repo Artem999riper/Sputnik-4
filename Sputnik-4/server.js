@@ -89,6 +89,40 @@ app.use('/api/layers', express.json({ limit: '200mb' }));   // слои ситу
 app.use('/api/sites', express.json({ limit: '50mb' }));
 app.use('/api/dem', express.json({ limit: '50mb' }));   // выгрузка с ситуацией: объекты слоя «Ситуация»
 app.use(express.json({ limit: '8mb' }));
+// Сжатые копии файлов страницы (js, css, html, json, svg): первая загрузка по медленной
+// сети в 3–4 раза меньше. Копия в памяти пересоздаётся, только когда файл изменился;
+// ETag — по размеру и времени файла (повторные заходы получают «304, не изменился»).
+{
+  const zlib = require('zlib'), PUB = path.join(__dirname, 'public'), GZ = new Map();
+  app.use(async (req, res, next) => {
+    if ((req.method !== 'GET' && req.method !== 'HEAD') || req.path.startsWith('/api/')) return next();
+    if (!/\bgzip\b/.test(req.headers['accept-encoding'] || '')) return next();
+    const rel = req.path === '/' ? '/index.html' : decodeURIComponent(req.path);
+    if (!/\.(js|css|html|json|svg)$/i.test(rel)) return next();
+    const file = path.normalize(path.join(PUB, rel));
+    if (!file.startsWith(PUB + path.sep)) return next();
+    try {
+      const st = await fs.promises.stat(file);
+      if (!st.isFile() || st.size < 1024) return next();
+      const tag = `W/"gz-${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
+      let c = GZ.get(file);
+      if (!c || c.tag !== tag) {
+        const buf = await fs.promises.readFile(file);
+        c = { tag, gz: await new Promise((ok, no) => zlib.gzip(buf, { level: 6 }, (e, b) => e ? no(e) : ok(b))) };
+        GZ.set(file, c);
+      }
+      const type = { js: 'application/javascript', css: 'text/css', html: 'text/html', json: 'application/json', svg: 'image/svg+xml' }[rel.split('.').pop().toLowerCase()];
+      res.setHeader('Content-Type', type + '; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('ETag', tag);
+      res.setHeader('Vary', 'Accept-Encoding');
+      if (req.headers['if-none-match'] === tag) return res.status(304).end();
+      res.setHeader('Content-Encoding', 'gzip');
+      res.setHeader('Content-Length', c.gz.length);
+      return req.method === 'HEAD' ? res.end() : res.end(c.gz);
+    } catch (e) { return next(); }
+  });
+}
 // no-cache: браузер каждый раз сверяет файлы с сервером (ETag) — после обновления
 // программы новая страница подхватывается обычной перезагрузкой, без Ctrl+F5.
 app.use(express.static(path.join(__dirname, 'public'), {

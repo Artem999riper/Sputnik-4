@@ -384,7 +384,8 @@ async function markAllNotifRead(){
 
 function startNotifPolling(){
   fetchNotifs();
-  _notifTimer=setInterval(fetchNotifs,30000); // poll every 30s
+  _notifTimer=setInterval(function(){ if(!document.hidden)fetchNotifs(); },30000); // каждые 30 с, только видимая вкладка
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden)fetchNotifs(); });
 }
 
 // Re-poll when user types their name (so they get their notifications immediately)

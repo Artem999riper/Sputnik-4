@@ -77,6 +77,7 @@ function kickClient(clientId, info) {
   return n;
 }
 
+const READ_POST = /^\/api\/(layers-get|usage|gis\/op|client-errors|elevation\/profile|dem\/analysis|dem\/flood|dem\/export(-batch)?|export-tiles|situation\/osm|layers\/export-\w+|field\/preview-spk|admin\/(login|selftest|kick|reload))$/;
 function attachSse(app) {
   app.get('/api/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
@@ -116,6 +117,9 @@ function attachSse(app) {
   app.use((req, res, next) => {
     if (req.method === 'GET' || req.method === 'OPTIONS' || !req.url.startsWith('/api/')) return next();
     if (req.url === '/api/events' || req.url.startsWith('/api/editing')) return next();   // «кто редактирует» — не изменение данных
+    // POST, которые ничего не меняют в данных (чтение, расчёт, выгрузка файла, учёт) — без рассылки
+    // всем браузерам «данные изменились» (иначе каждый такой запрос будит синхронизацию у всех)
+    if (READ_POST.test(req.path || req.url.split('?')[0])) return next();
     res.on('finish', () => {
       if (res.statusCode >= 200 && res.statusCode < 400) {
         broadcast({ type: 'change', method: req.method, url: req.url, t: Date.now() });

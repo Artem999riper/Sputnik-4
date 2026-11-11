@@ -122,7 +122,8 @@ async function _netPing() {
       b.innerHTML = '🔴 Нет связи с сервером — изменения сейчас не сохраняются. Проверьте сеть и окно сервера. <button onclick="_netPing()">Проверить</button>';
       document.body.appendChild(b);
     }
-    setInterval(_netPing, 15000);
+    setInterval(() => { if (!document.hidden) _netPing(); }, 15000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) _netPing(); });
     addEventListener('online', _netPing); addEventListener('offline', () => _netSet(false));
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();

@@ -58,4 +58,4 @@ function _verWaitBack() {
   tick();
 }
 setTimeout(verCheck, 1500);
-setInterval(verCheck, 60000);
+setInterval(() => { if (!document.hidden) verCheck(); }, 60000);

@@ -358,8 +358,10 @@ async function initApp(){
   // SSE подписка на серверные события — push-обновления вместо частого polling
   startSseListener();
   // Подстраховка: редкий polling на случай разрыва SSE
-  setInterval(loadAll, 120000);
-  setInterval(function(){ try{loadGruz();}catch(e){} try{loadGTasks();}catch(e){} }, 180000);
+  // опросы — только когда вкладка на экране: свёрнутые/фоновые браузеры не грузят сервер
+  // (при возврате на вкладку данные обновятся сразу — см. visibilitychange ниже)
+  setInterval(function(){ if(!document.hidden)loadAll(); }, 120000);
+  setInterval(function(){ if(document.hidden)return; try{loadGruz();}catch(e){} try{loadGTasks();}catch(e){} }, 180000);
   setTimeout(startNotifPolling, 3000);
 }
 
