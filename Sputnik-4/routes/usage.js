@@ -186,7 +186,7 @@ module.exports = (app, getDb, { isLoopback, isAdmin }) => {
     const users = [...LIVE.entries()].map(([name, L]) => {
       const span = Math.max(1, Math.min(5, (Date.now() - L[0][0]) / 60000));
       const last = LAST.get(name);
-      return { name, rpm: +(L.length / span).toFixed(1), kbpm: Math.round(L.reduce((s, x) => s + x[1], 0) / 1024 / span), cpuMsPm: Math.round(L.reduce((s, x) => s + x[2], 0) / span), last: last && Date.now() - last.t < 600000 ? last.feature : '' };
+      return { name, span: +span.toFixed(1), rpm: +(L.length / span).toFixed(1), kbpm: Math.round(L.reduce((s, x) => s + x[1], 0) / 1024 / span), cpuMsPm: Math.round(L.reduce((s, x) => s + x[2], 0) / span), last: last && Date.now() - last.t < 600000 ? last.feature : '' };
     }).sort((a, b) => b.kbpm - a.kbpm);
     let jobs = []; try { jobs = all(getDb(), "SELECT user_name, title, pct, text FROM dem_jobs WHERE status='running'"); } catch (e) {}
     res.json({ server: { cpu: SRV.cpu, nodeCpu: SRV.nodeCpu, memUsedPct: Math.round((1 - os.freemem() / os.totalmem()) * 100), memTotalGb: +(os.totalmem() / 1073741824).toFixed(1),

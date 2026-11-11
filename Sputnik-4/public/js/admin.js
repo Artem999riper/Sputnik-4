@@ -112,7 +112,9 @@ async function _admRenderOnline(){
       <span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${p.stale?'color:#b45309':''}">${esc(nm)}</span>
       <span style="font-size:10px;color:var(--tx3);white-space:nowrap">${esc(p.ip||'')}</span>
       ${(()=>{const u=live&&live.users.find(x=>x.name===p.name);if(!u)return '<span style="font-size:10px;color:var(--tx3);width:150px;text-align:right">—</span>';
-        const hot=u.kbpm>2048||u.cpuMsPm>20000;return `<span style="font-size:10px;white-space:nowrap;width:150px;text-align:right;color:${hot?'#dc2626':'var(--tx2)'}" title="За последние минуты: запросов в минуту, трафик в минуту, время сервера в минуту${u.last?'. Последнее действие: '+escAttr(u.last):''}">${u.rpm} запр/мин · ${u.kbpm>=1024?(u.kbpm/1024).toFixed(1)+' МБ':u.kbpm+' КБ'}/мин</span>`;})()}
+        // первые ~3 минуты после входа — загрузка карты и данных, это не нагрузка
+        const warm=(u.span||0)<3, hot=!warm&&(u.kbpm>2048||u.cpuMsPm>20000);
+        return `<span style="font-size:10px;white-space:nowrap;width:150px;text-align:right;color:${hot?'#dc2626':'var(--tx2)'}" title="${warm?'Только что вошёл или перезагрузил страницу — идёт первая загрузка карты и данных. ':''}За последние минуты: запросов в минуту, трафик в минуту${u.last?'. Последнее действие: '+escAttr(u.last):''}">${warm?'загрузка… · ':''}${u.rpm} запр/мин · ${u.kbpm>=1024?(u.kbpm/1024).toFixed(1)+' МБ':u.kbpm+' КБ'}/мин</span>`;})()}
       <span style="font-size:10px;color:var(--tx3);white-space:nowrap" title="Вкладок: ${p.tabs}">${p.tabs>1?'🗔×'+p.tabs+' · ':''}${fmtSince(p.connectedAt)}</span>
       ${p.clientId===CLIENT_ID?'<span style="font-size:10px;color:var(--acc);white-space:nowrap">это вы</span>'
         :`<button class="btn bs bxs" style="color:#dc2626;white-space:nowrap" onclick="_admKickMenu(event,'${escAttr(p.clientId)}')" title="Отключить от сервера">⏏ Отключить</button>`}
