@@ -622,7 +622,7 @@ async function _admBkCleanup(){
 }
 
 // ── 📈 Активность: кто какими функциями пользуется и какая от него нагрузка ──
-let _admUsDays=7;
+let _admUsDays=7,_admUsBy='users',_admUsQ='';
 const _usSz=b=>b>=1073741824?(b/1073741824).toFixed(2)+' ГБ':b>=1048576?(b/1048576).toFixed(1)+' МБ':Math.round(b/1024)+' КБ';
 const _usTime=ms=>ms>=3600000?(ms/3600000).toFixed(1)+' ч':ms>=60000?Math.round(ms/60000)+' мин':(ms/1000).toFixed(1)+' с';
 async function _admRenderUsage(){
@@ -632,8 +632,11 @@ async function _admRenderUsage(){
   catch(e){box.innerHTML=`<div style="color:#ef4444;padding:10px">${esc(e.message)}</div>`;return;}
   if(_admTab!=='usage')return;
   const U=d.users||[],maxB=Math.max(1,...U.map(u=>u.bytes)),maxT=Math.max(1,...U.map(u=>u.ms+(u.jobSec||0)*1000));
+  window._admUsData=d;
+  if(_admUsBy==='features'){_admUsRenderFeatures(box,d);return;}
   box.innerHTML=`<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap;font-size:12px">
-      Период ${[[1,'сегодня'],[7,'7 дней'],[30,'30 дней'],[90,'90 дней']].map(([v,t])=>`<button class="btn ${_admUsDays===v?'bp':'bs'} bxs" onclick="_admUsDays=${v};_admRenderUsage()">${t}</button>`).join('')}
+      ${[['users','👤 По людям'],['features','🧩 По функциям']].map(([v,t])=>`<button class="btn ${_admUsBy===v?'bp':'bs'} bxs" onclick="_admUsBy='${v}';_admRenderUsage()">${t}</button>`).join('')}
+      <span style="width:8px"></span>Период ${[[1,'сегодня'],[7,'7 дней'],[30,'30 дней'],[90,'90 дней']].map(([v,t])=>`<button class="btn ${_admUsDays===v?'bp':'bs'} bxs" onclick="_admUsDays=${v};_admRenderUsage()">${t}</button>`).join('')}
       <span style="flex:1"></span><span style="color:var(--tx3)">всего: трафик ${_usSz(d.total.bytes)}, время сервера ${_usTime(d.total.ms)}</span></div>
     <div style="font-size:10.5px;color:var(--tx3);margin-bottom:6px">«Действия» — всё, кроме просмотра (правки, выгрузки, экспорт, отчёты…). Полоски — доля трафика и времени сервера. Щелчок по человеку — подробный профиль.</div>
     <div style="max-height:380px;overflow-y:auto;border:1px solid var(--bd);border-radius:var(--rs)">
@@ -666,4 +669,22 @@ async function _admUsUser(name){
     ${d.jobs.length?`<div style="font-weight:700;margin:10px 0 4px">Выгрузки рельефа и подложки (${d.jobs.length})</div><div style="max-height:150px;overflow:auto">${d.jobs.map(j=>`<div style="display:flex;gap:8px;font-size:11px;padding:2px 0;border-bottom:1px solid var(--bd)"><span style="color:var(--tx3);white-space:nowrap">${esc(j.at)}</span><span style="flex:1">${esc(j.kind)}: ${esc(j.title||'')}</span><span style="white-space:nowrap">${j.status==='done'?'✅':j.status==='error'?'❌':'⏳'} ${j.sec!=null?_usTime(j.sec*1000):''}${j.size?' · '+_usSz(j.size):''}</span></div>`).join('')}</div>`:''}
     ${d.sessions.length?`<div style="font-weight:700;margin:10px 0 4px">Сеансы (последние)</div><div style="max-height:110px;overflow:auto;font-size:11px;color:var(--tx2)">${d.sessions.map(x=>`<div>${esc(x.started_at)} — ${esc(String(x.ended||'').slice(11,16))} · ${esc(x.ip||'')}</div>`).join('')}</div>`:''}
   </div>`,[{label:'Закрыть',cls:'bs',fn:()=>{closeModal();openAdminPanel();}}]);
+}
+
+// «По функциям»: каждая функция — сколько раз всего и кто сколько (поиск: «рельеф», «экспорт»…)
+function _admUsRenderFeatures(box,d){
+  const F=(d.features||[]).filter(f=>!_admUsQ||f.f.toLowerCase().includes(_admUsQ.toLowerCase()));
+  const maxN=Math.max(1,...F.map(f=>f.n));
+  box.innerHTML=`<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap;font-size:12px">
+      ${[['users','👤 По людям'],['features','🧩 По функциям']].map(([v,t])=>`<button class="btn ${_admUsBy===v?'bp':'bs'} bxs" onclick="_admUsBy='${v}';_admRenderUsage()">${t}</button>`).join('')}
+      <span style="width:8px"></span>Период ${[[1,'сегодня'],[7,'7 дней'],[30,'30 дней'],[90,'90 дней']].map(([v,t])=>`<button class="btn ${_admUsDays===v?'bp':'bs'} bxs" onclick="_admUsDays=${v};_admRenderUsage()">${t}</button>`).join('')}
+      <input id="adm-us-q" type="search" placeholder="🔍 функция: рельеф, экспорт, отчёт…" value="${escAttr(_admUsQ)}" style="flex:1;min-width:160px;font-size:12px;padding:3px 8px"
+        oninput="_admUsQ=this.value;_admUsRenderFeatures(document.getElementById('adm-body'),window._admUsData);const e=document.getElementById('adm-us-q');e.focus();e.setSelectionRange(e.value.length,e.value.length)"></div>
+    <div style="max-height:400px;overflow-y:auto;border:1px solid var(--bd);border-radius:var(--rs)">
+    ${F.length?F.map(f=>`<div style="padding:7px 10px;border-bottom:1px solid var(--bd);font-size:12px">
+      <div style="display:grid;grid-template-columns:minmax(160px,1.3fr) 1fr 50px;gap:8px;align-items:center">
+        <b>${esc(f.f)}</b><span style="height:7px;background:var(--s2);border-radius:3px"><i style="display:block;height:100%;width:${f.n/maxN*100}%;background:var(--acc);border-radius:3px"></i></span><b style="text-align:right">${f.n}</b></div>
+      <div style="margin-top:3px;font-size:11px;color:var(--tx2);display:flex;flex-wrap:wrap;gap:4px 10px">${f.users.map(u=>`<a href="#" onclick="event.preventDefault();_admUsUser('${escAttr(u.name)}')" style="color:var(--tx2);text-decoration:none" title="Профиль">${esc(u.name)} — <b>${u.n}</b></a>`).join('')}</div>
+    </div>`).join(''):`<div style="padding:16px;text-align:center;color:var(--tx3);font-size:12px">${_admUsQ?'Таких функций за этот период не было':'За этот период данных нет — учёт начинается с обновления программы'}</div>`}
+    </div>`;
 }

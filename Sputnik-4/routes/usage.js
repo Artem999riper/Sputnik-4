@@ -123,7 +123,8 @@ module.exports = (app, getDb, { isLoopback, isAdmin }) => {
     res.on('finish', () => {
       try {
         const user = uname(req) || (isLoopback(req) ? 'Компьютер-сервер' : '(без имени)');
-        add(user, classify(req), bytes, Number(process.hrtime.bigint() - t0) / 1e6);
+        // в функцию — только успешные; отказы (4xx/5xx) — отдельной строкой
+        add(user, res.statusCode >= 400 ? 'Отказы сервера (ошибки запросов)' : classify(req), bytes, Number(process.hrtime.bigint() - t0) / 1e6);
       } catch (er) {}
     });
     next();
@@ -161,7 +162,11 @@ module.exports = (app, getDb, { isLoopback, isAdmin }) => {
     let ses = []; try { ses = all(d, `SELECT user_name, SUM((julianday(COALESCE(ended_at,last_seen)) - julianday(started_at)) * 1440) min FROM user_sessions WHERE date(started_at) >= ${from} GROUP BY user_name`); } catch (e) {}
     ses.forEach(s => { if (users[s.user_name]) users[s.user_name].online_min = Math.round(s.min || 0); });
     const list = Object.values(users).map(u => ({ ...u, top: u.top.sort((a, b) => b.n - a.n).slice(0, 4) })).sort((a, b) => b.ms + b.bytes / 1e4 + (b.jobSec || 0) * 1000 - (a.ms + a.bytes / 1e4 + (a.jobSec || 0) * 1000));
-    res.json({ days, users: list, total: { n: list.reduce((s, u) => s + u.n, 0), bytes: list.reduce((s, u) => s + u.bytes, 0), ms: list.reduce((s, u) => s + u.ms, 0) } });
+    // по функциям: сколько раз всего и кто сколько (просмотр не считаем)
+    const fm = {};
+    rows.forEach(r => { if (/^Просмотр/.test(r.feature)) return; const f = fm[r.feature] = fm[r.feature] || { f: r.feature, n: 0, bytes: 0, ms: 0, users: [] }; f.n += r.n; f.bytes += r.bytes; f.ms += r.ms; f.users.push({ name: r.user_name, n: r.n }); });
+    const features = Object.values(fm).map(f => ({ ...f, users: f.users.sort((a, b) => b.n - a.n) })).sort((a, b) => b.n - a.n);
+    res.json({ days, features, users: list, total: { n: list.reduce((s, u) => s + u.n, 0), bytes: list.reduce((s, u) => s + u.bytes, 0), ms: list.reduce((s, u) => s + u.ms, 0) } });
   }));
 
   // профиль человека: функции, по дням, выгрузки

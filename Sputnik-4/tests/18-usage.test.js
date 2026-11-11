@@ -32,3 +32,17 @@ test('учёт использования: функции по людям, де�
   const live = (await S.api('GET', '/api/admin/usage/live')).body;
   assert.ok(live.server && live.server.cores >= 1 && live.users.some(u => u.name === 'Петров П.П.'));
 });
+
+test('«По функциям»: кто сколько раз; отказы — отдельно', async () => {
+  const bb = { minLat: 61, maxLat: 61.01, minLng: 73, maxLng: 73.02 };
+  await S.api('POST', '/api/dem/analysis', { mode: 'watershed', bbox: bb }, H('Сидоров С.С.'));   // без точки — отказ 400
+  await S.api('POST', '/api/usage', { f: 'Каталог координат' }, H('Сидоров С.С.'));
+  await S.api('POST', '/api/usage', { f: 'Каталог координат' }, H('Петров П.П.'));
+  await S.api('POST', '/api/usage', { f: 'Каталог координат' }, H('Петров П.П.'));
+  const r = (await S.api('GET', '/api/admin/usage?days=1')).body;
+  const cat = r.features.find(f => f.f === 'Каталог координат');
+  assert.strictEqual(cat.n, 3);
+  assert.deepStrictEqual(cat.users.map(u => [u.name, u.n]), [['Петров П.П.', 2], ['Сидоров С.С.', 1]]);
+  assert.ok(!r.features.some(f => /^Анализ рельефа/.test(f.f) && f.users.some(u => u.name === 'Сидоров С.С.')), 'отказ не засчитан как анализ');
+  assert.ok(r.features.some(f => /^Отказы/.test(f.f)));
+});
