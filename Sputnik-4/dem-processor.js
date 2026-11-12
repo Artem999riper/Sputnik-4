@@ -1093,9 +1093,52 @@ ds.FlushCache(); ds=None; print('GEOID_OK')
 }
 
 // ── Главная функция ────────────────────────────────────────
+// ── Слои KML в архив выгрузки: объекты, попадающие в область, — отдельным DXF в той же СК ──
+// Сервер даёт загрузчик слоёв по id (setLayerLoader), чтобы не тащить геометрию из браузера.
+let _layerLoader = null;
+function setLayerLoader(fn) { _layerLoader = fn; }
+function _hexDxf(hex) {
+  const h = String(hex || '').replace('#', ''); if (h.length < 6) return 7;
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  if (r > 200 && g < 100 && b < 100) return 1; if (r < 100 && g > 150 && b < 100) return 3; if (r < 100 && g < 100 && b > 150) return 5;
+  if (r > 200 && g > 200 && b < 100) return 2; if (r < 100 && g > 150 && b > 150) return 4; if (r > 200 && g < 100 && b > 150) return 6; return 7;
+}
+function _kmlLayersDxf({ kmlLayerIds, bbox, proj4: p4, epsg, tmpDir, log }) {
+  if (!Array.isArray(kmlLayerIds) || !kmlLayerIds.length || !_layerLoader) return null;
+  const rows = _layerLoader(kmlLayerIds) || [];
+  const { minLat, maxLat, minLng, maxLng } = bbox;
+  const hit = g => {   // рамка геометрии пересекается с областью выгрузки
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const w = c => { if (!Array.isArray(c)) return; if (typeof c[0] === 'number') { if (c[0] < x0) x0 = c[0]; if (c[0] > x1) x1 = c[0]; if (c[1] < y0) y0 = c[1]; if (c[1] > y1) y1 = c[1]; } else c.forEach(w); };
+    if (g.type === 'GeometryCollection') (g.geometries || []).forEach(q => w(q.coordinates)); else w(g.coordinates);
+    return x1 >= minLng && x0 <= maxLng && y1 >= minLat && y0 <= maxLat;
+  };
+  const layers = []; let nObj = 0;
+  for (const r of rows) {
+    let gj; try { gj = JSON.parse(r.geojson); } catch (e) { continue; }
+    const feats = (gj.features || (gj.type === 'Feature' ? [gj] : [])).filter(f => f && f.geometry && !(f.properties && f.properties._hidden) && hit(f.geometry));
+    if (!feats.length) continue;
+    nObj += feats.length;
+    layers.push({ name: r.name, color: _hexDxf(r.color), geojson: { type: 'FeatureCollection', features: feats } });
+  }
+  if (!layers.length) { log && log.push('Слои KML: в области нет объектов'); return { file: null, note: 'Слои KML: в области выгрузки объектов нет.' }; }
+  // та же система координат, что у рельефа / подложки
+  let transform;
+  try {
+    if (p4) transform = require('./coord-transform').makeTransform(p4, (minLng + maxLng) / 2);
+    else if (!epsg || +epsg === 4326) transform = (lng, lat) => [lng, lat];
+    else { const P = require('proj4'); P('EPSG:4326', `EPSG:${epsg}`, [73, 61]); transform = (lng, lat) => P('EPSG:4326', `EPSG:${epsg}`, [lng, lat]); }
+  } catch (e) { return { file: null, note: 'Слои KML не добавлены: неизвестная система координат (' + e.message + ').' }; }
+  const { buildLayersDXF, saveDXF } = require('./dxf-writer');
+  const file = path.join(tmpDir, 'KML_layers.dxf');
+  saveDXF(file, buildLayersDXF({ layers, transform }));
+  log && log.push(`Слои KML: ${layers.length} слоёв, ${nObj} объектов`);
+  return { file, note: `Слои KML (KML_layers.dxf, та же система координат): ${layers.length} слоёв, ${nObj} объектов — ${layers.map(l => l.name).slice(0, 12).join(', ')}${layers.length > 12 ? '…' : ''}.` };
+}
+
 async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
                             interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,
-                            satelliteOnly,cacheOnly,satZoom,satMPP,satSourceUrl,satSourceSubdomains,satMaxZoom,situation,onProgress}) {
+                            satelliteOnly,cacheOnly,satZoom,satMPP,satSourceUrl,satSourceSubdomains,satMaxZoom,situation,kmlLayerIds,onProgress}) {
   gridStep = (gridStep !== undefined && gridStep !== null && gridStep !== '') ? parseInt(gridStep) : 20;
   if (isNaN(gridStep)) gridStep = 20;
   const jMin = parseFloat(jitterMin)||0;
@@ -1120,11 +1163,12 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
         if (sec.tfw && fs.existsSync(sec.tfw)) satFiles.push(sec.tfw);
         if (sec.prj && fs.existsSync(sec.prj)) satFiles.push(sec.prj);
       }
+      const kml=_kmlLayersDxf({kmlLayerIds,bbox,proj4,epsg,tmpDir,log});
       onProgress&&onProgress(90,'Упаковка архива...');
       const infoFile=path.join(tmpDir,'readme.txt');
-      fs.writeFileSync(infoFile,`ArcticDEM Satellite Export\r\n=========================\r\nДата: ${new Date().toLocaleString('ru')}\r\nСК: ${projName||projId} ${proj4||''}\r\nРежим: только подложка (JPEG + геопривязка)${_satReadme(satRes)}`);
+      fs.writeFileSync(infoFile,`ArcticDEM Satellite Export\r\n=========================\r\nДата: ${new Date().toLocaleString('ru')}\r\nСК: ${projName||projId} ${proj4||''}\r\nРежим: только подложка (JPEG + геопривязка)${_satReadme(satRes)}${kml?'\r\n\r\n'+kml.note:''}`);
       const zipFile=path.join(tmpDir,'satellite_export.zip');
-      const filesToZip=[...satFiles,infoFile].filter(f=>fs.existsSync(f));
+      const filesToZip=[...satFiles,infoFile,...(kml&&kml.file?[kml.file]:[])].filter(f=>fs.existsSync(f));
       await new Promise((resolve,reject)=>{
         if (IS_WINDOWS){
           const toZip=filesToZip.map(f=>`'${f}'`).join(',');
@@ -1338,6 +1382,7 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
     }
 
     // 9. ZIP
+    const kml=_kmlLayersDxf({kmlLayerIds,bbox,proj4,epsg,tmpDir,log});
     onProgress&&onProgress(94,'Упаковка архива...');
     const prjFile =path.join(tmpDir,'result.prj');
     const infoFile=path.join(tmpDir,'readme.txt');
@@ -1362,11 +1407,11 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
       `  PODPISI      — жёлтый (2), TEXT, каждая 2-я горизонталь\r\n` +
       `  TOCHKI_VYSOT — зелёный (3), POINT+TEXT, сетка ${gridStep}м\r\n` +
       (situation&&situation.on&&situation.tplContours!==false&&!/НЕ ДОБАВЛЕНА/.test(sitNote)?`  (горизонтали перенесены на слои шаблона «Горизонтали основные» / «Горизонтали утолщенные»)\r\n`:'') +
-      sitNote + satScaleInfo
+      sitNote + satScaleInfo + (kml?'\r\n\r\n'+kml.note+'\r\n':'')
     );
 
     const zipFile=path.join(tmpDir,'arcticdem_export.zip');
-    const filesToZip=[outDxf,prjFile,infoFile,...satFiles].filter(f=>fs.existsSync(f));
+    const filesToZip=[outDxf,prjFile,infoFile,...satFiles,...(kml&&kml.file?[kml.file]:[])].filter(f=>fs.existsSync(f));
     await new Promise((resolve,reject)=>{
       if (IS_WINDOWS) {
         const toZip=filesToZip.map(f=>`'${f}'`).join(',');
@@ -1668,7 +1713,7 @@ async function convertToGeoJSONRaw(srcPath, outPath) {
 module.exports = {
   processDEM, floodZones, terrainAnalysis, geoidTest, runPyJson, cleanupTmp, checkGDAL, convertToTab, convertToGeoJSON, convertToGeoJSONRaw,
   getElevationAtPoint, getElevationProfile, getDemTilesInfo, computeGeoidN,
-  getDemTilesDir, setDemTilesDir,
+  getDemTilesDir, setDemTilesDir, setLayerLoader,
   _downloadGeoidGrids: _ensureGeoidGrids,
   _resetGeoidCheck: () => { _geoidGridsChecked = false; },
 };

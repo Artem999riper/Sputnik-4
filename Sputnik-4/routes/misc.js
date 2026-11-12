@@ -1483,7 +1483,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
 
   app.post('/api/dem/export', async (req, res) => {
     if (!demProcessor) return res.status(503).json({ error: 'DEM процессор не доступен' });
-    const { bbox, clip, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite, satelliteOnly, cacheOnly, satZoom, satMPP, satSourceUrl, satSourceSubdomains, satMaxZoom, situation } = req.body;
+    const { bbox, clip, projId, proj4, epsg, projName, format, interval, useGeoid, gridStep, jitterMin, jitterMax, exportSatellite, satelliteOnly, cacheOnly, satZoom, satMPP, satSourceUrl, satSourceSubdomains, satMaxZoom, situation, kmlLayerIds } = req.body;
     if (!bbox || !bbox.minLat) return res.status(400).json({ error: 'Не указана область (bbox)' });
     let tmpDir = null;
     try {
@@ -1504,6 +1504,7 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
         satSourceSubdomains: satSourceSubdomains || [],
         satMaxZoom: parseInt(satMaxZoom) || 0,
         situation: situation || null,
+        kmlLayerIds: Array.isArray(kmlLayerIds) ? kmlLayerIds.map(String).slice(0, 500) : null,
         onProgress: (pct, text) => {
           console.log(`[DEM] ${pct}% - ${text}`);
           broadcast({ type: 'dem_progress', pct, text });

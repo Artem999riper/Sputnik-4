@@ -65,7 +65,7 @@ function openDEMPanel(step) {
         ${card(DW.what === 'relief', "DW.what='relief';_dwSave();openDEMPanel(2)", '🏔', 'Только рельеф', 'DXF: горизонтали и отметки высот (БСВ-77)')}
         ${card(DW.what === 'sat', "DW.what='sat';_dwSave();openDEMPanel(2)", '🛰', 'Только подложка', 'спутниковый снимок GeoTIFF с привязкой')}
         ${isAdminClient() ? card(DW.what === 'cache', "DW.what='cache';_dwSave();openDEMPanel(2)", '📦', 'Только кэш ArcticDEM', 'служебное: скачать тайлы рельефа заранее') : ''}
-      </div>`;
+      </div>${DW.what !== 'cache' ? _dwKmlIncHtml() : ''}`;
   } else if (DW.step === 3) {
     body = `<div class="dw-h">Система координат${_dwHasRelief() ? ' и параметры рельефа' : ''}</div>
       <div class="fgr">
@@ -314,6 +314,7 @@ function _dwSummaryHtml() {
     ${DW.what !== 'cache' ? row('Система координат', esc(projName) + (DW.zone ? `, зона ${DW.zone}` : ', зона — авто')) : ''}
     ${_dwHasRelief() ? row('Рельеф', `горизонтали через ${DW.interval} м, ${DW.grid ? 'отметки через ' + DW.grid + ' м' : 'без отметок'}, высоты БСВ-77`) : ''}
     ${_dwHasRelief() && DW.sit && typeof sitSummary === 'function' ? row('Ситуация', sitSummary()) : ''}
+    ${DW.what !== 'cache' && DW.kmlInc ? row('Слои KML', (() => { const n = _dwKmlIncIds().length; return n ? `${n} сл. — отдельным DXF (KML_layers.dxf) в той же системе координат` : 'в области нет отмеченных слоёв'; })()) : ''}
     ${_dwHasSat() ? row('Подложка', `${(DEM_SAT_SOURCES.find(s => s.id === DW.satSource) || {}).label || ''}, ${DW.satZoom ? 'z' + DW.satZoom : 'детализация авто'}, ${DW.satMPP ? DW.satMPP + ' м/пиксель' : 'пиксель как в снимке'}`) : ''}
   </table>${km2 > 100 ? '<div class="dw-info">⚠️ Большая область — выгрузка может занять несколько минут.</div>' : ''}`;
 }
@@ -338,7 +339,8 @@ function _dwParams() {
   return { interval: DW.interval, gridStep: DW.grid, jitterMin: DW.jMin, jitterMax: DW.jMax, useGeoid: true,
     exportSatellite: _dwHasSat(), satelliteOnly: DW.what === 'sat', cacheOnly: DW.what === 'cache',
     satZoom: DW.satZoom || 0, satMPP: DW.satMPP || 0, satSourceUrl: so.url, satSourceSubdomains: so.subdomains, satMaxZoom: so.maxZoom || 0,
-    situation: _dwHasRelief() && typeof sitParams === 'function' ? sitParams() : null };
+    situation: _dwHasRelief() && typeof sitParams === 'function' ? sitParams() : null,
+    kmlLayerIds: DW.what !== 'cache' && DW.kmlInc ? _dwKmlIncIds() : null };
 }
 async function _dwExport() {
   if (!_dwAreaReady()) { toast('Сначала выберите область', 'err'); return; }
@@ -496,3 +498,52 @@ async function _djRefreshCount() {
   };
   setTimeout(() => { connect(); _djRefreshCount(); }, 3000);
 })();
+
+// ── Слои KML в архив выгрузки: какие слои попадают в область ──
+// рамки объектов слоя считаются один раз (пока не изменилась геометрия)
+const _DWKB = new Map();   // id → {src, fb:[[x0,y0,x1,y1],…]}
+function _dwKmlFeatBoxes(l) {
+  const c = _DWKB.get(l.id); if (c && c.src === l.geojson) return c.fb;
+  const fb = [];
+  try {
+    const gj = JSON.parse(l.geojson);
+    (gj.features || (gj.type === 'Feature' ? [gj] : [])).forEach(f => {
+      if (!f || !f.geometry || (f.properties && f.properties._hidden)) return;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      const w = q => { if (!Array.isArray(q)) return; if (typeof q[0] === 'number') { if (q[0] < x0) x0 = q[0]; if (q[0] > x1) x1 = q[0]; if (q[1] < y0) y0 = q[1]; if (q[1] > y1) y1 = q[1]; } else q.forEach(w); };
+      if (f.geometry.type === 'GeometryCollection') (f.geometry.geometries || []).forEach(g => w(g.coordinates)); else w(f.geometry.coordinates);
+      if (Number.isFinite(x0)) fb.push([x0, y0, x1, y1]);
+    });
+  } catch (e) {}
+  _DWKB.set(l.id, { src: l.geojson, fb });
+  return fb;
+}
+// слои с объектами в области: [{l, n}]
+function _dwKmlInArea() {
+  const b = _dwBbox(); if (!b) return [];
+  return (layers || []).map(l => ({ l, n: _dwKmlFeatBoxes(l).filter(f => f[2] >= b.minLng && f[0] <= b.maxLng && f[3] >= b.minLat && f[1] <= b.maxLat).length })).filter(x => x.n > 0);
+}
+function _dwKmlIncIds() {
+  const off = new Set(DW.kmlOff || []), on = new Set(DW.kmlOn || []);
+  return _dwKmlInArea().filter(x => on.has(x.l.id) || (!off.has(x.l.id) && (typeof lvis === 'function' ? lvis(x.l) : x.l.visible))).map(x => x.l.id);
+}
+function _dwKmlToggle(id, on) {
+  DW.kmlOff = (DW.kmlOff || []).filter(x => x !== id); DW.kmlOn = (DW.kmlOn || []).filter(x => x !== id);
+  (on ? DW.kmlOn : DW.kmlOff).push(id); _dwSave();
+  const n = document.getElementById('dw-kml-n'); if (n) n.textContent = _dwKmlIncIds().length;
+}
+function _dwKmlIncHtml() {
+  const list = DW.kmlInc ? _dwKmlInArea() : [], sel = new Set(DW.kmlInc ? _dwKmlIncIds() : []);
+  return `<div style="margin-top:10px;border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px">
+    <label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer;text-transform:none;font-weight:600;margin:0">
+      <input type="checkbox" ${DW.kmlInc ? 'checked' : ''} onchange="DW.kmlInc=this.checked;_dwSave();openDEMPanel(2)" style="width:auto;margin:0">
+      🗂 Добавить слои KML, попадающие в область</label>
+    <div style="font-size:10.5px;color:var(--tx3);margin:3px 0 0 22px">Отдельным файлом KML_layers.dxf в той же системе координат, что рельеф и подложка; берутся объекты, задевающие область (целиком).</div>
+    ${DW.kmlInc ? (list.length ? `<div style="margin:6px 0 0 22px;font-size:11px;color:var(--tx2)">Отмечено слоёв: <b id="dw-kml-n">${sel.size}</b> из ${list.length} (по умолчанию — видимые на карте)</div>
+      <div style="margin:4px 0 0 22px;max-height:170px;overflow:auto">${list.map(x => `<label style="display:flex;gap:6px;align-items:center;font-size:12px;padding:2px 0;cursor:pointer;text-transform:none;font-weight:500;margin:0">
+        <input type="checkbox" ${sel.has(x.l.id) ? 'checked' : ''} onchange="_dwKmlToggle('${escAttr(x.l.id)}',this.checked)" style="width:auto;margin:0">
+        <span style="width:11px;height:11px;border-radius:3px;background:${escAttr(x.l.color || '#666')};flex-shrink:0"></span>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.l.name)}</span><span style="color:var(--tx3);font-size:10px">${x.n} об.</span></label>`).join('')}</div>`
+      : `<div style="margin:6px 0 0 22px;font-size:11px;color:var(--tx3)">${_dwBbox() ? 'В этой области нет объектов слоёв KML' : 'Сначала выберите область (шаг 1)'}</div>`) : ''}
+  </div>`;
+}

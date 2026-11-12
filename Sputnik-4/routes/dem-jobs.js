@@ -24,6 +24,7 @@ function demParams(b) {
     satZoom: parseInt(b.satZoom) || 0, satMPP: parseFloat(b.satMPP) || 0,
     situation: b.situation || null,
     satMaxZoom: parseInt(b.satMaxZoom) || 0,
+    kmlLayerIds: Array.isArray(b.kmlLayerIds) ? b.kmlLayerIds.map(String).slice(0, 500) : null,
     satSourceUrl: b.satSourceUrl || null, satSourceSubdomains: b.satSourceSubdomains || [],
   };
 }

@@ -279,6 +279,11 @@ getDb().then(database => {
   routeMto  (app, getDbInstance, L);
   require('./routes/inventory')(app, getDbInstance);
   require('./routes/dem-jobs')(app, getDbInstance, { demProcessor, broadcast: realtime.broadcast });
+  // слои KML для выгрузки рельефа / подложки (галочка «добавить слои KML в архив»)
+  if (demProcessor && demProcessor.setLayerLoader) demProcessor.setLayerLoader(ids => {
+    const d = getDbInstance(); if (!d || !ids.length) return [];
+    return d.prepare(`SELECT id, name, color, geojson FROM kml_layers WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+  });
   require('./routes/editing')(app, { broadcast: realtime.broadcast, presenceEvents: realtime.presenceEvents });
   require('./routes/ui-settings')(app, getDbInstance, { isAdmin: adminApi.isAdmin, broadcast: realtime.broadcast });
   require('./routes/health')(app, getDbInstance, { isAdmin: adminApi.isAdmin, BACKUP_DIR, broadcast: realtime.broadcast });
