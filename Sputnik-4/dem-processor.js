@@ -14,7 +14,22 @@ const _execFileP = promisify(execFile);
 // GDAL и Python — с пониженным приоритетом: тяжёлая выгрузка не должна отнимать процессор
 // у самого сервера (иначе у всех «нет связи», пока идёт перепроецирование подложки)
 function _lowPrio(ch) { try { if (ch && ch.pid) require('os').setPriority(ch.pid, require('os').constants.priority.PRIORITY_BELOW_NORMAL); } catch (e) {} return ch; }
-function execFileP(...a) { const p = _execFileP(...a); _lowPrio(p.child); return p; }
+// ── Отмена долгих операций (выгрузка рельефа/подложки, анализ, затопление…) ──
+// withCancel(signal, fn): всё, что fn запускает (GDAL, Python, скачивание тайлов), видит
+// этот сигнал через AsyncLocalStorage; при abort() дочерние процессы завершаются,
+// скачивание тайлов прекращается, операция падает с «Отменено пользователем».
+const { AsyncLocalStorage } = require('async_hooks');
+const _ALS = new AsyncLocalStorage();
+const CANCEL_MSG = 'Отменено пользователем';
+function withCancel(signal, fn) { return _ALS.run({ signal }, fn); }
+function _sig() { const st = _ALS.getStore(); return st && st.signal; }
+function checkCancel() { const sg = _sig(); if (sg && sg.aborted) throw new Error(CANCEL_MSG); }
+function execFileP(file, args, opts) {
+  const sg = _sig();
+  const p = _execFileP(file, args, sg ? { ...(opts || {}), signal: sg } : opts);
+  _lowPrio(p.child);
+  return sg ? p.catch(e => { if (sg.aborted) throw new Error(CANCEL_MSG); throw e; }) : p;
+}
 const execP     = promisify(exec);
 
 // ── STAC API ───────────────────────────────────────────────
@@ -232,19 +247,21 @@ async function runWarpProgress(args, src, dst, onPct, config) {
     try {
       await new Promise((resolve, reject) => {
         const { spawn } = require('child_process');
-        const ch = _lowPrio(spawn(_pythonExe, ['-u', '-c', _WARP_PY, JSON.stringify({ args, src, dst, config: config || {} })], { env: gdalEnv() }));
+        const sg = _sig();
+        const ch = _lowPrio(spawn(_pythonExe, ['-u', '-c', _WARP_PY, JSON.stringify({ args, src, dst, config: config || {} })], { env: gdalEnv(), ...(sg ? { signal: sg } : {}) }));
         let out = '', err = '', ok = false;
         ch.stdout.on('data', d => {
           out += d; const lines = out.split(/\r?\n/); out = lines.pop();
           for (const l of lines) { const m = l.match(/^PCT (\d+)/); if (m) { try { onPct(+m[1]); } catch (e) {} } else if (/^WARP_OK/.test(l)) ok = true; }
         });
         ch.stderr.on('data', d => { err += d; });
-        ch.on('error', reject);
+        ch.on('error', e => reject(sg && sg.aborted ? new Error(CANCEL_MSG) : e));
         ch.on('close', code => code === 0 && (ok || /WARP_OK/.test(out)) ? resolve()
           : reject(Object.assign(new Error((err.split(/\r?\n/).filter(l => /ERROR|Error|error/.test(l)).slice(-2).join(' | ') || err.slice(-300) || `код ${code}`)), { py: true, noOsgeo: /No module named .?osgeo/.test(err) })));
       });
       return;
     } catch (e) {
+      if (e.message === CANCEL_MSG || (_sig() && _sig().aborted)) throw new Error(CANCEL_MSG);
       if (!e.noOsgeo) throw new Error('gdalwarp: ' + e.message.slice(0, 500));
       console.warn('[DEM] Python без osgeo — gdalwarp без живого прогресса');
     }
@@ -260,7 +277,8 @@ function runGDALProgress(exe, args, onPct) {
   console.log('[DEM]', exe, '(progress)', args.slice(0,5).join(' '));
   const { spawn } = require('child_process');
   return new Promise((resolve, reject) => {
-    const child = _lowPrio(spawn(gdal(exe), args, { env: gdalEnv() }));
+    const sg = _sig();
+    const child = _lowPrio(spawn(gdal(exe), args, { env: gdalEnv(), ...(sg ? { signal: sg } : {}) }));
     let errBuf = '';
     let last = -1;
     const parse = (chunk) => {
@@ -276,7 +294,7 @@ function runGDALProgress(exe, args, onPct) {
     };
     child.stdout.on('data', parse);
     child.stderr.on('data', d => { errBuf += d; });
-    child.on('error', reject);
+    child.on('error', e => reject(sg && sg.aborted ? new Error(CANCEL_MSG) : e));
     child.on('close', code => code === 0
       ? resolve({ stdout: '', stderr: errBuf })
       : reject(new Error(errBuf.slice(0, 300) || `${exe} exited ${code}`)));
@@ -700,6 +718,7 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   let tilesDone = 0, lastLogPct = -1, nMissing = 0, nBad = 0, badSample = '';
   for (let ty2 = yMin; ty2 <= yMax; ty2++) {
     for (let tx2 = xMin; tx2 <= xMax; tx2++) {
+      checkCancel();
       let tileBuf = null, lastErr = '';
       for (let a = 0; a < 3; a++) {
         try { tileBuf = await fetchTile(zoom,tx2,ty2,satSourceUrl,satSourceSubdomains); break; }
@@ -1302,14 +1321,17 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
     // Запускаем Python из OSGeo4W
     const env=gdalEnv();
     const pyResult = await new Promise((resolve,reject)=>{
-      exec(`"${_pythonExe}" "${pyScript}" "${paramsFile}"`,
-        {env, timeout:600000, maxBuffer:50*1024*1024},
+      const sg=_sig();
+      const ch=exec(`"${_pythonExe}" "${pyScript}" "${paramsFile}"`,
+        {env, timeout:600000, maxBuffer:50*1024*1024, ...(sg?{signal:sg}:{})},
         (err,stdout,stderr)=>{
-          console.log('[PY stdout]', stdout.slice(0,500));
-          if (stderr) console.log('[PY stderr]', stderr.slice(0,300));
-          if (err) reject(new Error(`Python error: ${stderr||err.message}`.slice(0,300)));
+          console.log('[PY stdout]', String(stdout||'').slice(0,500));
+          if (stderr) console.log('[PY stderr]', String(stderr).slice(0,300));
+          if (err&&sg&&sg.aborted) reject(new Error(CANCEL_MSG));
+          else if (err) reject(new Error(`Python error: ${stderr||err.message}`.slice(0,300)));
           else resolve(stdout);
         });
+      _lowPrio(ch);
     });
     log.push('Python DXF OK');
 
@@ -1716,7 +1738,7 @@ async function convertToGeoJSONRaw(srcPath, outPath) {
 module.exports = {
   processDEM, floodZones, terrainAnalysis, geoidTest, runPyJson, cleanupTmp, checkGDAL, convertToTab, convertToGeoJSON, convertToGeoJSONRaw,
   getElevationAtPoint, getElevationProfile, getDemTilesInfo, computeGeoidN,
-  getDemTilesDir, setDemTilesDir, setLayerLoader,
+  getDemTilesDir, setDemTilesDir, setLayerLoader, withCancel, checkCancel, CANCEL_MSG,
   _downloadGeoidGrids: _ensureGeoidGrids,
   _resetGeoidCheck: () => { _geoidGridsChecked = false; },
 };

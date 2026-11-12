@@ -116,7 +116,8 @@ function openDEMPanel(step) {
   } else {
     body = `<div class="dw-h">Проверьте и выгрузите</div>${_dwSummaryHtml()}
       <div id="dem-progress" style="display:none;margin-top:10px">
-        <div style="font-size:11px;font-weight:700;color:var(--acc);margin-bottom:5px" id="dem-progress-text">⏳ Подготовка...</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><div style="font-size:11px;font-weight:700;color:var(--acc);flex:1" id="dem-progress-text">⏳ Подготовка...</div>
+          <button class="btn bs bxs" id="dem-cancel" style="color:var(--red)" onclick="_dwCancel()" title="Прервать выгрузку — сервер сразу остановит загрузку и расчёт">✕ Отменить</button></div>
         <div style="height:6px;background:var(--s3);border-radius:3px;overflow:hidden"><div id="dem-progress-bar" style="height:6px;background:var(--acc);border-radius:3px;width:0%;transition:width .4s"></div></div>
       </div>`;
   }
@@ -360,9 +361,11 @@ async function _dwExport() {
   const btns = document.querySelectorAll('#mft .btn'); btns.forEach(b => b.disabled = true);
   const sse = new EventSource(`${location.origin}/api/events?aux=1`);
   sse.onmessage = e => { try { const d = JSON.parse(e.data); if (d.type === 'dem_progress' && !d.job) setP(d.pct, d.text); } catch (x) {} };
+  const ac = window._dwAbort = new AbortController();
+  const cb = document.getElementById('dem-cancel'); if (cb) cb.style.display = '';
   try {
     setP(5, '⏳ Запрос к ArcticDEM...');
-    const res = await fetch(`${API}/dem/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const res = await fetch(`${API}/dem/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ac.signal,
       body: JSON.stringify({ bbox: _demBbox, clip: _demClip || null, projId: proj.id, proj4: proj.proj4 || null, epsg: proj.epsg || null, projName: proj.name || null, format: 'dxf', ...P }) });
     sse.close();
     if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || 'Ошибка сервера'); }
@@ -380,9 +383,14 @@ async function _dwExport() {
     if (ivUsed && ivReq && +ivUsed !== +ivReq) { setP(100, `✅ Файл готов · шаг горизонталей ${ivUsed} м вместо ${ivReq} м`); toast(`⚠️ На шаге ${ivReq} м горизонталей нет (участок плоский) — выгружено с шагом ${ivUsed} м`, 'warn'); }
     btns.forEach(b => b.disabled = false);
   } catch (err) {
-    sse.close(); setP(0, '❌ ' + err.message); btns.forEach(b => b.disabled = false); toast('❌ ' + err.message, 'err');
+    sse.close(); btns.forEach(b => b.disabled = false);
+    if (err.name === 'AbortError') { setP(0, '⏹ Выгрузка отменена'); toast('⏹ Выгрузка отменена — сервер остановил работу', 'ok'); }
+    else { setP(0, '❌ ' + err.message); toast('❌ ' + err.message, 'err'); }
+  } finally {
+    window._dwAbort = null; const c2 = document.getElementById('dem-cancel'); if (c2) c2.style.display = 'none';
   }
 }
+function _dwCancel() { if (window._dwAbort) window._dwAbort.abort(); }
 // Из меню слоя: «Рельеф по полигонам слоя» → мастер, область «По KML» с полигонами слоя
 function demWizardKml(layerId) {
   DW.area = 'kml'; DW.kml = [];
@@ -445,7 +453,7 @@ async function demJobsOpen(all) {
           <b style="flex:1">${esc(j.title || j.file_name || 'Выгрузка')}</b>
           <span class="dj-st" style="white-space:nowrap">${_djSt[j.status] || j.status}</span>
           ${j.status === 'done' ? `<a class="btn bp bxs" href="${API}/dem/jobs/${encodeURIComponent(j.id)}/file" download>⬇️ Скачать ${_djSize(j.file_size)}</a>` : ''}
-          <button class="btn bs bxs" onclick="_djDelete('${escAttr(j.id)}','${j.status}')" title="${j.status === 'done' || j.status === 'error' ? 'Удалить' : 'Отменить'}">${j.status === 'done' || j.status === 'error' ? '🗑' : '✕'}</button>
+          <button class="btn bs bxs" ${j.status === 'done' || j.status === 'error' ? '' : 'style="color:var(--red)"'} onclick="_djDelete('${escAttr(j.id)}','${j.status}')" title="${j.status === 'done' || j.status === 'error' ? 'Удалить' : 'Отменить — сервер сразу остановит загрузку и расчёт'}">${j.status === 'done' || j.status === 'error' ? '🗑' : '✕ Отменить'}</button>
         </div>
         <div style="color:var(--tx3);font-size:10px;margin-top:2px">${esc(j.created_at || '')}${all && j.user_name ? ' · ' + esc(j.user_name) : ''}${j.finished_at ? ' → ' + esc(j.finished_at) : ''}${j.note ? ' · <span style="color:var(--org,#b45309)">' + esc(j.note) + '</span>' : ''}</div>
         ${j.status === 'running' || j.status === 'queued' ? `<div style="height:5px;background:var(--s3);border-radius:3px;margin-top:5px;overflow:hidden"><div class="dj-bar" style="height:5px;background:var(--acc);width:${j.pct || 0}%;transition:width .4s"></div></div><div class="dj-txt" style="font-size:10px;color:var(--tx2);margin-top:2px">${esc(j.text || '')}</div>` : ''}

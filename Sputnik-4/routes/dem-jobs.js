@@ -42,6 +42,7 @@ async function runDemBatch(demProcessor, b, onProgress) {
   const P = demParams(b);
   let ok = 0;
   for (let i = 0; i < items.length; i++) {
+    if (demProcessor.checkCancel) demProcessor.checkCancel();
     const it = items[i], folder = safe(it.name || `Участок ${i + 1}`);
     const pref = `Участок ${i + 1}/${items.length} «${folder}»`;
     let tmpDir = null;
@@ -93,6 +94,7 @@ module.exports = (app, getDb, { demProcessor, broadcast }) => {
   let busy = false;
   const cancelled = new Set();
   const notify = j => broadcast({ type: 'dem_job', id: j.id, status: j.status, pct: j.pct, text: j.text, title: j.title, user_name: j.user_name, error: j.error || null });
+  const ctrls = new Map();   // id идущей выгрузки → AbortController (отмена останавливает GDAL/Python/скачивание)
   async function tick() {
     if (busy || !demProcessor) return;
     const job = get(db(), "SELECT * FROM dem_jobs WHERE status='queued' ORDER BY created_at, rowid LIMIT 1");
@@ -107,17 +109,19 @@ module.exports = (app, getDb, { demProcessor, broadcast }) => {
     };
     run(db(), "UPDATE dem_jobs SET status='running', started_at=datetime('now','localtime'), pct=0, text='Запуск…' WHERE id=?", [job.id]);
     notify({ ...job, status: 'running', pct: 0, text: 'Запуск…' });
+    const ac = new AbortController(); ctrls.set(job.id, ac);
+    const cancellable = fn => demProcessor.withCancel ? demProcessor.withCancel(ac.signal, fn) : fn();
     try {
       fs.mkdirSync(EXPORT_DIR, { recursive: true });
       const params = JSON.parse(job.params_json || '{}');
       let note = '';
       if (job.kind === 'batch') {
-        const r = await runDemBatch(demProcessor, params, prog);
+        const r = await cancellable(() => runDemBatch(demProcessor, params, prog));
         await fs.promises.writeFile(fileOf(job.id), r.buf);
         note = `участков ${r.ok} из ${r.total}`;
       } else {
-        const r = await demProcessor.processDEM({ ...demParams(params), cacheOnly: false,
-          bbox: params.bbox, clip: params.clip || null, projId: params.projId, proj4: params.proj4, epsg: params.epsg, projName: params.projName, onProgress: prog });
+        const r = await cancellable(() => demProcessor.processDEM({ ...demParams(params), cacheOnly: false,
+          bbox: params.bbox, clip: params.clip || null, projId: params.projId, proj4: params.proj4, epsg: params.epsg, projName: params.projName, onProgress: prog }));
         // асинхронно: копирование архива в гигабайты не должно останавливать сервер
         try { await fs.promises.copyFile(r.file, fileOf(job.id)); } finally { demProcessor.cleanupTmp(r.tmpDir); }
         const n = [];
@@ -132,10 +136,17 @@ module.exports = (app, getDb, { demProcessor, broadcast }) => {
         notify({ ...job, status: 'done', pct: 100, text: 'Готово' });
       }
     } catch (e) {
+      if (cancelled.has(job.id) || ac.signal.aborted) {   // отменили — убрать без «ошибки»
+        cancelled.delete(job.id); try { fs.rmSync(fileOf(job.id), { force: true }); } catch (e2) {}
+        run(db(), 'DELETE FROM dem_jobs WHERE id=?', [job.id]); notify({ ...job, status: 'cancelled' });
+        console.log(`  ⏹  Выгрузка «${job.title || job.id}» отменена`);
+        return;
+      }
       const msg = String(e.message || e).slice(0, 1000);
       run(db(), "UPDATE dem_jobs SET status='error', error=?, text='Ошибка', finished_at=datetime('now','localtime') WHERE id=?", [msg, job.id]);
       notify({ ...job, status: 'error', pct: 0, text: 'Ошибка', error: msg });
     } finally {
+      ctrls.delete(job.id);
       busy = false;
       sweep();
       setImmediate(tick);
@@ -180,7 +191,11 @@ module.exports = (app, getDb, { demProcessor, broadcast }) => {
   app.delete('/api/dem/jobs/:id', wrap((req, res) => {
     const j = get(db(), 'SELECT * FROM dem_jobs WHERE id=?', [req.params.id]);
     if (!j) return res.status(404).json({ error: 'Not found' });
-    if (j.status === 'running') { cancelled.add(j.id); run(db(), "UPDATE dem_jobs SET text='Отменяется…' WHERE id=?", [j.id]); return res.json({ ok: true, cancelling: true }); }
+    if (j.status === 'running') {
+      cancelled.add(j.id); run(db(), "UPDATE dem_jobs SET text='Отменяется…' WHERE id=?", [j.id]);
+      const ac = ctrls.get(j.id); if (ac) ac.abort();     // остановить GDAL / Python / скачивание сразу
+      return res.json({ ok: true, cancelling: true });
+    }
     try { fs.rmSync(fileOf(j.id), { force: true }); } catch (e) {}
     run(db(), 'DELETE FROM dem_jobs WHERE id=?', [j.id]);
     notify({ ...j, status: 'cancelled' });

@@ -38,9 +38,10 @@ async function gisToolsRun() {
     distance: document.getElementById('gt-d')?.value, dissolve: document.getElementById('gt-u')?.checked, field: document.getElementById('gt-f')?.value };
   if (GT.op === 'buffer') { GT.d = +body.distance; GT.u = body.dissolve; }
   if (body.layerB && body.layerB === body.layerA) { st.innerHTML = '<span style="color:var(--red)">Слои A и B должны быть разными</span>'; return; }
-  st.textContent = '⏳ Считаю…';
+  GT.ac = new AbortController();
+  st.innerHTML = '⏳ Считаю… <button class="btn bs bxs" style="color:var(--red)" onclick="if(GT.ac)GT.ac.abort()">✕ Отменить</button>';
   try {
-    const r = await fetch(`${API}/gis/op`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await fetch(`${API}/gis/op`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: GT.ac.signal });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || 'Ошибка сервера');
     GT.res = j; GT.body = body;
@@ -50,7 +51,8 @@ async function gisToolsRun() {
     const s = j.stats || {};
     st.innerHTML = j.features.length ? `✅ Получено объектов: <b>${s.count}</b>${s.area_ha ? `, площадь <b>${s.area_ha.toLocaleString('ru-RU')} га</b>` : ''}${s.length_m ? `, длина <b>${Math.round(s.length_m).toLocaleString('ru-RU')} м</b>` : ''} — на карте оранжевым. Сохраните слоем.` : '⚠️ Результат пустой (объекты не пересекаются?)';
     try { const b = GT.prev.getBounds(); if (b.isValid() && typeof _dwFit === 'function') _dwFit([[[b.getWest(), b.getSouth()], [b.getEast(), b.getNorth()]]]); } catch (e) {}
-  } catch (e) { st.innerHTML = '<span style="color:var(--red)">❌ ' + esc(e.message) + '</span>'; }
+  } catch (e) { st.innerHTML = e.name === 'AbortError' ? '⏹ Отменено' : '<span style="color:var(--red)">❌ ' + esc(e.message) + '</span>'; }
+  finally { GT.ac = null; }
 }
 function gisToolsClear(keep) { if (GT.prev) { try { map.removeLayer(GT.prev); } catch (e) {} GT.prev = null; } if (!keep) GT.res = null; }
 async function gisToolsSave() {

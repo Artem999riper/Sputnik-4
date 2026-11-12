@@ -74,7 +74,8 @@ function openTerrainPanel() {
     <div class="dw-h" style="margin-top:14px">2. Что посчитать</div>
     <div class="dw-grid">${TA_MODES.map(([k, ic, t, sub]) => card(TA.mode === k, k === 'watershed' ? `TA.mode='watershed';_taSave();_taClear();TA.point=null;_demBbox?_taPickPoint():openTerrainPanel()` : `TA.mode='${k}';_taSave();_taClear();openTerrainPanel()`, ic, t, sub)).join('')}</div>
     <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">${opts}</div>
-    <div id="ta-st" style="font-size:11px;color:var(--acc);font-weight:700;margin-top:8px;min-height:14px">${TA.busy ? '⏳ Расчёт…' : ''}</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:8px"><div id="ta-st" style="font-size:11px;color:var(--acc);font-weight:700;min-height:14px;flex:1">${TA.busy ? '⏳ Расчёт…' : ''}</div>
+      <button class="btn bs bxs" id="ta-cancel" style="color:var(--red);${TA.busy ? '' : 'display:none'}" onclick="if(TA.ac)TA.ac.abort()" title="Прервать расчёт — сервер сразу остановит его">✕ Отменить</button></div>
     ${res}</div>`, [
     { label: 'Закрыть', cls: 'bs', fn: closeModal },
     ...(r ? [{ label: '✕ Убрать', cls: 'bs', fn: () => { _taClear(); openTerrainPanel(); } }] : []),
@@ -153,16 +154,17 @@ async function terrainRun() {
   _taSave();
   TA.busy = true; if (document.getElementById('ta-st')) document.getElementById('ta-st').textContent = '⏳ Расчёт…';
   document.querySelectorAll('#mft .btn').forEach(b => b.disabled = true);
+  TA.ac = new AbortController(); { const c = document.getElementById('ta-cancel'); if (c) c.style.display = ''; }
   const sse = new EventSource(`${location.origin}/api/events?aux=1`);
   sse.onmessage = e => { try { const d = JSON.parse(e.data); const el = document.getElementById('ta-st'); if (el && (d.type === 'flood_progress' || (d.type === 'dem_progress' && !d.job))) el.textContent = `⏳ ${d.text} (${d.pct}%)`; } catch (x) {} };
   try {
-    const r = await fetch(`${API}/dem/analysis`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await fetch(`${API}/dem/analysis`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: TA.ac.signal });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || 'Ошибка сервера');
     j.mode = TA.mode; TA.res = j;
     _taDraw();
-  } catch (e) { toast('❌ ' + e.message, 'err'); }
-  finally { sse.close(); TA.busy = false; openTerrainPanel(); }
+  } catch (e) { if (e.name === 'AbortError') toast('⏹ Расчёт отменён', 'ok'); else toast('❌ ' + e.message, 'err'); }
+  finally { sse.close(); TA.busy = false; TA.ac = null; openTerrainPanel(); }
 }
 function _taClear() {
   _taContourLabelsOff();

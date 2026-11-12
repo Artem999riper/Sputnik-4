@@ -157,11 +157,14 @@ async function floodRun() {
   const stEl = () => document.getElementById('fl-status');
   if (stEl()) stEl().textContent = '⏳ Расчёт…';
   document.querySelectorAll('#mft .btn').forEach(b => b.disabled = true);
+  // кнопка «✕ Отменить» рядом со статусом (сервер сразу остановит расчёт)
+  FL.ac = new AbortController();
+  if (stEl() && !document.getElementById('fl-cancel')) stEl().insertAdjacentHTML('afterend', '<button class="btn bs bxs" id="fl-cancel" style="color:var(--red);margin-top:4px" onclick="if(FL.ac)FL.ac.abort()">✕ Отменить расчёт</button>');
   const sse = new EventSource(`${location.origin}/api/events?aux=1`);
   sse.onmessage = e => { try { const d = JSON.parse(e.data); if ((d.type === 'flood_progress' || d.type === 'dem_progress') && stEl()) stEl().textContent = `⏳ ${d.text} (${d.pct}%)`; } catch (x) {} };
   try {
     const r = await fetch(`${API}/dem/flood`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bbox: _demBbox, clip: _demClip || null, level, minArea: FL.minArea, waterAsFlood: FL.water, connectedOnly: FL.connected, ...extra }) });
+      body: JSON.stringify({ bbox: _demBbox, clip: _demClip || null, level, minArea: FL.minArea, waterAsFlood: FL.water, connectedOnly: FL.connected, ...extra }), signal: FL.ac.signal });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || 'Ошибка сервера');
     const first = !FL.result;
@@ -170,9 +173,9 @@ async function floodRun() {
     if (first) setTimeout(_flFit, 50);
     if (!j.features.length) toast(`При уровне ${_flLvlText(j.stats)} затопленных зон нет`, 'warn');
   } catch (e) {
-    toast('❌ ' + e.message, 'err');
+    if (e.name === 'AbortError') toast('⏹ Расчёт отменён', 'ok'); else toast('❌ ' + e.message, 'err');
   } finally {
-    sse.close(); FL.busy = false;
+    sse.close(); FL.busy = false; FL.ac = null; document.getElementById('fl-cancel')?.remove();
     if (document.getElementById('fl-status')) openFloodPanel();
   }
 }
