@@ -360,7 +360,9 @@ def mode_compare(p):
         if dz is not None:
             dzs.append(dz); xy.append((x, y))
     if len(dzs) < 3:
-        raise SystemExit('ERROR: точки съёмки не попадают на рельеф ArcticDEM')
+        outside = sum(1 for f in out if f['properties']['dem'] is None)
+        raise SystemExit(f'ERROR: из {len(pts)} точек съёмки на рельеф ArcticDEM попали {len(dzs)} — остальные ({outside}) вне выбранной области '
+                         'или там, где у ArcticDEM нет данных. Выберите область «Вокруг точек съёмки».')
     d = np.array(dzs)
     # картограмма разницы: интерполяция dz внутри выпуклой оболочки точек
     mp = ogr.Geometry(ogr.wkbMultiPoint)

@@ -139,6 +139,15 @@ async function terrainRun() {
     TA.hfield = (document.getElementById('ta-h') || {}).value || ''; TA.layer = l ? l.id : '';
     const pts = _taPoints(l, TA.hfield).filter(q => q[2] != null);
     if (pts.length < 3) { toast(TA.hfield ? `В поле «${TA.hfield}» нет высот` : 'У точек нет высоты Z — выберите поле с высотой', 'err'); return; }
+    // область не накрывает точки (нарисована в другом месте) — берём рамку вокруг точек
+    const inA = pts.filter(q => q[0] >= _demBbox.minLng && q[0] <= _demBbox.maxLng && q[1] >= _demBbox.minLat && q[1] <= _demBbox.maxLat).length;
+    if (inA < Math.min(3, pts.length) || inA < pts.length * 0.5) {
+      const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]), px = (Math.max(...xs) - Math.min(...xs)) * 0.1 + 0.0005, py = (Math.max(...ys) - Math.min(...ys)) * 0.1 + 0.0003;
+      if (typeof demClearDraw === 'function') demClearDraw();
+      _demBbox = { minLng: Math.min(...xs) - px, maxLng: Math.max(...xs) + px, minLat: Math.min(...ys) - py, maxLat: Math.max(...ys) + py }; _demClip = null;
+      body.bbox = _demBbox; body.clip = null; TA.area = 'pts'; TA.name = 'вокруг точек «' + l.name + '»';
+      toast(`В выбранную область попало ${inA} из ${pts.length} точек — беру область вокруг точек съёмки`, 'ok');
+    }
     body.points = pts.map(q => q.slice(0, 3)); TA.ptNames = pts.map(q => q[3]);
   }
   _taSave();

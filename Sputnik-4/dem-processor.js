@@ -168,6 +168,7 @@ function gdalEnv() {
       VSI_CACHE: 'TRUE',
       VSI_CACHE_SIZE: '104857600',
       PROJ_NETWORK: 'ON',
+      PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1',
     };
   }
   const root = path.resolve(_gdalBin, '..');
@@ -184,6 +185,8 @@ function gdalEnv() {
     VSI_CACHE: 'TRUE',
     VSI_CACHE_SIZE: '104857600',
     PROJ_NETWORK: 'ON',
+    // сообщения Python (ошибки на русском) — в UTF-8, иначе на Windows вместо текста «???????»
+    PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1',
     PYTHONPATH: [
       path.join(root, 'apps', 'Python312', 'lib', 'site-packages'),
       path.join(root, 'apps', 'Python39',  'lib', 'site-packages'),
