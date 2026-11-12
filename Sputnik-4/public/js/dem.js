@@ -451,7 +451,7 @@ function demStartDraw() {
   const bnr = document.getElementById('bnr');
   if (bnr) {
     bnr.className = 'show draw';
-    document.getElementById('bnr-t').textContent = '🏔 Кликните — первый угол области выгрузки DEM';
+    document.getElementById('bnr-t').textContent = '🏔 Кликните — первый угол области · Esc — отмена';
     bnr.style.display = 'flex';
   }
 
@@ -461,7 +461,7 @@ function demStartDraw() {
 function _demFirstClick(e) {
   if (!_demDrawing) return;
   _demStart = e.latlng;
-  document.getElementById('bnr-t').textContent = '🏔 Кликните — второй угол области';
+  document.getElementById('bnr-t').textContent = '🏔 Кликните — второй угол области · Esc — отмена';
 
   // Рисуем временный прямоугольник при движении мыши
   map.on('mousemove', _demMouseMove);
@@ -482,6 +482,7 @@ function _demMouseMove(e) {
 }
 
 function _demSecondClick(e) {
+  if (!_demDrawing || !_demStart) return;
   map.off('mousemove', _demMouseMove);
   if (_demTmpLayer) { try { map.removeLayer(_demTmpLayer); } catch(e2) {} _demTmpLayer = null; }
 
@@ -771,6 +772,8 @@ function demRestoreLast() {
 
 function demCancelDraw() {
   _demDrawing = false;
+  _demStart = null;
+  map.off('click', _demFirstClick); map.off('click', _demSecondClick);   // больше не ждать щелчков-углов
   map.off('mousemove', _demMouseMove);
   if (_demTmpLayer) { try { map.removeLayer(_demTmpLayer); } catch(e) {} _demTmpLayer = null; }
   map.getContainer().style.cursor = '';
@@ -1317,4 +1320,13 @@ async function _demRunBatch(layer, polys) {
     const t = document.getElementById('demb-txt'); if (t) t.innerHTML = '<span style="color:var(--red)">❌ ' + esc(e.message) + '</span>';
     toast('❌ ' + e.message, 'err');
   }
+}
+
+// Отмена выбора области (Esc или ✕ на подсказке): прямоугольник, полигон, линия.
+// Мастер выгрузки возвращается на шаг «Область»; для «Зоны затопления» — просто отмена.
+function demDrawCancel() {
+  if (typeof _demVertMode !== 'undefined' && _demVertMode) _demCancelVerts(); else demCancelDraw();
+  if (window._floodAreaCb) { window._floodAreaCb = null; toast('Выбор области отменён', 'ok'); return; }
+  toast('Выбор области отменён', 'ok');
+  if (typeof openDEMPanel === 'function') openDEMPanel(1);
 }

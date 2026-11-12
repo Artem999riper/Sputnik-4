@@ -341,6 +341,7 @@ function setTool(t){
   }
 }
 function cancelMode(){
+  if(typeof _demDrawing!=='undefined'&&_demDrawing&&typeof demDrawCancel==='function'){demDrawCancel();return;}   // область выгрузки рельефа
   if(typeof VPP!=='undefined'&&VPP.on){_vppStop();return;}      // часть полигона
   if(typeof VSEG!=='undefined'&&VSEG.on){_vsegStop();return;}    // участок линии
   if(typeof MN!=='undefined'&&MN.mode){mapNotesStop();return;}
