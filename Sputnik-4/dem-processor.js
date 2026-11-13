@@ -578,6 +578,12 @@ function _tileHeaders(url) {
   return { 'User-Agent':UA_BROWSER };
 }
 
+// тайлы качаются параллельно (TILE_CONC потоков) по постоянным соединениям
+const _TILE_AGENT_S = new https.Agent({ keepAlive: true, maxSockets: 16, keepAliveMsecs: 15000, rejectUnauthorized: false });
+const _TILE_AGENT = new (require('http').Agent)({ keepAlive: true, maxSockets: 16, keepAliveMsecs: 15000 });
+// OSM просит не больше 2 потоков, остальным источникам 8 — обычная нагрузка браузера
+const _tileConc = url => /openstreetmap\.org/.test(url || '') ? 2 : 8;
+
 function fetchTile(z,x,y,urlTemplate,subdomains) {
   let url;
   if (urlTemplate) {
@@ -587,9 +593,10 @@ function fetchTile(z,x,y,urlTemplate,subdomains) {
   } else {
     url=`https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
   }
-  const mod=url.startsWith('https')?https:require('http');
+  const isHttps=url.startsWith('https'), mod=isHttps?https:require('http');
   return new Promise((resolve,reject)=>{
     const req=mod.get(url,{
+      agent: isHttps ? _TILE_AGENT_S : _TILE_AGENT,   // keep-alive: без нового TLS-рукопожатия на каждый тайл
       headers: _tileHeaders(url),
       timeout:20000,
       rejectUnauthorized:false,   // российские CA (Минцифры) не в bundle Node.js
@@ -718,35 +725,53 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   fs.mkdirSync(tileDir, {recursive:true});
   const tileFiles = [];
   let tilesDone = 0, lastLogPct = -1, nMissing = 0, nBad = 0, badSample = '';
-  for (let ty2 = yMin; ty2 <= yMax; ty2++) {
-    for (let tx2 = xMin; tx2 <= xMax; tx2++) {
+  const queue = [];
+  for (let ty2 = yMin; ty2 <= yMax; ty2++) for (let tx2 = xMin; tx2 <= xMax; tx2++) queue.push([tx2, ty2]);
+  const conc = Math.min(_tileConc(satSourceUrl || 'arcgisonline.com'), queue.length);
+  let qi = 0, slow = 0, t0 = Date.now();
+  const one = async (tx2, ty2) => {
+    let tileBuf = null, lastErr = '';
+    for (let a = 0; a < 4; a++) {
       checkCancel();
-      let tileBuf = null, lastErr = '';
-      for (let a = 0; a < 3; a++) {
-        try { tileBuf = await fetchTile(zoom,tx2,ty2,satSourceUrl,satSourceSubdomains); break; }
-        catch(e) { lastErr = e.message; if (/HTTP 404/.test(e.message)) break; }   // 404 — тайла нет (пусто), не повторяем
+      try { tileBuf = await fetchTile(zoom,tx2,ty2,satSourceUrl,satSourceSubdomains); break; }
+      catch(e) {
+        lastErr = e.message;
+        if (/HTTP 404/.test(e.message)) break;                       // 404 — тайла нет (пусто), не повторяем
+        if (/HTTP (429|503)/.test(e.message)) slow = Math.min(2000, slow + 250);   // сервер просит сбавить — притормозим все потоки
+        await new Promise(r => setTimeout(r, 300 * (a + 1) + slow));
       }
-      const kind = _tileKind(tileBuf);
-      if (!tileBuf) { nMissing++; if (!/HTTP 404/.test(lastErr) && nMissing <= 3) console.warn(`[SAT] tile ${tx2}/${ty2}:`, lastErr); }
-      else if (!kind) { nBad++; if (!badSample) badSample = tileBuf.toString('utf8', 0, 120).replace(/\s+/g, ' '); }
-      else {
-        let file, bands = _pngBands(tileBuf);
-        if (bands === 'pal') {
-          const ppm = _palPngToPpm(tileBuf);
-          if (ppm) { file = path.join(tileDir, `t_${ty2}_${tx2}.ppm`); fs.writeFileSync(file, ppm); bands = 3; }
-        }
-        if (!file) { file = path.join(tileDir, `t_${ty2}_${tx2}.${kind}`); fs.writeFileSync(file, tileBuf); }
-        tileFiles.push({file, tx:tx2, ty:ty2, bands});
-      }
-      tilesDone++;
-      const pct = Math.floor(tilesDone / totalTiles * 100);
-      if (pct >= lastLogPct + 5) {
-        lastLogPct = pct;
-        console.log(`[SAT] скачано ${tilesDone}/${totalTiles} тайлов (${pct}%)`);
-      }
-      if (tilesDone % 10 === 0 || tilesDone === totalTiles) prog(0.4 * tilesDone / totalTiles, `Подложка: скачано ${tilesDone} из ${totalTiles} тайлов`);
     }
-  }
+    const kind = _tileKind(tileBuf);
+    if (!tileBuf) { nMissing++; if (!/HTTP 404/.test(lastErr) && nMissing <= 3) console.warn(`[SAT] tile ${tx2}/${ty2}:`, lastErr); }
+    else if (!kind) { nBad++; if (!badSample) badSample = tileBuf.toString('utf8', 0, 120).replace(/\s+/g, ' '); }
+    else {
+      let file, bands = _pngBands(tileBuf);
+      if (bands === 'pal') {
+        const ppm = _palPngToPpm(tileBuf);
+        if (ppm) { file = path.join(tileDir, `t_${ty2}_${tx2}.ppm`); await fs.promises.writeFile(file, ppm); bands = 3; }
+      }
+      if (!file) { file = path.join(tileDir, `t_${ty2}_${tx2}.${kind}`); await fs.promises.writeFile(file, tileBuf); }
+      tileFiles.push({file, tx:tx2, ty:ty2, bands});
+    }
+    tilesDone++;
+    const pct = Math.floor(tilesDone / totalTiles * 100);
+    if (pct >= lastLogPct + 5) {
+      lastLogPct = pct;
+      console.log(`[SAT] скачано ${tilesDone}/${totalTiles} тайлов (${pct}%)`);
+    }
+    if (tilesDone % 10 === 0 || tilesDone === totalTiles) {
+      const sec = (Date.now() - t0) / 1000, rate = tilesDone / Math.max(sec, 0.1), left = (totalTiles - tilesDone) / Math.max(rate, 0.1);
+      prog(0.4 * tilesDone / totalTiles, `Подложка: скачано ${tilesDone} из ${totalTiles} тайлов · ${Math.round(rate)}/с${tilesDone < totalTiles && sec > 3 ? ` · ещё ~${left >= 90 ? Math.round(left / 60) + ' мин' : Math.round(left) + ' с'}` : ''}`);
+    }
+  };
+  await Promise.all(Array.from({ length: conc }, async () => {
+    while (qi < queue.length) {
+      const [tx2, ty2] = queue[qi++];
+      if (slow) await new Promise(r => setTimeout(r, slow));
+      await one(tx2, ty2);
+    }
+  }));
+  console.log(`[SAT] тайлы: ${totalTiles} за ${((Date.now() - t0) / 1000).toFixed(1)} с (${conc} потоков)`);
   if (nMissing || nBad) console.log(`[SAT] без тайла: ${nMissing} (нет на сервере)${nBad ? `, не картинка: ${nBad} — «${badSample}»` : ''}`);
   if (!tileFiles.length) throw new Error(nBad ? `Сервер подложки вернул не картинки (${nBad} шт.): «${badSample}»` : 'Не удалось скачать тайлы подложки — в этой области у источника нет тайлов или нет связи');
 
