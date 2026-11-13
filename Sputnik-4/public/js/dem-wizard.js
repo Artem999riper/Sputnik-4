@@ -40,7 +40,8 @@ function openDEMPanel(step) {
   let body = '';
   const b = _dwBbox(), km2 = _dwAreaKm2(b);
   const areaInfo = !_dwAreaReady() ? '<span style="color:var(--tx3)">Область ещё не выбрана</span>'
-    : DW.area === 'kml' ? `✅ Полигонов KML: <b>${DW.kml.length}</b> (${DW.kml.slice(0, 4).map(k => esc(k.name)).join(', ')}${DW.kml.length > 4 ? '…' : ''}) · габарит ≈ ${km2.toFixed(1)} км²`
+    : DW.area === 'kml' ? (() => { const nl = DW.kml.filter(k => k.line).length, np = DW.kml.length - nl;
+        return `✅ Контуров KML: <b>${DW.kml.length}</b>${nl ? ` (полигонов ${np}, линий ${nl} — коридор ±${DW.buffer} м)` : ''}: ${DW.kml.slice(0, 4).map(k => esc(k.name)).join(', ')}${DW.kml.length > 4 ? '…' : ''} · габарит ≈ ${km2.toFixed(1)} км²`; })()
     : `✅ ${({ rect: 'Прямоугольник', polygon: 'Полигон', line: 'Коридор вдоль линии', last: 'Предыдущая область' })[DW.area] || 'Область'} ≈ ${km2.toFixed(km2 < 1 ? 3 : 1)} км²${_demClip ? ' · обрезка по контуру' : ''}`;
 
   if (DW.step === 1) {
@@ -49,10 +50,10 @@ function openDEMPanel(step) {
         ${card(DW.area === 'rect', "_dwArea('rect')", '▭', 'Прямоугольник', 'два угла на карте')}
         ${card(DW.area === 'polygon', "_dwArea('polygon')", '⬠', 'Полигон', 'вершины на карте, обрезка по контуру')}
         ${card(DW.area === 'line', "_dwArea('line')", '〰', 'Линия + буфер', 'коридор вдоль трассы')}
-        ${card(DW.area === 'kml', "_dwArea('kml')", '🗂', 'По KML', 'полигоны слоёв: на карте или списком')}
+        ${card(DW.area === 'kml', "_dwArea('kml')", '🗂', 'По KML', 'полигоны и линии слоёв (линии — с буфером)')}
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:12px">
-        <label style="display:${DW.area === 'kml' ? 'none' : 'flex'};gap:6px;align-items:center;text-transform:none;font-weight:500;margin:0">Буфер линии, м: <input id="dem-buffer" type="number" min="0" step="10" value="${DW.buffer}" style="width:90px" onchange="DW.buffer=Math.max(1,+this.value||100);this.value=DW.buffer;_dwSave()"></label>
+        <label style="display:flex;gap:6px;align-items:center;text-transform:none;font-weight:500;margin:0" title="Ширина коридора в каждую сторону от линии — для «Линия + буфер» и для линий KML">Буфер линии, м: <input id="dem-buffer" type="number" min="0" step="10" value="${DW.buffer}" style="width:90px" onchange="DW.buffer=Math.max(1,+this.value||100);this.value=DW.buffer;_dwSave();if(DW.area==='kml'){_dwKmlRebuffer();openDEMPanel(1);}"></label>
         ${_demLastBbox ? `<button class="btn bs bsm" onclick="_dwArea('last')">↩ Предыдущая область</button>` : ''}
         ${_dwAreaReady() ? `<button class="btn bs bsm" onclick="demClearDraw();DW.area='';DW.kml=[];_dwKmlShow();openDEMPanel(1)">✕ Сбросить</button>` : ''}
       </div>
@@ -185,18 +186,32 @@ function _demFinalize(b) {
 
 // ── По KML: выбор полигонов списком или щелчками на карте ──
 // Полигоны слоя (нумерация как в _demPolysOfLayer) + признак «объект скрыт»
+// Контуры слоя для выгрузки «По KML»: полигоны и линии. Линия — коридор шириной
+// «буфер» в каждую сторону (DW.buffer, м); line — сама линия (для показа и пересчёта буфера).
+function _dwLineRing(line) {
+  if (typeof _demBufferLine !== 'function' || !line || line.length < 2) return null;
+  return _demBufferLine(line.map(c => ({ lat: c[1], lng: c[0] })), Math.max(1, +DW.buffer || 100));
+}
 function _dwPolys(l) {
   let gj; try { gj = JSON.parse(l.geojson); } catch (e) { return []; }
   const out = [];
   (gj.features || []).forEach((f, i) => {
     const g = f && f.geometry; if (!g) return;
-    const nm = (f.properties && (f.properties.name || f.properties.Name || f.properties['НАЗВ'])) || `Полигон ${i + 1}`;
+    const nm0 = f.properties && (f.properties.name || f.properties.Name || f.properties['НАЗВ']);
     const hidden = !!(f.properties && f.properties._hidden);
-    if (g.type === 'Polygon') out.push({ name: String(nm), ring: g.coordinates[0], hidden });
-    else if (g.type === 'MultiPolygon') g.coordinates.forEach((pp, k) => out.push({ name: `${nm}${g.coordinates.length > 1 ? ' (' + (k + 1) + ')' : ''}`, ring: pp[0], hidden }));
+    if (g.type === 'Polygon') out.push({ name: String(nm0 || `Полигон ${i + 1}`), ring: g.coordinates[0], hidden });
+    else if (g.type === 'MultiPolygon') g.coordinates.forEach((pp, k) => out.push({ name: `${nm0 || 'Полигон ' + (i + 1)}${g.coordinates.length > 1 ? ' (' + (k + 1) + ')' : ''}`, ring: pp[0], hidden }));
+    else if (g.type === 'LineString') out.push({ name: String(nm0 || `Линия ${i + 1}`), line: g.coordinates, ring: _dwLineRing(g.coordinates), hidden });
+    else if (g.type === 'MultiLineString') g.coordinates.forEach((ln, k) => out.push({ name: `${nm0 || 'Линия ' + (i + 1)}${g.coordinates.length > 1 ? ' (' + (k + 1) + ')' : ''}`, line: ln, ring: _dwLineRing(ln), hidden }));
   });
   return out.filter(p => p.ring && p.ring.length >= 4);
 }
+// буфер изменился — пересчитать коридоры выбранных линий
+function _dwKmlRebuffer() {
+  DW.kml.forEach(k => { if (k.line) k.ring = _dwLineRing(k.line) || k.ring; });
+  _dwKmlShow();
+}
+const _dwKmlEntry = (l, i, p) => ({ layerId: l.id, idx: i, name: p.name, ring: p.ring, ...(p.line ? { line: p.line } : {}) });
 // Слой сейчас нарисован на карте (включён, его группа/объект активны, подходит масштаб)
 function _dwOnMap(l) {
   const g = typeof lGroups === 'object' && lGroups ? lGroups[l.id] : null;
@@ -204,28 +219,28 @@ function _dwOnMap(l) {
 }
 function _dwKmlListHtml() {
   const all = (layers || []).map(l => ({ l, polys: _dwPolys(l), on: _dwOnMap(l) })).filter(x => x.polys.length);
-  if (!all.length) return '<div class="dw-info" style="color:var(--red)">Нет слоёв с полигонами — импортируйте или нарисуйте контуры.</div>';
+  if (!all.length) return '<div class="dw-info" style="color:var(--red)">Нет слоёв с полигонами или линиями — импортируйте или нарисуйте контуры.</div>';
   const isSel = (l, i) => DW.kml.some(k => k.layerId === l.id && k.idx === i);
-  const item = c => `<details ${c.polys.some((p, i) => isSel(c.l, i)) ? 'open' : ''}><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:3px 0">${esc(c.l.name)} <span style="color:var(--tx3);font-weight:400">— ${c.polys.length} полиг.</span>
+  const item = c => `<details ${c.polys.some((p, i) => isSel(c.l, i)) ? 'open' : ''}><summary style="cursor:pointer;font-size:12px;font-weight:700;padding:3px 0">${esc(c.l.name)} <span style="color:var(--tx3);font-weight:400">— ${(() => { const nl = c.polys.filter(p => p.line).length, np = c.polys.length - nl; return [np ? np + ' полиг.' : '', nl ? nl + ' лин.' : ''].filter(Boolean).join(', '); })()}</span>
           <button class="btn bs bxs" onclick="event.preventDefault();_dwKmlAllOf('${escAttr(c.l.id)}')">все</button></summary>
-        ${c.polys.map((p, i) => `<label style="display:flex;gap:6px;align-items:center;padding:2px 0 2px 14px;font-size:12px;text-transform:none;font-weight:500;margin:0"><input type="checkbox" ${isSel(c.l, i) ? 'checked' : ''} onchange="_dwKmlToggle('${escAttr(c.l.id)}',${i},this.checked)" style="width:auto;margin:0"> ${esc(p.name)}${p.hidden ? ' <span style="color:var(--tx3)">(скрыт)</span>' : ''}</label>`).join('')}</details>`;
+        ${c.polys.map((p, i) => `<label style="display:flex;gap:6px;align-items:center;padding:2px 0 2px 14px;font-size:12px;text-transform:none;font-weight:500;margin:0"><input type="checkbox" ${isSel(c.l, i) ? 'checked' : ''} onchange="_dwKmlToggle('${escAttr(c.l.id)}',${i},this.checked)" style="width:auto;margin:0"> ${p.line ? '〰 ' : '⬠ '}${esc(p.name)}${p.line ? ` <span style="color:var(--tx3)">(линия, буфер ${DW.buffer} м)</span>` : ''}${p.hidden ? ' <span style="color:var(--tx3)">(скрыт)</span>' : ''}</label>`).join('')}</details>`;
   const shown = all.filter(c => c.on), off = all.filter(c => !c.on);
   return `<div style="display:flex;gap:6px;align-items:center;margin:8px 0 4px">
-      <button class="btn bp bsm" onclick="_dwKmlPick()">🗺 Указать полигоны на карте</button>
+      <button class="btn bp bsm" onclick="_dwKmlPick()">🗺 Указать на карте</button>
       <span style="font-size:11px;color:var(--tx3)">или отметьте в списке:</span></div>
     <div style="max-height:220px;overflow:auto;border:1.5px solid var(--bd);border-radius:var(--rs);padding:4px 8px">
-      ${shown.length ? shown.map(item).join('') : '<div style="font-size:11px;color:var(--tx3);padding:4px 0">Ни один слой с полигонами сейчас не показан на карте.</div>'}
+      ${shown.length ? shown.map(item).join('') : '<div style="font-size:11px;color:var(--tx3);padding:4px 0">Ни один слой с полигонами или линиями сейчас не показан на карте.</div>'}
       ${off.length ? `<details style="margin-top:4px;border-top:1px solid var(--bd);padding-top:4px" ${off.some(c => c.polys.some((p, i) => isSel(c.l, i))) ? 'open' : ''}><summary style="cursor:pointer;font-size:11px;color:var(--tx3);font-weight:700">Скрытые слои (${off.length})</summary><div style="padding-left:8px">${off.map(item).join('')}</div></details>` : ''}
     </div>`;
 }
 function _dwKmlToggle(layerId, idx, on) {
   DW.kml = DW.kml.filter(k => !(k.layerId === layerId && k.idx === idx));
-  if (on) { const l = layers.find(x => x.id === layerId); const p = _dwPolys(l)[idx]; if (p) { DW.kml.push({ layerId, idx, name: p.name, ring: p.ring }); _dwFit([p.ring]); } }
+  if (on) { const l = layers.find(x => x.id === layerId); const p = _dwPolys(l)[idx]; if (p) { DW.kml.push(_dwKmlEntry(l, idx, p)); _dwFit([p.ring]); } }
   _dwKmlShow(); openDEMPanel(1);
 }
 function _dwKmlAllOf(layerId) {
   const l = layers.find(x => x.id === layerId); if (!l) return;
-  _dwPolys(l).forEach((p, i) => { if (!p.hidden && !DW.kml.some(k => k.layerId === layerId && k.idx === i)) DW.kml.push({ layerId, idx: i, name: p.name, ring: p.ring }); });
+  _dwPolys(l).forEach((p, i) => { if (!p.hidden && !DW.kml.some(k => k.layerId === layerId && k.idx === i)) DW.kml.push(_dwKmlEntry(l, i, p)); });
   _dwFit(DW.kml.filter(k => k.layerId === layerId).map(k => k.ring));
   _dwKmlShow(); openDEMPanel(1);
 }
@@ -241,7 +256,8 @@ let _dwKmlLayer = null;
 function _dwKmlShow() {
   if (_dwKmlLayer) { try { map.removeLayer(_dwKmlLayer); } catch (e) {} _dwKmlLayer = null; }
   if (!DW.kml.length) return;
-  _dwKmlLayer = L.layerGroup(DW.kml.map(k => L.polygon(k.ring.map(c => [c[1], c[0]]), { color: '#f59e0b', weight: 3, fillColor: '#f59e0b', fillOpacity: 0.25, interactive: false }))).addTo(map);
+  _dwKmlLayer = L.layerGroup(DW.kml.flatMap(k => [L.polygon(k.ring.map(c => [c[1], c[0]]), { color: '#f59e0b', weight: k.line ? 2 : 3, dashArray: k.line ? '6 4' : null, fillColor: '#f59e0b', fillOpacity: 0.2, interactive: false }),
+    ...(k.line ? [L.polyline(k.line.map(c => [c[1], c[0]]), { color: '#b45309', weight: 3, interactive: false })] : [])])).addTo(map);
 }
 // Режим щелчков по карте: щелчок по полигону показанного на карте слоя — выбрать/снять
 // (скрытые слои и скрытые объекты не участвуют)
@@ -250,10 +266,14 @@ function _dwKmlPick() {
   closeModal();
   const all = [];
   (layers || []).filter(_dwOnMap).forEach(l => _dwPolys(l).forEach((p, i) => { if (!p.hidden) all.push({ l, i, p }); }));
-  if (!all.length) { toast('На карте не показано ни одного слоя с полигонами — включите слой или выберите из списка', 'warn'); openDEMPanel(1); return; }
+  if (!all.length) { toast('На карте не показано ни одного слоя с полигонами или линиями — включите слой или выберите из списка', 'warn'); openDEMPanel(1); return; }
+  const nearLine = (ll, line) => { const q = map.latLngToContainerPoint(ll); let best = Infinity;
+    for (let i = 1; i < line.length; i++) { const a = map.latLngToContainerPoint([line[i - 1][1], line[i - 1][0]]), b = map.latLngToContainerPoint([line[i][1], line[i][0]]);
+      const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy, t = L2 ? Math.max(0, Math.min(1, ((q.x - a.x) * dx + (q.y - a.y) * dy) / L2)) : 0;
+      best = Math.min(best, Math.hypot(a.x + t * dx - q.x, a.y + t * dy - q.y)); } return best; };
   const inRing = (lng, lat, r) => { let ins = false; for (let a = 0, b = r.length - 1; a < r.length; b = a++) { const [xa, ya] = r[a], [xb, yb] = r[b]; if (((ya > lat) !== (yb > lat)) && lng < (xb - xa) * (lat - ya) / (yb - ya) + xa) ins = !ins; } return ins; };
   const bnr = document.getElementById('bnr'), t = document.getElementById('bnr-t');
-  const upd = () => { if (t) t.innerHTML = `🗂 Щёлкайте по полигонам — выбрать / снять · выбрано: <b>${DW.kml.length}</b> · <button class="btn bsm" style="background:#16a34a;color:#fff;border:none" onclick="_dwKmlPickStop(true)">Готово (Enter)</button>`; };
+  const upd = () => { if (t) t.innerHTML = `🗂 Щёлкайте по полигонам или линиям — выбрать / снять · выбрано: <b>${DW.kml.length}</b> · <button class="btn bsm" style="background:#16a34a;color:#fff;border:none" onclick="_dwKmlPickStop(true)">Готово (Enter)</button>`; };
   if (t) t.onclick = e => e.stopPropagation();
   if (bnr) { bnr.className = 'show draw'; bnr.style.display = 'flex'; } upd();
   map.getContainer().style.cursor = 'pointer';
@@ -262,12 +282,14 @@ function _dwKmlPick() {
     if (ev.target.closest && ev.target.closest('.leaflet-control,#bnr')) return;
     ev.stopPropagation(); ev.preventDefault();
     const ll = map.mouseEventToLatLng(ev);
-    const hit = all.filter(h => inRing(ll.lng, ll.lat, h.p.ring));
-    if (!hit.length) { toast('Здесь нет полигона', 'warn'); return; }
-    const h = hit.sort((a, b) => _dwRingArea(a.p.ring) - _dwRingArea(b.p.ring))[0];    // самый маленький (вложенный)
+    // линия — если щёлкнули рядом с ней (ближайшая), иначе полигон под щелчком (самый маленький — вложенный)
+    const lines = all.filter(h => h.p.line).map(h => ({ h, d: nearLine(ll, h.p.line) })).filter(x => x.d <= 12).sort((a, b) => a.d - b.d);
+    const hit = lines.length ? [lines[0].h] : all.filter(h => !h.p.line && inRing(ll.lng, ll.lat, h.p.ring));
+    if (!hit.length) { toast('Здесь нет полигона или линии', 'warn'); return; }
+    const h = hit.sort((a, b) => _dwRingArea(a.p.ring) - _dwRingArea(b.p.ring))[0];
     const was = DW.kml.some(k => k.layerId === h.l.id && k.idx === h.i);
     DW.kml = DW.kml.filter(k => !(k.layerId === h.l.id && k.idx === h.i));
-    if (!was) DW.kml.push({ layerId: h.l.id, idx: h.i, name: h.p.name, ring: h.p.ring });
+    if (!was) DW.kml.push(_dwKmlEntry(h.l, h.i, h.p));
     _dwKmlShow(); upd();
   };
   _dwPickKey = e => { if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); _dwKmlPickStop(true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); _dwKmlPickStop(true); } };
@@ -310,7 +332,7 @@ function _dwSummaryHtml() {
   const projName = projSel ? projSel.label : String(pid).replace('mskfull:', 'МСК-').replace('utmauto', 'UTM (авто зона)');
   const row = (k, v) => `<tr><td style="color:var(--tx3);padding:3px 10px 3px 0;white-space:nowrap">${k}</td><td style="padding:3px 0">${v}</td></tr>`;
   return `<table style="font-size:12px;border-collapse:collapse">
-    ${row('Область', DW.area === 'kml' ? `по KML: ${DW.kml.length} полиг. (каждый — своя папка в архиве)` : `${({ rect: 'прямоугольник', polygon: 'полигон', line: 'линия + буфер ' + DW.buffer + ' м', last: 'предыдущая' })[DW.area] || ''}, ≈ ${km2.toFixed(km2 < 1 ? 3 : 1)} км²`)}
+    ${row('Область', DW.area === 'kml' ? `по KML: ${DW.kml.length} контур(ов)${DW.kml.some(k => k.line) ? `, линии — коридор ±${DW.buffer} м` : ''} (каждый — своя папка в архиве)` : `${({ rect: 'прямоугольник', polygon: 'полигон', line: 'линия + буфер ' + DW.buffer + ' м', last: 'предыдущая' })[DW.area] || ''}, ≈ ${km2.toFixed(km2 < 1 ? 3 : 1)} км²`)}
     ${row('Выгрузить', ({ both: 'рельеф + подложка', relief: 'только рельеф', sat: 'только подложка', cache: 'только кэш ArcticDEM' })[DW.what])}
     ${DW.what !== 'cache' ? row('Система координат', esc(projName) + (DW.zone ? `, зона ${DW.zone}` : ', зона — авто')) : ''}
     ${_dwHasRelief() ? row('Рельеф', `горизонтали через ${DW.interval} м, ${DW.grid ? 'отметки через ' + DW.grid + ' м' : 'без отметок'}, высоты БСВ-77`) : ''}
@@ -395,7 +417,7 @@ function _dwCancel() { if (window._dwAbort) window._dwAbort.abort(); }
 function demWizardKml(layerId) {
   DW.area = 'kml'; DW.kml = [];
   const l = (layers || []).find(x => x.id === layerId);
-  if (l) _dwPolys(l).forEach((p, i) => !p.hidden && DW.kml.push({ layerId, idx: i, name: p.name, ring: p.ring }));
+  if (l) _dwPolys(l).forEach((p, i) => !p.hidden && DW.kml.push(_dwKmlEntry(l, i, p)));
   demClearDraw(); _dwKmlShow(); if (!DW.projUser) DW.projId = '';
   openDEMPanel(1);
 }
@@ -535,7 +557,7 @@ function _dwKmlIncIds() {
   const off = new Set(DW.kmlOff || []), on = new Set(DW.kmlOn || []);
   return _dwKmlInArea().filter(x => on.has(x.l.id) || (!off.has(x.l.id) && (typeof lvis === 'function' ? lvis(x.l) : x.l.visible))).map(x => x.l.id);
 }
-function _dwKmlToggle(id, on) {
+function _dwKmlIncToggle(id, on) {
   DW.kmlOff = (DW.kmlOff || []).filter(x => x !== id); DW.kmlOn = (DW.kmlOn || []).filter(x => x !== id);
   (on ? DW.kmlOn : DW.kmlOff).push(id); _dwSave();
   const n = document.getElementById('dw-kml-n'); if (n) n.textContent = _dwKmlIncIds().length;
@@ -549,7 +571,7 @@ function _dwKmlIncHtml() {
     <div style="font-size:10.5px;color:var(--tx3);margin:3px 0 0 22px">Отдельным файлом KML_layers.dxf в той же системе координат, что рельеф и подложка; берутся объекты, задевающие область (целиком).</div>
     ${DW.kmlInc ? (list.length ? `<div style="margin:6px 0 0 22px;font-size:11px;color:var(--tx2)">Отмечено слоёв: <b id="dw-kml-n">${sel.size}</b> из ${list.length} (по умолчанию — видимые на карте)</div>
       <div style="margin:4px 0 0 22px;max-height:170px;overflow:auto">${list.map(x => `<label style="display:flex;gap:6px;align-items:center;font-size:12px;padding:2px 0;cursor:pointer;text-transform:none;font-weight:500;margin:0">
-        <input type="checkbox" ${sel.has(x.l.id) ? 'checked' : ''} onchange="_dwKmlToggle('${escAttr(x.l.id)}',this.checked)" style="width:auto;margin:0">
+        <input type="checkbox" ${sel.has(x.l.id) ? 'checked' : ''} onchange="_dwKmlIncToggle('${escAttr(x.l.id)}',this.checked)" style="width:auto;margin:0">
         <span style="width:11px;height:11px;border-radius:3px;background:${escAttr(x.l.color || '#666')};flex-shrink:0"></span>
         <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.l.name)}</span><span style="color:var(--tx3);font-size:10px">${x.n} об.</span></label>`).join('')}</div>`
       : `<div style="margin:6px 0 0 22px;font-size:11px;color:var(--tx3)">${_dwBbox() ? 'В этой области нет объектов слоёв KML' : 'Сначала выберите область (шаг 1)'}</div>`) : ''}

@@ -2065,7 +2065,7 @@ function renderLayerGroupsWithSymbols() {
                 {sep:true},
                 {i:'🧰',l:'ГИС-операции (буфер, обрезка…)',f:()=>gisToolsOpen(l.id)},
                 {i:'📦',l:_vol?`Объём «${esc(String(_vol.name).slice(0,24))}»…`:'Сделать объёмом объекта…',html:true,f:()=>volBindLayer(l.id)},
-                ...(typeof demBatchByLayer==='function'&&/"(Multi)?Polygon"/.test(l.geojson||'')?[{i:'🏔',l:'Рельеф по полигонам слоя…',f:()=>demWizardKml(l.id)}]:[]),
+                ...(typeof demBatchByLayer==='function'&&/"(Multi)?(Polygon|LineString)"/.test(l.geojson||'')?[{i:'🏔',l:/"(Multi)?Polygon"/.test(l.geojson||'')?'Рельеф по полигонам / линиям слоя…':'Рельеф вдоль линий слоя (с буфером)…',f:()=>demWizardKml(l.id)}]:[]),
                 {i:'📁',l:'В группу…',f:()=>kmlPickGroup(l.id,cx,cy)},
                 {i:'🕓',l:'Версии слоя…',f:()=>kmlVersionsOpen(l.id)},
                 ...(l.group_id?[{i:'📄',l:'Убрать из группы',f:()=>kmlMoveToGroup(l.id,null)}]:[]),
