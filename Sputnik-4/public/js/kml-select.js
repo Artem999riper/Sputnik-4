@@ -3,7 +3,7 @@
 //   • Shift + протянуть ЛКМ — рамка: попавшие объекты добавляются в выделение,
 //     а если все они уже выделены — выделение с них снимается;
 //   • Shift + щелчок по объекту — выделить / снять;
-//   • выделенное подсвечивается; панель внизу «Выделено: N · Действия · ✕»;
+//   • выделенное подсвечивается; панель внизу «Выделено: N · длина линий · площадь полигонов · Действия · ✕»;
 //   • ПКМ по карте при выделении — те же действия (меню _ksMenu из kml-manager.js);
 //   • Esc — снять выделение.
 // ═══════════════════════════════════════════════════════════
@@ -42,17 +42,51 @@ function kselRender() {
       style: { color: '#f59e0b', weight: 6, opacity: 0.85, fillColor: '#fbbf24', fillOpacity: 0.22 },
       pointToLayer: (_, ll) => L.circleMarker(ll, { pane: 'kselPane', radius: 15, color: '#f59e0b', weight: 4, fillColor: '#fde68a', fillOpacity: 0.35, interactive: false }) }).addTo(map);
   }
-  _kselBar(ks.total);
+  _kselBar(ks.total, ks);
   if (typeof _katSyncSel === 'function') _katSyncSel();   // таблица атрибутов — те же строки
 }
-function _kselBar(n) {
+// сумма по выделенному: длина линий, площадь и периметр полигонов (эллипсоид WGS-84, как линейка)
+function kselStats(ks) {
+  ks = ks || kselToKs();
+  const st = { nLine: 0, len: 0, nPoly: 0, area: 0, perim: 0, nPt: 0 };
+  const ll = c => ({ lat: c[1], lng: c[0] });
+  const len = r => typeof _geoLength === 'function' ? _geoLength(r.map(ll)) : 0;
+  const area = r => typeof _geoArea === 'function' ? _geoArea(r.map(ll)) : 0;
+  const poly = rings => { if (!rings || !rings[0]) return; st.area += Math.max(0, area(rings[0]) - rings.slice(1).reduce((a, h) => a + area(h), 0)); st.perim += len(rings[0]); };
+  const geom = g => {
+    if (!g) return;
+    if (g.type === 'LineString') { st.nLine++; st.len += len(g.coordinates || []); }
+    else if (g.type === 'MultiLineString') { st.nLine++; (g.coordinates || []).forEach(c => st.len += len(c)); }
+    else if (g.type === 'Polygon') { st.nPoly++; poly(g.coordinates); }
+    else if (g.type === 'MultiPolygon') { st.nPoly++; (g.coordinates || []).forEach(poly); }
+    else if (g.type === 'Point' || g.type === 'MultiPoint') st.nPt++;
+    else if (g.type === 'GeometryCollection') (g.geometries || []).forEach(geom);
+  };
+  ks.entries.forEach(en => en.idxs.forEach(i => { const f = en.gj.features[i]; if (f) geom(f.geometry); }));
+  return st;
+}
+const _kselLen = m => m >= 1000 ? (m / 1000).toFixed(3).replace('.', ',') + ' км' : m.toFixed(1).replace('.', ',') + ' м';
+const _kselArea = m2 => m2 >= 1e4 ? (m2 / 1e4).toFixed(4).replace('.', ',') + ' га' : m2.toFixed(1).replace('.', ',') + ' м²';
+function _kselBar(n, ks) {
   let b = document.getElementById('ksel-bar');
   if (!n) { if (b) b.remove(); return; }
   if (!b) { b = document.createElement('div'); b.id = 'ksel-bar'; document.body.appendChild(b); }
-  b.innerHTML = `<span>⬚ Выделено: <b>${n}</b></span>
+  let sum = '';
+  try {
+    const st = kselStats(ks), parts = [];
+    if (st.nLine) parts.push(`<span class="ksel-sum" title="Общая длина ${st.nLine} лин. — щёлкните, чтобы скопировать (м)" onclick="kselCopy('${st.len.toFixed(2)}')">〰 ${st.nLine} лин.: <b>${_kselLen(st.len)}</b></span>`);
+    if (st.nPoly) parts.push(`<span class="ksel-sum" title="Общая площадь ${st.nPoly} полиг. = ${(st.area / 1e6).toFixed(6)} км², периметр ${_kselLen(st.perim)} — щёлкните, чтобы скопировать (м²)" onclick="kselCopy('${st.area.toFixed(2)}')">⬡ ${st.nPoly} полиг.: <b>${_kselArea(st.area)}</b> · P ${_kselLen(st.perim)}</span>`);
+    if (st.nPt && (st.nLine || st.nPoly)) parts.push(`<span>📍 ${st.nPt}</span>`);
+    sum = parts.join('');
+  } catch (e) {}
+  b.innerHTML = `<span>⬚ Выделено: <b>${n}</b></span>${sum}
     <button onclick="kselMenu(event)">⚙️ Действия ▾</button>
     <button onclick="kselClear()" title="Снять выделение (Esc)">✕</button>
     <small>Shift + рамка / щелчок — добавить или снять</small>`;
+}
+function kselCopy(v) {
+  const t = String(v).replace('.', ',');
+  try { navigator.clipboard.writeText(t).then(() => toast('Скопировано: ' + t, 'ok'), () => toast(t, 'ok')); } catch (e) { toast(t, 'ok'); }
 }
 function kselToggle(gid, i, on) {
   const s = KSEL.m.get(gid) || new Set();
