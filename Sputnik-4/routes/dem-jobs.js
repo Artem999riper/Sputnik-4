@@ -25,6 +25,7 @@ function demParams(b) {
     situation: b.situation || null,
     satMaxZoom: parseInt(b.satMaxZoom) || 0,
     kmlLayerIds: Array.isArray(b.kmlLayerIds) ? b.kmlLayerIds.map(String).slice(0, 500) : null,
+    satClip: !!b.satClip, satClipFill: b.satClipFill === 'alpha' ? 'alpha' : 'white',
     satSourceUrl: b.satSourceUrl || null, satSourceSubdomains: b.satSourceSubdomains || [],
   };
 }

@@ -19,6 +19,8 @@ const DW_STEPS = [['area', 'Область'], ['what', 'Что выгрузит�
 const _dwHasRelief = () => DW.what !== 'sat' && DW.what !== 'cache';
 const _dwHasSat = () => DW.what === 'both' || DW.what === 'sat';
 const _dwStepOn = i => !(i === 4 && !_dwHasSat()) && !(i === 3 && DW.what === 'cache');
+// у области есть контур (не прямоугольник) — подложку можно обрезать по нему
+const _dwHasContour = () => DW.area === 'polygon' || DW.area === 'line' || DW.area === 'kml' || (DW.area === 'last' && !!_demClip);
 const _dwAreaReady = () => DW.area === 'kml' ? DW.kml.length > 0 : !!_demBbox;
 const _dwLat = () => DW.area === 'kml' && DW.kml.length ? DW.kml[0].ring.reduce((s, c) => s + c[1], 0) / DW.kml[0].ring.length : _demBbox ? (_demBbox.minLat + _demBbox.maxLat) / 2 : 61;
 const _dwRes = z => 156543.034 * Math.cos(_dwLat() * Math.PI / 180) / Math.pow(2, z);   // м/пиксель снимка
@@ -113,6 +115,14 @@ function openDEMPanel(step) {
           <option value="0" ${!DW.satMPP ? 'selected' : ''}>Как в снимке (без пересчёта)</option>
         </select></div>
       </div>
+      ${_dwHasContour() ? `<div style="margin-top:10px;border:1px solid var(--bd);border-radius:var(--rs);padding:8px 10px;font-size:12px">
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer;text-transform:none;font-weight:600;margin:0">
+          <input type="checkbox" ${DW.satClip ? 'checked' : ''} onchange="DW.satClip=this.checked;_dwSave();openDEMPanel(4)" style="width:auto;margin:0">
+          ✂ Обрезать подложку по контуру ${DW.area === 'line' || (DW.area === 'kml' && DW.kml.some(k => k.line)) ? '(по буферу линии)' : '(по полигону)'}</label>
+        ${DW.satClip ? `<div style="display:flex;gap:12px;margin:6px 0 0 22px;flex-wrap:wrap">
+          <label style="display:flex;gap:5px;align-items:center;cursor:pointer;text-transform:none;font-weight:500;margin:0"><input type="radio" name="dw-sclip" ${DW.satClipFill !== 'alpha' ? 'checked' : ''} onchange="DW.satClipFill='white';_dwSave()" style="width:auto;margin:0"> снаружи белым <span style="color:var(--tx3)">(обычный GeoTIFF, файл как без обрезки)</span></label>
+          <label style="display:flex;gap:5px;align-items:center;cursor:pointer;text-transform:none;font-weight:500;margin:0"><input type="radio" name="dw-sclip" ${DW.satClipFill === 'alpha' ? 'checked' : ''} onchange="DW.satClipFill='alpha';_dwSave()" style="width:auto;margin:0"> снаружи прозрачно <span style="color:var(--tx3)">(GeoTIFF с прозрачностью, сжатие без потерь — файл в 3–5 раз больше)</span></label></div>` : ''}
+        <div style="font-size:10.5px;color:var(--tx3);margin:4px 0 0 22px">Иначе подложка — прямоугольником по габариту области.</div></div>` : ''}
       <div class="dw-info">${_dwSatNote()}</div>`;
   } else {
     body = `<div class="dw-h">Проверьте и выгрузите</div>${_dwSummaryHtml()}
@@ -338,7 +348,7 @@ function _dwSummaryHtml() {
     ${_dwHasRelief() ? row('Рельеф', `горизонтали через ${DW.interval} м, ${DW.grid ? 'отметки через ' + DW.grid + ' м' : 'без отметок'}, высоты БСВ-77`) : ''}
     ${_dwHasRelief() && DW.sit && typeof sitSummary === 'function' ? row('Ситуация', sitSummary()) : ''}
     ${DW.what !== 'cache' && DW.kmlInc ? row('Слои KML', (() => { const n = _dwKmlIncIds().length; return n ? `${n} сл. — отдельным DXF (KML_layers.dxf) в той же системе координат` : 'в области нет отмеченных слоёв'; })()) : ''}
-    ${_dwHasSat() ? row('Подложка', `${(DEM_SAT_SOURCES.find(s => s.id === DW.satSource) || {}).label || ''}, ${DW.satZoom ? 'z' + DW.satZoom : 'детализация авто'}, ${DW.satMPP ? DW.satMPP + ' м/пиксель' : 'пиксель как в снимке'}`) : ''}
+    ${_dwHasSat() ? row('Подложка', `${(DEM_SAT_SOURCES.find(s => s.id === DW.satSource) || {}).label || ''}, ${DW.satZoom ? 'z' + DW.satZoom : 'детализация авто'}, ${DW.satMPP ? DW.satMPP + ' м/пиксель' : 'пиксель как в снимке'}${_dwHasContour() && DW.satClip ? `, обрезана по контуру (снаружи ${DW.satClipFill === 'alpha' ? 'прозрачно' : 'белым'})` : ''}`) : ''}
   </table>${km2 > 100 ? '<div class="dw-info">⚠️ Большая область — выгрузка может занять несколько минут.</div>' : ''}`;
 }
 function _dwAdminHtml() {
@@ -363,7 +373,8 @@ function _dwParams() {
     exportSatellite: _dwHasSat(), satelliteOnly: DW.what === 'sat', cacheOnly: DW.what === 'cache',
     satZoom: DW.satZoom || 0, satMPP: DW.satMPP || 0, satSourceUrl: so.url, satSourceSubdomains: so.subdomains, satMaxZoom: so.maxZoom || 0,
     situation: _dwHasRelief() && typeof sitParams === 'function' ? sitParams() : null,
-    kmlLayerIds: DW.what !== 'cache' && DW.kmlInc ? _dwKmlIncIds() : null };
+    kmlLayerIds: DW.what !== 'cache' && DW.kmlInc ? _dwKmlIncIds() : null,
+    satClip: _dwHasSat() && _dwHasContour() && !!DW.satClip, satClipFill: DW.satClipFill === 'alpha' ? 'alpha' : 'white' };
 }
 async function _dwExport() {
   if (!_dwAreaReady()) { toast('Сначала выберите область', 'err'); return; }

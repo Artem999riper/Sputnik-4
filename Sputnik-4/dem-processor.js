@@ -657,7 +657,9 @@ function _palPngToPpm(buf) {
 }
 
 // onProg(f 0…1, текст) — ход сборки подложки для очереди выгрузок (скачивание ~40 %, перепроецирование ~45 %, части ~15 %)
-async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, satSourceUrl, satSourceSubdomains, satMPP, satMaxZoom, onProg) {
+// cut = {clip: GeoJSON-полигон WGS-84, fill: 'white' | 'alpha'} — обрезать подложку по контуру
+// (полигон, коридор вдоль линии, контур KML): снаружи белым или прозрачным
+async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, satSourceUrl, satSourceSubdomains, satMPP, satMaxZoom, onProg, cut) {
   const prog = (f, t) => { try { onProg && onProg(Math.max(0, Math.min(1, f)), t); } catch (e) {} };
   const {minLat,maxLat,minLng,maxLng} = bbox;
 
@@ -844,8 +846,18 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   const fineWarn = mpp && mpp < srcRes / 3 ? ` · ⚠ пиксель ${mpp} м мельче снимка (≈${srcRes.toFixed(0)} м) — долго, деталей не прибавится` : '';
   prog(0.4, `Подложка: перепроецирование — итог ~${sizeTxt}${fineWarn}`);
   let lastWarp = -1;
+  // обрезка по контуру: всё вне контура — белым (dstnodata 255) или прозрачным (альфа-канал)
+  let cutArgs = [], alpha = false;
+  if (cut && cut.clip && cut.clip.type === 'Polygon' && Array.isArray(cut.clip.coordinates)) {
+    const cf = path.join(tmpDir, 'sat_cutline.geojson');
+    fs.writeFileSync(cf, JSON.stringify({ type: 'FeatureCollection', crs: { type: 'name', properties: { name: 'urn:ogc:def:crs:OGC:1.3:CRS84' } }, features: [{ type: 'Feature', properties: {}, geometry: cut.clip }] }));
+    alpha = cut.fill === 'alpha';
+    cutArgs = ['-cutline', cf, ...(alpha ? ['-dstalpha'] : ['-dstnodata', '255 255 255'])];
+    console.log(`[SAT] обрезка по контуру, снаружи — ${alpha ? 'прозрачно' : 'белым'}`);
+  }
   console.log('[DEM] gdalwarp (с прогрессом)', targetSrs.slice(0, 60));
   await runWarpProgress([
+    ...cutArgs,
     '-overwrite',
     '-multi', '-wo', `NUM_THREADS=${Math.max(1, require('os').cpus().length - 1)}`,   // все ядра, кроме одного — серверу
     '-s_srs','EPSG:3857',   // источник — Web Mercator (родная проекция тайлов)
@@ -878,8 +890,9 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   if (!gt || !W || !H) {
     // Фолбэк: геореференс. GeoTIFF «как есть» (масштаб/привязка внутри файла)
     const out0 = path.join(tmpDir, 'satellite.tif');
-    await runGDAL('gdal_translate', ['-of','GTiff','-co','COMPRESS=JPEG','-co','PHOTOMETRIC=YCBCR',
-      '-co','TILED=YES','-co','JPEG_QUALITY=95', satTif, out0]);
+    await runGDAL('gdal_translate', ['-of','GTiff', ...(alpha ? ['-co','COMPRESS=DEFLATE','-co','PREDICTOR=2','-co','ALPHA=YES']
+      : ['-a_nodata','none','-co','COMPRESS=JPEG','-co','PHOTOMETRIC=YCBCR','-co','JPEG_QUALITY=95']),
+      '-co','TILED=YES', satTif, out0]);
     return [{ tif: out0, idx:'0_0' }];
   }
 
@@ -892,7 +905,8 @@ async function buildSatellite(bbox, tmpDir, proj4, epsg, reprojTif, satZoom, sat
   const _writeSection = async (xoff, yoff, xs, ys, idx, outTif, outTfw) => {
     await runGDAL('gdal_translate', ['-of','GTiff',
       '-srcwin', String(xoff), String(yoff), String(xs), String(ys),
-      '-co','COMPRESS=JPEG','-co','PHOTOMETRIC=YCBCR','-co','TILED=YES','-co','JPEG_QUALITY=95',
+      ...(alpha ? ['-co','COMPRESS=DEFLATE','-co','PREDICTOR=2','-co','ALPHA=YES','-co','TILED=YES','-co','BIGTIFF=IF_SAFER']
+        : ['-a_nodata','none','-co','COMPRESS=JPEG','-co','PHOTOMETRIC=YCBCR','-co','TILED=YES','-co','JPEG_QUALITY=95']),
       satTif, outTif]);
     const sGt0 = gt[0] + xoff*gt[1] + yoff*gt[2];
     const sGt3 = gt[3] + xoff*gt[4] + yoff*gt[5];
@@ -1160,7 +1174,8 @@ function _kmlLayersDxf({ kmlLayerIds, bbox, proj4: p4, epsg, tmpDir, log }) {
 
 async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
                             interval,useGeoid,gridStep,jitterMin,jitterMax,exportSatellite,
-                            satelliteOnly,cacheOnly,satZoom,satMPP,satSourceUrl,satSourceSubdomains,satMaxZoom,situation,kmlLayerIds,onProgress}) {
+                            satelliteOnly,cacheOnly,satZoom,satMPP,satSourceUrl,satSourceSubdomains,satMaxZoom,situation,kmlLayerIds,satClip,satClipFill,onProgress}) {
+  const satCut = satClip && clip && clip.type === 'Polygon' ? { clip, fill: satClipFill === 'alpha' ? 'alpha' : 'white' } : null;
   gridStep = (gridStep !== undefined && gridStep !== null && gridStep !== '') ? parseInt(gridStep) : 20;
   if (isNaN(gridStep)) gridStep = 20;
   const jMin = parseFloat(jitterMin)||0;
@@ -1178,7 +1193,7 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
     if (satelliteOnly) {
       onProgress&&onProgress(10,'Загрузка спутника...');
       const satRes = await buildSatellite(bbox,tmpDir,proj4,epsg,null,satZoom,satSourceUrl,satSourceSubdomains,satMPP,satMaxZoom,
-        (f,t)=>onProgress&&onProgress(10+Math.round(78*f),t));
+        (f,t)=>onProgress&&onProgress(10+Math.round(78*f),t), satCut);
       const satFiles=[];
       for (const sec of satRes) {
         if (sec.tif && fs.existsSync(sec.tif)) satFiles.push(sec.tif);
@@ -1393,7 +1408,7 @@ async function processDEM({bbox,clip,projId,proj4,epsg,projName,format,
       onProgress&&onProgress(85,'Загрузка спутника...');
       try{
         satSections=await buildSatellite(bbox,tmpDir,proj4,epsg,reprojTif,satZoom,satSourceUrl,satSourceSubdomains,satMPP,satMaxZoom,
-          (f,t)=>onProgress&&onProgress(85+Math.round(4*f),t));
+          (f,t)=>onProgress&&onProgress(85+Math.round(4*f),t), satCut);
         for (const sec of satSections) {
           if (sec.tif && fs.existsSync(sec.tif)) satFiles.push(sec.tif);
           if (sec.tfw && fs.existsSync(sec.tfw)) satFiles.push(sec.tfw);
