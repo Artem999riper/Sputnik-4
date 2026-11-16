@@ -679,6 +679,9 @@ function _katFieldMenu(e, k) {
       if (await kmlSaveStyle(l, st)) { if (!layerLabels[l.id] && st.labelField) toggleLayerLabels(l.id); _katRender(); toast('Подписи обновлены', 'ok'); }
     } },
     { sep: true },
+    k === 'name'
+      ? { i: '📛', l: 'Взять названия из другого поля…', f: () => _katNameFromPick() }
+      : { i: '📛', l: 'Сделать названием (name)', f: () => _katNameFrom(k) },
     { i: '✏️', l: 'Переименовать поле', f: async () => {
       const nn = (prompt('Новое название поля:', k) || '').trim(); if (!nn || nn === k) return;
       await _katSave(l, fs => { fs.forEach(f => { const p = f.properties || {}; if (k in p) { p[nn] = p[k]; delete p[k]; } }); }, 'Поле переименовано');
@@ -690,6 +693,35 @@ function _katFieldMenu(e, k) {
       if (st.colorBy === k || st.labelField === k) { if (st.colorBy === k) delete st.colorBy; if (st.labelField === k) delete st.labelField; await kmlSaveStyle(l, st); }
     } },
   ]);
+}
+
+// Название объектов (поле name — подписи, поиск, всплывашки, выгрузка) взять из поля k.
+// Прежние названия не теряются — переносятся в поле «name_прежнее»; пустые значения k не трогают name.
+async function _katNameFrom(k) {
+  const l = _katLayer(); if (!l || !k || k === 'name') return;
+  const feats = _kaFeatures(l);
+  const n = feats.filter(f => { const v = (f.properties || {})[k]; return v != null && String(v).trim() !== ''; }).length;
+  if (!n) { toast(`В поле «${k}» нет значений`, 'warn'); return; }
+  const keepOld = feats.some(f => { const p = f.properties || {}; return p.name != null && String(p.name) !== '' && String(p.name) !== String(p[k] == null ? '' : p[k]); });
+  if (!await confirmDlg(`Сделать названием объектов значения поля «${k}»?\nЗаполнено у ${n} из ${feats.length}; у остальных название останется прежним.${keepOld ? '\nПрежние названия сохранятся в поле «name_прежнее».' : ''}`, { okLabel: 'Сделать', danger: false })) return;
+  await _katSave(l, fs => fs.forEach(f => {
+    const p = f.properties = f.properties || {}, v = p[k];
+    if (v == null || String(v).trim() === '') return;
+    if (keepOld && p.name != null && String(p.name) !== '' && !('name_прежнее' in p)) p['name_прежнее'] = p.name;
+    p.name = typeof v === 'string' ? v : String(v);
+  }), `Названия взяты из поля «${k}» (${n})`);
+  try { if (layerLabels[l.id]) { toggleLayerLabels(l.id); toggleLayerLabels(l.id); } } catch (e) {}
+}
+function _katNameFromPick() {
+  const l = _katLayer(); if (!l) return;
+  const fields = kmlFields(l).filter(f => f !== 'name');
+  if (!fields.length) { toast('В слое нет других полей', 'warn'); return; }
+  const feats = _kaFeatures(l);
+  const sample = k => { const f = feats.find(x => { const v = (x.properties || {})[k]; return v != null && String(v).trim() !== ''; }); return f ? String(f.properties[k]).slice(0, 40) : '—'; };
+  showModal('📛 Названия объектов из поля', `<div style="width:100%;font-size:12px">
+    <div style="color:var(--tx3);margin-bottom:8px">Значения выбранного поля станут названием (name) — по нему подписи, поиск, всплывающие карточки и выгрузка. Прежние названия сохранятся в поле «name_прежнее».</div>
+    <select id="kat-namefrom" style="width:100%" size="${Math.min(10, fields.length + 1)}">${fields.map((f, i) => `<option value="${escAttr(f)}"${i ? '' : ' selected'}>${esc(f)} — например: ${esc(sample(f))}</option>`).join('')}</select></div>`,
+    [{ label: 'Сделать названием', cls: 'bp', fn: () => { const v = document.getElementById('kat-namefrom').value; closeModal(); _katNameFrom(v); } }, { label: 'Отмена', cls: 'bs', fn: closeModal }]);
 }
 
 // ── Общий поиск: объекты слоёв KML по названию и атрибутам ─────────────────
