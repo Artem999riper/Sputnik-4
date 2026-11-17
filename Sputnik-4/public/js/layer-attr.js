@@ -510,6 +510,14 @@ function _katRowClick(e, i) {
     if (!_katSelIdx().length && KAT.sel >= 0 && KAT.sel !== i && !kselCount()) kselToggle(l.id, KAT.sel, true);
     kselToggle(l.id, i); KAT.sel = i; kselRender(); return;
   }
+  // простой щелчок по выделенной строке — снять выделение чуть позже: если это двойной
+  // щелчок (правка ячейки всем выделенным), выделение должно остаться
+  clearTimeout(KAT._clrT);
+  if (kselCount() > 1 && kselHas(l.id, i) && td) {
+    if ((e.detail || 1) > 1) return;
+    KAT._clrT = setTimeout(() => { kselClear(); _katPick(i); }, 280);
+    return;
+  }
   if (kselCount()) kselClear();                         // простой щелчок — к объекту
   _katPick(i);
 }
@@ -547,8 +555,19 @@ async function _katSetField(idxs, k) {
   if (k == null) { k = (prompt('Название нового поля:') || '').trim(); if (!k) return; if (k.startsWith('_')) { toast('Название не может начинаться с «_»', 'err'); return; } }
   const feats = _kaFeatures(l), vals = [...new Set(idxs.map(i => ((feats[i] || {}).properties || {})[k]).map(v => v == null ? '' : String(v)))];
   const nv = prompt(`«${k}» для ${idxs.length} объект(ов):`, vals.length === 1 ? vals[0] : ''); if (nv == null) return;
-  const num = idxs.every(i => typeof (((feats[i] || {}).properties || {})[k]) === 'number') && Number.isFinite(_kaNum(nv));
-  await _katSave(l, fs => { idxs.forEach(i => { if (!fs[i]) return; fs[i].properties = fs[i].properties || {}; fs[i].properties[k] = num ? _kaNum(nv) : nv; }); }, `«${k}» задано: ${idxs.length}`);
+  const val = _katTyped(nv, idxs.map(i => ((feats[i] || {}).properties || {})[k]));
+  await _katSave(l, fs => { idxs.forEach(i => { if (!fs[i]) return; fs[i].properties = fs[i].properties || {}; fs[i].properties[k] = val; }); }, `«${k}» = «${nv}» задано: ${idxs.length}`);
+}
+// введённое число храним числом, если прежние значения — числа или пусто (глубина 15, а не «15»)
+function _katTyped(nv, olds) {
+  const n = _kaNum(nv);
+  if (!Number.isFinite(n) || String(nv).trim() === '') return nv;
+  return olds.every(v => v == null || v === '' || typeof v === 'number' || Number.isFinite(_kaNum(v))) ? n : nv;
+}
+// индексы для «заполнить столбец»: выделенные, а если выделения нет — показанные в таблице
+function _katFillTargets() {
+  const sel = _katSelIdx();
+  return sel.length ? { idxs: sel, what: 'выделенным' } : { idxs: (KAT.order || []).slice(), what: 'всем показанным' };
 }
 function _katSelectSame(k, v) {
   const l = _katLayer(); if (!l) return;
@@ -647,15 +666,26 @@ async function _katSave(l, mutate, msg) {
 function _katEdit(td, i, k) {
   const l = _katLayer(); if (!l) return;
   const f = _kaFeatures(l)[i]; const old = (f.properties || {})[k];
+  clearTimeout(KAT._clrT);
+  const sel = _katSelIdx(), multi = sel.length > 1 && sel.includes(i) ? sel : null;
   const inp = document.createElement('input');
   inp.value = old == null ? '' : String(old); inp.className = 'kat-inp';
-  td.innerHTML = ''; td.appendChild(inp); inp.focus(); inp.select();
+  td.innerHTML = ''; td.appendChild(inp);
+  if (multi) { inp.title = `Значение получат все выделенные строки: ${multi.length}`; td.insertAdjacentHTML('beforeend', `<span class="kat-multi" title="${escAttr(inp.title)}">→ ${multi.length}</span>`); td.style.position = 'relative'; }
+  inp.focus(); inp.select();
   let done = false;
   const save = () => {
     if (done) return; done = true;
     const nv = inp.value;
+    if (multi) {
+      const feats = _kaFeatures(l);
+      if (multi.every(j => { const v = ((feats[j] || {}).properties || {})[k]; return (v == null ? '' : String(v)) === nv; })) { _katRender(); return; }
+      const val = _katTyped(nv, multi.map(j => ((feats[j] || {}).properties || {})[k]));
+      _katSave(l, fs => multi.forEach(j => { if (!fs[j]) return; fs[j].properties = fs[j].properties || {}; fs[j].properties[k] = val; }), `«${k}» = «${nv}» — выделенным: ${multi.length}`);
+      return;
+    }
     if (nv === (old == null ? '' : String(old))) { _katRender(); return; }
-    const val = typeof old === 'number' && Number.isFinite(_kaNum(nv)) ? _kaNum(nv) : nv;
+    const val = _katTyped(nv, [old]);
     _katSave(l, fs => { fs[i].properties = fs[i].properties || {}; fs[i].properties[k] = val; }, 'Сохранено');
   };
   inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') { e.stopPropagation(); done = true; _katRender(); } };
@@ -678,6 +708,7 @@ function _katFieldMenu(e, k) {
       if (st.labelField === k) delete st.labelField; else st.labelField = k;
       if (await kmlSaveStyle(l, st)) { if (!layerLabels[l.id] && st.labelField) toggleLayerLabels(l.id); _katRender(); toast('Подписи обновлены', 'ok'); }
     } },
+    (() => { const t = _katFillTargets(); return t.idxs.length ? { i: '✏️', l: `Заполнить ${t.what} (${t.idxs.length})…`, f: () => _katSetField(t.idxs, k) } : null; })(),
     { sep: true },
     k === 'name'
       ? { i: '📛', l: 'Взять названия из другого поля…', f: () => _katNameFromPick() }
@@ -692,7 +723,7 @@ function _katFieldMenu(e, k) {
       await _katSave(l, fs => { fs.forEach(f => { if (f.properties) delete f.properties[k]; }); }, 'Поле удалено');
       if (st.colorBy === k || st.labelField === k) { if (st.colorBy === k) delete st.colorBy; if (st.labelField === k) delete st.labelField; await kmlSaveStyle(l, st); }
     } },
-  ]);
+  ].filter(Boolean));
 }
 
 // Название объектов (поле name — подписи, поиск, всплывашки, выгрузка) взять из поля k.

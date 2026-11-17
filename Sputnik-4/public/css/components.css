@@ -228,6 +228,7 @@ body.kat-colrs{cursor:col-resize!important;user-select:none}
 .kat-selbox .btn.on{background:var(--accl);border-color:var(--acc)}
 body.kat-open #ksel-bar{bottom:calc(var(--kat-h,38vh) + 14px)}
 .kat-inp{width:100%;min-width:120px;font-size:12px;padding:1px 4px;border:1.5px solid var(--acc);border-radius:3px}
+.kat-multi{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:var(--acc);color:#fff;font-size:10px;font-weight:700;border-radius:8px;padding:0 6px;pointer-events:none}
 /* легенда раскраски слоёв */
 .kml-legend{background:rgba(255,255,255,.95);border:1px solid #d1d5db;border-radius:8px;padding:6px 9px;font-size:11px;color:#111827;max-height:40vh;overflow:auto;max-width:260px;box-shadow:0 2px 8px rgba(0,0,0,.15)}
 .kml-legend-h{font-weight:700;cursor:pointer;user-select:none}
