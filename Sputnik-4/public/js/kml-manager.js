@@ -1834,6 +1834,7 @@ function kmlStartPlacement(layerId) {
           if (sym !== ll.symbol) props._sym = sym;
           if (Math.abs(sz - (ll.size ?? 1)) > 0.05) props._size = sz;
 
+          if (typeof kmlApplyTpl === 'function') kmlApplyTpl(ll, props);
           gj.features.push({
             type:'Feature',
             geometry:{type:'Point',coordinates:[lng,lat]},
@@ -2209,6 +2210,7 @@ async function _saveMarkerPoint(lat, lng, name, layerId, newLayerName, color, sy
   const props = { name: (name || '').trim() || 'Метка' };
   if (color && color !== ll.color) props._color = color;
   if (sym && sym !== ll.symbol) props._sym = sym;
+  if (typeof kmlApplyTpl === 'function') kmlApplyTpl(ll, props);
   gj.features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: props });
   const newGJ = JSON.stringify(gj);
   await fetch(`${API}/layers/${ll.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -2341,6 +2343,7 @@ async function _saveKmlShape(geometry,name,layerId,newLayerName,color){
   if(!Array.isArray(gj.features))gj.features=[];
   const props={name:(name||'').trim()};
   if(color&&color!==ll.color)props._color=color;
+  if(typeof kmlApplyTpl==='function')kmlApplyTpl(ll,props);
   gj.features.push({type:'Feature',geometry:geometry,properties:props});
   await _kmlSaveGeojson(ll,gj);
   try{renderLayerGroups();}catch(e){}

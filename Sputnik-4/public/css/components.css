@@ -620,3 +620,9 @@ html[data-theme=dark] .wd-warn{background:#3f3410;color:#fde68a}
 .crsl-row{display:flex;gap:6px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--bd)}
 .crsl-row code{display:block;font-size:10px;color:var(--tx3);word-break:break-all;margin-top:2px}
 .crsl-note{font-size:11px;color:var(--tx2)}
+
+/* таблица атрибутов: сводная строка Σ */
+#kat-panel tfoot.kat-foot td{position:sticky;bottom:0;z-index:2;background:var(--s2);border-top:2px solid var(--bd);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:3px 6px}
+#kat-panel tfoot.kat-foot td.kat-fz{z-index:4}
+#kat-panel tfoot .kat-sum{cursor:copy;font-weight:700}
+#kat-panel tfoot .kat-sum small{font-weight:400;color:var(--tx3)}

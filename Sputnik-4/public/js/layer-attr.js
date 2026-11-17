@@ -292,7 +292,8 @@ function _katRender() {
       return String(va).localeCompare(String(vb), 'ru', { numeric: true }) * d;
     });
   }
-  const total = rows.length; rows = rows.slice(0, KAT.max); KAT.order = rows.map(r => r.i);
+  const total = rows.length; KAT._allOrder = rows.map(r => r.i); const statRows = nSel ? feats.map((f, i) => ({ f, i, sz: _katSize(f) })).filter(r => kselHas(l.id, r.i)) : rows;
+  rows = rows.slice(0, KAT.max); KAT.order = rows.map(r => r.i);
   const arrow = k => KAT.sort === k ? (KAT.dir > 0 ? ' ▲' : ' ▼') : '';
   const st = kmlStyleOf(l) || {};
   // столбцы: ☐ # значок | первое поле (закреплены) | ✅ дата факт (объём) | остальные поля | площадь
@@ -340,6 +341,7 @@ function _katRender() {
       <input id="kat-q" placeholder="🔍 Поиск по всем полям…" value="${escAttr(KAT.q)}" oninput="KAT.q=this.value;_katRender();setTimeout(()=>{const e=document.getElementById('kat-q');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},0)">
       ${nFlt ? `<button class="btn bs bxs kat-fltb" onclick="KAT.flt={};_katRender()" title="Сбросить фильтры по столбцам">⏷ Фильтр: ${nFlt} ✕</button>` : ''}
       <button class="btn bs bxs" onclick="_katAddField()">＋ Поле</button>
+      <button class="btn bs bxs" onclick="katToolsMenu(event)" title="Формула, нумерация, найти и заменить, шаблон полей — для выделенных строк, а без выделения — для всех показанных">🛠 Инструменты ▾</button>
       <span id="kat-selbox" class="kat-selbox">${_katSelBoxHtml(nSel)}</span>
       <span style="color:var(--tx3);font-size:10px" title="Щелчок по строке — к объекту; Ctrl/Shift + щелчок — выделить; двойной щелчок по ячейке — изменить; ▾ в заголовке — фильтр по значениям; край заголовка — ширина столбца; Ctrl+V — вставить из Excel с выбранной ячейки; Ctrl+C — копировать; ПКМ — действия">Ctrl/Shift — выделить · ▾ — фильтр · Ctrl+V — из Excel · ПКМ — действия ⓘ</span>
       <button class="kml-panel-close" onclick="kmlAttrTableClose()" title="Закрыть">✕</button></div>
@@ -350,9 +352,39 @@ function _katRender() {
         const pr = r.f.properties || {}, sl = kselHas(l.id, r.i);
         return `<tr data-i="${r.i}" class="${r.i === KAT.sel ? 'on' : ''}${sl ? ' sel' : ''}${pr._hidden || pr._skip ? ' hid' : ''}" onclick="_katRowClick(event,${r.i})" onmouseenter="kmlHoverFeature&&kmlHoverFeature('${escAttr(l.id)}',${r.i})">${cols.map(c => cell(c, r)).join('')}</tr>`;
       }).join('')}
-      </tbody></table>${!rows.length ? `<div style="padding:10px;color:var(--tx3);font-size:12px">Ничего не найдено${nFlt ? ' — <a href="#" onclick="event.preventDefault();KAT.flt={};_katRender()">сбросить фильтры</a>' : ''}</div>` : ''}${total > KAT.max ? `<div style="padding:6px;color:var(--tx3);font-size:11px">Показаны первые ${KAT.max} из ${total} — уточните поиск.</div>` : ''}</div>`;
+      </tbody>${_katFootHtml(cols, statRows, nSel, fz)}</table>${!rows.length ? `<div style="padding:10px;color:var(--tx3);font-size:12px">Ничего не найдено${nFlt ? ' — <a href="#" onclick="event.preventDefault();KAT.flt={};_katRender()">сбросить фильтры</a>' : ''}</div>` : ''}${total > KAT.max ? `<div style="padding:6px;color:var(--tx3);font-size:11px">Показаны первые ${KAT.max} из ${total} — уточните поиск.</div>` : ''}</div>`;
   const nb = p.querySelector('.kat-body'); if (nb) { nb.scrollLeft = sx; nb.scrollTop = sy; }
   KAT._cols = cols;
+}
+// ── Сводная строка «Σ»: по выделенным строкам, а без выделения — по показанным ──
+function _katFootHtml(cols, rows, nSel, fz) {
+  if (!rows || !rows.length) return '';
+  const fmtN = v => (Math.round(v * 1000) / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 3 });
+  let labelDone = false;
+  const tds = cols.map(c => {
+    const k = c.id;
+    if (k === '#cb' || k === '#n' || k === '#ic') {
+      if (k === '#ic' || labelDone) return `<td class="${fz(c)}"></td>`;
+      labelDone = true; return `<td class="${fz(c)}" colspan="1" style="font-weight:700">Σ</td>`;
+    }
+    if (k === '#size') {
+      let a = 0, d = 0, na = 0, nd = 0;
+      rows.forEach(r => { const g = r.f.geometry && r.f.geometry.type || ''; if (r.sz.v == null) return; if (/Polygon/.test(g)) { a += r.sz.v; na++; } else if (/Line/.test(g)) { d += r.sz.v; nd++; } });
+      const t = [nd ? (d >= 1000 ? fmtN(d / 1000) + ' км' : fmtN(d) + ' м') : '', na ? (a >= 1e4 ? fmtN(a / 1e4) + ' га' : fmtN(a) + ' м²') : ''].filter(Boolean).join(' · ');
+      return `<td class="${fz(c)}" title="Сумма длин линий (${nd}) и площадей полигонов (${na})">${t}</td>`;
+    }
+    if (k === '#done') { const n = rows.filter(r => (r.f.properties || {})._done).length; return `<td class="${fz(c)}" title="Выполнено">${n}/${rows.length}</td>`; }
+    if (k.startsWith('#')) return `<td class="${fz(c)}"></td>`;
+    const vals = rows.map(r => (r.f.properties || {})[k]).filter(v => v != null && String(v).trim() !== '');
+    const nums = vals.map(_kaNum).filter(Number.isFinite);
+    if (nums.length && nums.length >= vals.length * 0.8) {
+      const sum = nums.reduce((s, v) => s + v, 0), mn = Math.min(...nums), mx = Math.max(...nums);
+      const tip = `Сумма ${fmtN(sum)}\nСреднее ${fmtN(sum / nums.length)}\nМин ${fmtN(mn)} · Макс ${fmtN(mx)}\nЧисел: ${nums.length} из ${rows.length}${nums.length < vals.length ? ` (не числа: ${vals.length - nums.length})` : ''}\nЩелчок — скопировать сумму`;
+      return `<td class="${fz(c)} kat-sum" title="${escAttr(tip)}" onclick="kselCopy&&kselCopy('${sum}')">Σ ${fmtN(sum)}</td>`;
+    }
+    return `<td class="${fz(c)}" style="color:var(--tx3)" title="Заполнено у ${vals.length} из ${rows.length}">${vals.length}/${rows.length}</td>`;
+  });
+  return `<tfoot class="kat-foot"><tr title="${nSel ? `Итоги по выделенным строкам (${nSel})` : `Итоги по показанным строкам (${rows.length})`}">${tds.join('')}</tr></tfoot>`;
 }
 // ширина столбца: потянуть правый край заголовка
 function _katColResize(e, k) {
@@ -567,7 +599,7 @@ function _katTyped(nv, olds) {
 // индексы для «заполнить столбец»: выделенные, а если выделения нет — показанные в таблице
 function _katFillTargets() {
   const sel = _katSelIdx();
-  return sel.length ? { idxs: sel, what: 'выделенным' } : { idxs: (KAT.order || []).slice(), what: 'всем показанным' };
+  return sel.length ? { idxs: sel, what: 'выделенным' } : { idxs: (KAT._allOrder || KAT.order || []).slice(), what: 'всем показанным' };
 }
 function _katSelectSame(k, v) {
   const l = _katLayer(); if (!l) return;
@@ -709,6 +741,9 @@ function _katFieldMenu(e, k) {
       if (await kmlSaveStyle(l, st)) { if (!layerLabels[l.id] && st.labelField) toggleLayerLabels(l.id); _katRender(); toast('Подписи обновлены', 'ok'); }
     } },
     (() => { const t = _katFillTargets(); return t.idxs.length ? { i: '✏️', l: `Заполнить ${t.what} (${t.idxs.length})…`, f: () => _katSetField(t.idxs, k) } : null; })(),
+    { i: '🧮', l: 'Вычислить по формуле…', f: () => katCalcOpen(k) },
+    { i: '№', l: 'Пронумеровать…', f: () => katNumberOpen(k) },
+    { i: '🔎', l: 'Найти и заменить…', f: () => katReplaceOpen(k) },
     { sep: true },
     k === 'name'
       ? { i: '📛', l: 'Взять названия из другого поля…', f: () => _katNameFromPick() }
