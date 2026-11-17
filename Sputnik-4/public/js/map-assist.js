@@ -139,5 +139,8 @@ document.addEventListener('paste', e => {
   const mapView = document.querySelector('.nt.on')?.dataset.v === 'map' || document.getElementById('map')?.contains(document.activeElement);
   if (!mapView) return;
   const t = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+  // таблица из Excel (несколько строк со столбцами) — мастер импорта точек: столбцы X/Y, система (МСК…), атрибуты
+  const rowsT = t.split(/\r?\n/).filter(x => x.trim());
+  if (rowsT.length >= 2 && rowsT.filter(x => x.includes('\t')).length >= 2 && typeof _importCsv === 'function') { e.preventDefault(); _importCsv({ name: 'Из буфера обмена' }, t); return; }
   if (maParseCoords(t)) { e.preventDefault(); maPasteCoords(t); }
 });

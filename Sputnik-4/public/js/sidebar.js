@@ -839,7 +839,17 @@ async function _importXlsx(file) {
   try {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
+    // несколько листов с данными — спросить, какой
+    const full = wb.SheetNames.filter(n => { const w = wb.Sheets[n]; return w && w['!ref']; });
+    let sheet = full[0] || wb.SheetNames[0];
+    if (full.length > 1) {
+      sheet = await new Promise(res => {
+        showModal('📊 Какой лист импортировать?', `<div style="width:100%"><select id="xl-sheet" size="${Math.min(8, full.length)}" style="width:100%">${full.map((n, i) => { const r = XLSX.utils.decode_range(wb.Sheets[n]['!ref']); return `<option value="${i}"${i ? '' : ' selected'}>${esc(n)} — строк: ${r.e.r - r.s.r + 1}</option>`; }).join('')}</select></div>`,
+          [{ label: 'Дальше', cls: 'bp', fn: () => { const i = +document.getElementById('xl-sheet').value; closeModal(); res(full[i]); } }, { label: 'Отмена', cls: 'bs', fn: () => { closeModal(); res(null); } }]);
+      });
+      if (!sheet) return;
+    }
+    const ws = wb.Sheets[sheet];
     if (!ws) { toast('В Excel нет листов', 'err'); return; }
     // Таб как разделитель — в ячейках он практически не встречается
     text = XLSX.utils.sheet_to_csv(ws, { FS: '\t', blankrows: false });
@@ -887,7 +897,8 @@ async function _importCsv(file, text) {
     if (attrs) cols.forEach((v, ci) => {
       if (ci === xCol || ci === yCol || ci === nameCol || ci === hCol || !String(v).trim()) return;
       const key = String(headerRow[ci] || `Поле ${ci + 1}`).trim() || `Поле ${ci + 1}`;
-      props[key] = String(v).trim();
+      const sv = String(v).trim();
+      props[key] = /^-?(0|[1-9]\d*)([.,]\d+)?$/.test(sv) ? parseFloat(sv.replace(',', '.')) : sv;   // 15 → число, «007» — текст
     });
     features.push({
       type: 'Feature',
@@ -904,6 +915,8 @@ async function _importCsv(file, text) {
     if (!L0 || L0.error) { toast('Слой не найден', 'err'); return; }
     let g0; try { g0 = JSON.parse(L0.geojson || '{}'); } catch (e) { g0 = {}; }
     if (!g0 || g0.type !== 'FeatureCollection') g0 = { type: 'FeatureCollection', features: [] };
+    const Lx = (layers || []).find(x => x.id === layerId) || L0;
+    if (typeof kmlApplyTpl === 'function') features.forEach(f => kmlApplyTpl(Lx, f.properties));
     g0.features = (g0.features || []).concat(features);
     await fetch(`${API}/layers/${layerId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...L0, geojson: JSON.stringify(g0), visible: !!L0.visible, show_labels: !!L0.show_labels }) });

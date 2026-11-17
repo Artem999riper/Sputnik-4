@@ -2051,6 +2051,7 @@ function renderLayerGroupsWithSymbols() {
                 ...(f.geometry&&f.geometry.type==='LineString'?[{i:'⬛',l:'Линия → полигон',f:()=>kmlLineToPolygon(l.id,fIdx)}]:[]),
                 ...(f.geometry&&f.geometry.type==='Polygon'?[{i:'〰️',l:'Полигон → линия',f:()=>kmlPolygonToLine(l.id,fIdx)}]:[]),
               ]}]:[]),
+              ...(fIdx>=0&&(_isLine||_isPoly)&&typeof wpOpen==='function'?[{i:'📍',l:_isLine?'Расставить точки вдоль линии (шаг, ПК)…':'Расставить точки в полигоне (сетка / по контуру)…',f:()=>wpOpen(l.id,fIdx)}]:[]),
               ...(_isLine||_isPoly?[{i:'📐',l:'Измерить и профиль',sub:[
                 {i:'📐',l:_isPoly?'Площадь и периметр':'Длина',f:()=>measureGeometry(f.geometry,featureName)},
                 ...(_isLine&&typeof epProfileFromLatLngs==='function'?[{i:'📈',l:'Профиль высот по линии',f:()=>{const c=f.geometry.type==='LineString'?f.geometry.coordinates:f.geometry.coordinates.slice().sort((a,b)=>b.length-a.length)[0];epProfileFromLatLngs(c.map(q=>[q[1],q[0]]));}}]:[]),
