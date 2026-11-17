@@ -39,6 +39,14 @@ const CV_SYSTEMS = [
   { id: 'utm',      kind: 'utm', label: 'UTM / WGS-84 (северное полушарие)' },
   { id: 'merc',     kind: 'merc', label: 'Web Mercator (EPSG:3857)' },
   { id: 'custom',   kind: 'custom', label: 'Своя система (строка proj4)' },
+  // Местные системы объектов (ЛСК/УСК). МГ «Бованенково–Ухта. III нитка», этап 3.5 — ООО «НПП «БЕНТА»,
+  // шифр 0441.001.001.ИИ.1205-ИГДИ 3.2.6, прил. Ш. Параметры ITRF-2008 → УСК даны в Coordinate Frame;
+  // в +towgs84 (УСК → WGS-84, Position Vector) — точное обращение: сдвиг = −Rᵀ·T/(1+m), повороты те же, масштаб −m/(1+m).
+  // Проверено по 6 контрольным точкам (прил. Э, Ю): расхождение ≤ 0,5 мм.
+  { id: 'lsk:ukhta_b', kind: 'fixed', label: 'УХТА-B — ЛСК МГ Бованенково–Ухта III, этап 3.5-1 (КС-5 – КС-6)', short: 'УХТА-B',
+    proj: '+proj=tmerc +lat_0=0 +lon_0=63 +k=1 +x_0=406453 +y_0=-7105806 +ellps=krass +towgs84=-21.2408,-25.9743,-99.5512,3.47545,1.48139,-0.46089,-0.948523 +units=m +no_defs' },
+  { id: 'lsk:ukhta_c', kind: 'fixed', label: 'УХТА-C — ЛСК МГ Бованенково–Ухта III, этап 3.5-2 (КС-6 – КС-7)', short: 'УХТА-C',
+    proj: '+proj=tmerc +lat_0=0 +lon_0=57 +k=1 +x_0=438487 +y_0=-6944122 +ellps=krass +towgs84=-21.5947,-42.4597,-89.2253,2.96998,1.7223,0.05977,-1.487286 +units=m +no_defs' },
 ];
 
 // Названия регионов для МСК (код субъекта РФ → название)
@@ -250,7 +258,7 @@ function _cvSysBlock(side) {
   const ord = _cvLabels(side).map(l => l.split(' ')[0]).join(', ');
   return `<div class="cv-card">
     <div class="cv-card-hd">${side === 'src' ? '📥 Исходная система' : '📤 Целевая система'}</div>
-    <div class="cv-row"><label>Система</label><div style="display:flex;gap:6px"><select data-f="" ${ch} style="${st}">${CV_SYSTEMS.map(s => o(s.id, s.label, id)).join('')}${CRS_LIB.length ? `<optgroup label="★ Свои системы (СК-63 и др.)">${CRS_LIB.map(l => o('lib:' + l.id, '★ ' + l.name, id)).join('')}</optgroup>` : ''}</select>
+    <div class="cv-row"><label>Система</label><div style="display:flex;gap:6px"><select data-f="" ${ch} style="${st}">${CV_SYSTEMS.filter(s => s.kind !== 'fixed').map(s => o(s.id, s.label, id)).join('')}<optgroup label="Местные системы объектов">${CV_SYSTEMS.filter(s => s.kind === 'fixed').map(s => o(s.id, s.label, id)).join('')}</optgroup>${CRS_LIB.length ? `<optgroup label="★ Свои системы (СК-63 и др.)">${CRS_LIB.map(l => o('lib:' + l.id, '★ ' + l.name, id)).join('')}</optgroup>` : ''}</select>
       <button class="btn bs bsm" onclick="crsLibOpen()" title="Свои системы координат: районы СК-63, местные системы — для всех пользователей">★</button></div></div>
     ${extra}
     <div class="cv-row"><label>Порядок</label><div style="display:flex;gap:8px;align-items:center">

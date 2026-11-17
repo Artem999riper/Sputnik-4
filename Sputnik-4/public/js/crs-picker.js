@@ -41,6 +41,7 @@ function crsProjOf(st, ctx = {}) {
   }
   const sys = CV_SYSTEMS.find(s => s.id === id) || CV_SYSTEMS[0], zoneSel = st.zone || 'auto';
   if (sys.kind === 'geo') return { proj: CV_GEO[id.split(':')[1]][1], name: CV_GEO[id.split(':')[1]][0], geo: true };
+  if (sys.kind === 'fixed') return { proj: sys.proj, name: sys.short || sys.label };   // местная система объекта (одна зона)
   if (sys.kind === 'merc') return { proj: '+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +no_defs', name: 'Web Mercator' };
   if (sys.kind === 'custom') {
     const p = (st.custom || '').trim();
@@ -138,8 +139,9 @@ function _crspInner(prefix) {
   const S = _CRSP[prefix].st, sys = crsAllSystems().find(s => s.id === S.sys) || { kind: 'geo' };
   const o = (v, l, cur) => `<option value="${escAttr(String(v))}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(l)}</option>`;
   const ch = f => `onchange="_crspSet('${prefix}','${f}',this.value)"`;
-  const std = crsAllSystems().filter(s => s.kind !== 'lib'), lib = crsAllSystems().filter(s => s.kind === 'lib');
+  const std = crsAllSystems().filter(s => s.kind !== 'lib' && s.kind !== 'fixed'), lib = crsAllSystems().filter(s => s.kind === 'lib'), fx = crsAllSystems().filter(s => s.kind === 'fixed');
   let h = `<select ${ch('sys')} class="crsp-sys">${std.map(s => o(s.id, s.label, S.sys)).join('')}
+    ${fx.length ? `<optgroup label="Местные системы объектов">${fx.map(s => o(s.id, s.label, S.sys)).join('')}</optgroup>` : ''}
     ${lib.length ? `<optgroup label="Свои системы (СК-63 и др.)">${lib.map(s => o(s.id, s.label, S.sys)).join('')}</optgroup>` : ''}</select>`;
   if (sys.kind === 'msk') {
     const regs = Object.keys((MSK_FULL && MSK_FULL.regions) || {}).sort(), zones = (MSK_FULL && MSK_FULL.regions && MSK_FULL.regions[S.msk]) || [];
