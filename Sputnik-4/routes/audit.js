@@ -38,7 +38,9 @@ const CREATE = [
   [/^\/api\/volumes\/[^/]+\/progress$/, 'vol_progress', 'Факт по объёму', 'work_date'],
 ];
 const TABLES = new Set([...ROW.map(r => r[1]), 'vol_progress']);
-const MAX_CELL = 3 * 1024 * 1024;   // поле больше 3 МБ (огромный слой) — не храним целиком
+const MAX_CELL = 3 * 1024 * 1024;   // поле больше 3 МБ — не храним целиком
+const MAX_LAYER_GJ = 512 * 1024;    // геометрия слоя больше 512 КБ — не храним (есть версии слоя)
+const AUDIT_MAX_MB = 400;           // весь журнал изменений — не больше 400 МБ
 
 module.exports = (app, getDb, { isAdmin, broadcast, restoreFromData, trashAndDelete, presenceEvents, getPresence }) => {
   const db = () => getDb();
@@ -58,10 +60,30 @@ module.exports = (app, getDb, { isAdmin, broadcast, restoreFromData, trashAndDel
     try {
       run(db(), 'INSERT INTO audit_log(id,user_name,kind,tbl,row_id,label,name,before,after)VALUES(?,?,?,?,?,?,?,?,?)',
         [uuid(), o.user || '', o.kind, o.tbl, o.row_id, o.label, String(o.name || '').slice(0, 200), o.before ? JSON.stringify(o.before) : null, o.after ? JSON.stringify(o.after) : null]);
-      if (Math.random() < 0.02) run(db(), "DELETE FROM audit_log WHERE at < datetime('now','localtime','-120 days')");
+      if (Math.random() < 0.02) trim();
     } catch (e) {}
   };
-  const clip = row => { const o = {}; for (const k of Object.keys(row || {})) { const v = row[k]; o[k] = (typeof v === 'string' && v.length > MAX_CELL) ? '[слишком большое значение не сохранено]' : v; } return o; };
+  // Объём журнала: 120 дней и не больше AUDIT_MAX_MB — сверх этого удаляются самые старые записи
+  const trim = () => {
+    try {
+      const d = db();
+      run(d, "DELETE FROM audit_log WHERE at < datetime('now','localtime','-120 days')");
+      const tot = (get(d, 'SELECT SUM(COALESCE(length(before),0)+COALESCE(length(after),0)) b FROM audit_log') || {}).b || 0;
+      if (tot > AUDIT_MAX_MB * 1048576) {
+        let over = tot - AUDIT_MAX_MB * 0.8 * 1048576, ids = [];
+        for (const r of all(d, 'SELECT id, COALESCE(length(before),0)+COALESCE(length(after),0) b FROM audit_log ORDER BY at')) { if (over <= 0) break; ids.push(r.id); over -= r.b + 200; }
+        for (let i = 0; i < ids.length; i += 500) run(d, `DELETE FROM audit_log WHERE id IN (${ids.slice(i, i + 500).map(() => '?').join(',')})`, ids.slice(i, i + 500));
+        console.log(`  🧹 Журнал изменений: удалено старых записей ${ids.length} (лимит ${AUDIT_MAX_MB} МБ)`);
+      }
+      // «📋 Журнал» (activity_log) — короткие строки, храним 2 года
+      run(d, "DELETE FROM activity_log WHERE created_at < datetime('now','localtime','-730 days')");
+    } catch (e) {}
+  };
+  try { trim(); } catch (e) {}
+  setInterval(trim, 12 * 3600 * 1000).unref();
+  // геометрия слоя в журнале — только для небольших слоёв: прежние состояния
+  // больших слоёв и так хранятся в «🕓 Версиях слоя» (routes/layer-history.js)
+  const clip = (row, tbl) => { const o = {}; for (const k of Object.keys(row || {})) { const v = row[k], lim = tbl === 'kml_layers' && k === 'geojson' ? MAX_LAYER_GJ : MAX_CELL; o[k] = (typeof v === 'string' && v.length > lim) ? '[слишком большое значение не сохранено]' : v; } return o; };
 
   // ── запись изменений ─────────────────────────────────────
   app.use((req, res, next) => {
@@ -86,15 +108,15 @@ module.exports = (app, getDb, { isAdmin, broadcast, restoreFromData, trashAndDel
           const b = {}, a = {};
           for (const k of Object.keys(after)) if (String(after[k]) !== String(before[k])) { b[k] = before[k]; a[k] = after[k]; }
           if (!Object.keys(a).length) return;
-          save({ user, kind, tbl, row_id: id, label, name: after[nameCol] || before[nameCol], before: clip(b), after: clip(a) });
+          save({ user, kind, tbl, row_id: id, label, name: after[nameCol] || before[nameCol], before: clip(b, tbl), after: clip(a, tbl) });
         } else if (kind === 'delete') {
           const r = res._auditBody && res._auditBody._restore;
-          save({ user, kind, tbl, row_id: id, label, name: before[nameCol], before: r || { table: tbl, row: clip(before), children: [] } });
+          save({ user, kind, tbl, row_id: id, label, name: before[nameCol], before: r || { table: tbl, row: clip(before, tbl), children: [] } });
         } else {
           const nid = res._auditBody && (res._auditBody.id || (res._auditBody.layer && res._auditBody.layer.id));
           if (!nid) return;
           const row = get(db(), `SELECT * FROM ${tbl} WHERE id=?`, [nid]);
-          if (row) save({ user, kind, tbl, row_id: nid, label, name: row[nameCol], after: clip(row) });
+          if (row) save({ user, kind, tbl, row_id: nid, label, name: row[nameCol], after: clip(row, tbl) });
         }
       } catch (e) {}
     });
