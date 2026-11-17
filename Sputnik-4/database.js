@@ -28,9 +28,22 @@ const fs   = require('fs');
 const DB_PATH = process.env.PGK_DB || path.join(__dirname, 'survey.db');
 let _db = null;
 
+// Восстановление из резервной копии подкладывается файлом «<база>.restore» и
+// подменяет базу ЗДЕСЬ, до открытия: перезаписывать открытый файл нельзя — испортится.
+function applyPendingRestore() {
+  const pend = DB_PATH + '.restore';
+  if (!fs.existsSync(pend)) return;
+  try {
+    for (const s of ['-wal', '-shm', '-journal']) { try { fs.unlinkSync(DB_PATH + s); } catch (e) {} }
+    fs.renameSync(pend, DB_PATH);
+    console.log('  ♻️  База восстановлена из резервной копии');
+  } catch (e) { console.error('  ⚠️  Не удалось применить восстановление:', e.message); }
+}
+
 async function getDb() {
   if (_db) return _db;
 
+  applyPendingRestore();
   _db = new Database(DB_PATH);
 
   // Ждать до 15 с при блокировке файла (другой процесс/антивирус/синхронизация),
@@ -394,4 +407,4 @@ function run(db, sql, p = []) {
 // оставлен как no-op для обратной совместимости
 function saveDb() {}
 
-module.exports = { getDb, all, get, run, saveDb };
+module.exports = { getDb, all, get, run, saveDb, DB_PATH };

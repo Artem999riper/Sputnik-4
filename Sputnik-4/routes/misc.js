@@ -523,7 +523,7 @@ function _dxfHatchRings(c) {
   return rings;
 }
 
-module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, getBackupSettings, setBackupSettings, performAutoBackup }) => {
+module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, getBackupSettings, setBackupSettings, performAutoBackup, isAdmin }) => {
   // Отмена долгих расчётов: браузер оборвал запрос (кнопка «✕ Отменить», закрытая вкладка) —
   // GDAL / Python, запущенные этим запросом, завершаются сразу (dem-processor.withCancel)
   if (demProcessor && demProcessor.withCancel) app.use(['/api/dem/export', '/api/dem/analysis', '/api/dem/flood', '/api/gis/op'], (req, res, next) => {
@@ -792,14 +792,59 @@ module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, g
     res.json({ ok: true, ...(r || {}) });
   }));
 
-  app.post('/api/backups/restore/:name', wrap((req, res) => {
-    const src = path.join(BACKUP_DIR, req.params.name);
-    if (!fs.existsSync(src)) return res.status(404).json({ error: 'Not found' });
-    fs.copyFileSync(src, path.join(__dirname, '..', 'survey.db'));
-    try { fs.unlinkSync(path.join(__dirname, '..', 'survey.db-wal')); } catch(e) {}
-    try { fs.unlinkSync(path.join(__dirname, '..', 'survey.db-shm')); } catch(e) {}
-    if (fs.existsSync(src + '-wal')) fs.copyFileSync(src + '-wal', path.join(__dirname, '..', 'survey.db-wal'));
-    res.json({ ok: true, message: 'Восстановлено. Перезапустите сервер.' });
+  // Восстановление: только админ. 1) копия проверяется (целостность, есть ли таблицы);
+  // 2) текущая база сохраняется копией «backup_before_restore_…»; 3) копия кладётся рядом
+  // с базой как «<база>.restore» и подменяет её при следующем запуске (database.js) —
+  // открытый файл базы на ходу не перезаписываем. Если сервер запущен через start.bat —
+  // перезапуск сам.
+  app.post('/api/backups/restore/:name', wrap(async (req, res) => {
+    if (!isAdmin || !isAdmin(req)) return res.status(403).json({ error: 'Восстанавливать базу может только администратор' });
+    const name = String(req.params.name || '');
+    if (!/^[\w.\-]+\.db$/.test(name) || path.basename(name) !== name) return res.status(400).json({ error: 'Неверное имя файла' });
+    const src = path.join(BACKUP_DIR, name);
+    if (!fs.existsSync(src)) return res.status(404).json({ error: 'Копия не найдена' });
+    const { DB_PATH } = require('../database');
+    const pend = DB_PATH + '.restore';
+    // проверка копии на отдельном файле (вместе с её -wal, если есть)
+    const tmp = pend + '.check';
+    try {
+      fs.copyFileSync(src, tmp);
+      if (fs.existsSync(src + '-wal')) fs.copyFileSync(src + '-wal', tmp + '-wal');
+      const Database = require('better-sqlite3');
+      const t = new Database(tmp);
+      const ok = String(t.pragma('quick_check', { simple: true }) || '');
+      const hasSites = !!t.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sites'").get();
+      try { t.pragma('journal_mode = DELETE'); } catch (e) {}    // -wal → в сам файл
+      t.close();
+      if (ok !== 'ok') throw new Error('копия повреждена (' + ok.slice(0, 120) + ')');
+      if (!hasSites) throw new Error('это не база Спутника');
+    } catch (e) {
+      for (const s of ['', '-wal', '-shm']) { try { fs.unlinkSync(tmp + s); } catch (x) {} }
+      return res.status(400).json({ error: 'Восстановление отменено: ' + e.message });
+    }
+    // текущее состояние — тоже копией, чтобы можно было вернуться
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const before = `backup_before_restore_${ts}.db`;
+    try { await doBackup(path.join(BACKUP_DIR, before)); }
+    catch (e) { for (const s of ['', '-wal', '-shm']) { try { fs.unlinkSync(tmp + s); } catch (x) {} } return res.status(500).json({ error: 'Не удалось сохранить текущую базу перед восстановлением: ' + e.message }); }
+    for (const s of ['-wal', '-shm']) { try { fs.unlinkSync(tmp + s); } catch (e) {} }
+    fs.renameSync(tmp, pend);
+    const auto = process.env.PGK_LOOP === '1';
+    console.log(`  ♻️  Восстановление из «${name}» подготовлено (текущая база — в «${before}»)${auto ? ', перезапуск…' : ', применится при перезапуске'}`);
+    res.json({ ok: true, before, restarting: auto,
+      message: auto ? `Текущая база сохранена в «${before}». Сервер перезапускается — через несколько секунд обновите страницу.`
+        : `Текущая база сохранена в «${before}». Перезапустите сервер — при запуске база будет заменена копией «${name}».` });
+    if (auto) {
+      try { fs.writeFileSync(path.join(BACKUP_DIR, '.restart'), 'restore'); } catch (e) {}
+      setTimeout(() => process.exit(0), 600);
+    }
+  }));
+  // отменить подготовленное восстановление (пока сервер не перезапущен)
+  app.delete('/api/backups/restore', wrap((req, res) => {
+    if (!isAdmin || !isAdmin(req)) return res.status(403).json({ error: 'Только для админа' });
+    const { DB_PATH } = require('../database');
+    try { fs.unlinkSync(DB_PATH + '.restore'); } catch (e) { return res.json({ ok: true, none: true }); }
+    res.json({ ok: true });
   }));
 
   // ── LAYER EXPORT (DXF) ─────────────────────────────────────

@@ -293,7 +293,7 @@ getDb().then(database => {
   require('./routes/dbinfo')(app, getDbInstance, { isAdmin: adminApi.isAdmin, BACKUP_DIR, DB_PATH: process.env.PGK_DB || path.join(__dirname, 'survey.db'), ROOT: __dirname });
   routeMisc (app, getDbInstance, L, {
     upload, demProcessor, BACKUP_DIR, doBackup,
-    getBackupSettings, setBackupSettings, performAutoBackup,
+    getBackupSettings, setBackupSettings, performAutoBackup, isAdmin: adminApi.isAdmin,
   });
 
   // Сетевой адрес сервера — чтобы клиент строил общие ссылки, доступные другим ПК

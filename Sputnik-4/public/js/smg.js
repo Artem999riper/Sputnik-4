@@ -1739,10 +1739,14 @@ async function createBackup(){
   closeModal();openBackupModal();
 }
 async function restoreBackup(name){
-  if(!await confirmDlg('Восстановить из резервной копии "'+name+'"?\nТекущие данные будут сохранены в отдельный бэкап.'))return;
-  const r=await fetch(`${API}/backups/restore/`+encodeURIComponent(name),{method:'POST'}).then(r=>r.json()).catch(()=>({error:'Ошибка'}));
-  if(r.ok)toast(r.message,'ok');
-  else toast('Ошибка: '+(r.error||''),'err');
+  if(!await confirmDlg('Восстановить базу из резервной копии "'+name+'"?\n\nВсе изменения после этой копии пропадут у всех пользователей. Текущая база сначала будет сохранена отдельной копией «backup_before_restore_…» — к ней можно вернуться так же.\n\nСервер перезапустится.',{okLabel:'Восстановить'}))return;
+  const r=await fetch(`${API}/backups/restore/`+encodeURIComponent(name),{method:'POST'}).then(async x=>({...(await x.json().catch(()=>({}))),_st:x.status})).catch(()=>({error:'Нет связи с сервером'}));
+  if(r.ok){
+    closeModal();
+    showModal('♻️ Восстановление базы',`<div style="font-size:13px;line-height:1.6">${esc(r.message||'')}</div>`,[{label:'OK',cls:'bp',fn:()=>{closeModal();if(r.restarting)setTimeout(()=>location.reload(),4000);}}]);
+    if(r.restarting)setTimeout(()=>location.reload(),6000);
+  }
+  else toast((r._st===403?'⛔ ':'Ошибка: ')+(r.error||''),'err');
 }
 
 // ═══════════════════════════════════════════════════════════
