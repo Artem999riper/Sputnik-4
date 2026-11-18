@@ -17,6 +17,20 @@ const _seen = new Map();   // ключ ошибки → время послед�
 function _ensure(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS error_log (id TEXT PRIMARY KEY, at TEXT NOT NULL, source TEXT NOT NULL, user_name TEXT DEFAULT '',
     message TEXT NOT NULL, stack TEXT DEFAULT '', url TEXT DEFAULT '', agent TEXT DEFAULT '', count INTEGER DEFAULT 1, last_at TEXT)`);
+  if (!_ensure.cols) {
+    const cols = new Set(all(d, 'PRAGMA table_info(error_log)').map(c => c.name));
+    if (!cols.has('ip')) d.exec("ALTER TABLE error_log ADD COLUMN ip TEXT DEFAULT ''");
+    if (!cols.has('host')) d.exec("ALTER TABLE error_log ADD COLUMN host TEXT DEFAULT ''");
+    _ensure.cols = true;
+  }
+}
+// имя компьютера по IP (обратный DNS в локальной сети; Windows-сеть обычно отвечает). Кэш на час.
+const _hosts = new Map();
+function _hostOf(ip) {
+  const c = _hosts.get(ip); if (c && Date.now() - c.t < 3600000) return Promise.resolve(c.h);
+  const lo = /^(127\.|::1$)/.test(ip);
+  const p = lo ? Promise.resolve([require('os').hostname()]) : Promise.race([require('dns').promises.reverse(ip), new Promise(r => setTimeout(() => r([]), 1500))]);
+  return p.then(a => { const h = String((a && a[0]) || '').replace(/\.(local|lan|home)$/i, ''); _hosts.set(ip, { h, t: Date.now() }); return h; }).catch(() => { _hosts.set(ip, { h: '', t: Date.now() }); return ''; });
 }
 // Записать ошибку. source: 'server' | 'client'. Одинаковые за 10 минут — счётчик, а не новая строка.
 function logError(source, message, o = {}) {
@@ -24,15 +38,16 @@ function logError(source, message, o = {}) {
     const d = _getDb && _getDb(); if (!d) return;
     _ensure(d);
     const msg = String(message || 'Ошибка').slice(0, 1000), now = new Date().toISOString();
-    const key = source + '|' + msg + '|' + (o.url || '');
+    const key = source + '|' + msg + '|' + (o.url || '') + '|' + (o.user || '') + '|' + (o.ip || '');
     const prev = _seen.get(key);
     if (prev && Date.now() - prev.t < 600000) {
       run(d, 'UPDATE error_log SET count=count+1, last_at=? WHERE id=?', [now, prev.id]);
       prev.t = Date.now(); return;
     }
     const id = uuid();
-    run(d, 'INSERT INTO error_log(id,at,source,user_name,message,stack,url,agent,last_at) VALUES(?,?,?,?,?,?,?,?,?)',
-      [id, now, source, String(o.user || '').slice(0, 100), msg, String(o.stack || '').slice(0, 6000), String(o.url || '').slice(0, 500), String(o.agent || '').slice(0, 300), now]);
+    run(d, 'INSERT INTO error_log(id,at,source,user_name,message,stack,url,agent,last_at,ip) VALUES(?,?,?,?,?,?,?,?,?,?)',
+      [id, now, source, String(o.user || '').slice(0, 100), msg, String(o.stack || '').slice(0, 6000), String(o.url || '').slice(0, 500), String(o.agent || '').slice(0, 300), now, String(o.ip || '').slice(0, 60)]);
+    if (o.ip) _hostOf(o.ip).then(h => { if (h) try { run(d, 'UPDATE error_log SET host=? WHERE id=?', [h.slice(0, 100), id]); } catch (e) {} });
     _seen.set(key, { id, t: Date.now() });
     if (_seen.size > 500) _seen.delete(_seen.keys().next().value);
     const n = (get(d, 'SELECT COUNT(*) n FROM error_log') || {}).n || 0;
@@ -114,7 +129,7 @@ module.exports = (app, getDb, { isAdmin, BACKUP_DIR, broadcast }) => {
     r.n++; rate.set(cid, r);
     if (r.n <= 30) {
       const b = req.body || {};
-      logError('client', b.message, { stack: b.stack, url: b.url, user: _user(req), agent: req.get('User-Agent') });
+      logError('client', b.message, { stack: b.stack, url: b.url, user: _user(req), agent: req.get('User-Agent'), ip: String(req.ip || req.socket.remoteAddress || '').replace(/^::ffff:/, '') });
     }
     res.json({ ok: true });
   });

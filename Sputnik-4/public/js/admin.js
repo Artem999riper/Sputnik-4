@@ -468,7 +468,7 @@ async function _admRenderErrors(){
     ${rows.length?rows.map((e,i)=>`<div class="adm-err-row" onclick="if(!String(getSelection()))this.classList.toggle('open')">
       <div class="adm-err-hd"><span>${e.source==='server'?'🖥':'🌐'}</span><b>${esc(e.message)}</b>${e.count>1?`<i>×${e.count}</i>`:''}
         <button class="btn bg bxs" onclick="event.stopPropagation();_admErrCopy(${i})" title="Скопировать текст ошибки">📋</button></div>
-      <div class="adm-err-meta">${new Date(e.last_at||e.at).toLocaleString('ru-RU')}${e.user_name?' · 👤 '+esc(e.user_name):''}${e.url?' · '+esc(e.url):''}</div>
+      <div class="adm-err-meta">${new Date(e.last_at||e.at).toLocaleString('ru-RU')}${e.user_name?' · 👤 '+esc(e.user_name):e.source==='client'?' · 👤 <i title="В этом браузере не введено имя">без имени</i>':''}${e.ip?' · 💻 '+esc(e.host?e.host+' ('+e.ip+')':e.ip):''}${e.url?' · '+esc(e.url):''}</div>
       ${e.stack?`<pre class="adm-err-st">${esc(e.stack)}</pre>`:''}</div>`).join(''):'<div class="empty">✅ Ошибок нет</div>'}
   </div>`;
 }
@@ -495,7 +495,7 @@ setTimeout(()=>{admHealthBadge();setInterval(admHealthBadge,600000);},7000);
 
 // текст ошибки (или всех показанных) — в буфер обмена, чтобы переслать разработчику
 function _admErrText(e){
-  return [`${e.source==='server'?'Сервер':'Браузер'} · ${new Date(e.last_at||e.at).toLocaleString('ru-RU')}${e.count>1?` · ×${e.count}`:''}${e.user_name?` · ${e.user_name}`:''}`,
+  return [`${e.source==='server'?'Сервер':'Браузер'} · ${new Date(e.last_at||e.at).toLocaleString('ru-RU')}${e.count>1?` · ×${e.count}`:''}${e.user_name?` · ${e.user_name}`:e.source==='client'?' · без имени':''}${e.ip?` · ${e.host?e.host+' ('+e.ip+')':e.ip}`:''}`,
     e.message, e.url?`Где: ${e.url}`:'', e.agent?`Браузер: ${e.agent}`:'', e.stack||''].filter(Boolean).join('\n');
 }
 async function _admErrCopy(i){
