@@ -526,7 +526,7 @@ function _dxfHatchRings(c) {
 module.exports = (app, getDb, L, { upload, demProcessor, BACKUP_DIR, doBackup, getBackupSettings, setBackupSettings, performAutoBackup, isAdmin }) => {
   // Отмена долгих расчётов: браузер оборвал запрос (кнопка «✕ Отменить», закрытая вкладка) —
   // GDAL / Python, запущенные этим запросом, завершаются сразу (dem-processor.withCancel)
-  if (demProcessor && demProcessor.withCancel) app.use(['/api/dem/export', '/api/dem/analysis', '/api/dem/flood', '/api/gis/op'], (req, res, next) => {
+  if (demProcessor && demProcessor.withCancel) app.use(['/api/dem/export', '/api/dem/export-batch', '/api/dem/analysis', '/api/dem/flood', '/api/gis/op'], (req, res, next) => {
     if (req.method !== 'POST') return next();
     const ac = new AbortController();
     res.on('close', () => { if (!res.writableFinished) { ac.abort(); console.log(`  ⏹  Отменено: ${req.path}`); } });

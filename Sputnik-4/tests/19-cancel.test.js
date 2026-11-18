@@ -34,3 +34,22 @@ test('отмена идущей выгрузки подложки: задани�
     assert.ok(n - n1 <= 1, 'после отмены тайлы не качаются: ' + (n - n1));
   } finally { srv.close(); }
 });
+
+test('отмена пакетной выгрузки (обрыв запроса): тайлы больше не качаются, сервер отвечает', { skip: !HAS_GDAL && 'нет GDAL' }, async () => {
+  const P = png(); let n = 0;
+  const srv = http.createServer((q, r) => { n++; setTimeout(() => { r.writeHead(200, { 'Content-Type': 'image/png' }); r.end(P); }, 150); });
+  await new Promise(r => srv.listen(0, r));
+  try {
+    const it = (a, b) => ({ name: 'У' + a, bbox: { minLat: 64.5 + a, maxLat: 65.3 + a, minLng: 75.5, maxLng: 77.5 }, proj4: '+proj=longlat +datum=WGS84 +no_defs' });
+    const ac = new AbortController();
+    const pr = fetch(S.base + '/api/dem/export-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ac.signal,
+      body: JSON.stringify({ items: [it(0), it(1)], satelliteOnly: true, satSourceUrl: `http://127.0.0.1:${srv.address().port}/{z}/{x}/{-y}`, satMaxZoom: 12, satZoom: 12 }) }).catch(e => e);
+    for (let i = 0; i < 80 && n < 8; i++) await new Promise(r => setTimeout(r, 150));
+    assert.ok(n >= 8, 'выгрузка началась');
+    ac.abort(); await pr;
+    await new Promise(r => setTimeout(r, 800));
+    const n1 = n; await new Promise(r => setTimeout(r, 1500));
+    assert.ok(n - n1 <= 1, 'после отмены тайлы не качаются: ' + (n - n1));
+    assert.strictEqual((await S.api('GET', '/api/ping')).status, 200);
+  } finally { srv.close(); }
+});

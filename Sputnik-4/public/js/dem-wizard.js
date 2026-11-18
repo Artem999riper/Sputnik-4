@@ -376,10 +376,18 @@ function _dwParams() {
     kmlLayerIds: DW.what !== 'cache' && DW.kmlInc ? _dwKmlIncIds() : null,
     satClip: _dwHasSat() && _dwHasContour() && !!DW.satClip, satClipFill: DW.satClipFill === 'alpha' ? 'alpha' : 'white' };
 }
+// «По KML» с ОДНИМ контуром — обычная выгрузка (один набор файлов, обрезка по контуру), а не пакет
+function _dwKmlOne() {
+  if (DW.area !== 'kml' || DW.kml.length !== 1) return false;
+  const r = DW.kml[0].ring, lats = r.map(c => c[1]), lngs = r.map(c => c[0]);
+  _demBbox = { minLat: Math.min(...lats), maxLat: Math.max(...lats), minLng: Math.min(...lngs), maxLng: Math.max(...lngs) };
+  _demClip = { type: 'Polygon', coordinates: [r] };
+  return true;
+}
 async function _dwExport() {
   if (!_dwAreaReady()) { toast('Сначала выберите область', 'err'); return; }
   const projId = DW.projId || _dwSuggestProj(), forcedZone = parseInt(DW.zone) || 0;
-  if (DW.area === 'kml') {
+  if (DW.area === 'kml' && !_dwKmlOne()) {
     window._demBatchCfg = { params: _dwParams(), projId, forcedZone };
     const polys = DW.kml.map(k => ({ name: k.name, ring: k.ring }));
     const lname = [...new Set(DW.kml.map(k => (layers.find(l => l.id === k.layerId) || {}).name).filter(Boolean))].join(', ') || 'KML';
@@ -442,7 +450,7 @@ function _dwRequest() {
   const P = _dwParams(), date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const projOf = () => DEM_PROJECTIONS.find(p => p.id === projId) || _demBuildMskProj(projId, forcedZone) || _demBuildUtmProj(projId, forcedZone);
   const what = ({ both: 'рельеф + подложка', relief: 'рельеф', sat: 'подложка' })[DW.what] || '';
-  if (DW.area === 'kml') {
+  if (DW.area === 'kml' && !_dwKmlOne()) {
     const keep = _demBbox, items = [];
     for (const k of DW.kml) {
       const lats = k.ring.map(c => c[1]), lngs = k.ring.map(c => c[0]);
@@ -457,7 +465,7 @@ function _dwRequest() {
   }
   const proj = projOf(); if (!proj) return null;
   const km2 = _dwAreaKm2(_demBbox);
-  return { kind: 'dem', title: `${({ rect: 'Прямоугольник', polygon: 'Полигон', line: 'Коридор', last: 'Область' })[DW.area] || 'Область'} ${km2.toFixed(km2 < 1 ? 2 : 1)} км², ${what}, ${proj.name || proj.id}`,
+  return { kind: 'dem', title: `${DW.area === 'kml' && DW.kml[0] ? `Контур «${DW.kml[0].name || 'KML'}»` : ({ rect: 'Прямоугольник', polygon: 'Полигон', line: 'Коридор', last: 'Область' })[DW.area] || 'Область'} ${km2.toFixed(km2 < 1 ? 2 : 1)} км², ${what}, ${proj.name || proj.id}`,
     file_name: P.satelliteOnly ? `Satellite_${date}_${proj.name || proj.id}.zip` : `ArcticDEM_${date}_${proj.name || proj.id}_${P.interval}m.zip`,
     params: { bbox: _demBbox, clip: _demClip || null, projId: proj.id, proj4: proj.proj4 || null, epsg: proj.epsg || null, projName: proj.name || null, format: 'dxf', ...P } };
 }

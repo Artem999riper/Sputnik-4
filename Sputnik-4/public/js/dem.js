@@ -1300,14 +1300,17 @@ async function _demRunBatch(layer, polys) {
   // Окно прогресса
   showModal('📚 Пакетная выгрузка рельефа', `<div style="font-size:12px;margin-bottom:8px">Слой «${esc(layer.name)}», участков: <b>${items.length}</b></div>
     <div style="height:8px;background:var(--s3);border-radius:4px;overflow:hidden"><div id="demb-bar" style="height:100%;width:2%;background:var(--acc);transition:width .4s"></div></div>
-    <div id="demb-txt" style="font-size:11px;color:var(--tx2);margin-top:6px">⏳ Запуск…</div>`, [{ label: 'Скрыть', cls: 'bs', fn: closeModal }]);
+    <div id="demb-txt" style="font-size:11px;color:var(--tx2);margin-top:6px">⏳ Запуск…</div>`,
+    [{ label: '⏹ Отменить', cls: 'bd', fn: () => { if (ac.signal.aborted || ac.done) { closeModal(); return; } ac.abort(); } }, { label: 'Скрыть', cls: 'bs', fn: closeModal }]);
+  const ac = new AbortController();
   const sse = new EventSource(`${location.origin}/api/events?aux=1`);
   sse.onmessage = e => { try { const d = JSON.parse(e.data); if (d.type === 'dem_progress' && !d.job) { const b = document.getElementById('demb-bar'), t = document.getElementById('demb-txt'); if (b) b.style.width = Math.max(2, d.pct) + '%'; if (t) t.textContent = d.text; } } catch (x) {} };
   try {
-    const r = await fetch(`${API}/dem/export-batch`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, ...params }) });
+    const r = await fetch(`${API}/dem/export-batch`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, ...params }), signal: ac.signal });
     sse.close();
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'Ошибка сервера'); }
     const blob = await r.blob();
+    ac.done = true;
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `ArcticDEM_пакет_${String(layer.name).replace(/[\\/:*?"<>|]+/g, '_')}_${new Date().toISOString().slice(0, 10)}.zip`;
@@ -1317,7 +1320,9 @@ async function _demRunBatch(layer, polys) {
     toast('✅ Пакет выгружен: ' + a.download, 'ok');
   } catch (e) {
     sse.close();
-    const t = document.getElementById('demb-txt'); if (t) t.innerHTML = '<span style="color:var(--red)">❌ ' + esc(e.message) + '</span>';
+    const t = document.getElementById('demb-txt');
+    if (e.name === 'AbortError') { if (t) t.textContent = '⏹ Выгрузка отменена — сервер остановил работу'; toast('⏹ Пакетная выгрузка отменена', 'ok'); return; }
+    if (t) t.innerHTML = '<span style="color:var(--red)">❌ ' + esc(e.message) + '</span>';
     toast('❌ ' + e.message, 'err');
   }
 }
