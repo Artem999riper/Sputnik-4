@@ -43,9 +43,9 @@ const CV_SYSTEMS = [
   // шифр 0441.001.001.ИИ.1205-ИГДИ 3.2.6, прил. Ш. Параметры ITRF-2008 → УСК даны в Coordinate Frame;
   // в +towgs84 (УСК → WGS-84, Position Vector) — точное обращение: сдвиг = −Rᵀ·T/(1+m), повороты те же, масштаб −m/(1+m).
   // Проверено по 6 контрольным точкам (прил. Э, Ю): расхождение ≤ 0,5 мм.
-  { id: 'lsk:ukhta_b', kind: 'fixed', label: 'УХТА-B — ЛСК МГ Бованенково–Ухта III, этап 3.5-1 (КС-5 – КС-6)', short: 'УХТА-B',
+  { id: 'lsk:ukhta_b', kind: 'fixed', label: 'УХТА-B — ЛСК МГ Бованенково–Ухта III, этап 3.5-1 (КС-5 – КС-6)', short: 'УХТА-B', area: [64, 68.5, 59, 67],
     proj: '+proj=tmerc +lat_0=0 +lon_0=63 +k=1 +x_0=406453 +y_0=-7105806 +ellps=krass +towgs84=-21.2408,-25.9743,-99.5512,3.47545,1.48139,-0.46089,-0.948523 +units=m +no_defs' },
-  { id: 'lsk:ukhta_c', kind: 'fixed', label: 'УХТА-C — ЛСК МГ Бованенково–Ухта III, этап 3.5-2 (КС-6 – КС-7)', short: 'УХТА-C',
+  { id: 'lsk:ukhta_c', kind: 'fixed', label: 'УХТА-C — ЛСК МГ Бованенково–Ухта III, этап 3.5-2 (КС-6 – КС-7)', short: 'УХТА-C', area: [63.5, 67, 54, 61],
     proj: '+proj=tmerc +lat_0=0 +lon_0=57 +k=1 +x_0=438487 +y_0=-6944122 +ellps=krass +towgs84=-21.5947,-42.4597,-89.2253,2.96998,1.7223,0.05977,-1.487286 +units=m +no_defs' },
 ];
 
@@ -643,7 +643,11 @@ function cvGuessPoints(q0) {
   let q = String(q0 || '').trim();
   if (!q || !/\d/.test(q)) return [];
   let sys = null, reg = null, zone = null;
-  const m = q.match(/^(wgs[- ]?84|wgs|вгс|мск\s*-?\s*(\d{1,2})|ск\s*-?\s*42|ск\s*-?\s*95|гск(?:\s*-?\s*2011)?|(?:utm|утм)\s*(\d{1,2}))\s*[:,]?\s*/i);
+  // «УХТА-B 246578.9 323015.3», «ухта c …» — местная система объекта
+  const mf = q.match(/^ухта\s*-?\s*([bвcс])(?=[\s:,]|$)\s*[:,]?\s*/i);
+  let fixedOnly = null;
+  if (mf) { fixedOnly = /[bв]/i.test(mf[1]) ? 'lsk:ukhta_b' : 'lsk:ukhta_c'; q = q.slice(mf[0].length); sys = 'fixed'; }
+  const m = !mf && q.match(/^(wgs[- ]?84|wgs|вгс|мск\s*-?\s*(\d{1,2})|ск\s*-?\s*42|ск\s*-?\s*95|гск(?:\s*-?\s*2011)?|(?:utm|утм)\s*(\d{1,2}))\s*[:,]?\s*/i);
   if (m) {
     const k = m[1].toLowerCase().replace(/\s|-/g, '');
     sys = k.startsWith('мск') ? 'msk' : k.startsWith('ск42') ? 'sk42' : k.startsWith('ск95') ? 'sk95' : k.startsWith('гск') ? 'gsk' : (k.startsWith('utm') || k.startsWith('утм')) ? 'utm' : 'wgs';
@@ -672,8 +676,24 @@ function cvGuessPoints(q0) {
   if (!isFinite(nA) || !isFinite(nB)) return out;
   // Плоские координаты: пробуем порядок X,Y и Y,X
   const regs = (MSK_FULL && MSK_FULL.regions) || {};
-  const mskRegs = reg ? [reg] : [...new Set([typeof coordMskRegion !== 'undefined' ? coordMskRegion : null, CV.srcMsk, CV.dstMsk].filter(Boolean))];
+  const pinned = new Set([typeof coordMskRegion !== 'undefined' ? coordMskRegion : null, CV.srcMsk, CV.dstMsk].filter(Boolean));
+  // без «МСК-NN» — все регионы, но из «чужих» оставим только точки рядом с картой (≤ 300 км)
+  const mskRegs = reg ? [reg] : [...pinned, ...Object.keys(regs).filter(r => !pinned.has(r))];
+  let mc = null; try { if (typeof map !== 'undefined' && map && map.getCenter) { const c = map.getCenter(); mc = { lat: c.lat, lon: c.lng }; } } catch (e) {}
+  const near = (lat, lon, km) => !mc || Math.hypot((lat - mc.lat) * 111, (lon - mc.lon) * 111 * Math.cos(mc.lat * Math.PI / 180)) <= km;
   [[nA, nB, ''], [nB, nA, ' (Y, X)']].forEach(([X, Y, ord]) => {
+    // местные системы объектов (УХТА-B/C…) — если точка попала в их район (или система указана словом)
+    if (!sys || sys === 'fixed') CV_SYSTEMS.filter(f => f.kind === 'fixed' && (!fixedOnly || f.id === fixedOnly)).forEach(f => {
+      try {
+        const p = proj4(f.proj, CV_WGS, [Y, X]), a = f.area;
+        if (fixedOnly || (a && p[1] >= a[0] && p[1] <= a[1] && p[0] >= a[2] && p[0] <= a[3])) add(`${f.short || f.label}${ord}`, p[1], p[0], `x ${X.toFixed(3)}  y ${Y.toFixed(3)}`);
+      } catch (e) {}
+    });
+    // свои системы (справочник «★») — только если точка рядом с картой
+    if (!sys && typeof CRS_LIB !== 'undefined') CRS_LIB.forEach(l => {
+      try { if (/\+proj=(longlat|latlong|lonlat)/.test(l.proj)) return; const p = proj4(l.proj, CV_WGS, [Y, X]); if (near(p[1], p[0], 300)) add(`★ ${l.name}${ord}`, p[1], p[0], `X ${X.toFixed(2)}  Y ${Y.toFixed(2)}`); } catch (e) {}
+    });
+    if (sys === 'fixed') return;
     if (X < 1e4 || Y < 1e5) return;
     const z = Math.floor(Y / 1e6);
     if ((!sys || sys === 'msk')) mskRegs.forEach(r => {
@@ -682,7 +702,8 @@ function cvGuessPoints(q0) {
       const tw = MSK_FULL.datums['2008'];
       try {
         const p = proj4(`+proj=tmerc +lat_0=0 +lon_0=${zr.lon} +k=1 +x_0=${zr.x0} +y_0=${zr.y0} +ellps=krass +towgs84=${tw.join(',')} +units=m +no_defs`, CV_WGS, [Y, X]);
-        add(`МСК-${r} зона ${zr.z}${ord}`, p[1], p[0], `X ${X.toFixed(2)}  Y ${Y.toFixed(2)}`);
+        if (!reg && !pinned.has(r) && !near(p[1], p[0], 300)) return;
+        add(`МСК-${r}${CV_REGION_NAMES[r] ? ' ' + CV_REGION_NAMES[r] : ''} зона ${zr.z}${ord}`, p[1], p[0], `X ${X.toFixed(2)}  Y ${Y.toFixed(2)}`);
       } catch (e) {}
     });
     ['sk42', 'sk95', 'gsk'].forEach(d => {
@@ -698,6 +719,8 @@ function cvGuessPoints(q0) {
       try { const p = proj4(`+proj=utm +zone=${zone} +datum=WGS84 +units=m +no_defs`, CV_WGS, [Y, X]); add(`UTM ${zone}N${ord}`, p[1], p[0], `N ${X.toFixed(2)}  E ${Y.toFixed(2)}`); } catch (e) {}
     }
   });
+  // ближе к карте — выше
+  if (mc) out.sort((a, b) => Math.hypot(a.lat - mc.lat, (a.lon - mc.lon) * 0.45) - Math.hypot(b.lat - mc.lat, (b.lon - mc.lon) * 0.45));
   return out.slice(0, 8);
 }
 // Перейти к точке на карте и поставить временную метку
