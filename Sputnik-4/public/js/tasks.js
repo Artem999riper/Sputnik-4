@@ -1,7 +1,7 @@
 async function loadGTasks(){
   window._gtWorkersLoaded=false;
   // Pre-load workers and sites if needed
-  if(!pgkWorkers.length){try{pgkWorkers=await fetch(`${API}/pgk/workers`).then(r=>r.json());}catch(e){}}
+  if(!pgkWorkers.length){try{pgkWorkers=asArr(await fetch(`${API}/pgk/workers`).then(r=>r.json()),pgkWorkers);}catch(e){}}
   if(!sites.length){try{const sr=await fetch(`${API}/sites`);if(sr.ok)sites=await sr.json();}catch(e){}}
   try{
     const data = await fetch(`${API}/gtasks`).then(r=>r.json());
@@ -263,7 +263,7 @@ function _gtAddTaskModal(){
 
 async function gtEditTask(id){
   const t=gtasks.find(x=>x.id===id);if(!t)return;
-  if(!pgkWorkers.length){try{pgkWorkers=await fetch(`${API}/pgk/workers`).then(r=>r.json());}catch(e){}}
+  if(!pgkWorkers.length){try{pgkWorkers=asArr(await fetch(`${API}/pgk/workers`).then(r=>r.json()),pgkWorkers);}catch(e){}}
   showModal('✏️ Редактировать задачу', gtTaskForm(t), [
     {label:'Отмена',cls:'bs',fn:closeModal},
     {label:'💾 Сохранить',cls:'bp',fn:async()=>{

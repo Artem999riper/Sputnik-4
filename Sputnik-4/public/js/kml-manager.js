@@ -347,7 +347,7 @@ async function kmlMergeSelected() {
     kmlInvalidateLayerCache(target.id);
     for (const l of others) { try { await fetch(`${API}/layers/${l.id}`, { method: 'DELETE' }); } catch(e) {} }
     _kmlSel.clear();
-    layers = await fetch(`${API}/layers`).then(r => r.json()).catch(() => layers);
+    layers = asArr(await fetch(`${API}/layers`).then(r => r.json()).catch(() => layers), layers);
     renderKmlPanel();
     try { renderLP(); renderLayerGroups(); } catch(e) {}
     toast(`Объединено в «${target.name}»: ${tgj.features.length} объектов`, 'ok');
@@ -676,7 +676,7 @@ async function kmlDuplicateLayer(id,quiet){
         min_zoom:l.min_zoom,max_zoom:l.max_zoom,size:l.size,show_labels:l.show_labels?1:0,fill_opacity:l.fill_opacity})});
     if(l.style_json){let st=null;try{st=JSON.parse(l.style_json);}catch(e){}
       if(st){delete st.notes;delete st.situation;await fetch(`${API}/layers/${nid}/style`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({style:st})});}}
-    layers=await fetch(`${API}/layers`).then(x=>x.json()).catch(()=>layers);
+    layers = asArr(await fetch(`${API}/layers`).then(x=>x.json()).catch(()=>layers), layers);
     if(layerLabels[id])layerLabels[nid]=true;
     if(!quiet){renderKmlPanel();try{renderLayerGroups();}catch(e){}toast(`Создан «${nm}»`,'ok');}
     return nid;

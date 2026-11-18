@@ -474,7 +474,7 @@ function _sseResyncKind(kind,fn){
 // только изменённые слои — см. _kmlRenderCache)
 async function _sseSyncLayers(){
   const r=await fetch(`${API}/layers`);if(!r.ok)return;
-  layers=await r.json();
+  layers=asArr(await r.json().catch(()=>null),layers);
   layers.forEach(function(l){layerLabels[l.id]=!!l.show_labels;});
   try{renderLayerGroups();}catch(e){}
   try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
@@ -496,7 +496,7 @@ async function _sseSyncMachinery(){
 // Базы и их наполнение (сотрудники/оборудование/материалы): один запрос /api/bases
 async function _sseSyncBases(){
   const r=await fetch(`${API}/bases`);if(!r.ok)return;
-  bases=await r.json();
+  bases=asArr(await r.json().catch(()=>null),bases);
   try{renderBaseMarkers();}catch(e){}
   try{renderSidebar();updateStats();}catch(e){}
   try{
@@ -509,7 +509,7 @@ async function _sseSyncBases(){
 // по currentObj.id в начале handleSseChange его не ловит)
 async function _sseSyncSites(){
   const r=await fetch(`${API}/sites`);if(!r.ok)return;
-  sites=await r.json();
+  sites=asArr(await r.json().catch(()=>null),sites);
   try{renderSidebar();updateStats();}catch(e){}
   try{if(currentType==='site'&&currentObj&&typeof refreshCurrent==='function')refreshCurrent();}catch(e){}
 }

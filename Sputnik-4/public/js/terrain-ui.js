@@ -216,7 +216,7 @@ async function _taSaveLayer() {
   const color = { contours: '#b45309', slope: '#dc2626', flow: '#0284c7', watershed: '#0369a1', compare: '#16a34a' }[TA.res.mode] || '#2563eb';
   const r = await fetch(`${API}/layers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color, geojson: JSON.stringify({ type: 'FeatureCollection', features: feats }) }) });
   if (!r.ok) return;
-  layers = await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers);
+  layers = asArr(await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers), layers);
   try { renderLP(); renderLayerGroups(); } catch (e) {}
   toast(`💾 Слой «${name}» создан`, 'ok');
 }

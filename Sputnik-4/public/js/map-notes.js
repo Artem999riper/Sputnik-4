@@ -32,7 +32,7 @@ async function _mnCreateLayer(name) {
     body: JSON.stringify({ name: name || 'Заметки', color: '#dc2626', geojson: JSON.stringify({ type: 'FeatureCollection', features: [] }) }) });
   if (!r.ok) { toast('Не удалось создать слой', 'err'); return null; }
   const j = await r.json();
-  layers = await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers);
+  layers = asArr(await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers), layers);
   const l = layers.find(x => x.id === j.id);
   if (l && typeof kmlSaveStyle === 'function') await kmlSaveStyle(l, Object.assign({}, kmlStyleOf(l) || {}, { notes: true }));
   if (l) { MN.layerId = l.id; _mnSave(); }

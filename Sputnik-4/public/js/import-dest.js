@@ -160,7 +160,7 @@ async function _idstSave(plan, zoom) {
       ids.push(p.dst); appended++;
     }
   }
-  layers = await fetch(`${API}/layers`).then(r => r.json()).catch(() => layers);
+  layers = asArr(await fetch(`${API}/layers`).then(r => r.json()).catch(() => layers), layers);
   if (typeof renderLP === 'function') renderLP();
   if (typeof renderLayerGroups === 'function') renderLayerGroups();
   try { if (typeof kmlPanelOpen !== 'undefined' && kmlPanelOpen) renderKmlPanel(); } catch (e) {}

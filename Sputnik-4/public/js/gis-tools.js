@@ -65,7 +65,7 @@ async function gisToolsSave() {
     body: JSON.stringify({ name, color: '#f97316', geojson: JSON.stringify({ type: 'FeatureCollection', features: GT.res.features }) }) });
   if (!r.ok) return;
   gisToolsClear(); closeModal();
-  layers = await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers);
+  layers = asArr(await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers), layers);
   try { renderLP(); renderLayerGroups(); if (typeof kmlPanelOpen !== 'undefined' && kmlPanelOpen) renderKmlPanel(); } catch (e) {}
   toast(`💾 Слой «${name}» создан`, 'ok');
 }

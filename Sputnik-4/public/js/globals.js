@@ -118,6 +118,9 @@ async function loadMyCaps(){
       if(isApi&&r.status===403){
         try{const j=await r.clone().json();if(j&&j.blocked){showKicked(Object.assign({blocked:true},j));return r;}}catch(e){}
       }
+      if(isApi&&!r.ok&&method==='GET'){
+        try{const j=await r.clone().json();window._lastApiFail={at:Date.now(),url:String(url).replace(/^.*?\/api\//,'/api/'),status:r.status,msg:j&&j.error?String(j.error).slice(0,200):''};}catch(e){window._lastApiFail={at:Date.now(),url:String(url),status:r.status,msg:''};}
+      }
       if(isApi&&!r.ok&&method!=='GET'){
         let msg='';
         try{const j=await r.clone().json();msg=j&&j.error?String(j.error):'';}catch(e){}
@@ -153,6 +156,8 @@ let currentTab='overview', filterSt='all';
 let mapMode='view', machinePlaceId=null, machinePlaceBaseId=null;
 let bMarkers={}, mMarkers={}, lGroups={}, volLayers={};
 let pgkTab='workers', pgkWorkers=[], pgkMachinery=[], pgkEquipment=[];
+// ответ сервера → список: при ошибке ({error:…}) — прежний список, а не объект, на котором всё падает
+const asArr=(v,prev)=>Array.isArray(v)?v:(Array.isArray(prev)?prev:[]);
 let pgkFuelReserves=[], pgkSpareGroups=[], pgkSpares=[];
 let pgkEquipGroups=[];
 let pgkMatGroups=[];
@@ -230,6 +235,11 @@ function applyHiddenTabs(){
   const report = (message, stack) => {
     message = String(message || 'Ошибка').slice(0, 1000);
     if (/ResizeObserver loop|Script error\.?$/.test(message)) return;
+    // ошибки расширений браузера (кошельки, переводчики…) — не программа, в журнал не пишем
+    if (/(chrome|moz|safari(-web)?)-extension:\/\//.test(String(stack || '') + ' ' + message)) return;
+    const LF = window._lastApiFail;
+    if (LF && Date.now() - LF.at < 30000 && /is not a function|is not iterable|Cannot read propert/.test(message))
+      stack = `Сервер не отдал данные: GET ${LF.url} → ${LF.status}${LF.msg ? ' «' + LF.msg + '»' : ''}\n` + String(stack || '');
     const net = message.match(/Нет связи с сервером:?\s*([A-Z]+ \S+)?/) || (/Failed to fetch|NetworkError|Load failed/.test(message) && [message, '']);
     if (net) {
       const now = Date.now(); if (!OUT.first) OUT.first = now; OUT.last = now; OUT.n++;

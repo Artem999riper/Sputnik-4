@@ -11,7 +11,7 @@
 // ═══════════════════════════════════════════════════════════
 const VL = { all: [] };
 async function volLoad() {
-  try { VL.all = await fetch(`${API}/volumes`).then(r => r.json()); } catch (e) {}
+  try { VL.all = asArr(await fetch(`${API}/volumes`).then(r => r.json()), VL.all); } catch (e) {}
   try { if (typeof kmlPanelOpen !== 'undefined' && kmlPanelOpen) renderKmlPanel(); } catch (e) {}   // слой стал/перестал быть объёмом
   return VL.all;
 }
@@ -300,7 +300,7 @@ async function _vlNewLayer() {
   const name = (prompt('Название нового слоя:', draft.name || 'Скважины') || '').trim(); if (!name) return;
   const r = await fetch(`${API}/layers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color: '#1a56db', symbol: 'borehole', geojson: JSON.stringify({ type: 'FeatureCollection', features: [] }) }) });
   const j = await r.json().catch(() => ({})); if (!j.id) { toast('Не удалось создать слой', 'err'); return; }
-  layers = await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers);
+  layers = asArr(await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers), layers);
   try { renderLayerGroups(); if (typeof kmlPanelOpen !== 'undefined' && kmlPanelOpen) renderKmlPanel(); } catch (e) {}
   volEditModal(VL_DRAFT.volId, { draft: Object.assign(draft, { layer_id: j.id, main: 'count', unit: 'скв', name: draft.name || name }) });
   toast(`Слой «${name}» создан — после сохранения рисуйте точки: ✏️ Точка → слой «${name}»`, 'ok');

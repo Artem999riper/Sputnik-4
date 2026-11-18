@@ -594,7 +594,7 @@ async function _importShp(files,opt){
   const nm=(files.find(f=>/\.(shp|zip)$/i.test(f.name))||files[0]).name;
   await importDestination(nm,j.groups);
   return;
-  layers=await fetch(`${API}/layers`).then(x=>x.json()).catch(()=>layers);
+  layers = asArr(await fetch(`${API}/layers`).then(x=>x.json()).catch(()=>layers), layers);
   renderLP();renderLayerGroups();try{if(kmlPanelOpen)renderKmlPanel();}catch(e){}
   const total=j.layers.reduce((s,l)=>s+l.features,0);
   toast(`SHP импортирован: ${j.layers.length} сл., ${total} объектов${(j.warnings||[]).length?' · '+j.warnings.join('; '):''}`,'ok');

@@ -24,7 +24,7 @@ async function _sitCreateLayer(features) {
   const taken = new Set((layers || []).map(l => l.name));
   if (taken.has(name)) { let k = 2; while (taken.has(`${name} (${k})`)) k++; name = `${name} (${k})`; }
   const rr = await fetch(`${API}/layers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color: '#16a34a', geojson: JSON.stringify({ type: 'FeatureCollection', features }) }) }).then(x => x.json());
-  layers = await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers);
+  layers = asArr(await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers), layers);
   const l = (layers || []).find(x => x.id === rr.id);
   if (l && typeof kmlSaveStyle === 'function') await kmlSaveStyle(l, Object.assign({}, kmlStyleOf(l) || {}, { situation: true }));
   DW.sitLayerId = rr.id; DW.sitNewName = ''; _dwSave();

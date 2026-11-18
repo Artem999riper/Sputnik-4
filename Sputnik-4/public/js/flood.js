@@ -267,7 +267,7 @@ async function floodSaveLayer() {
     const res = await fetch(`${API}/layers`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, color: '#2563eb', geojson: JSON.stringify({ type: 'FeatureCollection', features: feats }) }) });
     if (!res.ok) return;
-    layers = await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers);
+    layers = asArr(await fetch(`${API}/layers`).then(x => x.json()).catch(() => layers), layers);
     try { renderLP(); renderLayerGroups(); } catch (e) {}
     try { if (typeof kmlPanelOpen !== 'undefined' && kmlPanelOpen) renderKmlPanel(); } catch (e) {}
     toast(`💾 Сохранено слоем «${name}»`, 'ok');

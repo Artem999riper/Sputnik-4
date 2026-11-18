@@ -19,8 +19,10 @@ async function loadPGK(){
     else toast('Нет связи с сервером — показаны прежние данные','err');
     return;
   }
-  pgkWorkers=await wr.json();pgkMachinery=await mr.json();
-  pgkEquipment=await er.json();bases=await br.json();
+  const _j=async r=>{try{return await r.json();}catch(e){return null;}};
+  pgkWorkers=asArr(await _j(wr),pgkWorkers);pgkMachinery=asArr(await _j(mr),pgkMachinery);
+  pgkEquipment=asArr(await _j(er),pgkEquipment);bases=asArr(await _j(br),bases);
+  if(!wr.ok||!mr.ok||!er.ok)toast('Сервер не отдал часть данных ('+[wr,mr,er].filter(r=>!r.ok).map(r=>r.status).join(', ')+') — показаны прежние','err');
   [pgkFuelReserves,pgkSpareGroups,pgkSpares,pgkEquipGroups,pgkMatGroups]=await Promise.all([
     fetch(`${API}/fuel_reserves`).then(r=>r.json()).catch(()=>[]),
     fetch(`${API}/spare_groups`).then(r=>r.json()).catch(()=>[]),
@@ -3757,7 +3759,7 @@ async function placeMachineOnMap(lat,lng){
   machinePlaceId=null;machinePlaceBaseId=null;setTool('view');
   // Перезагружаем технику и базы, рисуем ВСЮ технику на карте
   pgkMachinery=await fetch(`${API}/pgk/machinery`).then(r=>r.json());
-  bases=await fetch(`${API}/bases`).then(r=>r.json());
+  bases=asArr(await fetch(`${API}/bases`).then(r=>r.json()).catch(()=>null),bases);
   renderAllMachinery();
   toast(machName+' размещена на карте','ok');
 }

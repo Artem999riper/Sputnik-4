@@ -17,7 +17,7 @@ async function loadBrigades() {
     ]);
     if (brR.ok) pgkBrigades = await brR.json(); else pgkBrigades = [];
     try { window._brStats = await fetch(`${API}/pgk/brigades/stats`).then(r => r.ok ? r.json() : {}); } catch (e) { window._brStats = {}; }
-    if (wR.ok)  window.pgkWorkers   = await wR.json();
+    if (wR.ok)  window.pgkWorkers   = asArr(await wR.json(), window.pgkWorkers);
     if (mR.ok)  window.pgkMachinery = await mR.json();
     if (bR.ok)  window.bases        = await bR.json();
     if (sR.ok)  window.sites        = await sR.json();
