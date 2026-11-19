@@ -254,6 +254,7 @@ getDb().then(database => {
   const adminApi = routeAdmin(app, getDbInstance, L, { broadcast: realtime.broadcast, getPresence: realtime.getPresence, kickClient: realtime.kickClient, setSseGuard: realtime.setSseGuard });
   // Версия / перезапуск / обновление программы
   require('./routes/system')(app, { isAdmin: adminApi.isAdmin, BACKUP_DIR, performAutoBackup });
+  require('./routes/docx-table')(app);   // таблица → Word (.docx) без интернета
   // Журнал изменений с откатом (до бизнес-маршрутов — чтобы видеть запись «до»)
   require('./routes/audit')(app, getDbInstance, { isAdmin: adminApi.isAdmin, broadcast: realtime.broadcast,
     restoreFromData: realtime.restoreFromData, trashAndDelete: realtime.trashAndDelete,

@@ -19,3 +19,12 @@ for (const id of Object.keys(PTS)) test(`${id}: контрольные точк�
     assert.ok(Math.abs(lon2 - lon) < 1e-7 && Math.abs(lat2 - lat) < 1e-7);
   }
 });
+
+test('таблица → Word (.docx): архив с document.xml, шапка, строки и итог', () => {
+  const AdmZip = require('adm-zip');
+  const buf = require('../routes/docx-table').buildDocx({ title: 'Каталог координат', lines: ['Система координат: УХТА-B'], head: ['№', 'Название', 'X, м', 'Y, м'], rows: [['1', 'KT7620', '246578,907', '323015,271'], ['2', 'A&B <x>', 1.5, '']], foot: ['', 'Итого: 2', '', ''] });
+  const z = new AdmZip(buf), xml = z.readAsText('word/document.xml');
+  assert.ok(z.getEntry('[Content_Types].xml') && z.getEntry('_rels/.rels'));
+  assert.match(xml, /Каталог координат/); assert.match(xml, /246578,907/); assert.match(xml, /A&amp;B &lt;x&gt;/); assert.match(xml, /1,5/); assert.match(xml, /Итого: 2/);
+  assert.strictEqual((xml.match(/<w:tr>|<w:tr /g) || []).length + (xml.match(/<w:tr><w:trPr>/g) || []).length > 0, true);
+});

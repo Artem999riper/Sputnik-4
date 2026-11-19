@@ -378,6 +378,7 @@ function katToolsMenu(e) {
     { i: '№', l: 'Пронумеровать…', f: () => katNumberOpen('') },
     { i: '🔎', l: 'Найти и заменить…', f: () => katReplaceOpen('') },
     ...(typeof wellElevOpen === 'function' ? [{ i: '⛰', l: 'Отметка из рельефа (БСВ-77)…', f: () => wellElevOpen() }] : []),
+    ...(typeof coordCatalogTable === 'function' ? [{ i: '📋', l: 'Каталог координат (Excel, Word)…', f: () => coordCatalogTable() }] : []),
     { sep: true },
     { i: '🧩', l: `Шаблон полей слоя…${(_katLayer() ? kmlFieldTpl(_katLayer()).length : 0) ? ' ✓' : ''}`, f: () => katTplOpen() },
   ]);
