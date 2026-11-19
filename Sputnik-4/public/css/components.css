@@ -626,3 +626,9 @@ html[data-theme=dark] .wd-warn{background:#3f3410;color:#fde68a}
 #kat-panel tfoot.kat-foot td.kat-fz{z-index:4}
 #kat-panel tfoot .kat-sum{cursor:copy;font-weight:700}
 #kat-panel tfoot .kat-sum small{font-weight:400;color:var(--tx3)}
+
+/* вкладка «Объёмы»: «Скрыть выполненные» */
+.vl-hide{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--tx2);cursor:pointer;user-select:none;white-space:nowrap;margin:0 4px 0 0;text-transform:none;font-weight:500}
+.vl-hide input{width:auto;margin:0}
+.vl-done-hd{margin-top:10px}
+.vl-done .vl-card{opacity:.75}

@@ -70,6 +70,13 @@ function volLine(v, t) {
 
 // ── Вкладка «Объёмы» ────────────────────────────────────────
 let volOpen = {};
+// «Скрыть выполненные» — запоминается в браузере (как было раньше: vol_hide_done)
+function volHideDone() { try { return localStorage.getItem('vol_hide_done') === '1'; } catch (e) { return false; } }
+function volSetHideDone(on) {
+  try { localStorage.setItem('vol_hide_done', on ? '1' : '0'); } catch (e) {}
+  try { renderTab(); } catch (e) {}
+  try { if (typeof currentObj !== 'undefined' && currentObj && typeof renderSiteStatsOverlay === 'function') renderSiteStatsOverlay(currentObj); } catch (e) {}
+}
 function tabVolumes(pb) {
   const o = currentObj, vols = o?.volumes || [], prog = o?.vol_progress || [];
   const cards = v => {
@@ -109,14 +116,21 @@ function tabVolumes(pb) {
         </div>`).join('') : '<div class="vl-empty">Пока ничего не выполнено</div>'}</div>` : ''}
     </div>`;
   };
+  // «Скрыть выполненные»: объёмы на 100% уходят вниз, в свёрнутый блок «✅ Выполненные»
+  const hideDone = volHideDone(), isDone = v => volTotals(v, prog).pct >= 100 && ((+v.amount || 0) > 0 || v.layer_id);
+  const done = hideDone ? vols.filter(isDone) : [], act = hideDone ? vols.filter(v => !isDone(v)) : vols;
   const secs = Object.entries(VOL_SECTIONS).map(([cat, sec]) => {
-    const list = vols.filter(v => (v.category || 'geology') === cat); if (!list.length) return '';
+    const list = act.filter(v => (v.category || 'geology') === cat); if (!list.length) return '';
     return `<div class="vl-sec" style="--sc:${sec.color}"><span>${sec.icon} ${sec.label}</span><small>${list.length}</small></div>${list.map(cards).join('')}`;
-  }).join('') + (() => { const other = vols.filter(v => !VOL_SECTIONS[v.category || 'geology']); return other.length ? `<div class="vl-sec"><span>Прочее</span></div>${other.map(cards).join('')}` : ''; })();
+  }).join('') + (() => { const other = act.filter(v => !VOL_SECTIONS[v.category || 'geology']); return other.length ? `<div class="vl-sec"><span>Прочее</span></div>${other.map(cards).join('')}` : ''; })()
+    + (done.length ? `<div class="vl-sec vl-done-hd" onclick="volOpen._done=!volOpen._done;renderTab()" style="--sc:var(--grn);cursor:pointer" title="Объёмы, выполненные на 100% — щёлкните, чтобы ${volOpen._done ? 'свернуть' : 'развернуть'}">
+        <span>✅ Выполненные</span><small>${done.length} ${volOpen._done ? '▲' : '▼'}</small></div>${volOpen._done ? `<div class="vl-done">${done.map(cards).join('')}</div>` : ''}` : '')
+    + (hideDone && vols.length && !act.length ? '<div class="vl-empty" style="padding:8px 2px">🎉 Все объёмы выполнены</div>' : '');
   pb.innerHTML = `<div class="vl-top">
       <div><h4 style="font-size:13px;font-weight:800">📋 Объёмы (${vols.length})</h4>
         <div style="font-size:10px;color:var(--tx2)">Готовность объекта: <b>${o.completion_percent || 0}%</b></div></div>
       <div style="display:flex;gap:4px;flex-wrap:wrap">
+        ${vols.length ? `<label class="vl-hide" title="Выполненные на 100% — вниз, в свёрнутый блок (и в плашке «Объёмы» на карте)"><input type="checkbox" ${volHideDone() ? 'checked' : ''} onchange="volSetHideDone(this.checked)"> Скрыть выполненные</label>` : ''}
         <button class="btn bg bsm" onclick="volEditModal()">＋ Объём</button>
         <button class="btn bs bsm" onclick="openDailyProgressModal()" title="Выполнение за день">📆 За день</button>
         ${vols.some(v => v.layer_id) && typeof featSemSiteReport === 'function' ? `<button class="btn bs bsm" onclick="featSemSiteReport('${escAttr(o.id)}')" title="Ведомость выработок по всем объёмам объекта (Excel)">📑 Ведомость</button>` : ''}

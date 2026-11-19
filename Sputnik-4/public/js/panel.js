@@ -81,8 +81,12 @@ function renderSiteStatsOverlay(site){
   if(!el||!site)return;
   // плашка — только при мини-карточке; при открытой полной карточке объекта её не показываем
   if(document.getElementById('panel')?.classList.contains('open')){hideSiteStatsOverlay();return;}
-  const vols=site.volumes||[];
-  if(!vols.length){hideSiteStatsOverlay();return;}
+  const allVols=site.volumes||[];
+  if(!allVols.length){hideSiteStatsOverlay();return;}
+  // «Скрыть выполненные» (вкладка «Объёмы») — выполненные на 100% не показываем, только их число
+  const hideDone=typeof volHideDone==='function'&&volHideDone();
+  const _done=v=>volTotals(v,site.vol_progress).pct>=100&&((+v.amount||0)>0||v.layer_id);
+  const vols=hideDone?allVols.filter(v=>!_done(v)):allVols, nDone=allVols.length-vols.length;
   const rows=vols.map(v=>{
     const t=volTotals(v,site.vol_progress), m=volMeasure(v), plan=parseFloat(v.amount)||0;
     const sec=(typeof VOL_SECTIONS!=='undefined'&&VOL_SECTIONS[v.category])||{icon:'•'};
@@ -113,8 +117,9 @@ function renderSiteStatsOverlay(site){
            <th style="padding:0 4px 3px;font-weight:500;text-align:left">Ед.</th>
            <th style="padding:0 0 3px 6px;font-weight:500">Остаток</th><th></th>
          </tr></thead>
-         <tbody>${rows}</tbody>
+         <tbody>${rows}${!vols.length?'<tr><td colspan="7" style="padding:4px 0;color:#16a34a">🎉 Все объёмы выполнены</td></tr>':''}</tbody>
        </table>
+       ${nDone?`<div style="margin-top:4px;font-size:11px;color:#16a34a" title="Скрыты галочкой «Скрыть выполненные» во вкладке «Объёмы»">✅ выполнено полностью и скрыто: ${nDone}</div>`:''}
        ${vols.some(v=>v.layer_id)&&typeof featSemSiteReport==='function'?`<div style="margin-top:6px;text-align:right"><button class="btn bs bxs" onclick="event.stopPropagation();featSemSiteReport('${escAttr(site.id)}')" title="Ведомость выработок по всем объёмам объекта (Excel)">📑 Ведомость выработок</button></div>`:''}
      </div>`;
   el.style.display='block';
