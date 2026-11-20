@@ -842,7 +842,10 @@ function _vsegMove(e) {
   const p = _vsegProject(x.f.geometry.coordinates, e.latlng);
   const a = Math.min(VSEG.pts[0].s, p.s), b = Math.max(VSEG.pts[0].s, p.s);
   const mid = (_vsegPieces(x.f.geometry.coordinates, [VSEG.pts[0], p]).find(r => r.s0 >= a - 1 && r.s1 <= b + 1 && r.s1 - r.s0 > 0.5) || { c: [] }).c;
-  if (VSEG.tmp) map.removeLayer(VSEG.tmp);
+  if (VSEG.tmp) { map.removeLayer(VSEG.tmp); VSEG.tmp = null; }
+  // курсор на самой точке начала — участок нулевой длины, рисовать нечего (пустая линия
+  // роняла подсказку Leaflet: «latlngs not passed»)
+  if (!mid || mid.length < 2) return;
   VSEG.tmp = L.polyline(mid.map(c => [c[1], c[0]]), { color: '#16a34a', weight: 7, opacity: 0.9, interactive: false }).addTo(map);
   VSEG.tmp.bindTooltip(`${_vlN((b - a) / 1000)} км`, { permanent: true, direction: 'top', className: 'lm-tip' }).openTooltip(e.latlng);
 }
