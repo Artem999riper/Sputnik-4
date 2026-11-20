@@ -235,41 +235,71 @@ function buildLayersDXF({ layers = [], transform = (lng, lat) => [lng, lat] }) {
   s += g(0, 'ENDSEC');
 
   // ── Буферы: определения блоков (BLOCKS) и объекты (ENTITIES) ──
-  // Точка с подписью выгружается как БЛОК (POINT+TEXT) и вставка INSERT —
-  // в CAD это единый объект: точка и надпись выделяются/двигаются вместе.
+  // Точка выгружается как вставка БЛОКА (INSERT) — один блок на слой: POINT + атрибуты.
+  // Атрибут NAME (видимый) — название объекта; остальные поля объекта (глубина, номер…)
+  // — скрытые атрибуты: в AutoCAD видны в «Свойствах» и в редакторе атрибутов, их можно
+  // извлечь в таблицу (_DATAEXTRACTION / _ATTEXT). Точка и подпись выделяются вместе.
   let blk = '';   // тело секции BLOCKS
   let ent = '';   // тело секции ENTITIES
-  let blkSeq = 0; // счётчик уникальных имён блоков
+  const TXT_H = 2.5, OFF = 1;
+  const blockNames = new Set();
+  // тег атрибута: без пробелов, заглавными (кириллица — можно, файл в cp1251)
+  const tagOf = k => String(k).trim().replace(/[^A-Za-z0-9А-Яа-яЁё_-]+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '').toUpperCase().slice(0, 31) || 'ПОЛЕ';
+  const val = v => v == null ? '' : String(typeof v === 'number' ? String(v).replace('.', ',') : v).replace(/[\r\n\t]+/g, ' ').slice(0, 250);
+  const nameOf = p => p.name || p.Name || p.title || '';
 
   function tf(c) {
     const r = transform(c[0], c[1]);
     return [Number(r[0]) || 0, Number(r[1]) || 0];
   }
 
-  function emitPoint(layer, c, name) {
+  // блок слоя: определяется один раз, с полями всех точек слоя
+  function defineBlock(layer) {
+    if (layer.block) return layer.block;
+    let bn = (layer.dxfName.slice(0, 27).replace(/_+$/, '') + '_PT'), k = 2;
+    while (blockNames.has(bn.toUpperCase())) bn = layer.dxfName.slice(0, 24).replace(/_+$/, '') + '_PT' + (k++);
+    blockNames.add(bn.toUpperCase());
+    const used = new Set(['NAME']), fields = [];
+    (layer.fields || []).forEach(f => { let t = tagOf(f), n = 2; while (used.has(t)) t = tagOf(f).slice(0, 28) + '_' + (n++); used.add(t); fields.push({ key: f, tag: t }); });
+    blk += g(0, 'BLOCK'); blk += g(8, layer.dxfName); blk += g(2, bn);
+    blk += g(70, 2); blk += g(10, '0.000'); blk += g(20, '0.000'); blk += g(30, '0.000');
+    blk += g(3, bn);
+    blk += g(0, 'POINT'); blk += g(8, layer.dxfName); blk += g(62, 256);
+    blk += g(10, '0.000'); blk += g(20, '0.000'); blk += g(30, '0.000');
+    const attdef = (tag, prompt, i, hidden) => {
+      blk += g(0, 'ATTDEF'); blk += g(8, layer.dxfName); blk += g(62, 256);
+      blk += g(10, OFF.toFixed(3)); blk += g(20, (OFF - i * TXT_H * 1.4).toFixed(3)); blk += g(30, '0.000');
+      blk += g(40, TXT_H.toFixed(1)); blk += g(1, ''); blk += g(3, String(prompt).slice(0, 100)); blk += g(2, tag); blk += g(70, hidden ? 1 : 0);
+    };
+    attdef('NAME', 'Название', 0, false);
+    fields.forEach((f, i) => attdef(f.tag, f.key, i + 1, true));
+    blk += g(0, 'ENDBLK'); blk += g(8, layer.dxfName);
+    layer.block = { bn, fields };
+    return layer.block;
+  }
+
+  function emitPoint(layer, c, props) {
     const [x, y] = tf(c);
-    if (name) {
-      // Определение блока: геометрия относительно точки вставки (0,0)
-      const bn = `PT_${++blkSeq}`;
-      const off = 1;
-      blk += g(0, 'BLOCK'); blk += g(8, layer.dxfName); blk += g(2, bn);
-      blk += g(70, 0); blk += g(10, '0.000'); blk += g(20, '0.000'); blk += g(30, '0.000');
-      blk += g(3, bn);
-      blk += g(0, 'POINT'); blk += g(8, layer.dxfName); blk += g(62, layer.color);
-      blk += g(10, '0.000'); blk += g(20, '0.000'); blk += g(30, '0.000');
-      blk += g(0, 'TEXT'); blk += g(8, layer.dxfName); blk += g(62, layer.color);
-      blk += g(10, off.toFixed(3)); blk += g(20, off.toFixed(3)); blk += g(30, '0.000');
-      blk += g(40, '2.5'); blk += g(1, String(name).slice(0, 100));
-      blk += g(0, 'ENDBLK'); blk += g(8, layer.dxfName);
-      // Вставка блока в целевые координаты
-      ent += g(0, 'INSERT'); ent += g(8, layer.dxfName); ent += g(62, layer.color);
-      ent += g(2, bn);
-      ent += g(10, x.toFixed(3)); ent += g(20, y.toFixed(3)); ent += g(30, '0.000');
-    } else {
-      // Точка без подписи — обычный POINT (группировать не с чем)
+    const name = nameOf(props);
+    const hasData = name || (layer.fields || []).some(f => props[f] != null && props[f] !== '');
+    if (!hasData) {
+      // точка без названия и без данных — обычный POINT
       ent += g(0, 'POINT'); ent += g(8, layer.dxfName); ent += g(62, layer.color);
       ent += g(10, x.toFixed(3)); ent += g(20, y.toFixed(3)); ent += g(30, '0.000');
+      return;
     }
+    const B = defineBlock(layer);
+    ent += g(0, 'INSERT'); ent += g(8, layer.dxfName); ent += g(62, layer.color); ent += g(66, 1);
+    ent += g(2, B.bn);
+    ent += g(10, x.toFixed(3)); ent += g(20, y.toFixed(3)); ent += g(30, '0.000');
+    const attrib = (tag, v, i, hidden) => {
+      ent += g(0, 'ATTRIB'); ent += g(8, layer.dxfName); ent += g(62, layer.color);
+      ent += g(10, (x + OFF).toFixed(3)); ent += g(20, (y + OFF - i * TXT_H * 1.4).toFixed(3)); ent += g(30, '0.000');
+      ent += g(40, TXT_H.toFixed(1)); ent += g(1, v); ent += g(2, tag); ent += g(70, hidden ? 1 : 0);
+    };
+    attrib('NAME', val(name), 0, false);
+    B.fields.forEach((f, i) => attrib(f.tag, val(props[f.key]), i + 1, true));
+    ent += g(0, 'SEQEND'); ent += g(8, layer.dxfName);
   }
 
   function emitLine(layer, coords) {
@@ -305,10 +335,9 @@ function buildLayersDXF({ layers = [], transform = (lng, lat) => [lng, lat] }) {
     if (!feature || !feature.geometry) return;
     const geom = feature.geometry;
     const props = feature.properties || {};
-    const name = props.name || props.Name || props.title || '';
     switch (geom.type) {
-      case 'Point':           emitPoint(layer, geom.coordinates, name); break;
-      case 'MultiPoint':      (geom.coordinates || []).forEach(c => emitPoint(layer, c, name)); break;
+      case 'Point':           emitPoint(layer, geom.coordinates, props); break;
+      case 'MultiPoint':      (geom.coordinates || []).forEach(c => emitPoint(layer, c, props)); break;
       case 'LineString':      emitLine(layer, geom.coordinates || []); break;
       case 'MultiLineString': (geom.coordinates || []).forEach(line => emitLine(layer, line)); break;
       case 'Polygon':         emitPolygon(layer, geom.coordinates || []); break;
@@ -329,6 +358,10 @@ function buildLayersDXF({ layers = [], transform = (lng, lat) => [lng, lat] }) {
       : gj.type === 'Feature' ? [gj]
       : gj.type ? [{ geometry: gj, properties: {} }]
       : [];
+    // поля точек слоя → скрытые атрибуты блока (служебные «_…» и название — не берём)
+    const fs = new Set();
+    features.forEach(f => { const gt = f && f.geometry && f.geometry.type; if (!/Point/.test(gt || '')) return; Object.keys((f && f.properties) || {}).forEach(k => { const v = f.properties[k]; if (!k.startsWith('_') && !/^(name|Name|title)$/.test(k) && (v == null || typeof v !== 'object')) fs.add(k); }); });
+    layer.fields = [...fs].slice(0, 40);
     features.forEach(f => emitFeature(layer, f));
   }
 

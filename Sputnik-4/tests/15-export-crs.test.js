@@ -33,3 +33,21 @@ test('DXF R12: длинные кириллические названия сло
   assert.notStrictEqual(names[0].toUpperCase(), names[1].toUpperCase());
   assert.match(txt, /\$DWGCODEPAGE\r?\n  3\r?\nANSI_1251/);
 });
+
+test('DXF слоёв: точка — блок слоя с атрибутом NAME и скрытыми атрибутами полей', () => {
+  const { buildLayersDXF } = require('../dxf-writer');
+  const gj = { type: 'FeatureCollection', features: [
+    { type: 'Feature', properties: { name: 'Скв-1', 'глубина': 15, _done: true }, geometry: { type: 'Point', coordinates: [73, 61] } },
+    { type: 'Feature', properties: { name: 'Скв-2' }, geometry: { type: 'Point', coordinates: [73.01, 61] } },
+    { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [73.02, 61] } }] };
+  const s = buildLayersDXF({ layers: [{ name: 'Скважины', color: 5, geojson: JSON.stringify(gj) }] });
+  const L = s.split(/\r?\n/).map(x => x.trim()), pairs = []; for (let i = 0; i + 1 < L.length; i += 2) pairs.push([L[i], L[i + 1]]);
+  const ents = pairs.filter(p => p[0] === '0').map(p => p[1]);
+  assert.strictEqual(ents.filter(e => e === 'INSERT').length, 2, 'две точки с названием — вставки блока');
+  assert.strictEqual(ents.filter(e => e === 'ATTDEF').length, 2, 'в блоке: NAME и ГЛУБИНА');
+  assert.strictEqual(ents.filter(e => e === 'ATTRIB').length, 4);
+  assert.ok(/\n\s*2\r?\n\s*NAME\r?\n/.test(s) && /\n\s*1\r?\nСкв-1\r?\n/.test(s), 'атрибут NAME = Скв-1');
+  assert.ok(/\n\s*2\r?\nГЛУБИНА\r?\n\s*70\r?\n\s*1\r?\n/.test(s), 'поле — скрытый атрибут');
+  assert.ok(!/_DONE/.test(s), 'служебные поля не выгружаются');
+  assert.strictEqual(ents.filter(e => e === 'BLOCK').length, 3, '*MODEL_SPACE, *PAPER_SPACE и один блок слоя');
+});
